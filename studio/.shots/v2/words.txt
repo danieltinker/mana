@@ -1,0 +1,26 @@
+Visible interface words per screen, 390 × 844, Hebrew. Old = branch master, new = this branch.
+The owner's own words (names, descriptions, address) and the guest menu inside the preview are not counted.
+
+Step                         old   new   new/old   screens old→new
+------------------------------------------------------------------
+Start                         85    22   26%       2→1
+The place                    161    20   12%       4→1
+First screen after that       94    16   17%       1→1
+Menu, empty                   40    16   40%       1→1
+Menu with 8 dishes            37    17   46%       1→1
+One dish                      91    10   11%       1→1
+Pictures                     112    31   28%       1→1
+Review a picture              91    46   51%       1→1
+Look                         163    38   23%       1→1
+Preview                       25     2   8%        1→1
+Publish                       70    28   40%       1→1
+Published                    153    31   20%       1→1
+Home after publishing        111    50   45%       1→1
+Account menu                  12    10   83%       1→1
+------------------------------------------------------------------
+Main path (first run)        823   215   26%
+Every step above            1205   321   27%
+
+Main path = Start → The place → First screen after that → Menu with 8 dishes → Pictures → Publish → Published → Home after publishing.
+"Every step above" leaves out "Menu, empty" (it is the same screen as "First screen after that" in the new app).
+New only: the sheet for one dish's picture has 11 words.

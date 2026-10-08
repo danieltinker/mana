@@ -1,0 +1,89 @@
+{
+ "cappuccino": {
+  "e": 50
+ },
+ "espresso": {
+  "e": 50
+ },
+ "tea": {
+  "e": 50
+ },
+ "iced-coffee": {
+  "e": 45,
+  "stand": true
+ },
+ "soft-drink": {
+  "e": 45,
+  "stand": true
+ },
+ "water": {
+  "e": 45,
+  "stand": true
+ },
+ "red-wine": {
+  "e": 45,
+  "stand": true
+ },
+ "milkshake": {
+  "e": 45,
+  "stand": true
+ },
+ "smoothie": {
+  "e": 45,
+  "stand": true
+ },
+ "croissant": {
+  "e": 48
+ },
+ "cookie": {
+  "e": 48
+ },
+ "brownie": {
+  "e": 48
+ },
+ "muffin": {
+  "e": 48,
+  "defines": {
+   "AON": "30"
+  }
+ },
+ "bagel": {
+  "e": 48
+ },
+ "hot-dog": {
+  "e": 48
+ },
+ "sushi": {
+  "e": 48
+ },
+ "nigiri": {
+  "e": 48
+ },
+ "sandwich": {
+  "e": 48
+ },
+ "toast": {
+  "e": 48
+ },
+ "schnitzel": {
+  "e": 48
+ },
+ "steak": {
+  "e": 48
+ },
+ "waffle": {
+  "e": 48
+ },
+ "fruit-salad": {
+  "e": 48
+ },
+ "yogurt-granola": {
+  "e": 48
+ },
+ "noodles": {
+  "e": 48
+ },
+ "taco": {
+  "e": 48
+ }
+}

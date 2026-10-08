@@ -1,0 +1,10 @@
+{ "name": "hero", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "dpr": 1, "fps": 30, "seconds": 9.2, "finger": true,
+  "steps": [
+    { "at": 0.7,  "drag": [[195, 520], [195, 300]], "ms": 300, "ease": "linear" },
+    { "at": 1.7,  "drag": [[200, 525], [200, 310]], "ms": 280, "ease": "linear" },
+    { "at": 2.7,  "drag": [[192, 520], [190, 300]], "ms": 260, "ease": "linear" },
+    { "at": 3.8,  "tap": [195, 370] },
+    { "at": 4.7,  "drag": [[140, 298], [235, 304]], "ms": 330, "ease": "linear" },
+    { "at": 6.0,  "drag": [[250, 304], [160, 298]], "ms": 300, "ease": "linear" },
+    { "at": 7.3,  "drag": [[195, 280], [195, 500]], "ms": 220, "ease": "linear" }
+  ] }

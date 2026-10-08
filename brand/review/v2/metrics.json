@@ -1,0 +1,233 @@
+{
+ "before": {
+  "height390": 7876,
+  "words390": 556
+ },
+ "after": {
+  "390-he": {
+   "words": 176,
+   "height": 2685,
+   "sections": [
+    [
+     "wrap",
+     60
+    ],
+    [
+     "hero",
+     398
+    ],
+    [
+     "how",
+     233
+    ],
+    [
+     "demo",
+     417
+    ],
+    [
+     "numbers",
+     541
+    ],
+    [
+     "perks",
+     202
+    ],
+    [
+     "price",
+     141
+    ],
+    [
+     "faq",
+     355
+    ],
+    [
+     "talk-sec",
+     209
+    ],
+    [
+     "foot",
+     130
+    ]
+   ]
+  },
+  "390-he-scan": {
+   "words": 176,
+   "height": 2685,
+   "sections": [
+    [
+     "wrap",
+     60
+    ],
+    [
+     "hero",
+     398
+    ],
+    [
+     "how",
+     233
+    ],
+    [
+     "demo",
+     417
+    ],
+    [
+     "numbers",
+     541
+    ],
+    [
+     "perks",
+     202
+    ],
+    [
+     "price",
+     141
+    ],
+    [
+     "faq",
+     355
+    ],
+    [
+     "talk-sec",
+     209
+    ],
+    [
+     "foot",
+     130
+    ]
+   ]
+  },
+  "390-en": {
+   "words": 197,
+   "height": 2675,
+   "sections": [
+    [
+     "wrap",
+     60
+    ],
+    [
+     "hero",
+     398
+    ],
+    [
+     "how",
+     231
+    ],
+    [
+     "demo",
+     415
+    ],
+    [
+     "numbers",
+     539
+    ],
+    [
+     "perks",
+     202
+    ],
+    [
+     "price",
+     141
+    ],
+    [
+     "faq",
+     353
+    ],
+    [
+     "talk-sec",
+     207
+    ],
+    [
+     "foot",
+     130
+    ]
+   ]
+  },
+  "390-en-scan": {
+   "words": 196,
+   "height": 2675,
+   "sections": [
+    [
+     "wrap",
+     60
+    ],
+    [
+     "hero",
+     398
+    ],
+    [
+     "how",
+     231
+    ],
+    [
+     "demo",
+     415
+    ],
+    [
+     "numbers",
+     539
+    ],
+    [
+     "perks",
+     202
+    ],
+    [
+     "price",
+     141
+    ],
+    [
+     "faq",
+     353
+    ],
+    [
+     "talk-sec",
+     207
+    ],
+    [
+     "foot",
+     130
+    ]
+   ]
+  },
+  "media": {
+   "hero.mp4": {
+    "MB": 1.21,
+    "seconds": 9,
+    "size": "390×844"
+   },
+   "hero-en.mp4": {
+    "MB": 2.1,
+    "seconds": 9.2,
+    "size": "390×844"
+   },
+   "film-16x9.mp4": {
+    "MB": 7.41,
+    "seconds": 41,
+    "size": "1920×1080"
+   },
+   "film-9x16.mp4": {
+    "MB": 7.45,
+    "seconds": 41,
+    "size": "1080×1920"
+   },
+   "film-16x9-en.mp4": {
+    "MB": 7.42,
+    "seconds": 41,
+    "size": "1920×1080"
+   },
+   "film-9x16-en.mp4": {
+    "MB": 7.45,
+    "seconds": 41,
+    "size": "1080×1920"
+   }
+  },
+  "requestsOnLoad390": 13,
+  "firstScreenWithVideoHeld390": {
+   "firstPaintMs": 216,
+   "largestPaintMs": 216,
+   "largestPaint": "img.phone-poster",
+   "loadMs": 156,
+   "videoAskedMs": 224,
+   "videoBytesDelivered": 0
+  }
+ }
+}

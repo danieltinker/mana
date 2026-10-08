@@ -1,0 +1,86 @@
+{
+ "v": 1,
+ "slug": "solo",
+ "revision": 1,
+ "publishedAt": "2026-10-07T09:00:00Z",
+ "business": {
+  "name": {
+   "he": "מנה אחת",
+   "en": "One Dish"
+  },
+  "area": {
+   "he": "",
+   "en": ""
+  },
+  "cuisine": {
+   "he": "חומוסייה",
+   "en": "Hummus"
+  },
+  "kind": "restaurant",
+  "logo": null,
+  "orderUrl": null,
+  "phone": null
+ },
+ "locale": {
+  "default": "he",
+  "langs": [
+   "he",
+   "en"
+  ],
+  "currency": "ILS"
+ },
+ "theme": {
+  "accent": "#e0a35c",
+  "surface": "walnut",
+  "tableImg": null
+ },
+ "categories": [
+  {
+   "id": "only",
+   "name": {
+    "he": "חומוס",
+    "en": "Hummus"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "solo-hummus",
+     "name": {
+      "he": "חומוס חם",
+      "en": "Warm hummus"
+     },
+     "desc": {
+      "he": "גרגירים שלמים, טחינה, פפריקה ופטרוזיליה",
+      "en": "Whole chickpeas, tahini, paprika, parsley"
+     },
+     "price": {
+      "amount": 3600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "שומשום",
+      "en": "Sesame"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "../olea/img/hummus.jpg",
+      "aux": "../olea/img/hummus.png",
+      "thumb": "../olea/img/hummus_t.jpg",
+      "kind": "flat",
+      "e": 47.4,
+      "h": 0.0659,
+      "o": null,
+      "s": null
+     }
+    }
+   ]
+  }
+ ]
+}

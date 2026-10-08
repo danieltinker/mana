@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><title>gen tests</title>
+<script type="module">
+// Test page: the public API of ../gen.js plus a few helpers the test runner calls through Playwright.
+const G = await import('../gen.js');
+const T = window.T = { G, gens: {}, jobs: {}, outs: {} };
+T.blob = async (name) => (await fetch('fixtures/' + name)).blob();
+T.err = async (fn) => { try { await fn(); return null; } catch (e) { return { code: e.code || null, name: e.name, message: String(e.message) }; } };
+T.hex = async (blob) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].map((b) => b.toString(16).padStart(2, '0')).join('');
+T.px = async (blob) => { const b = await createImageBitmap(blob); const c = new OffscreenCanvas(b.width, b.height); const g = c.getContext('2d'); g.drawImage(b, 0, 0); return g.getImageData(0, 0, b.width, b.height); };
+T.size = async (blob) => { const d = await T.px(blob); return [d.width, d.height]; };
+T.iou = async (auxA, auxB) => { const a = (await T.px(auxA)).data, b = (await T.px(auxB)).data; let i = 0, u = 0; for (let k = 1; k < a.length; k += 4) { const x = a[k] > 127, y = b[k] > 127; if (x && y) i++; if (x || y) u++; } return i / Math.max(1, u); };
+T.create = async (key, opts = {}) => { const log = []; const t = performance.now(); T.gens[key] = await G.createGenerator({ ...opts, onProgress: (p) => log.push(p) }); return { info: T.gens[key].info, log, ms: performance.now() - t }; };
+T.run = async (key, jobKey, fixture, name, buildOpts = {}) => {
+  const log = [];
+  const t = performance.now();
+  T.jobs[jobKey] = await T.gens[key].analyse(await T.blob(fixture), { name, onProgress: (p) => log.push(p) });
+  const analyseMs = performance.now() - t;
+  const r = await T.build(key, jobKey, buildOpts);
+  return { ...r, job: T.jobs[jobKey], analyseMs, log: log.concat(r.log) };
+};
+T.build = async (key, jobKey, opts = {}) => {
+  const log = [];
+  const t = performance.now();
+  const o = T.outs[jobKey] = await T.gens[key].build(T.jobs[jobKey], { ...opts, onProgress: (p) => log.push(p) });
+  return { kind: o.kind, meta: o.meta, provenance: o.provenance, buildMs: performance.now() - t, log,
+    types: [o.color.type, o.aux.type, o.thumb.type, o.debug ? o.debug.type : null],
+    sizes: [await T.size(o.color), await T.size(o.aux), await T.size(o.thumb)], auxHex: await T.hex(o.aux), colorHex: await T.hex(o.color) };
+};
+document.title = 'ready';
+</script>

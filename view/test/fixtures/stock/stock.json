@@ -1,0 +1,250 @@
+{
+ "v": 1,
+ "label": {
+  "he": "להמחשה בלבד",
+  "en": "Illustration"
+ },
+ "items": [
+  {
+   "id": "orange-juice",
+   "group": "cold-drinks",
+   "name": {
+    "he": "מיץ תפוזים",
+    "en": "Orange juice"
+   },
+   "keys": [
+    "מיץ תפוזים",
+    "מיץ",
+    "תפוזים סחוט",
+    "מיץ גזר",
+    "מיץ סחוט",
+    "מיץ טבעי",
+    "orange juice",
+    "juice",
+    "carrot juice",
+    "fresh juice"
+   ],
+   "cat": true,
+   "color": "img/orange-juice.jpg",
+   "aux": "img/orange-juice.png",
+   "thumb": "img/orange-juice_t.jpg",
+   "kind": "stand",
+   "e": 45.0,
+   "h": 1.8238,
+   "o": [
+    -0.0046,
+    -0.4057
+   ],
+   "s": 0.62,
+   "src": "base"
+  },
+  {
+   "id": "shakshuka",
+   "group": "breakfast",
+   "name": {
+    "he": "שקשוקה",
+    "en": "Shakshuka"
+   },
+   "keys": [
+    "שקשוקה",
+    "shakshuka",
+    "shakshouka",
+    "shakshuca"
+   ],
+   "color": "img/shakshuka.jpg",
+   "aux": "img/shakshuka.png",
+   "thumb": "img/shakshuka_t.jpg",
+   "kind": "low",
+   "e": 42.6,
+   "h": 0.1211,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "hummus",
+   "group": "starters",
+   "name": {
+    "he": "חומוס",
+    "en": "Hummus"
+   },
+   "keys": [
+    "חומוס",
+    "מסבחה",
+    "משאוושה",
+    "hummus",
+    "humus",
+    "houmous",
+    "hommus",
+    "masabacha",
+    "msabbaha",
+    "mashawsha"
+   ],
+   "cat": true,
+   "color": "img/hummus.jpg",
+   "aux": "img/hummus.png",
+   "thumb": "img/hummus_t.jpg",
+   "kind": "flat",
+   "e": 50.0,
+   "h": 0.0642,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "salad",
+   "group": "salads",
+   "name": {
+    "he": "סלט",
+    "en": "Salad"
+   },
+   "keys": [
+    "סלט",
+    "סלט ישראלי",
+    "סלט ערבי",
+    "סלט קצוץ",
+    "סלט ירקות",
+    "סלט יווני",
+    "salad",
+    "israeli salad",
+    "arabic salad",
+    "chopped salad",
+    "greek salad"
+   ],
+   "cat": true,
+   "color": "img/salad.jpg",
+   "aux": "img/salad.png",
+   "thumb": "img/salad_t.jpg",
+   "kind": "medium",
+   "e": 53.0,
+   "h": 0.2018,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "pizza",
+   "group": "pizza",
+   "name": {
+    "he": "פיצה",
+    "en": "Pizza"
+   },
+   "keys": [
+    "פיצה",
+    "פיצה מרגריטה",
+    "נפוליטנה",
+    "pizza",
+    "margherita",
+    "napoletana"
+   ],
+   "cat": true,
+   "color": "img/pizza.jpg",
+   "aux": "img/pizza.png",
+   "thumb": "img/pizza_t.jpg",
+   "kind": "flat",
+   "e": 53.0,
+   "h": 0.0643,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "pasta",
+   "group": "pasta",
+   "name": {
+    "he": "פסטה",
+    "en": "Pasta"
+   },
+   "keys": [
+    "פסטה",
+    "פפרדלה",
+    "טליאטלה",
+    "פטוצ׳יני",
+    "לינגוויני",
+    "ספגטי",
+    "פנה",
+    "ריגטוני",
+    "קרבונרה",
+    "בולונז",
+    "ארביאטה",
+    "אלפרדו",
+    "pasta",
+    "pappardelle",
+    "tagliatelle",
+    "fettuccine",
+    "linguine",
+    "spaghetti",
+    "penne",
+    "rigatoni",
+    "fusilli",
+    "carbonara",
+    "bolognese",
+    "arrabiata",
+    "arrabbiata",
+    "alfredo",
+    "mac and cheese"
+   ],
+   "cat": true,
+   "color": "img/pasta.jpg",
+   "aux": "img/pasta.png",
+   "thumb": "img/pasta_t.jpg",
+   "kind": "low",
+   "e": 47.7,
+   "h": 0.1215,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "burger",
+   "group": "burgers",
+   "name": {
+    "he": "המבורגר",
+    "en": "Burger"
+   },
+   "keys": [
+    "המבורגר",
+    "בורגר",
+    "צ׳יזבורגר",
+    "סמאשבורגר",
+    "burger",
+    "hamburger",
+    "cheeseburger",
+    "smashburger"
+   ],
+   "cat": true,
+   "color": "img/burger.jpg",
+   "aux": "img/burger.png",
+   "thumb": "img/burger_t.jpg",
+   "kind": "tall",
+   "e": 47.3,
+   "h": 0.3469,
+   "o": null,
+   "s": null,
+   "src": "base"
+  },
+  {
+   "id": "cheesecake",
+   "group": "desserts",
+   "name": {
+    "he": "עוגת גבינה",
+    "en": "Cheesecake"
+   },
+   "keys": [
+    "עוגת גבינה",
+    "צ׳יזקייק",
+    "cheesecake",
+    "cheese cake"
+   ],
+   "color": "img/cheesecake.jpg",
+   "aux": "img/cheesecake.png",
+   "thumb": "img/cheesecake_t.jpg",
+   "kind": "medium",
+   "e": 48.3,
+   "h": 0.2074,
+   "o": null,
+   "s": null,
+   "src": "base"
+  }
+ ]
+}

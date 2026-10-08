@@ -1,0 +1,47 @@
+Mana owner app, version 2: screenshots (7 October 2026). 390 x 844, Hebrew, unless the name says otherwise.
+Taken by `node test/shots.mjs` against the local test stack. "-full" = the whole page, bars laid flat.
+The guest preview in this set is the frozen Milestone 2 viewer (it draws name cards for illustrations).
+The folder with-viewer-v2/ holds the same screens taken against ../view and ../stock as they were at 14:43 UTC:
+there the preview shows the illustration holograms with the guests' "for illustration only" mark.
+Pictures of the owner's own photo come from the stand-in generator, except 07e (the real generator).
+
+before.jpg, after.jpg      contact sheets of the main path, old app next to new, with the word count of each step
+words.txt                  visible interface words per step, old and new (node test/words.mjs)
+
+01-start-he                start: one screen, one Continue
+01b-start-providers-he     the same with Google, Apple and Facebook switched on in config.js
+02-name-he                 "What is your place called?": one field, kind chips, the suggested address
+03-menu-empty-he           empty menu: scan a photo (fastest), paste a list, type it
+04-scan-reading-he         the scanner while it reads: dishes arrive one by one
+05-scan-review-he(-full)   check and add: rows editable in place, "the English was translated automatically"
+06-menu-he(-full)          the menu with dishes (first run: the path header and "Next: pictures")
+07-pictures-he(-full)      pictures grid: illustrations with their badge, the switch, four photo tips
+07b-picture-sheet-he       one dish's picture: add a photo, another illustration, no picture
+07c-pictures-working-he    a photo being worked on; the 72 MB studio download as one line
+07d-review-he              review and approve (stand-in generator)
+07e-review-real-generator-he   review and approve, the real generator's cut-out (from the journey test, whole page)
+08-dish-sheet-he           the dish sheet: picture row, name, price, description, More
+08b-dish-sheet-more-he     the same with More open: sold out, labels as icon chips
+09-picker-he               illustration picker: search, groups, "no picture"
+10-publish-he(-full)       publish: the real viewer with the draft, colour dots, table strip, one button
+11-published-he(-full)     published: QR, link, print table card, share, open, optional phone
+11b-qr-sheet-he            QR and table card: print A6 / A5, PNG, SVG
+12-dashboard-he(-full)     Home with a month of guests
+13-dashboard-empty-he(-full)   Home before any guest: quiet outlines
+14-style-he(-full)         Style: logo, colour, tables, languages, names, ordering link, phone
+15-account-he              account menu
+16-menu-live-he            Menu tab after publishing (three tabs, list / grid switch, "no photo" filter)
+16b-pictures-live-he       the same tab as a grid
+17-preview-sheet-he        the floating preview button's full-screen sheet
+
+20-start-en  27-name-en  28-menu-empty-en  29-scan-review-en  22-menu-en  23-dish-sheet-en
+24-pictures-en  25-style-en  26-publish-en  21-dashboard-en     the key screens in English
+
+30-dashboard-he-1440       1440 x 900: Home
+31-menu-docked-he-1440     1440 x 900: rail, editor, docked live preview
+32-dish-panel-he-1440      1440 x 900: the dish sheet as a side panel
+33-pictures-docked-he-1440 1440 x 900: pictures grid beside the preview
+34-publish-he-1440         1440 x 900: publish / update
+
+film/owner-clips-frames.jpg   twelve frames of each of the four owner clips made for the selling film
+                              (the clips themselves: ../brand/tools/film/clips/owner-*.mp4, made by test/film.mjs)

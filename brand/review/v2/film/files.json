@@ -1,0 +1,86 @@
+[
+ {
+  "file": "site/img/film-16x9.mp4",
+  "bytes": 7408372,
+  "MB": 7.41,
+  "seconds": 41,
+  "kbps": 1446,
+  "codec": "h264 High",
+  "size": "1920×1080",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 1230,
+  "qr": "https://halom.io/mana/view/?demo=olea"
+ },
+ {
+  "file": "site/img/film-9x16.mp4",
+  "bytes": 7446254,
+  "MB": 7.45,
+  "seconds": 41,
+  "kbps": 1453,
+  "codec": "h264 High",
+  "size": "1080×1920",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 1230,
+  "qr": "https://halom.io/mana/view/?demo=olea"
+ },
+ {
+  "file": "site/img/film-16x9-en.mp4",
+  "bytes": 7419527,
+  "MB": 7.42,
+  "seconds": 41,
+  "kbps": 1448,
+  "codec": "h264 High",
+  "size": "1920×1080",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 1230
+ },
+ {
+  "file": "site/img/film-9x16-en.mp4",
+  "bytes": 7446664,
+  "MB": 7.45,
+  "seconds": 41,
+  "kbps": 1453,
+  "codec": "h264 High",
+  "size": "1080×1920",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 1230
+ },
+ {
+  "file": "site/img/hero.mp4",
+  "bytes": 1211629,
+  "MB": 1.21,
+  "seconds": 9,
+  "kbps": 1077,
+  "codec": "h264 High",
+  "size": "390×844",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 270
+ },
+ {
+  "file": "site/img/hero-en.mp4",
+  "bytes": 2097735,
+  "MB": 2.1,
+  "seconds": 9.2,
+  "kbps": 1824,
+  "codec": "h264 High",
+  "size": "390×844",
+  "fps": "30/1",
+  "pixels": "yuv420p",
+  "frames": 276
+ },
+ {
+  "file": "site/img/hero-poster.jpg",
+  "bytes": 92552,
+  "size": "720×1558"
+ },
+ {
+  "file": "site/img/hero-poster-480.jpg",
+  "bytes": 57724,
+  "size": "480×1038"
+ }
+]

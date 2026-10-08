@@ -1,0 +1,98 @@
+<!doctype html>
+<!-- The film's two designed stills, drawn here (no photograph exists): the Olea menu as a printed page on a table, and the
+     A6 table card standing on a table. They are illustrations and are meant to look deliberate, not to pass for photographs.
+     ?shot=menu|qr  ?format=16x9|9x16      Rendered by tools/film/stills.mjs into clips/menu-paper*.jpg and clips/qr-table*.jpg.
+     Olea is an invented restaurant; the card's QR is the real one from print/cards/olea and opens the live demo menu. -->
+<html lang="he"><head><meta charset="utf-8"><title>Mana film stills</title>
+<style>
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(../../site/fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(../../site/fonts/frank-ruhl-libre-latin-wght-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(../../site/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(../../site/fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;src:url(../../site/fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+*{box-sizing:border-box}
+html,body{margin:0;background:#000}
+#shot{position:relative;overflow:hidden;background:#120d09}
+.room{position:absolute;inset:0;background:radial-gradient(120% 70% at 30% 0%,#3a2a1c 0,#1c140e 46%,#0d0906 100%)}
+.bokeh{position:absolute;border-radius:50%;filter:blur(38px);opacity:.5}
+.world{position:absolute;inset:0}
+.table{position:absolute;left:50%;bottom:0;transform-origin:50% 100%;background-color:#b78a56;background-image:url(assets/oak.jpg)}      /* one flat plane: wood, light and the page are painted in order, then the plane is tilted */
+.table .grain{position:absolute;inset:0;mix-blend-mode:multiply;opacity:.5}
+.table .light{position:absolute;inset:0}
+.page{position:absolute;background:#fbf8f0;color:#1d1a17;direction:rtl;box-shadow:0 5px 9px rgba(20,10,0,.34),26px 44px 70px rgba(20,10,0,.34),70px 120px 190px rgba(20,10,0,.22)}
+.page .fibre{position:absolute;inset:0;opacity:.5;mix-blend-mode:multiply;pointer-events:none}
+.page .fold{position:absolute;left:0;right:0;top:50%;height:26px;margin-top:-13px;background:linear-gradient(to bottom,rgba(255,255,255,0) 0,rgba(255,255,255,.5) 42%,rgba(60,40,20,.13) 52%,rgba(60,40,20,0) 100%)}
+.page .in{position:absolute;inset:6.4% 8% 5.6%;display:flex;flex-direction:column}
+.page h1{font:500 5.8em/1 "Frank Ruhl Libre",serif;margin:0;text-align:center;letter-spacing:.01em}
+.page .sub{font:400 1.36em/1 "IBM Plex Sans Hebrew",sans-serif;text-align:center;margin-top:.9em;color:#5a4f45;letter-spacing:.12em}
+.page .rule{height:0;border-top:2px solid #1d1a17;border-bottom:1px solid #1d1a17;padding-top:5px;margin:1.8em 0 .2em}
+.page .cols{display:grid;grid-template-columns:1fr 1fr;gap:0 7%;flex:1}
+.page h2{font:500 2em/1 "Frank Ruhl Libre",serif;color:#9A5238;margin:1.25em 0 .5em}
+.page .row{display:flex;align-items:baseline;gap:.5em;font:400 1.62em/1 "IBM Plex Sans Hebrew",sans-serif;margin:.6em 0}
+.page .row b{font-weight:500;white-space:nowrap}
+.page .row i{flex:1;border-bottom:2px dotted rgba(29,26,23,.36);transform:translateY(-.22em)}
+.page .row span{font:500 1.06em/1 "Frank Ruhl Libre",serif;font-variant-numeric:tabular-nums}
+.page .foot{font:400 1.12em/1 "IBM Plex Sans Hebrew",sans-serif;color:#6a5e53;text-align:center;letter-spacing:.06em;margin-top:auto;padding-top:.8em}
+.card{position:absolute;background:#FCF8F6;box-shadow:0 0 0 1px rgba(40,25,10,.1),-30px 30px 80px rgba(0,0,0,.42)}
+.card img{display:block;width:100%;height:100%}
+.block{position:absolute;border-radius:10px;background:linear-gradient(to bottom,#7b532f 0,#5d3d21 55%,#3d2814 100%);box-shadow:0 26px 40px rgba(0,0,0,.5),inset 0 3px 0 rgba(255,220,170,.28)}
+.shadow{position:absolute;border-radius:50%;background:radial-gradient(closest-side,rgba(10,5,0,.55),rgba(10,5,0,0))}
+.over{position:absolute;inset:0;pointer-events:none}
+</style></head>
+<body><div id="shot"></div>
+<svg width="0" height="0" style="position:absolute"><defs>
+  <filter id="woodgrain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.0016 0.085" numOctaves="4" seed="7"/><feColorMatrix values="0 0 0 0 .45  0 0 0 0 .3  0 0 0 0 .16  0 0 0 -1.5 1.35"/></filter>
+  <filter id="paper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="3" seed="3"/><feColorMatrix values="0 0 0 0 .55  0 0 0 0 .5  0 0 0 0 .42  0 0 0 -.9 .62"/></filter>
+  <filter id="film" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="11"/><feColorMatrix values="0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 -1.6 1.05"/></filter>
+</defs></svg>
+<script type="module">
+const Q = new URLSearchParams(location.search), shot = Q.get('shot') === 'qr' ? 'qr' : 'menu', tall = Q.get('format') === '9x16';
+const W = tall ? 2160 : 3840, H = tall ? 3840 : 2160, root = document.getElementById('shot');
+root.style.width = W + 'px'; root.style.height = H + 'px';
+const el = (cls, css, html) => { const e = document.createElement('div'); e.className = cls; if (css) e.style.cssText = css; if (html != null) e.innerHTML = html; return e; };
+const svgFill = (filter) => `<svg width="100%" height="100%" preserveAspectRatio="none"><rect width="100%" height="100%" filter="url(#${filter})"/></svg>`;
+const MENU = [
+  [['ראשונות', [['לאבנה וזיתים', 38], ['חומוס חם', 36], ['סלט קצוץ', 34], ['ארטישוק ופקורינו', 48], ['כיסוני פילו', 46], ['קיסר חסה צרובה', 52], ['קרוקט צ׳דר', 42], ['מרק דגים', 54], ['לחם ושמן זית', 18]]],
+   ['מתוקים', [['עוגת גבינה באסקית', 44], ['כנאפה עם גלידה', 42], ['מלבי', 32], ['טארט לימון ופיסטוק', 38], ['קרם ברולה', 36], ['אצבע שוקולד', 28]]]],
+  [['עיקריות', [['פפרדלה סלמון', 78], ['טורטליני ריקוטה ותרד', 74], ['ניוקי פטריות', 76], ['קציצות עוף', 72], ['דניס שלם', 128], ['שרימפס וקלמרי', 98], ['קבב טלה', 88], ['המבורגר אוליאה', 82]]],
+   ['מהטאבון', [['מרגריטה', 62], ['קישואים וריקוטה', 68], ['ריבת בצל וגבינת עיזים', 72], ['סלמי חריף', 76], ['ביאנקה', 70], ['שקשוקה בטאבון', 58], ['לזניה', 74]]]]
+];
+const pageHtml = () => `<div class="in"><h1>אוליאה</h1><div class="sub">ביסטרו שכונתי</div><div class="rule"></div><div class="cols">` +
+  MENU.map((col) => `<div>` + col.map(([h, rows]) => `<h2>${h}</h2>` + rows.map(([n, p]) => `<div class="row"><b>${n}</b><i></i><span>${p}</span></div>`).join('')).join('') + `</div>`).join('') +
+  `</div><div class="foot">המחירים בשקלים חדשים</div></div><div class="fibre">${svgFill('paper')}</div><div class="fold"></div>`;
+
+root.appendChild(el('room'));
+const world = el('world'); root.appendChild(world);
+if (shot === 'menu') {
+  /* seen from a seat: the table tilts away, the page lies on it a little turned, in focus; the far end of the table falls off */
+  const persp = tall ? 5200 : 4600, tilt = tall ? 42 : 54, TW = tall ? 5200 : 7600, TD = tall ? 5600 : 4300;
+  world.style.perspective = persp + 'px'; world.style.perspectiveOrigin = tall ? '50% 30%' : '50% 22%';
+  const table = el('table', `width:${TW}px;height:${TD}px;margin-left:${-TW / 2}px;transform:translateY(${tall ? 420 : 520}px) rotateX(${tilt}deg);background-size:2600px 2600px`);
+  table.appendChild(el('grain', '', svgFill('woodgrain')));
+  table.appendChild(el('light', `background:radial-gradient(60% 46% at 34% 62%,rgba(255,236,200,.5) 0,rgba(255,236,200,0) 70%),linear-gradient(to bottom,rgba(8,4,0,.9) 0,rgba(8,4,0,.5) 26%,rgba(8,4,0,0) 56%)`));
+  const PW = tall ? 2240 : 2180, PH = Math.round(PW * 1.414);
+  const page = el('page', `width:${PW}px;height:${PH}px;left:${(TW - PW) / 2 + (tall ? -30 : 60)}px;bottom:${tall ? 1080 : 330}px;font-size:${PW / 50}px;transform:rotate(${tall ? -3.2 : -4.6}deg)`, pageHtml());
+  table.appendChild(page); world.appendChild(table);
+} else {
+  /* the card stands in a wooden block near the edge of the table, facing the seat; the room behind is dim and out of focus */
+  for (const [x, y, r, c] of [[14, 20, 210, '#F5B120'], [30, 12, 150, '#FFC9B6'], [74, 16, 260, '#F5B120'], [88, 30, 170, '#FAD9D5'], [58, 8, 120, '#FFC9B6'], [8, 40, 130, '#FAD9D5']])
+    root.insertBefore(el('bokeh', `left:${x}%;top:${y * (tall ? 0.8 : 1)}%;width:${r}px;height:${r}px;background:${c}`), world);
+  world.style.perspective = '3000px'; world.style.perspectiveOrigin = '50% 34%';
+  const TW = tall ? 6200 : 8200, TD = 3400, horizon = tall ? 0.6 : 0.565;
+  const table = el('table', `width:${TW}px;height:${TD}px;margin-left:${-TW / 2}px;bottom:${-H * 0.1}px;transform:rotateX(81deg);background-size:2000px 2000px`);
+  table.appendChild(el('grain', '', svgFill('woodgrain')));
+  table.appendChild(el('light', `background:radial-gradient(34% 60% at 46% 84%,rgba(255,236,200,.42) 0,rgba(255,236,200,0) 72%),linear-gradient(to bottom,rgba(8,4,0,.94) 0,rgba(8,4,0,.62) 40%,rgba(8,4,0,.1) 80%)`));
+  world.appendChild(table);
+  const CH = tall ? 2260 : 1420, CW = Math.round(CH * 105 / 148), cx = (W - CW) / 2, cy = tall ? H * 0.185 : H * 0.045;
+  root.appendChild(el('shadow', `left:${cx - CW * 0.5}px;top:${cy + CH - CH * 0.03}px;width:${CW * 2.1}px;height:${CH * 0.2}px`));
+  const bw = CW * 1.16, bh = CH * 0.085;
+  root.appendChild(el('card', `left:${cx}px;top:${cy}px;width:${CW}px;height:${CH}px;transform:rotate(-0.6deg)`, `<img src="/print/cards/olea/table-card-a6.svg" alt="">`));
+  root.appendChild(el('block', `left:${cx - (bw - CW) / 2}px;top:${cy + CH - bh * 0.42}px;width:${bw}px;height:${bh}px`));
+}
+/* one light for the whole picture: a soft fall-off to the corners, and a little grain so nothing looks vector-clean */
+root.appendChild(el('over', `background:radial-gradient(${tall ? '95% 70%' : '75% 85%'} at 50% ${shot === 'menu' ? 56 : 46}%,rgba(0,0,0,0) 52%,rgba(0,0,0,.5) 100%)`));
+root.appendChild(el('over', 'opacity:.2;mix-blend-mode:overlay', svgFill('film')));
+await document.fonts.ready; await Promise.all([...document.fonts].map((f) => f.load().catch(() => {})));
+await Promise.all([...document.images].map((i) => i.decode().catch(() => {})));
+window.__stillReady = true;
+</script></body></html>

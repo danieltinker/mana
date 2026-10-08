@@ -1,0 +1,33 @@
+{
+ "matte": {
+  "u2netp": {
+   "file": "models/u2netp.onnx",
+   "size": 4574861,
+   "sha256": "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+   "label": "U2-Net small (4.6 MB)",
+   "licence": "Apache-2.0",
+   "source": "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx",
+   "note": ""
+  },
+  "u2net-w8": {
+   "file": "models/u2net_w8dq.onnx",
+   "size": 44223508,
+   "sha256": "df438fa79131bb08e9f97a6782b694ae73f0a2df5afca1ce279751f9efc7460c",
+   "label": "U2-Net full, weights stored as 8-bit (44 MB)",
+   "licence": "Apache-2.0",
+   "source": "derived from https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx",
+   "note": "converted to opset 13 with onnx.version_converter; large weight tensors stored as uint8 with per-channel scale and zero point (DequantizeLinear), small ones as float16; compute is float32"
+  }
+ },
+ "depth": {
+  "da2s-w8": {
+   "file": "models/depth_anything_v2_vits_w8dq.onnx",
+   "size": 26107512,
+   "sha256": "50718f5701d48c5d192b6259de849f58b604c97628ec42a280b14624e2a1617f",
+   "label": "Depth Anything V2 Small, weights stored as 8-bit (26 MB)",
+   "licence": "Apache-2.0",
+   "source": "derived from https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits.onnx",
+   "note": "large weight tensors stored as uint8 with per-channel scale and zero point (DequantizeLinear), small ones as float16; compute is float32"
+  }
+ }
+}

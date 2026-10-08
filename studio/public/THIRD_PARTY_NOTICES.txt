@@ -1,0 +1,10 @@
+Mana studio (owner dashboard) bundles the following third-party work. Nothing is loaded from a CDN at run time.
+
+preact, @preact/signals        MIT          https://github.com/preactjs
+@supabase/supabase-js (+ auth-js, postgrest-js, storage-js, realtime-js, functions-js)   MIT   https://github.com/supabase/supabase-js
+qrcode (node-qrcode)           MIT          https://github.com/soldair/node-qrcode
+IBM Plex Sans Hebrew           SIL OFL 1.1  Copyright (c) IBM Corp.            https://github.com/IBM/plex   (via @fontsource/ibm-plex-sans-hebrew)
+Frank Ruhl Libre               SIL OFL 1.1  Copyright (c) The Frank Ruhl Libre Project Authors   https://github.com/fontef/frankruhllibre   (via @fontsource-variable/frank-ruhl-libre)
+
+The full OFL text is published with the diner viewer: ../view/fonts/OFL-ibm-plex-sans-hebrew.txt and ../view/fonts/OFL-frank-ruhl-libre.txt.
+The in-browser generator (../gen/) has its own notices: ../gen/THIRD_PARTY_NOTICES.txt.

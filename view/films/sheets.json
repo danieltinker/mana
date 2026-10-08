@@ -1,0 +1,27 @@
+[
+ {"name": "glide-one-dish", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 520], [195, 300]], "ms": 300, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "hard-flick", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 640], [195, 240]], "ms": 150, "ease": "in"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "category-change", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.0, "finger": true, "steps": [{"at": 0.05, "drag": [[310, 400], [90, 410]], "ms": 200, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 20, "cols": 8, "width": 320}},
+
+ {"name": "lift-and-turn", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "tap": [195, 370]}, {"at": 0.55, "drag": [[110, 300], [290, 306]], "ms": 250, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "lift-close", "url": "?demo=olea&lang=en#c=starters&i=hummus&o=1", "width": 390, "height": 844, "seconds": 0.8, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 290], [195, 500]], "ms": 200, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 16, "cols": 8, "width": 320}},
+
+ {"name": "list-sheet", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "click": "#listBtn"}, {"at": 0.6, "click": "#listBody a[data-id=\"gnocchi\"]"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "placeholder-dish", "url": "?demo=kiosk&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 520], [195, 300]], "ms": 300, "ease": "linear"}, {"at": 0.7, "tap": [195, 370]}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "one-dish-menu", "url": "?demo=solo&lang=en", "width": 390, "height": 844, "seconds": 1.0, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 560], [195, 300]], "ms": 250, "ease": "linear"}, {"at": 0.6, "tap": [195, 370]}], "sheet": {"from": 0, "every": 0.05, "count": 20, "cols": 8, "width": 320}},
+
+ {"name": "hebrew", "url": "?demo=olea&lang=he", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[90, 400], [310, 410]], "ms": 200, "ease": "linear"}, {"at": 0.7, "tap": [195, 370]}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "glide-other-way", "url": "?demo=olea&lang=en&walk=pull#c=starters&i=hummus", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 300], [195, 520]], "ms": 300, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "first-visit-hint", "url": "?demo=olea&lang=en", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "hint": true, "steps": [{"at": 0.7, "drag": [[195, 520], [195, 300]], "ms": 300, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "bar-glide-pour", "url": "?demo=olea&lang=en#c=wine", "width": 390, "height": 844, "fps": 20, "seconds": 2.4, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 620], [195, 420]], "ms": 300, "ease": "linear"}, {"at": 0.75, "tap": [195, 470]}], "sheet": {"from": 0, "every": 0.1, "count": 24, "cols": 8, "width": 320}},
+
+ {"name": "desktop-1280x800", "url": "?demo=olea&lang=en", "width": 1280, "height": 800, "seconds": 1.1, "steps": [{"at": 0.05, "wheel": 100}, {"at": 0.65, "tap": [832, 492]}], "sheet": {"from": 0, "every": 0.05, "count": 22, "cols": 4, "width": 520}}
+]

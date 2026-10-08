@@ -1,0 +1,217 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Halom 3D Menu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@500;700;900&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&display=swap">
+<style>
+/* Layout: a dark projection stage, full bleed. The dish hologram owns the middle; type sits on the stage, bottom on phones, side column on wide screens.
+   One deliberate look: holograms need the dark, so there is no light theme. */
+:root{
+  --bg:#04060a; --bg-2:#0a111b; --ink:#eef5f8; --ink-soft:#8f9da8; --panel:#0a1018; --edge:#1a2532;
+  --accent:#5fd0ff; --on-accent:#04121a; --glow:rgba(95,208,255,.16); --line:rgba(95,208,255,.28);
+  --display:"Frank Ruhl Libre","David Libre","Times New Roman",serif;
+  --body:"IBM Plex Sans Hebrew","Assistant","Helvetica Neue",Arial,sans-serif;
+  --gut:clamp(16px,4vw,40px);
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.45 var(--body);overflow:hidden;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+#app{position:relative;height:100%;overflow:hidden;
+  background:radial-gradient(ellipse 78% 40% at 50% 44%,var(--glow),transparent 72%),radial-gradient(ellipse 130% 55% at 50% 112%,var(--bg-2),transparent 70%),var(--bg)}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gl:active{cursor:grabbing}
+.veil{position:absolute;inset:0;z-index:3;background:var(--bg);opacity:0;pointer-events:none;transition:opacity .42s ease}
+.veil.on{opacity:1}
+.intro{position:absolute;inset:0;z-index:6;display:grid;place-items:center;padding:var(--gut);background:rgba(4,6,10,.86)}
+.intro-card{display:grid;gap:16px;max-width:440px;padding:28px 26px;border:1px solid var(--line);border-radius:22px;background:var(--panel);box-shadow:0 0 60px var(--glow)}
+.intro-card h2{margin:0;font:700 clamp(1.8rem,7vw,2.5rem)/1.05 var(--display);text-wrap:balance}
+.intro-card p{margin:0;color:var(--ink-soft)}
+.intro-card .mark{font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+.solo .venue{cursor:default}.solo .chev{display:none}
+
+.top{position:absolute;inset-inline:0;top:0;z-index:2;display:grid;gap:8px;padding:10px var(--gut) 44px;background:linear-gradient(to bottom,var(--bg) 46%,rgba(4,6,10,.72) 72%,transparent);pointer-events:none}
+.top>*{pointer-events:auto}
+.demo{margin:0;font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-soft)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.venue{display:flex;align-items:center;gap:10px;min-width:0;padding:0;border:0;background:none;cursor:pointer;text-align:start}
+.venue-mark{flex:none;width:44px;height:44px;border-radius:50%;background:var(--accent) center/cover no-repeat;box-shadow:0 0 0 1px var(--line),0 0 18px var(--glow)}
+.venue-txt{display:grid;min-width:0}
+.venue-name{font:700 1.3rem/1.1 var(--display)}
+.venue-meta{font-size:.8rem;color:var(--ink-soft)}
+.chev{flex:none;color:var(--ink-soft)}
+.actions{display:flex;gap:8px;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;background:var(--panel);padding:8px 13px;font-size:.85rem;font-weight:500;cursor:pointer;white-space:nowrap}
+.pill svg{flex:none}
+.pill b{min-width:1.5em;padding:1px 6px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-variant-numeric:tabular-nums;text-align:center}
+.courses{display:flex;gap:20px;overflow-x:auto;scrollbar-width:none}
+.courses::-webkit-scrollbar{display:none}
+.course{flex:none;padding:6px 0;border:0;border-bottom:2px solid transparent;background:none;color:var(--ink-soft);font-weight:500;cursor:pointer}
+.course[aria-current="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+
+.dish{position:absolute;inset-inline:0;bottom:0;z-index:2;display:grid;gap:12px;padding:56px var(--gut) 18px;background:linear-gradient(to top,var(--bg) 62%,transparent);pointer-events:none}
+.dish>*{pointer-events:auto}
+.hint{justify-self:center;margin:0;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:.8rem;color:var(--ink-soft)}
+.dish-body{display:grid;gap:8px;min-width:0}
+.dish-meta{display:flex;align-items:center;gap:12px;margin:0;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.dish-meta::before{content:"";flex:none;width:22px;height:2px;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+#dishIdx{margin-inline-start:auto;letter-spacing:.08em}
+#dishName{margin:0;font:700 clamp(2rem,8.4vw,3.3rem)/1.02 var(--display);letter-spacing:-.01em;text-wrap:balance}
+.dish-desc{margin:0;max-width:44ch;color:var(--ink-soft)}
+.dish-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.price{font:500 1.75rem/1 var(--display);font-variant-numeric:tabular-nums;color:var(--accent)}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.tags li{padding:2px 9px;border:1px solid var(--edge);border-radius:999px;font-size:.74rem;color:var(--ink-soft)}
+.dish-actions{display:flex;align-items:center;gap:10px}
+.primary{flex:1;min-width:0;padding:13px 18px;border:0;border-radius:999px;background:var(--accent);color:var(--on-accent);font-weight:600;cursor:pointer;box-shadow:0 0 26px var(--glow)}
+.round{flex:none;display:grid;place-items:center;width:46px;height:46px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--panel);cursor:pointer}
+.round[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+[dir="rtl"] .flip{transform:scaleX(-1)}
+.photo{display:inline-flex;align-items:center;gap:8px;font-size:.85rem;color:var(--ink-soft);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.photo input{position:absolute;width:1px;height:1px;opacity:0}
+
+.backdrop{position:absolute;inset:0;z-index:4;background:rgba(0,0,0,.55)}
+.sheet{position:absolute;inset-inline:0;bottom:0;z-index:5;display:grid;gap:14px;align-content:start;max-height:84%;overflow:auto;padding:20px var(--gut) 24px;border-radius:22px 22px 0 0;border-top:1px solid var(--line);background:var(--panel);color:var(--ink);box-shadow:0 -18px 60px rgba(0,0,0,.5)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sheet h2{margin:0;font:700 1.6rem/1.1 var(--display);text-wrap:balance}
+.x{flex:none;width:38px;height:38px;border:1px solid var(--edge);border-radius:50%;background:none;font-size:1.3rem;line-height:1;cursor:pointer}
+.note{margin:0;font-size:.8rem;color:var(--ink-soft);max-width:60ch}
+.lead{margin:0;color:var(--ink-soft);max-width:52ch}
+.venues{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.venues button{display:flex;align-items:center;gap:12px;width:100%;padding:9px 0;border:0;border-bottom:1px solid var(--edge);background:none;text-align:start;cursor:pointer}
+.venues .venue-mark{width:40px;height:40px;box-shadow:none}
+.venues .v-name{display:block;font:700 1.1rem/1.15 var(--display)}
+.venues .v-meta{display:block;font-size:.8rem;color:var(--ink-soft)}
+.venues [aria-current="true"] .v-name{text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:2px;text-underline-offset:4px}
+.venues .own .venue-mark{display:grid;place-items:center;background:none;border:1.5px dashed var(--ink-soft);font-size:1.3rem}
+.tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:10px;margin:0;padding:0;list-style:none}
+.tables button{display:grid;gap:6px;width:100%;height:100%;align-content:start;padding:8px 8px 10px;border:1px solid var(--edge);border-radius:14px;background:none;text-align:start;cursor:pointer}
+.tables button[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.swatch{display:block;aspect-ratio:16/10;border-radius:8px;background:#0a1018 no-repeat}
+.swatch.holo{background:radial-gradient(circle at 50% 62%,var(--accent),transparent 38%),repeating-radial-gradient(circle at 50% 62%,transparent 0 8px,var(--line) 8px 9px),#04060a}
+.t-name{font-weight:500;font-size:.88rem;line-height:1.2}
+.t-fit{font-size:.7rem;letter-spacing:.06em;color:var(--accent)}
+#app[data-table]:not([data-table="holo"]){background:radial-gradient(ellipse 95% 62% at 50% 44%,#15100c,#060504 78%)}
+.lines{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.lines li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:12px}
+.lines .l-name{font-weight:500;min-width:0}
+.step{display:inline-flex;align-items:center;gap:8px}
+.step button{width:30px;height:30px;border:1px solid var(--edge);border-radius:50%;background:none;cursor:pointer}
+.step span,.lines .l-price{font-variant-numeric:tabular-nums}
+.lines .l-price{min-width:3.6em;text-align:end}
+.total{display:flex;justify-content:space-between;align-items:baseline;padding-top:12px;border-top:1px solid var(--edge);font:700 1.3rem/1 var(--display);font-variant-numeric:tabular-nums}
+.link{justify-self:start;padding:0;border:0;background:none;color:var(--ink-soft);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+form{display:grid;gap:14px}
+.field{display:grid;gap:6px;font-size:.85rem;font-weight:500}
+.field input[type="text"],.field textarea{width:100%;padding:10px 12px;border:1px solid var(--edge);border-radius:10px;background:transparent;font-weight:400;font-size:1rem}
+.field textarea{resize:vertical;min-height:11em;font-size:.9rem;line-height:1.5}
+.field small{font-weight:400;color:var(--ink-soft)}
+form .primary{flex:none}
+
+@media (max-width:479px){ .pill .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)} .bar{gap:8px} .actions{gap:6px} .pill{padding:8px 10px} .venue{gap:8px} .venue-mark{width:40px;height:40px} .venue-name,.venue-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis} }
+@media (min-width:700px) and (min-aspect-ratio:5/4){
+  #app{background:radial-gradient(ellipse 46% 44% at 65% 50%,var(--glow),transparent 72%),radial-gradient(ellipse 130% 55% at 50% 112%,var(--bg-2),transparent 70%),var(--bg)}
+  [dir="rtl"] #app{background:radial-gradient(ellipse 46% 44% at 35% 50%,var(--glow),transparent 72%),radial-gradient(ellipse 130% 55% at 50% 112%,var(--bg-2),transparent 70%),var(--bg)}
+  .dish{inset-inline:0 auto;width:min(42%,520px);padding-bottom:40px;background:radial-gradient(120% 95% at 0% 100%,var(--bg) 40%,transparent 74%)}
+  [dir="rtl"] .dish{background:radial-gradient(120% 95% at 100% 100%,var(--bg) 40%,transparent 74%)}
+  .hint{justify-self:start}
+  .sheet{inset-inline:auto 0;top:0;max-height:none;width:min(440px,92%);border-radius:0;border-top:0;border-inline-start:1px solid var(--line);box-shadow:-18px 0 60px rgba(0,0,0,.5)}
+}
+@media (prefers-reduced-motion:reduce){ .veil{transition:none} }
+</style>
+
+<div id="app">
+  <canvas id="gl" role="img" aria-label="Holograms of the dishes on this menu"></canvas>
+  <div class="veil on" id="veil"></div>
+  <div class="intro" id="intro" role="dialog" aria-labelledby="introTitle" hidden>
+    <div class="intro-card">
+      <span class="mark">Halom · 3D menu</span>
+      <h2 id="introTitle" data-i="introTitle"></h2>
+      <p data-i="introBody"></p>
+      <button class="primary" id="introGo" data-i="introGo"></button>
+    </div>
+  </div>
+
+  <header class="top">
+    <p class="demo" data-i="demo"></p>
+    <div class="bar">
+      <button class="venue" id="venueBtn" aria-haspopup="dialog">
+        <span class="venue-mark" id="venueMark"></span>
+        <span class="venue-txt"><span class="venue-name" id="venueName"></span><span class="venue-meta" id="venueMeta"></span></span>
+        <svg class="chev" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="actions">
+        <button class="pill" id="langBtn"></button>
+        <button class="pill" id="tableBtn" aria-haspopup="dialog"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="1.7" y="1.7" width="5.4" height="5.4" rx="1.2" fill="currentColor"/><rect x="8.9" y="1.7" width="5.4" height="5.4" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="1.7" y="8.9" width="5.4" height="5.4" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.3"/><rect x="8.9" y="8.9" width="5.4" height="5.4" rx="1.2" fill="currentColor"/></svg><span class="lbl" id="tableLbl"></span></button>
+        <button class="pill" id="trayBtn" aria-haspopup="dialog">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <span class="lbl" data-i="tray"></span><b id="trayCount">0</b>
+        </button>
+      </div>
+    </div>
+    <nav class="courses" id="courses" aria-label="Courses"></nav>
+  </header>
+
+  <section class="dish" id="dish">
+    <p class="hint" id="hint" data-i="hint"></p>
+    <div class="dish-body" id="dishBody" aria-live="polite">
+      <p class="dish-meta"><span id="dishCourse"></span><span id="dishIdx" dir="ltr"></span></p>
+      <h1 id="dishName"></h1>
+      <p class="dish-desc" id="dishDesc"></p>
+      <div class="dish-row"><span class="price" id="dishPrice" dir="ltr"></span><ul class="tags" id="dishTags"></ul></div>
+    </div>
+    <div class="dish-actions">
+      <button class="round" id="prevBtn"><svg class="flip" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="primary" id="addBtn"></button>
+      <button class="round" id="lookBtn" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="7" cy="7" r="4.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10.4 10.4L14 14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button class="round" id="nextBtn"><svg class="flip" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <label class="photo" id="photoRow" hidden><input type="file" id="photoInput" accept="image/*"><span data-i="photo"></span></label>
+  </section>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+
+  <aside class="sheet" id="venueSheet" role="dialog" aria-labelledby="venueTitle" hidden>
+    <div class="sheet-head"><h2 id="venueTitle" data-i="venuesTitle"></h2><button class="x" data-close>&times;</button></div>
+    <ul class="venues" id="venueList"></ul>
+    <p class="note" id="venueNote" data-i="venuesNote"></p>
+  </aside>
+
+  <aside class="sheet" id="traySheet" role="dialog" aria-labelledby="trayTitle" hidden>
+    <div class="sheet-head"><h2 id="trayTitle" data-i="tray"></h2><button class="x" data-close>&times;</button></div>
+    <ul class="lines" id="trayList"></ul>
+    <p class="note" id="trayEmpty" data-i="trayEmpty"></p>
+    <div class="total" id="trayTotalRow"><span data-i="total"></span><span id="trayTotal" dir="ltr"></span></div>
+    <p class="note" id="trayNote" data-i="trayNote"></p>
+    <button class="link" id="trayClear" data-i="clear"></button>
+    <p class="note" id="credit" data-i="credit" hidden></p>
+  </aside>
+
+  <aside class="sheet" id="tableSheet" role="dialog" aria-labelledby="tableTitle" hidden>
+    <div class="sheet-head"><h2 id="tableTitle" data-i="tableTitle"></h2><button class="x" data-close>&times;</button></div>
+    <p class="note" data-i="tableNote"></p>
+    <ul class="tables" id="tableList"></ul>
+  </aside>
+
+  <aside class="sheet" id="studioSheet" role="dialog" aria-labelledby="studioTitle" hidden>
+    <div class="sheet-head"><h2 id="studioTitle" data-i="own"></h2><button class="x" data-close>&times;</button></div>
+    <p class="lead" data-i="studioLead"></p>
+    <form id="studioForm">
+      <label class="field"><span data-i="stLogo"></span><input type="file" id="stLogo" accept="image/*"></label>
+      <label class="field"><span data-i="stName"></span><input type="text" id="stName" value="Your Restaurant"></label>
+      <label class="field"><span data-i="stDishes"></span><textarea id="stDishes" rows="10" dir="auto"></textarea><small data-i="stHelp"></small></label>
+      <button class="primary" type="submit" data-i="stGo"></button>
+    </form>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="data.js"></script>
+<script src="assets.js"></script>
+<script src="engine.js"></script>
+
+</body></html>

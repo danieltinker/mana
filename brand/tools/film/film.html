@@ -1,0 +1,198 @@
+<!doctype html>
+<!-- The film's stage. One page with its own clock: nothing here moves by itself. tools/film/compose.mjs opens it, calls
+     __film.seek(t) for every frame (t in seconds) and takes a picture. The page is laid out at full size (1920 × 1080 or
+     1080 × 1920) and scaled by ?scale= for quick samples.   ?format=16x9|9x16  ?lang=he|en  ?scale=0.5 -->
+<html lang="he"><head><meta charset="utf-8"><title>Mana film stage</title>
+<style>
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(../../site/fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(../../site/fonts/frank-ruhl-libre-latin-wght-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(../../site/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(../../site/fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;src:url(../../site/fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;src:url(../../site/fonts/ibm-plex-sans-hebrew-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+:root{--ivory:#FCF8F6;--black:#0F0F0F;--charcoal:#434343;--yolk:#F5B120;--rose:#9A5238;--display:"Frank Ruhl Libre",serif;--text:"IBM Plex Sans Hebrew",sans-serif}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--ivory);overflow:hidden}
+#stage{position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden;background:var(--ivory);color:var(--black)}
+.shot{position:absolute;inset:0;opacity:0;visibility:hidden;overflow:hidden;background:var(--ivory)}
+.cap{position:absolute;font:500 96px/1.14 var(--display);margin:0;text-wrap:balance}
+[lang="he"] .cap{line-height:1.2}
+.cap small{display:block;font:400 38px/1.3 var(--text);color:var(--charcoal);margin-top:24px}       /* the demo's own label, said again where the invented restaurant's dishes are shown */
+.full .media{position:absolute;inset:0;transform-origin:50% 50%}
+.full .media img,.full .media>div{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.full .shade{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,8,6,.86) 0,rgba(10,8,6,.5) 26%,rgba(10,8,6,0) 52%)}
+.full .shade.top{background:linear-gradient(to bottom,rgba(10,8,6,.72) 0,rgba(10,8,6,.4) 16%,rgba(10,8,6,0) 34%)}
+.full .cap{color:var(--ivory)}
+.device{position:absolute;background:#1b1917;box-shadow:0 0 0 2px rgba(15,15,15,.55),0 70px 110px -60px rgba(15,15,15,.6)}
+.scr{position:relative;width:100%;height:100%;overflow:hidden;background:#0b0907;direction:ltr}
+.scr>img,.scr>div{position:absolute;inset:0;width:100%;height:100%}
+.scr img{object-fit:cover;display:block}
+.tag{position:absolute;z-index:9;left:3%;top:2.2%;font:500 22px/1 var(--text);letter-spacing:.06em;color:#0F0F0F;background:var(--yolk);padding:8px 12px;border-radius:6px}
+/* the end card */
+.end{display:grid;place-items:center;text-align:center}
+.end .lock{display:grid;justify-items:center;gap:26px}
+.end .word{font:500 150px/1 var(--display)}
+.end .by{font:400 40px/1 var(--text);color:var(--charcoal);margin-top:-8px}
+.end .url{font:500 62px/1 var(--text);direction:ltr}
+.end .offer{font:500 54px/1.1 var(--display);color:var(--black);background:var(--yolk);border-radius:999px;padding:18px 44px}
+.end .halom{position:absolute;left:0;right:0;bottom:6%;font:400 30px/1 var(--text);color:var(--charcoal);direction:ltr}
+/* placeholders, drawn from today's pictures */
+.ph{background:var(--ivory);font-family:var(--text);color:var(--black)}
+.ph-paper{background:#6b4a2b center/cover}
+.sheet{position:absolute;background:#fbf7ef;box-shadow:0 2px 4px rgba(0,0,0,.35),0 40px 70px -26px rgba(0,0,0,.65);padding:6% 7%;direction:rtl}
+.sheet h4{font:500 2.1em/1 var(--display);margin:0;text-align:center}
+.sheet h5{font:500 1em/1 var(--display);margin:1.5em 0 .5em;color:var(--rose);border-bottom:1px solid rgba(15,15,15,.25);padding-bottom:.35em}
+.sheet p{display:flex;justify-content:space-between;gap:1em;margin:.52em 0;font:400 .8em/1.2 var(--text)}
+.sheet p b{font-weight:500}
+.app{position:absolute;inset:0;background:var(--ivory);direction:rtl}
+.app header{height:8.6%;display:flex;align-items:center;justify-content:space-between;padding:0 6%;font:500 34px/1 var(--display);border-bottom:1px solid rgba(15,15,15,.12)}
+.app .hint{position:absolute;left:0;right:0;bottom:0;padding:5% 6%;background:#fff;border-top:1px solid rgba(15,15,15,.12);font:500 30px/1.3 var(--text)}
+.rows{position:absolute;left:0;right:0;top:8.6%;bottom:0;padding:1% 5%}
+.row{display:grid;grid-template-columns:118px 1fr auto;gap:22px;align-items:center;padding:16px 0;border-bottom:1px solid rgba(15,15,15,.1)}
+.row img{position:static;width:118px;height:118px;border-radius:18px;object-fit:cover;background:#0b0907}
+.row b{font:500 34px/1.15 var(--display);display:block}
+.row small{font:400 21px/1 var(--text);color:#0F0F0F;background:#ffe9b0;border-radius:999px;padding:5px 11px;display:inline-block;margin-top:9px}
+.row i{font:500 30px/1 var(--display);font-style:normal}
+</style></head>
+<body><div id="stage"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search), format = Q.get('format') === '9x16' ? '9x16' : '16x9', lang = Q.get('lang') === 'en' ? 'en' : 'he', k = parseFloat(Q.get('scale') || '1');
+const TL = await (await fetch('timeline.json')).json();
+const DATA = await (await fetch('/__film/data.json?format=' + format)).json().catch(() => ({ clips: {} }));      // which real clips exist (from compose.mjs)
+const [W, H] = TL.formats[format], tall = format === '9x16', rtl = lang === 'he';
+const stage = document.getElementById('stage');
+stage.style.width = W + 'px'; stage.style.height = H + 'px'; stage.style.transform = 'scale(' + k + ')'; document.documentElement.lang = lang; stage.lang = lang;
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x)), ease = (x) => { x = clamp(x); return x * x * (3 - 2 * x); }, out = (x) => 1 - Math.pow(1 - clamp(x), 3), lerp = (a, b, x) => a + (b - a) * x;
+const waits = [];                                           // pictures that must be decoded before the frame is taken
+const img = (src) => { const i = new Image(); i.decoding = 'sync'; i.src = src; waits.push(i.decode().catch(() => {})); return i; };
+const P = 'placeholders/';
+const MARK = (plate) => `<svg viewBox="0 14 64 39" width="300"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="${plate}" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg>`;
+const MENU = { he: ['אוליאה', [['ראשונות', [['לאבנה וזיתים', 38], ['חומוס חם', 36], ['סלט קצוץ', 34]]], ['מהטאבון', [['מרגריטה', 62], ['סלמי חריף', 76], ['שקשוקה בטאבון', 58]]], ['מתוקים', [['עוגת גבינה באסקית', 44], ['כנאפה עם גלידה', 42]]]]],
+  en: ['Olea', [['To start', [['Labaneh & olives', 38], ['Warm hummus', 36], ['Chopped salad', 34]]], ['From the oven', [['Margherita', 62], ['Spicy salami', 76], ['Baked shakshuka', 58]]], ['Sweet', [['Basque cheesecake', 44], ['Knafeh & ice cream', 42]]]]] };
+const sheetHtml = (l) => `<h4>${MENU[l][0]}</h4>` + MENU[l][1].map(([c, items]) => `<h5>${c}</h5>` + items.map(([n, p]) => `<p><b>${n}</b><span>${p}</span></p>`).join('')).join('');
+const ROWS = { he: [['hummus', 'חומוס חם', 36], ['salad', 'סלט קצוץ', 34], ['pizza', 'מרגריטה', 62], ['shakshuka', 'שקשוקה בטאבון', 58], ['pasta', 'פפרדלה סלמון', 78], ['cheesecake', 'עוגת גבינה באסקית', 44]],
+  en: [['hummus', 'Warm hummus', 36], ['salad', 'Chopped salad', 34], ['pizza', 'Margherita', 62], ['shakshuka', 'Baked shakshuka', 58], ['pasta', 'Salmon pappardelle', 78], ['cheesecake', 'Basque cheesecake', 44]] };
+const WORDS = { he: { reading: 'קוראים את התפריט…', dishes: 'מנות', menu: 'תפריט', ill: 'להמחשה', photo: 'התמונה שלכם', relief: 'התבליט', approve: 'לאשר', home: 'אוליאה' }, en: { reading: 'Reading your menu…', dishes: 'dishes', menu: 'Menu', ill: 'Illustration', photo: 'Your photo', relief: 'The relief', approve: 'Approve', home: 'Olea' } }[lang];
+
+/* ---- placeholders: each returns draw(local seconds, 0..1) and marks itself */
+const tagged = (root) => { root.appendChild(el('span', 'tag', 'PLACEHOLDER')); return root; };
+const PH = {
+  'menu-paper'(root) {
+    const bg = el('div', 'ph-paper'); bg.style.backgroundImage = `url(${P}oak.jpg)`; root.appendChild(bg);
+    const s = el('div', 'sheet', sheetHtml(lang)); s.style.direction = rtl ? 'rtl' : 'ltr';
+    const sw = tall ? W * 0.74 : H * 0.62; Object.assign(s.style, { width: sw + 'px', height: sw * 1.414 + 'px', left: (W - sw) / 2 + 'px', top: (tall ? H * 0.12 : H * 0.07) + 'px', fontSize: sw / 17 + 'px', transform: 'rotate(-3deg)' });
+    root.appendChild(s); tagged(root); return () => {};
+  },
+  'qr-table'(root) {
+    const bg = el('div', 'ph-paper'); bg.style.backgroundImage = `url(${P}oak.jpg)`; root.appendChild(bg);
+    const c = img(P + 'table-card.png'); const cw = tall ? W * 0.56 : H * 0.42;
+    Object.assign(c.style, { position: 'absolute', inset: 'auto', width: cw + 'px', height: 'auto', left: (W - cw) / 2 + 'px', top: (tall ? H * 0.2 : H * 0.1) + 'px', objectFit: 'contain', transform: 'rotate(4deg)', borderRadius: '14px', boxShadow: '0 3px 5px rgba(0,0,0,.4),0 50px 80px -30px rgba(0,0,0,.7)' });
+    root.appendChild(c); tagged(root); return () => {};
+  },
+  'owner-scan'(root) {
+    root.classList.add('ph'); const bg = el('div', 'ph-paper'); bg.style.backgroundImage = `url(${P}oak.jpg)`; root.appendChild(bg);
+    const s = el('div', 'sheet', sheetHtml(lang)); s.style.direction = rtl ? 'rtl' : 'ltr'; Object.assign(s.style, { width: '84%', height: '76%', left: '8%', top: '7%', fontSize: '34px', transform: 'rotate(2deg)' }); root.appendChild(s);
+    const line = el('div'); Object.assign(line.style, { position: 'absolute', left: '4%', width: '92%', height: '8px', inset: 'auto', background: '#F5B120', borderRadius: '4px', boxShadow: '0 0 40px 10px rgba(245,177,32,.55)' }); line.style.left = '4%'; root.appendChild(line);
+    const bar = el('div', 'hint'); Object.assign(bar.style, { position: 'absolute', inset: 'auto 0 0 0', height: 'auto', padding: '5% 6%', background: '#fff', font: '500 34px/1.3 var(--text)', direction: rtl ? 'rtl' : 'ltr' }); root.appendChild(bar); tagged(root);
+    return (t, p) => { line.style.top = lerp(8, 80, ease((p * 1.25) % 1)) + '%'; bar.textContent = WORDS.reading + ' ' + Math.round(lerp(0, 8, ease(p * 1.15))) + ' ' + WORDS.dishes; };
+  },
+  'owner-menu'(root) {
+    const app = el('div', 'app'); app.style.direction = rtl ? 'rtl' : 'ltr'; app.innerHTML = `<header><span>${WORDS.menu}</span><span style="font:500 28px/1 var(--text);color:#434343">8 ${WORDS.dishes}</span></header><div class="rows"></div>`; root.appendChild(app);
+    const rows = ROWS[lang].map(([id, n, p]) => { const r = el('div', 'row'); const i = img(P + 'stock/' + id + '_t.jpg'); r.appendChild(i); r.appendChild(el('div', '', `<b>${n}</b><small>${WORDS.ill}</small>`)); r.appendChild(el('i', '', '₪' + p)); app.querySelector('.rows').appendChild(r); return r; });
+    tagged(root);
+    return (t, p) => rows.forEach((r, i) => { const a = out((p * 1.5 - i * 0.16) / 0.3); r.style.opacity = a; r.style.transform = `translateY(${(1 - a) * 26}px)`; });
+  },
+  'owner-relief'(root) {
+    const app = el('div', 'app'); app.style.direction = rtl ? 'rtl' : 'ltr'; app.innerHTML = `<header><span>${rtl ? 'פסטה אפויה' : 'Baked pasta'}</span></header>`; root.appendChild(app);
+    const a = img(P + 'dish-photo.jpg'), b = img(P + 'dish-relief.jpg');
+    const box = (im, top, label) => { const d = el('div'); Object.assign(d.style, { position: 'absolute', inset: 'auto', left: '6%', width: '88%', height: '36%', top, borderRadius: '26px', overflow: 'hidden', background: '#0b0907' }); im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover'; d.appendChild(im);
+      const l = el('span', '', label); l.style.cssText = 'position:absolute;inset:auto auto 14px 14px;font:500 24px/1 var(--text);background:rgba(252,248,246,.92);padding:8px 12px;border-radius:999px;height:auto;width:auto'; d.appendChild(l); app.appendChild(d); return d; };
+    box(a, '11%', WORDS.photo); const rb = box(b, '50%', WORDS.relief);
+    const ok = el('div', '', WORDS.approve); ok.style.cssText = 'position:absolute;inset:auto 6% 2.6% 6%;height:7%;border-radius:999px;background:#F5B120;display:grid;place-items:center;font:500 34px/1 var(--text);width:auto'; app.appendChild(ok); tagged(root);
+    return (t, p) => { const x = out((p - 0.22) / 0.3); rb.style.opacity = x; rb.style.transform = `translateY(${(1 - x) * 40}px) scale(${lerp(0.96, 1, x)})`; ok.style.opacity = out((p - 0.6) / 0.2); };
+  },
+  'guest-glide'(root) {
+    /* stills of the real viewer, moved like a glide: three dishes pass, then one is lifted and turned */
+    const names = ['guest-shakshuka', 'guest-margherita', 'guest-shrimp'], ims = names.map((n) => img(P + n + '.jpg')), turn = ['guest-shakshuka-lift', 'guest-shakshuka-turn-r', 'guest-shakshuka-turn-l'].map((n) => img(P + n + '.jpg'));
+    const lane = el('div'); lane.style.cssText = 'position:absolute;inset:0;width:100%;height:100%'; root.appendChild(lane);
+    ims.concat([img(P + 'guest-shakshuka.jpg')]).forEach((i, n) => { i.style.cssText = `position:absolute;left:0;top:${-n * 100}%;width:100%;height:100%;object-fit:cover`; lane.appendChild(i); });
+    turn.forEach((i) => { i.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0'; root.appendChild(i); });
+    tagged(root);
+    return (t, p) => {
+      const g = clamp(p / 0.56) * 3, step = Math.floor(Math.min(g, 2.999)), f = g - step; lane.style.transform = `translateY(${(step + ease(f * 1.35)) * 100}%)`;
+      const u = clamp((p - 0.6) / 0.4); turn[0].style.opacity = out(u / 0.18) * (u < 0.92 ? 1 : 1 - (u - 0.92) / 0.08);
+      turn[1].style.opacity = ease((u - 0.3) / 0.14) * (1 - ease((u - 0.52) / 0.14)); turn[2].style.opacity = ease((u - 0.56) / 0.14) * (1 - ease((u - 0.8) / 0.12));
+      root.style.transform = `scale(${1 + 0.035 * Math.sin(Math.PI * clamp(u / 0.95))})`;
+    };
+  },
+  'owner-dashboard'(root) {
+    const app = el('div', 'app'); app.style.direction = rtl ? 'rtl' : 'ltr'; app.innerHTML = `<header><span>${WORDS.home}</span><span style="width:18px;height:18px;border-radius:50%;background:#F5B120;display:block"></span></header>`; root.appendChild(app);
+    const d = img(P + 'dashboard-' + lang + '.png'); d.style.cssText = 'position:absolute;inset:auto;left:4%;top:12%;width:92%;height:auto;object-fit:contain'; app.appendChild(d);
+    const veil = el('div'); veil.style.cssText = 'position:absolute;inset:auto;left:0;top:12%;width:100%;height:88%;background:#FCF8F6;transform-origin:50% 100%'; app.appendChild(veil); tagged(root);
+    return (t, p) => { veil.style.transform = `scaleY(${1 - out(p / 0.55)})`; d.style.transform = `translateY(${(1 - out(p / 0.6)) * 30}px)`; };
+  }
+};
+
+/* ---- a clip: the real file's frames when compose.mjs found it, else the placeholder */
+function source(name, root) {
+  const c = DATA.clips && DATA.clips[name];
+  const FILL = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block';      // a real clip fills its screen or its frame
+  if (c && c.still) { const i = img(c.still); i.style.cssText = FILL; root.appendChild(i); return () => {}; }
+  if (c && c.frames) { const i = new Image(); i.decoding = 'sync'; i.style.cssText = FILL; root.appendChild(i); let last = -1;
+    return (t) => { const n = Math.min(c.frames - 1, Math.max(0, Math.floor(t * c.fps))); if (n === last) return; last = n; i.src = c.dir + String(n + 1).padStart(5, '0') + '.jpg'; waits.push(i.decode().catch(() => {})); }; }
+  if (!PH[name]) throw new Error('no clip and no placeholder called ' + name);
+  return PH[name](root);
+}
+
+/* ---- shots */
+const shots = TL.shots.map((s) => {
+  const node = el('div', 'shot ' + s.kind); stage.appendChild(node); let draw = () => {}, cap = null;
+  const text = s.caption && s.caption[lang];
+  if (s.kind === 'full') {
+    /* the caption sits where the picture is quiet: "captionAt" in the timeline says top or bottom, per cut */
+    const at = (s.captionAt && (typeof s.captionAt === 'string' ? s.captionAt : s.captionAt[format])) || 'bottom';
+    const media = el('div', 'media'); node.appendChild(media); const d = source(s.clip, media); node.appendChild(el('div', 'shade' + (at === 'top' ? ' top' : '')));
+    cap = el('p', 'cap', text); cap.dir = rtl ? 'rtl' : 'ltr';
+    Object.assign(cap.style, tall ? { left: '8%', right: '8%', fontSize: '100px', textAlign: 'center' } : { left: '7%', right: '7%', textAlign: rtl ? 'right' : 'left', fontSize: '110px' }, at === 'top' ? { top: tall ? '6.5%' : '7%' } : { bottom: '9%' }); node.appendChild(cap);
+    draw = (t, p) => { media.style.transform = `scale(${lerp(1.02, 1.09, p)})`; d(t, p); };
+  } else if (s.kind === 'phone') {
+    const ph = el('div', 'device'), scr = el('div', 'scr'); ph.appendChild(scr); node.appendChild(ph);
+    /* the screen is always 780 × 1688 inside; the phone is scaled to fit the cut */
+    const inner = el('div'); inner.style.cssText = 'position:absolute;left:0;top:0;width:780px;height:1688px;transform-origin:0 0;overflow:hidden'; scr.appendChild(inner);
+    /* the screen keeps the guest view's own shape, 390 : 844; the frame is drawn around it */
+    const scrH = tall ? H * (s.big ? 0.69 : 0.63) : H * (s.big ? 0.86 : 0.8), scrW = scrH * 390 / 844, pad = scrW * 0.045, phW = scrW + 2 * pad, phH = scrH + 2 * pad;
+    const x = tall ? (W - phW) / 2 : (rtl ? W * 0.13 : W * 0.87 - phW), y = tall ? H * (s.big ? 0.245 : 0.275) : (H - phH) / 2;
+    Object.assign(ph.style, { width: phW + 'px', height: phH + 'px', left: x + 'px', top: y + 'px', padding: pad + 'px', borderRadius: scrW * 0.17 + 'px' }); scr.style.borderRadius = scrW * 0.125 + 'px';
+    const d = source(s.clip, inner);
+    cap = el('p', 'cap', text + (s.note && s.note[lang] ? `<small>${s.note[lang]}</small>` : '')); cap.dir = rtl ? 'rtl' : 'ltr';
+    Object.assign(cap.style, tall ? { left: '8%', right: '8%', top: s.note ? '5%' : '6.5%', textAlign: 'center', fontSize: '98px' } : (rtl ? { right: '7%', left: (x + phW + W * 0.06) + 'px', top: '50%', textAlign: 'right', fontSize: '112px' } : { left: '7%', right: (W - x + W * 0.06) + 'px', top: '50%', textAlign: 'left', fontSize: '112px' }));
+    node.appendChild(cap);
+    draw = (t, p) => { const sc = scr.clientWidth / 780; inner.style.transform = `scale(${sc})`; const a = out(t / 0.7); ph.style.transform = `translateY(${(1 - a) * 46}px)`; d(t, p); };
+  } else if (s.kind === 'end') {
+    node.innerHTML = `<div class="lock">${MARK('#0F0F0F')}<div class="word" dir="${rtl ? 'rtl' : 'ltr'}">${rtl ? 'מנה' : 'Mana'}</div><div class="by" dir="ltr">Mana by Halom</div><div class="url">halom.io/mana</div><div class="offer" dir="${rtl ? 'rtl' : 'ltr'}">${text}</div></div><div class="halom">Dreams, realized · חלומות מתגשמים</div>`;
+    const lock = node.querySelector('.lock'), parts = [...lock.children]; if (tall) lock.style.transform = 'scale(1.18)';
+    draw = (t) => parts.forEach((e, i) => { const a = out((t - 0.25 - i * 0.16) / 0.5); e.style.opacity = a; e.style.transform = `translateY(${(1 - a) * 22}px)`; });
+  }
+  return { ...s, node, cap, draw };
+});
+
+await document.fonts.ready; await Promise.all([...document.fonts].map((f) => f.load().catch(() => {})));
+window.__film = {
+  duration: Math.max(...TL.shots.map((s) => s.start + s.dur)), fps: TL.fps, size: [Math.round(W * k), Math.round(H * k)], shots: TL.shots.map((s) => ({ id: s.id, start: s.start, dur: s.dur, clip: s.clip || null, real: !!(s.clip && DATA.clips && DATA.clips[s.clip]) })),
+  async seek(t) {
+    const F = TL.fade;
+    for (const s of shots) {
+      const first = s.start === 0, lastShot = s.start + s.dur >= this.duration - 1e-6;
+      const a = Math.min(first ? 1 : clamp((t - (s.start - F / 2)) / F), lastShot ? 1 : clamp((s.start + s.dur + F / 2 - t) / F));
+      s.node.style.opacity = a; s.node.style.visibility = a > 0 ? 'visible' : 'hidden'; s.node.style.zIndex = t >= s.start ? 2 : 1;
+      if (a <= 0) continue;
+      const local = clamp(t - s.start, 0, s.dur); s.draw(local, local / s.dur);
+      if (s.cap) { const c = out((local - 0.3) / 0.45); s.cap.style.opacity = c; const base = s.kind === 'phone' && !tall ? 'translateY(-50%) ' : ''; s.cap.style.transform = base + `translateY(${(1 - c) * 18}px)`; }
+    }
+    await Promise.all(waits.splice(0)); await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    return true;
+  }
+};
+await Promise.all(waits.splice(0)); await window.__film.seek(0); window.__filmReady = true;
+</script></body></html>

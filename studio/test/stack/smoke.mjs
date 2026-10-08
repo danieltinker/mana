@@ -1,0 +1,50 @@
+// Quick check that the local stack behaves like a Supabase project for the calls the studio makes.
+import { createClient } from '@supabase/supabase-js';
+import { startStack } from './start.mjs';
+const s = await startStack();
+try {
+  const mk = () => createClient(s.API_URL, s.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  const signup = (email) => fetch(s.API_URL + '/functions/v1/menus-signup', { method: 'POST', headers: { apikey: s.ANON_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'correct-horse-9', hp: '', elapsed_ms: 5000 }) }).then((r) => r.json());
+  console.log('signup', await signup('a@example.com'), await signup('a@example.com'));
+  const a = mk();
+  const si = await a.auth.signInWithPassword({ email: 'a@example.com', password: 'correct-horse-9' });
+  console.log('signin', si.error?.message || 'ok', !!si.data.session);
+  console.log('direct signup blocked:', (await mk().auth.signUp({ email: 'x@example.com', password: 'correct-horse-9' })).error?.message);
+  console.log('slug', await a.rpc('slug_available', { p_slug: 'cafe-test' }));
+  const cb = await a.rpc('create_business', { p_slug: 'cafe-test', p_name_he: 'קפה בדיקה', p_name_en: 'Cafe Test', p_kind: 'cafe', p_contact_name: 'Dana', p_contact_phone: '050-0000000' });
+  console.log('create', cb.data, cb.error);
+  const biz = cb.data.id;
+  const up = await a.storage.from('menu-private').upload(`${biz}/x/original.jpg`, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }));
+  console.log('upload', up.data, up.error);
+  const bad = await a.storage.from('menu-private').upload(`00000000-0000-0000-0000-000000000000/x/original.jpg`, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }));
+  console.log('upload elsewhere', bad.data, bad.error?.message);
+  const cp = await a.storage.from('menu-private').copy(`${biz}/x/original.jpg`, `${biz}/x/original.jpg`, { destinationBucket: 'menu-public' });
+  console.log('copy', cp.data, cp.error);
+  const pub = a.storage.from('menu-public').getPublicUrl(`${biz}/x/original.jpg`).data.publicUrl;
+  console.log('public', pub, (await fetch(pub)).status);
+  const sg = await a.storage.from('menu-private').createSignedUrl(`${biz}/x/original.jpg`, 60);
+  console.log('signed', sg.error || (await fetch(sg.data.signedUrl)).status);
+  const dl = await a.storage.from('menu-private').download(`${biz}/x/original.jpg`);
+  console.log('download', dl.error || dl.data.size);
+  console.log('anon read businesses', (await mk().from('businesses').select('*')).error?.message);
+  console.log('public_menu', (await mk().rpc('public_menu', { p_slug: 'cafe-test' })).data);
+  console.log('preview', JSON.stringify((await a.rpc('preview_snapshot', { p_business: biz })).data).slice(0, 200));
+  // ---- v2 (db/0002_mana_v2.sql and the menus-ai stand-in)
+  const cat = (await a.from('categories').insert({ business_id: biz, name_he: 'ראשונות' }).select().single()).data;
+  const item = (await a.from('items').insert({ business_id: biz, category_id: cat.id, name_he: 'חומוס', stock_id: 'hummus' }).select().single()).data;
+  console.log('stock_id', item.stock_id, '| bad id:', (await a.from('items').update({ stock_id: 'Not OK' }).eq('id', item.id)).error?.code);
+  console.log('snapshot asset', JSON.stringify((await a.rpc('preview_snapshot', { p_business: biz })).data.categories[0].items[0].asset));
+  console.log('publish', (await a.rpc('publish_menu', { p_business: biz })).data);
+  console.log('open_menu', (await mk().rpc('open_menu', { p_slug: 'cafe-test', p_lang: 'en', p_src: 'qr' })).data.state, '| track_item', (await mk().rpc('track_item', { p_slug: 'cafe-test', p_item: item.id, p_kind: 'open' })).error);
+  const st = (await a.rpc('my_stats', { p_business: biz })).data;
+  console.log('my_stats', JSON.stringify(st.totals), JSON.stringify(st.counts), st.items.length, st.days.length, st.hours.length);
+  console.log('my_stats of a stranger', (await mk().rpc('my_stats', { p_business: biz })).error?.message);
+  const token = (await a.auth.getSession()).data.session.access_token;
+  const aiCall = (body, t = token) => fetch(s.API_URL + '/functions/v1/menus-ai', { method: 'POST', headers: { apikey: s.ANON_KEY, authorization: 'Bearer ' + t, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  console.log('ai status', await (await aiCall({ action: 'status' })).json());
+  const img = { media_type: 'image/jpeg', data: Buffer.alloc(600, 7).toString('base64') };
+  const lines = (await (await aiCall({ action: 'scan_menu', business_id: biz, image: img, langs: ['he', 'en'], stock: [{ id: 'hummus', label: 'Hummus' }] })).text()).trim().split('\n').map((l) => JSON.parse(l));
+  console.log('ai scan', lines.length, 'lines;', lines[0].t, lines[1].t + '=' + lines[1].v, '…', JSON.stringify(lines.at(-1)));
+  console.log('ai scan without a session', (await (await aiCall({ action: 'scan_menu', business_id: biz, image: img }, s.ANON_KEY)).text()).trim());
+  console.log('ai describe', JSON.stringify(await (await aiCall({ action: 'describe_dish', business_id: biz, image: img, langs: ['he'] })).json()));
+} finally { await s.stop(); }

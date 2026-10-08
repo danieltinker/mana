@@ -1,0 +1,33 @@
+{
+ "counted": "visible words at 390 px: text in rendered elements, without closed <details> bodies, visually hidden headings and text inside drawings",
+ "pages": {
+  "after 390 he": {
+   "height": 2685,
+   "words": 176
+  },
+  "after 390 en": {
+   "height": 2675,
+   "words": 197
+  },
+  "after 1440 he": {
+   "height": 4279,
+   "words": 203
+  },
+  "after 1440 en": {
+   "height": 4318,
+   "words": 230
+  },
+  "before 390 he": {
+   "height": 7876,
+   "words": 555
+  },
+  "before 390 en": {
+   "height": 8325,
+   "words": 759
+  }
+ },
+ "ratio": {
+  "height": 0.341,
+  "words": 0.317
+ }
+}

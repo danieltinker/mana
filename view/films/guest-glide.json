@@ -1,0 +1,9 @@
+{ "name": "guest-glide", "url": "?demo=olea&lang=he", "width": 390, "height": 844, "dpr": 2, "fps": 30, "seconds": 9, "finger": true,
+  "steps": [
+    { "at": 0.6,  "drag": [[195, 520], [195, 300]], "ms": 340, "ease": "linear" },
+    { "at": 2.3,  "drag": [[200, 525], [198, 300]], "ms": 260, "ease": "linear" },
+    { "at": 4.5,  "tap": [195, 370] },
+    { "at": 5.2,  "drag": [[250, 300], [158, 296]], "ms": 320, "ease": "linear" },
+    { "at": 6.35, "drag": [[150, 298], [242, 304]], "ms": 320, "ease": "linear" },
+    { "at": 7.8,  "drag": [[195, 270], [195, 480]], "ms": 170, "ease": "linear" }
+  ] }

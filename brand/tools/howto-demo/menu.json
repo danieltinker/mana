@@ -1,0 +1,7 @@
+{"v":1,"slug":"howto","revision":1,"publishedAt":"2026-10-06T00:00:00Z",
+ "business":{"name":{"he":"המסעדה שלכם","en":"Your restaurant"},"area":{"he":"","en":""},"cuisine":{"he":"","en":""},"logo":null,"orderUrl":null,"phone":null},
+ "locale":{"default":"he","langs":["he","en"],"currency":"ILS"},
+ "theme":{"accent":"#F5B120","surface":"walnut","tableImg":null},
+ "categories":[{"id":"mains","name":{"he":"עיקריות","en":"Mains"},"kind":"food","scene":"auto","items":[
+  {"id":"pasta","name":{"he":"פסטה אפויה","en":"Baked pasta"},"desc":{"he":"רוטב עגבניות, גבינה מוקרמת","en":"Tomato sauce, melted cheese"},"price":{"amount":6400,"currency":"ILS","note":""},"available":true,"tags":["vegetarian"],"allergens":{"he":"","en":""},
+   "asset":{"state":"relief","color":"img/pasta.jpg","aux":"img/pasta.png","thumb":"img/pasta_t.jpg","kind":"medium","e":78.8,"h":0.2017,"o":null,"s":null}}]}]}

@@ -1,0 +1,428 @@
+{
+ "v": 1,
+ "slug": "kiosk",
+ "revision": 1,
+ "publishedAt": "2026-10-07T09:00:00Z",
+ "business": {
+  "name": {
+   "he": "קיוסק לבנה",
+   "en": "Kiosk Livna"
+  },
+  "area": {
+   "he": "פינת הגן",
+   "en": "Garden corner"
+  },
+  "cuisine": {
+   "he": "בית קפה",
+   "en": "Cafe"
+  },
+  "kind": "cafe",
+  "logo": null,
+  "orderUrl": null,
+  "phone": null
+ },
+ "locale": {
+  "default": "he",
+  "langs": [
+   "he",
+   "en"
+  ],
+  "currency": "ILS"
+ },
+ "theme": {
+  "accent": "#6fd3c2",
+  "surface": "walnut",
+  "tableImg": null
+ },
+ "categories": [
+  {
+   "id": "morning",
+   "name": {
+    "he": "בוקר",
+    "en": "Morning"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "k-shakshuka",
+     "name": {
+      "he": "שקשוקה",
+      "en": "Shakshuka"
+     },
+     "desc": {
+      "he": "שתי ביצים ברוטב עגבניות ופלפלים, עם לחם",
+      "en": "Two eggs in tomato and pepper sauce, with bread"
+     },
+     "price": {
+      "amount": 4800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian",
+      "spicy"
+     ],
+     "allergens": {
+      "he": "ביצים, גלוטן",
+      "en": "Egg, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "shakshuka"
+     }
+    },
+    {
+     "id": "k-salad",
+     "name": {
+      "he": "סלט גינה",
+      "en": "Garden salad"
+     },
+     "desc": {
+      "he": "מה שטרי היום, לימון ושמן זית",
+      "en": "Whatever is fresh today, lemon and olive oil"
+     },
+     "price": {
+      "amount": 4200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan",
+      "gf"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "salad"
+     }
+    },
+    {
+     "id": "k-hummus",
+     "name": {
+      "he": "חומוס עם ביצה",
+      "en": "Hummus with egg"
+     },
+     "desc": {
+      "he": "גרגירים חמים, ביצה קשה ופיתה",
+      "en": "Warm chickpeas, a boiled egg, pita"
+     },
+     "price": {
+      "amount": 3600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "שומשום, ביצים, גלוטן",
+      "en": "Sesame, egg, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "hummus"
+     }
+    },
+    {
+     "id": "k-toast",
+     "name": {
+      "he": "טוסט גבינה",
+      "en": "Cheese toast"
+     },
+     "desc": {
+      "he": "גבינה צהובה, עגבנייה וזיתים בצד",
+      "en": "Yellow cheese, tomato, olives on the side"
+     },
+     "price": {
+      "amount": 3200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": null
+    }
+   ]
+  },
+  {
+   "id": "lunch",
+   "name": {
+    "he": "צהריים",
+    "en": "Lunch"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "k-pasta",
+     "name": {
+      "he": "פסטה עגבניות",
+      "en": "Tomato pasta"
+     },
+     "desc": {
+      "he": "שום, בזיליקום ופרמזן",
+      "en": "Garlic, basil, parmesan"
+     },
+     "price": {
+      "amount": 5200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "גלוטן, חלב",
+      "en": "Gluten, milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "pasta"
+     }
+    },
+    {
+     "id": "k-burger",
+     "name": {
+      "he": "המבורגר הקיוסק",
+      "en": "Kiosk burger"
+     },
+     "desc": {
+      "he": "בקר, חמוצים ולחמנייה רכה",
+      "en": "Beef, pickles, a soft bun"
+     },
+     "price": {
+      "amount": 5800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "גלוטן, שומשום",
+      "en": "Gluten, sesame"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "burger"
+     }
+    },
+    {
+     "id": "k-pizza",
+     "name": {
+      "he": "פיצה מרגריטה",
+      "en": "Margherita pizza"
+     },
+     "desc": {
+      "he": "עגבניות, מוצרלה ובזיליקום",
+      "en": "Tomato, mozzarella, basil"
+     },
+     "price": {
+      "amount": 5400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": false,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "גלוטן, חלב",
+      "en": "Gluten, milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "pizza"
+     }
+    }
+   ]
+  },
+  {
+   "id": "sweet",
+   "name": {
+    "he": "מתוק",
+    "en": "Sweet"
+   },
+   "kind": "dessert",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "k-cheesecake",
+     "name": {
+      "he": "עוגת גבינה",
+      "en": "Cheesecake"
+     },
+     "desc": {
+      "he": "נאפתה הבוקר",
+      "en": "Baked this morning"
+     },
+     "price": {
+      "amount": 3400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, ביצים, גלוטן",
+      "en": "Milk, egg, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "cheesecake"
+     }
+    },
+    {
+     "id": "k-cookie",
+     "name": {
+      "he": "עוגיית תמרים",
+      "en": "Date cookie"
+     },
+     "desc": {
+      "he": "",
+      "en": ""
+     },
+     "price": {
+      "amount": 1200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "גלוטן, אגוזים",
+      "en": "Gluten, nuts"
+     },
+     "details": {},
+     "asset": null
+    }
+   ]
+  },
+  {
+   "id": "drinks",
+   "name": {
+    "he": "שתייה",
+    "en": "Drinks"
+   },
+   "kind": "drinks",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "k-orange",
+     "name": {
+      "he": "מיץ תפוזים",
+      "en": "Orange juice"
+     },
+     "desc": {
+      "he": "נסחט במקום",
+      "en": "Squeezed to order"
+     },
+     "price": {
+      "amount": 1800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "orange-juice"
+     }
+    },
+    {
+     "id": "k-lemonade",
+     "name": {
+      "he": "לימונדה",
+      "en": "Lemonade"
+     },
+     "desc": {
+      "he": "עם נענע",
+      "en": "With mint"
+     },
+     "price": {
+      "amount": 1600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "lemonade"
+     }
+    },
+    {
+     "id": "k-cappuccino",
+     "name": {
+      "he": "הפוך",
+      "en": "Cappuccino"
+     },
+     "desc": {
+      "he": "",
+      "en": ""
+     },
+     "price": {
+      "amount": 1400,
+      "currency": "ILS",
+      "note": {
+       "he": "קטן",
+       "en": "small"
+      }
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב",
+      "en": "Milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "stock",
+      "id": "cappuccino"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,160 @@
+Run on 7 Oct 2026 after the guest recordings were made a second time (GUEST_READY2).
+
+--- node tools/test-site.mjs ---
+ok   /mana/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /mana/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /mana/ 360x640 he renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 360x640 he renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 360x640 he renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 360x640 he renders, no overflow, no errors, nothing from another host
+ok   /mana/ 360x640 en renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 360x640 en renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 360x640 en renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 360x640 en renders, no overflow, no errors, nothing from another host
+ok   /mana/ 1440x900 he renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 1440x900 he renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 1440x900 he renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 1440x900 he renders, no overflow, no errors, nothing from another host
+ok   /mana/ 1440x900 en renders, no overflow, no errors, nothing from another host
+ok   /mana/guide/ 1440x900 en renders, no overflow, no errors, nothing from another host
+ok   /mana/privacy/ 1440x900 en renders, no overflow, no errors, nothing from another host
+ok   /mana/terms/ 1440x900 en renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/guide/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/privacy/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/terms/ 390x844 he renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/guide/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/privacy/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   /projects/menus/terms/ 390x844 en renders, no overflow, no errors, nothing from another host
+ok   phone: under 200 visible words and about a third of the old height, in both languages
+ok   words: nothing sold as "AI", the relief is never a "3D model", no invented e-mail address
+ok   links: Start free and Sign in → studio, Try the demo → viewer in the same tab, footer → guide, privacy, terms (both prefixes)
+ok   language toggle switches text, direction, title, links and remembers
+ok   flow: three steps in reading order; the scanner is named only when config.features.scan is true
+ok   flow and numbers: the line draws itself once in view and ends complete; with reduced motion everything is simply there
+ok   numbers: the sample dashboard shows the owner app’s six numbers, adds up, and says it is an example
+ok   hero without a video file: the still, no <video> in the phone, nothing requested
+ok   hero with a video file: the still paints first, the video is fetched after load and plays muted in a loop
+ok   hero on Save-Data or reduced motion: no video bytes, the still with a play button; a tap plays it
+ok   hero per language: the English page plays hero-en when that file exists, the Hebrew page the plain one, and neither asks for the other
+ok   demo on a phone: nothing from the viewer until asked; "Play with it" opens it full screen in the same tab, Back returns
+ok   demo on a wide screen: starts by itself in view, the real viewer fits the frame; its "← Mana" link puts the still back instead of nesting the page
+ok   film: no file → no button and no request; with the files → a lightbox with the wide cut, the tall cut on a phone, closing stops it
+ok   film per language: the English page opens the -en cuts when they exist, the Hebrew page the plain ones
+ok   built page matches the media files in site/img (run tools/build-site.mjs after adding or removing a video)
+ok   media files on the page: hero loops and film cuts within their limits, H.264 that phones play, no sound, index first; the hero poster is the first frame of the hero video
+ok   talk: WhatsApp first; the form is one tap away on a phone and open on a wide screen
+ok   form: empty → the two required fields are marked, nothing is sent
+ok   form: sending state, then success with the reference; body matches submit_lead
+ok   form: server failure keeps the text, offers WhatsApp with the message; retry reuses the same token
+ok   form: rate limit gets its own words; no config.js → failure state with WhatsApp, not a silent dead button
+ok   keyboard: skip link first, visible focus, a question opens with Enter
+      first paint 216 ms, largest paint 216 ms (img.phone-poster), load 156 ms, video asked for at 224 ms and never delivered
+ok   first paint needs no viewer and no video: HTML, CSS, config, one script, fonts and two pictures before load; the video is asked for only after load, and with every video byte held back for ever the first screen is whole
+ok   privacy and terms: stable addresses, the required statements, a data-deletion anchor, the not-reviewed note in the source
+
+57 passed, 0 failed
+exit 0
+
+--- node tools/test-site.mjs film ---
+ok   film: no file → no button and no request; with the files → a lightbox with the wide cut, the tall cut on a phone, closing stops it
+ok   film per language: the English page opens the -en cuts when they exist, the Hebrew page the plain ones
+ok   media files on the page: hero loops and film cuts within their limits, H.264 that phones play, no sound, index first; the hero poster is the first frame of the hero video
+
+3 passed, 0 failed
+exit 0
+
+--- node tools/film/compose.mjs --scale 1 --lang both (summary lines) ---
+clips found: menu-paper (still), owner-scan (780,1688, 5 s), owner-menu (780,1688, 4 s), owner-relief (780,1688, 5 s), guest-glide (780,1688, 9 s), owner-dashboard (780,1688, 5 s), qr-table (still)
+placeholders: none: every shot has its real clip
+16x9 he: 0 / 41 s
+16x9 he: 5 / 41 s
+16x9 he: 10 / 41 s
+16x9 he: 15 / 41 s
+16x9 he: 20 / 41 s
+16x9 he: 25 / 41 s
+16x9 he: 30 / 41 s
+16x9 he: 35 / 41 s
+16x9 he: 40 / 41 s
+tools/film/out/mana-film-16x9-he.mp4  1920×1080, 41.0 s, 9.73 MB, rendered in 124 s
+tools/film/out/sheet-16x9-he.jpg
+16x9 en: 0 / 41 s
+16x9 en: 5 / 41 s
+16x9 en: 10 / 41 s
+16x9 en: 15 / 41 s
+16x9 en: 20 / 41 s
+16x9 en: 25 / 41 s
+16x9 en: 30 / 41 s
+16x9 en: 35 / 41 s
+16x9 en: 40 / 41 s
+tools/film/out/mana-film-16x9-en.mp4  1920×1080, 41.0 s, 9.93 MB, rendered in 120 s
+tools/film/out/sheet-16x9-en.jpg
+9x16 he: 0 / 41 s
+9x16 he: 5 / 41 s
+9x16 he: 10 / 41 s
+9x16 he: 15 / 41 s
+9x16 he: 20 / 41 s
+9x16 he: 25 / 41 s
+9x16 he: 30 / 41 s
+9x16 he: 35 / 41 s
+9x16 he: 40 / 41 s
+tools/film/out/mana-film-9x16-he.mp4  1080×1920, 41.0 s, 12.16 MB, rendered in 123 s
+tools/film/out/sheet-9x16-he.jpg
+9x16 en: 0 / 41 s
+9x16 en: 5 / 41 s
+9x16 en: 10 / 41 s
+9x16 en: 15 / 41 s
+9x16 en: 20 / 41 s
+9x16 en: 25 / 41 s
+9x16 en: 30 / 41 s
+9x16 en: 35 / 41 s
+9x16 en: 40 / 41 s
+tools/film/out/mana-film-9x16-en.mp4  1080×1920, 41.0 s, 12.27 MB, rendered in 123 s
+tools/film/out/sheet-9x16-en.jpg
+
+--- node tools/film/to-site.mjs ; --lang en ; --hero --hero-en ../view/.shots/v2/hero.mp4 ---
+site/img/film-16x9.mp4  7.41 MB  (master 9.73 MB, encoded again)
+site/img/film-9x16.mp4  7.45 MB  (master 12.16 MB, encoded again)
+site/img/film-16x9-en.mp4  7.42 MB  (master 9.93 MB, encoded again)
+site/img/film-9x16-en.mp4  7.45 MB  (master 12.27 MB, encoded again)
+site/img/hero.mp4  390×844  9.0 s  1.21 MB  (tools/film/clips/guest-glide.mp4 scaled down, CRF 20)
+site/img/hero-en.mp4  390×844  9.2 s  2.10 MB  (copied byte for byte from /home/claude/work/menus/view/.shots/v2/hero.mp4)
+
+--- node tools/film/proof.mjs ---
+site/img/film-16x9.mp4  1920×1080  41 s  30/1 fps  7.41 MB  1446 kb/s  h264 High yuv420p
+  QR in the 16x9 cut at 34 s reads: https://halom.io/mana/view/?demo=olea
+  review/v2/film/sheet-16x9.jpg  (shots: paper at 2 s, scan at 6.5 s, menu at 11 s, relief at 15.5 s, guest at 22.5 s, numbers at 29.5 s, qr at 34 s, end at 38.5 s)
+site/img/film-9x16.mp4  1080×1920  41 s  30/1 fps  7.45 MB  1453 kb/s  h264 High yuv420p
+  QR in the 9x16 cut at 34 s reads: https://halom.io/mana/view/?demo=olea
+  review/v2/film/sheet-9x16.jpg  (shots: paper at 2 s, scan at 6.5 s, menu at 11 s, relief at 15.5 s, guest at 22.5 s, numbers at 29.5 s, qr at 34 s, end at 38.5 s)
+review/v2/film/guest-24s.jpg  (the open sheet in the guest shot at 24 s: the wide cut, then the tall cut)
+site/img/film-16x9-en.mp4  1920×1080  41 s  30/1 fps  7.42 MB  1448 kb/s  h264 High yuv420p
+site/img/film-9x16-en.mp4  1080×1920  41 s  30/1 fps  7.45 MB  1453 kb/s  h264 High yuv420p
+site/img/hero.mp4  390×844  9 s  30/1 fps  1.21 MB  1077 kb/s  h264 High yuv420p
+site/img/hero-en.mp4  390×844  9.2 s  30/1 fps  2.1 MB  1824 kb/s  h264 High yuv420p
+site/img/hero-poster.jpg  720×1558  93 kB
+site/img/hero-poster-480.jpg  480×1038  58 kB
+exit 0
+
+--- node tools/film/proof.mjs --lang en ---
+site/img/film-16x9-en.mp4  1920×1080  41 s  30/1 fps  7.42 MB  1448 kb/s  h264 High yuv420p
+  QR in the 16x9 cut at 34 s reads: https://halom.io/mana/view/?demo=olea
+  review/v2/film/sheet-16x9-en.jpg  (shots: paper at 2 s, scan at 6.5 s, menu at 11 s, relief at 15.5 s, guest at 22.5 s, numbers at 29.5 s, qr at 34 s, end at 38.5 s)
+site/img/film-9x16-en.mp4  1080×1920  41 s  30/1 fps  7.45 MB  1453 kb/s  h264 High yuv420p
+  QR in the 9x16 cut at 34 s reads: https://halom.io/mana/view/?demo=olea
+  review/v2/film/sheet-9x16-en.jpg  (shots: paper at 2 s, scan at 6.5 s, menu at 11 s, relief at 15.5 s, guest at 22.5 s, numbers at 29.5 s, qr at 34 s, end at 38.5 s)
+review/v2/film/guest-24s-en.jpg  (the open sheet in the guest shot at 24 s: the wide cut, then the tall cut)
+site/img/film-16x9.mp4  1920×1080  41 s  30/1 fps  7.41 MB  1446 kb/s  h264 High yuv420p
+site/img/film-9x16.mp4  1080×1920  41 s  30/1 fps  7.45 MB  1453 kb/s  h264 High yuv420p
+site/img/hero.mp4  390×844  9 s  30/1 fps  1.21 MB  1077 kb/s  h264 High yuv420p
+site/img/hero-en.mp4  390×844  9.2 s  30/1 fps  2.1 MB  1824 kb/s  h264 High yuv420p
+site/img/hero-poster.jpg  720×1558  93 kB
+site/img/hero-poster-480.jpg  480×1038  58 kB
+exit 0

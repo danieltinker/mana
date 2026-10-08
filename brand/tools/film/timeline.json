@@ -1,0 +1,25 @@
+{
+  "note": "Mana selling film, 41 s, silent. One timeline for both cuts (16:9 and 9:16). Each shot names a clip: a file clips/<clip>.(mp4|webm|mov|jpg|png) is used when it exists, otherwise the placeholder of the same name, drawn from today's pictures and marked PLACEHOLDER. Times are seconds.",
+  "fps": 30,
+  "fade": 0.4,
+  "formats": { "16x9": [1920, 1080], "9x16": [1080, 1920] },
+  "shots": [
+    { "id": "paper", "start": 0, "dur": 4, "kind": "full", "clip": "menu-paper", "captionAt": "top",
+      "caption": { "he": "התפריט שלכם, כמו שהוא.", "en": "Your menu, as it is." } },
+    { "id": "scan", "start": 4, "dur": 5, "kind": "phone", "clip": "owner-scan",
+      "caption": { "he": "מצלמים אותו פעם אחת.", "en": "Photograph it once." } },
+    { "id": "menu", "start": 9, "dur": 4, "kind": "phone", "clip": "owner-menu",
+      "caption": { "he": "המנות נטענות לבד.", "en": "The dishes load themselves." } },
+    { "id": "relief", "start": 13, "dur": 5, "kind": "phone", "clip": "owner-relief",
+      "caption": { "he": "תמונה אחת הופכת לתבליט.", "en": "One photo becomes a relief." } },
+    { "id": "guest", "start": 18, "dur": 9, "kind": "phone", "clip": "guest-glide", "big": true,
+      "caption": { "he": "הסועדים רואים את המנה לפני שמזמינים.", "en": "Guests see the dish before they order." },
+      "note": { "he": "תפריט הדגמה · תמונות להמחשה", "en": "Demo menu · sample pictures" } },
+    { "id": "numbers", "start": 27, "dur": 5, "kind": "phone", "clip": "owner-dashboard",
+      "caption": { "he": "ואתם רואים מה הם פתחו.", "en": "And you see what they opened." } },
+    { "id": "qr", "start": 32, "dur": 4, "kind": "full", "clip": "qr-table", "captionAt": { "16x9": "bottom", "9x16": "top" },
+      "caption": { "he": "קוד אחד על השולחן.", "en": "One code on the table." } },
+    { "id": "end", "start": 36, "dur": 5, "kind": "end",
+      "caption": { "he": "30 יום חינם", "en": "Free for 30 days" } }
+  ]
+}
