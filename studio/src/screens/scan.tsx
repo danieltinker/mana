@@ -2,14 +2,16 @@
 // and one button adds them to the menu. Nothing is written before that button.
 import { useEffect, useState } from 'preact/hooks';
 import { t, tn, errText } from '../lib/i18n.ts';
-import { D, toast } from '../lib/store.ts';
+import { D, toast, signOut } from '../lib/store.ts';
 import { scan, cancelScan, retryScan, editRow, editSection, setSkipDup, addScanned, countRows, duplicates, toAdd, isDuplicate, type Row, type Sec } from '../lib/scan.ts';
 import { stockThumb, stock } from '../lib/stock.ts';
 import { Btn, IconBtn, Note, Seg, Sticky, Icon, go } from '../ui.tsx';
 import { startScanFlow } from './menu.tsx';
 
-// what the owner can do about each way a scan can fail: read the page again, or paste the list instead
-const RETRY = ['bad_image', 'too_big', 'not_a_menu', 'unreadable', 'empty', 'busy', 'timeout', 'network'];
+// what the owner can do about each way a scan can fail: another picture (AGAIN), the same picture once more (SAME: the picture
+// was fine, the connection or the service was not), sign in again, or paste the list instead (everything that is on our side)
+const AGAIN = ['bad_image', 'heic', 'too_big', 'not_a_menu', 'unreadable', 'empty'];
+const SAME = ['busy', 'timeout', 'network'];
 
 function Thumb({ id }: { id: string | null }) {
   void stock.value.status;
@@ -74,8 +76,9 @@ export function ScanScreen() {
           <div class="scan-error" data-scan-error={s.error}>
             <span class="empty-ico"><Icon name="scan" size={28} /></span>
             <p class="strong">{errText(s.error, 'scan.e')}</p>
-            {RETRY.includes(s.error)
-              ? <Btn kind="primary" icon="refresh" onClick={() => (s.error === 'network' || s.error === 'busy' || s.error === 'timeout' ? retryScan() : (cancelScan(), go('menu'), setTimeout(startScanFlow, 50)))} data-action="scan-again">{t('scan.again')}</Btn>
+            {SAME.includes(s.error) ? <Btn kind="primary" icon="refresh" onClick={() => retryScan()} data-action="scan-again">{t('scan.again')}</Btn>
+              : AGAIN.includes(s.error) ? <Btn kind="primary" icon="refresh" onClick={() => { cancelScan(); go('menu'); setTimeout(startScanFlow, 50); }} data-action="scan-again">{t('scan.again')}</Btn>
+              : s.error === 'signed_out' ? <Btn kind="primary" onClick={() => { cancelScan(); void signOut(); }} data-action="scan-signin">{t('scan.signIn')}</Btn>
               : <Btn kind="primary" icon="paste" onClick={() => { cancelScan(); go('menu'); }} data-action="scan-paste">{t('scan.pasteInstead')}</Btn>}
           </div>
         )}

@@ -30,8 +30,11 @@ export async function setup(opts = {}) {
   return { stack, browser };
 }
 /** Switches of the stack's stand-ins (see test/stack/ai-standin.mjs); `{ ai: 'reset' }` puts the scanner back to its defaults. */
-export const stackConfig = (patch) => fetch(stack.API_URL + '/__test/config', { method: 'POST', body: JSON.stringify(patch) }).then((r) => r.json());
-export const aiCalls = () => fetch(stack.API_URL + '/__test/ai').then((r) => r.json());
+// One more try for the calls to the test gateway: Node keeps its connection open between calls, and a call that lands just as
+// the gateway closes an idle connection fails with "fetch failed" (seen on a busy machine). Both calls are safe to repeat.
+const again = (fn) => fn().catch((e) => { console.error('test gateway call repeated after:', e?.cause?.code || e?.cause?.message || e?.message); return fn(); });
+export const stackConfig = (patch) => again(() => fetch(stack.API_URL + '/__test/config', { method: 'POST', body: JSON.stringify(patch) }).then((r) => r.json()));
+export const aiCalls = () => again(() => fetch(stack.API_URL + '/__test/ai').then((r) => r.json()));
 export async function teardown() {
   try { await browser?.close(); } catch { /* already closed */ }
   await stack?.stop();

@@ -7,6 +7,8 @@
 //
 // Needs the secret ANTHROPIC_API_KEY (Supabase → Edge Functions → Secrets). Without it every action answers
 // "not_configured" and the app falls back to typing or pasting the menu.
+// A key that is not tied to one workspace also needs the secret ANTHROPIC_WORKSPACE_ID (wrkspc_…, from Claude Console →
+// Settings → Workspaces): the API refuses such a key with a 400 unless every request names the workspace.
 //
 //   { action: "status" }                                     → { ok, configured }
 //   { action: "scan_menu", business_id, image, langs?, stock? }
@@ -31,6 +33,12 @@ const ndjsonHeaders = { ...cors, "Content-Type": "application/x-ndjson; charset=
 const ndjsonError = (code: string) => new Response(JSON.stringify({ t: "error", code }) + String.fromCharCode(10), { headers: ndjsonHeaders });
 
 const API = "https://api.anthropic.com/v1/messages";
+function apiHeaders(key: string): Record<string, string> {
+  const h: Record<string, string> = { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" };
+  const ws = (Deno.env.get("ANTHROPIC_WORKSPACE_ID") || "").trim();
+  if (ws) h["anthropic-workspace-id"] = ws;
+  return h;
+}
 const SCAN_MODEL = () => Deno.env.get("MANA_SCAN_MODEL") || "claude-sonnet-5-5";
 const DISH_MODEL = () => Deno.env.get("MANA_DISH_MODEL") || "claude-haiku-4-5-20251001";
 const MEDIA = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -116,11 +124,24 @@ async function takeAllowance(req: Request, business: string, kind: string): Prom
   }
 }
 
-function upstreamCode(status: number): string {
-  if (status === 401 || status === 403) return "bad_key";
-  if (status === 429 || status === 529 || status === 503) return "busy";
-  if (status === 400 || status === 413) return "bad_image";
-  return "upstream";
+// What a refusal from the API means for the owner. A 400 is NOT "a bad picture" by itself: the API also answers 400 for a key
+// that names no workspace, for a spend limit that was reached and for a request it does not accept (seen on 11 Oct 2026: a key
+// without a workspace made every scan say "this file is not a picture"). Only a 400 that talks about the image is the image's fault.
+//   bad_key = our key, billing or permissions · busy = try again in a minute · bad_image / too_big = this picture · upstream = anything else
+function upstreamError(status: number, bodyText: string): { code: string; kind: string } {
+  let kind = "", msg = "";
+  try { const e = JSON.parse(bodyText)?.error; kind = typeof e?.type === "string" ? e.type : ""; msg = typeof e?.message === "string" ? e.message : ""; } catch { /* not JSON (a gateway page) */ }
+  const code = ((): string => {
+    if (status === 401 || status === 402 || status === 403) return "bad_key";
+    if (status === 429 || status === 529 || status === 503) return "busy";
+    if (status === 413) return "too_big";
+    if (status === 400) {
+      if (/workspace|api[ _-]?key|credit|billing|spend|usage limit|organization/i.test(msg)) return "bad_key";
+      if (/image|base64|media[_ ]type|pixels/i.test(msg)) return /exceed|maximum|too large|at most/i.test(msg) ? "too_big" : "bad_image";
+    }
+    return "upstream";
+  })();
+  return { code, kind: kind.replace(/[^a-z_]/g, "").slice(0, 40) };
 }
 
 async function* sseEvents(body: ReadableStream<Uint8Array>) {
@@ -193,7 +214,7 @@ function scanMenu(key: string, business: string, image: { media_type: string; da
   };
 
   const work = (async () => {
-    let cats = 0, items = 0, line = "", stop = "", usageIn = 0, usageOut = 0, failed = false, lang = "", timedOut = false;
+    let cats = 0, items = 0, line = "", stop = "", usageIn = 0, usageOut = 0, failed = false, lang = "", timedOut = false, said = "";
     const timer = setTimeout(() => { timedOut = true; ac.abort(); }, SCAN_DEADLINE_MS);
     const handleLine = async (raw: string) => {
       let s = raw.trim();
@@ -204,7 +225,7 @@ function scanMenu(key: string, business: string, image: { media_type: string; da
       try { o = JSON.parse(s); } catch { return; }
       if (!o || typeof o !== "object") return;
       if (typeof o.error === "string") {
-        if (!items && !cats) { failed = true; await send({ t: "error", code: o.error === "not_a_menu" ? "not_a_menu" : "unreadable" }); }
+        if (!items && !cats) { failed = true; said = o.error === "not_a_menu" ? "not_a_menu" : "unreadable"; await send({ t: "error", code: said }); }
         return;
       }
       if (typeof o.lang === "string" && !("n" in o) && !("c" in o)) {
@@ -236,7 +257,7 @@ function scanMenu(key: string, business: string, image: { media_type: string; da
       const up = await fetch(API, {
         method: "POST",
         signal: ac.signal,
-        headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        headers: apiHeaders(key),
         body: JSON.stringify({
           model: SCAN_MODEL(),
           max_tokens: 16000,
@@ -253,9 +274,11 @@ function scanMenu(key: string, business: string, image: { media_type: string; da
       });
       if (!up.ok || !up.body) {
         const txt = await up.text().catch(() => "");
-        console.error("anthropic scan", up.status, txt.slice(0, 600));
-        failed = true;
-        await send({ t: "error", code: upstreamCode(up.status) });
+        const why = upstreamError(up.status, txt);
+        console.error("anthropic scan", up.status, "→", why.code, txt.slice(0, 600));
+        failed = true; said = why.code;
+        // upstream / kind are for the app's console only (the HTTP status and error type of the API; never its message)
+        await send({ t: "error", code: why.code, upstream: up.status, kind: why.kind });
         return;
       }
       for await (const ev of sseEvents(up.body)) {
@@ -273,22 +296,22 @@ function scanMenu(key: string, business: string, image: { media_type: string; da
           usageOut = ev.usage?.output_tokens ?? usageOut;
         } else if (ev.type === "error") {
           console.error("anthropic stream error", JSON.stringify(ev.error ?? {}).slice(0, 400));
-          if (!items) { failed = true; await send({ t: "error", code: ev.error?.type === "overloaded_error" ? "busy" : "upstream" }); }
+          if (!items) { failed = true; said = ev.error?.type === "overloaded_error" ? "busy" : "upstream"; await send({ t: "error", code: said }); }
           stop = stop || "error";
         }
         if (gone) break;
       }
       if (line.trim()) await handleLine(line);
       if (!failed) {
-        if (!items) await send({ t: "error", code: stop === "refusal" ? "unreadable" : "empty" });
+        if (!items) { said = stop === "refusal" ? "unreadable" : "empty"; await send({ t: "error", code: said }); }
         else await send({ t: "done", cats, items, lang, truncated: stop === "max_tokens" || stop === "error", usage: { in: usageIn, out: usageOut } });
       }
     } catch (e) {
       if (timedOut && items) await send({ t: "done", cats, items, lang, truncated: true, usage: { in: usageIn, out: usageOut } });
-      else if (!gone) { console.error("scan failed", String(e)); await send({ t: "error", code: timedOut ? "timeout" : "upstream" }); }
+      else if (!gone) { console.error("scan failed", String(e)); said = timedOut ? "timeout" : "upstream"; await send({ t: "error", code: said }); }
     } finally {
       clearTimeout(timer);
-      console.log(JSON.stringify({ fn: "scan_menu", business, model: SCAN_MODEL(), cats, items, in: usageIn, out: usageOut, stop, ms: Date.now() - t0, gone }));
+      console.log(JSON.stringify({ fn: "scan_menu", business, model: SCAN_MODEL(), cats, items, in: usageIn, out: usageOut, stop, ms: Date.now() - t0, gone, error: said || undefined, b64: image.data.length }));
       try { await w.close(); } catch { /* the reader left */ }
     }
   })();
@@ -313,7 +336,7 @@ async function describeDish(key: string, business: string, image: { media_type: 
   try {
     r = await fetch(API, {
       method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: apiHeaders(key),
       body: JSON.stringify({
         model: DISH_MODEL(),
         max_tokens: 600,
@@ -348,8 +371,10 @@ async function describeDish(key: string, business: string, image: { media_type: 
     return json({ ok: false, code: "upstream" });
   }
   if (!r.ok) {
-    console.error("anthropic describe", r.status, (await r.text().catch(() => "")).slice(0, 600));
-    return json({ ok: false, code: upstreamCode(r.status) });
+    const txt = await r.text().catch(() => "");
+    const why = upstreamError(r.status, txt);
+    console.error("anthropic describe", r.status, "→", why.code, txt.slice(0, 600));
+    return json({ ok: false, code: why.code, upstream: r.status, kind: why.kind });
   }
   const d = await r.json().catch(() => null);
   const block = Array.isArray(d?.content) ? d.content.find((b: Record<string, unknown>) => b?.type === "tool_use") : null;
@@ -385,11 +410,15 @@ Deno.serve(async (req: Request) => {
   const business = String(body.business_id ?? "");
   if (!UUID.test(business)) return fail("bad_request");
   const image = cleanImage(body.image, action === "scan_menu" ? MAX_SCAN_B64 : MAX_DISH_B64);
-  if (typeof image === "string") return fail(image);
+  if (typeof image === "string") {
+    const im = (body.image && typeof body.image === "object" ? body.image : {}) as Record<string, unknown>;
+    console.error(JSON.stringify({ fn: action, business, refused: image, media_type: String(im.media_type ?? "").slice(0, 40), b64: typeof im.data === "string" ? im.data.length : -1 }));
+    return fail(image);
+  }
   if (!key) return fail("not_configured");
 
   const allowed = await takeAllowance(req, business, action);
-  if (!allowed.ok) return fail(allowed.code || "failed");
+  if (!allowed.ok) { console.error(JSON.stringify({ fn: action, business, refused: allowed.code || "failed" })); return fail(allowed.code || "failed"); }
 
   const langs = cleanLangs(body.langs);
   const stock = cleanStock(body.stock);

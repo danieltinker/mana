@@ -3,7 +3,7 @@
 import { signal } from '@preact/signals';
 import { AppError, toAppError } from './api.ts';
 import { D, bulkAdd, onReset, type NewSection } from './store.ts';
-import { scanPage, type ScanEvent } from './ai.ts';
+import { scanPage, logAi, type ScanEvent } from './ai.ts';
 import { loadStock, stockLabels, stockForNew, stock, illus } from './stock.ts';
 import { formatMinor, parsePrice } from './money.ts';
 import { norm } from './sums.ts';
@@ -87,9 +87,12 @@ async function run(from: number) {
       if (end.truncated) set({ truncated: true, cut: scan.value!.cut || end.cut });
     } catch (e) {
       if (mine.signal.aborted) return;
-      const code = e instanceof AppError ? e.code : toAppError(e).code;
-      if (code === 'aborted') return;
-      set({ status: countRows(scan.value!) ? 'review' : 'error', error: code === 'unknown' ? 'failed' : code, errorPage: p + 1 });
+      const err = e instanceof AppError ? e : toAppError(e);
+      if (err.code === 'aborted') return;
+      // the screen shows one sentence; the console keeps what really happened (which page, which file, the real error)
+      const f = files[p] as File;
+      logAi(`page ${p + 1} of ${files.length} was not read`, { code: err.code, message: err.message, file: f?.name || '', type: f?.type || '', bytes: f?.size || 0, error: e instanceof AppError ? undefined : `${(e as any)?.name || ''}: ${(e as any)?.message || e}`, stack: e instanceof AppError ? undefined : String((e as any)?.stack || '').slice(0, 600) });
+      set({ status: countRows(scan.value!) ? 'review' : 'error', error: err.code === 'unknown' ? 'failed' : err.code, errorPage: p + 1 });
       return;
     }
   }

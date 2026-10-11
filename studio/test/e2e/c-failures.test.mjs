@@ -412,8 +412,9 @@ test('every way a scan can fail gets one short sentence and one action', async (
   const want = {
     not_a_menu: ['זה לא נראה כמו תפריט. צלמו את דף התפריט עצמו.', 'scan-again'], unreadable: ['לא הצלחנו לקרוא את הצילום. נסו צילום חד וישר, באור טוב.', 'scan-again'],
     empty: ['לא מצאנו מנות בצילום הזה.', 'scan-again'], busy: ['הסורק עמוס כרגע. נסו שוב בעוד דקה.', 'scan-again'], timeout: ['זה לקח יותר מדי זמן. נסו עמוד אחד בכל פעם.', 'scan-again'],
-    too_big: ['התמונה גדולה מדי. צלמו עמוד אחד בכל תמונה.', 'scan-again'], bad_image: ['הקובץ הזה אינו תמונה שאפשר לקרוא.', 'scan-again'],
-    bad_key: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], upstream: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'],
+    too_big: ['התמונה גדולה מדי. צלמו עמוד אחד בכל תמונה.', 'scan-again'],
+    // our key, billing or permissions, or the model's API refusing: the owner is told the fault is ours, not the photo's
+    bad_key: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], upstream: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'],
     failed: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], bad_request: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'],
     limit_ai: ['מספיק סריקות להיום.', 'scan-paste'], not_configured: ['הסורק עוד לא הופעל. בינתיים אפשר להדביק רשימה או להקליד.', 'scan-paste'],
   };
@@ -428,13 +429,57 @@ test('every way a scan can fail gets one short sentence and one action', async (
     await p.getByRole('button', { name: 'סגירה' }).click();
     await p.locator('[data-ways]').waitFor();
   }
+  // "bad_image" from the SERVICE is never the owner's file: the app sent a JPEG it had just made from a picture it could open.
+  // (11 Oct 2026: the deployed function said bad_image when the model's API refused our key, and the owner read "not a picture".)
+  await stackConfig({ ai: { error: 'bad_image' } });
+  await scan(p, photo);
+  await p.locator('[data-scan-error=upstream]').waitFor({ timeout: 20000 });
+  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.');
+  assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), 'scan-paste');
+  await p.getByRole('button', { name: 'סגירה' }).click();
+  await p.locator('[data-ways]').waitFor();
   await stackConfig({ ai: 'reset' });
   // a file that is not a picture never leaves the browser
   const before = (await aiCalls()).length;
   const txt = path.join(OUT, 'notes.txt'); fs.writeFileSync(txt, 'this is not a picture');
   await scan(p, txt);
   await p.locator('[data-scan-error=bad_image]').waitFor({ timeout: 20000 });
+  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'לא הצלחנו לפתוח את הקובץ הזה כתמונה. צלמו את התפריט שוב, או בחרו תמונת JPEG או PNG.');
+  assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), 'scan-again');
   assert.equal((await aiCalls()).length, before, 'nothing was sent');
+  await p.getByRole('button', { name: 'סגירה' }).click();
+  // an iPhone HEIC photo in a browser that cannot open HEIC (this one): its own sentence, with what to do, and nothing is sent
+  const heic = path.join(OUT, 'IMG_0001.HEIC');
+  fs.writeFileSync(heic, Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0]), Buffer.from('mif1heic'), Buffer.alloc(4000, 7)]));
+  await scan(p, heic);
+  await p.locator('[data-scan-error=heic]').waitFor({ timeout: 20000 });
+  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'התמונה שמורה כ־HEIC, והדפדפן הזה לא פותח אותה. צלמו מסך של התמונה ובחרו את צילום המסך, או צלמו את התפריט מכאן.');
+  assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), 'scan-again');
+  assert.equal((await aiCalls()).length, before, 'nothing was sent');
+  await p.getByRole('button', { name: 'סגירה' }).click();
+  // the service's address answers with an HTTP error instead of the function: each one has its own sentence and action
+  for (const [status, code, sentence, action] of [
+    [401, 'signed_out', 'החיבור לחשבון פג. היכנסו שוב.', 'scan-signin'], [413, 'too_big', 'התמונה גדולה מדי. צלמו עמוד אחד בכל תמונה.', 'scan-again'],
+    [500, 'upstream', 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], [504, 'timeout', 'זה לקח יותר מדי זמן. נסו עמוד אחד בכל פעם.', 'scan-again']]) {
+    const answer = (route) => (route.request().postData() || '').includes('"scan_menu"') ? route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"canned"}' }) : route.continue();
+    await p.route('**/functions/v1/menus-ai', answer);
+    await scan(p, photo);
+    await p.locator(`[data-scan-error=${code}]`).waitFor({ timeout: 20000 });
+    assert.equal(await p.locator('[data-scan-error] .strong').innerText(), sentence, 'HTTP ' + status);
+    assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), action, 'HTTP ' + status);
+    await p.unroute('**/functions/v1/menus-ai', answer);
+    await p.getByRole('button', { name: 'סגירה' }).click();
+    await p.locator('[data-ways]').waitFor();
+  }
+  // no connection at all: say so, and "Try again" reads the same picture once the connection is back
+  const drop = (route) => route.abort('internetdisconnected');
+  await p.route('**/functions/v1/menus-ai', drop);
+  await scan(p, photo);
+  await p.locator('[data-scan-error=network]').waitFor({ timeout: 20000 });
+  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'אין חיבור לרשת כרגע. בדקו את החיבור ונסו שוב.');
+  await p.unroute('**/functions/v1/menus-ai', drop);
+  await p.locator('[data-action=scan-again]').click();
+  await p.locator('[data-scan=review]').waitFor({ timeout: 30000 });
   await p.getByRole('button', { name: 'סגירה' }).click();
   // the real daily allowance, counted by the database: the second scan of the day is refused when the limit is one
   sql(`update public.app_config set value = '{"scan_menu": 1, "describe_dish": 500}' where key = 'ai_limits'`);

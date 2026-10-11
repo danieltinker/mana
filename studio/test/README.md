@@ -4,7 +4,8 @@ Three layers. Everything runs on this machine; nothing touches the hosted Supaba
 reach any host but 127.0.0.1.
 
 ```
-npm run test:unit            # prices, menu address, pasted lists, dashboard sums, "what changed", name comparison   ~1 s
+npm run test:unit            # prices, menu address, pasted lists, dashboard sums, "what changed", name comparison,
+                             # what a chosen file really is, and the menus-ai function itself against canned API answers   ~3 s
 node test/check-i18n.mjs     # every t('key') in the sources exists in both languages
 npm run build && npm run test:e2e    # browser tests against the local stack below               ~25 min on 2 cores
 node test/shots.mjs          # the screenshot tour into .shots/v2/                               ~3 min
@@ -83,7 +84,7 @@ viewer's WebGL runs. Each file starts its own stack. Screenshots and logs land i
 |---|---|
 | `a-journey.test.mjs` | One owner, 390 px, Hebrew: "Continue" with an e-mail makes the account → the place in one field → the menu scanned from a photo (stand-in), reviewed, added → dish sheet, paste, type → illustrations on → **one real photo through the real generator**, reviewed and approved → publish → the viewer and the QR (PNG and SVG decoded) → guests arrive (`open_menu`, `track_item` through PostgREST) → the dashboard shows their numbers → sold out, update, restore, offline. `JOURNEY_GEN=fake` swaps the generator for quick runs |
 | `b-isolation.test.mjs` | A second account cannot read or change the first one's rows, files, versions, plan or numbers (`my_stats`, the count tables, `approve_asset`, `ai_take`, the scanner with another owner's business), by direct calls and through the app; account switch in one browser; two businesses on one account |
-| `c-failures.test.mjs` | Picture failures (`no_dish`, `bad_image`, failed upload, cancel, `limit_attempts`, resume after a reload), saves that fail or are refused (said above an open sheet), limits, empty menu, ended trial, a browser without the studio, a failed studio download, start-screen errors, provider buttons per config and the PKCE redirect, every scanner error code, a cut stream, several pages, duplicates, an English menu, "suggest from the photo" filling only empty fields |
+| `c-failures.test.mjs` | Picture failures (`no_dish`, `bad_image`, failed upload, cancel, `limit_attempts`, resume after a reload), saves that fail or are refused (said above an open sheet), limits, empty menu, ended trial, a browser without the studio, a failed studio download, start-screen errors, provider buttons per config and the PKCE redirect, every scanner error code, a HEIC photo this browser cannot open, HTTP errors and no connection on the scanner's address, a cut stream, several pages, duplicates, an English menu, "suggest from the photo" filling only empty fields |
 | `d-style.test.mjs` | The Style tab keeps what the old "Look" screen did: logo upload, colour (a dark one is brightened and said so), table, languages, names, details, ordering link (https only), phone; the draft has them at once and guests after "Update"; taking the menu offline keeps the three tabs |
 | `g-layout.test.mjs` | Hebrew and English at 360 / 390 / 1440 px over every screen and every sheet: no sideways scroll, touch targets ≥ 44 px. Labels, one `h1`, bidi isolation, only local hosts, illustration badges, keyboard reorder, a dish opens and closes without losing the place, the floating preview button never covers the last control, drag to reorder, the phone's camera chooser, review decisions |
 
