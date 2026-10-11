@@ -153,15 +153,26 @@ export function createUI(store, env) {
   }
   /* the card's words change with a short cross-fade and a few pixels of slide, the way the table is moving */
   function setSwap(o, x, y) { const el = $('cardSwap'); el.style.opacity = o >= .999 ? '' : String(o); el.style.transform = (x || y) && !reduce ? 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' : ''; }
+  const HELD = .34;
   function swapCard(s, mx, my) {
     if (cardKey == null || env.instant()) { tweens.cancel('card'); cardPhase = 'idle'; fillCard(s); setSwap(1, 0, 0); return; }
+    /* The table is flying past this dish on its way to another: a fade out and in for every dish passed is a flicker. The card
+       goes down to a dim level once, the names go by on it, and it comes up again for the dish the table lands on. */
+    if (cardPhase === 'held' ? env.landing && !env.landing() : env.flying && env.flying()) {
+      if (cardPhase === 'held') { if (!tweens.active('card')) fillCard(s); return; }
+      const top = parseFloat($('cardSwap').style.opacity || '1'); cardPhase = 'held';
+      tweens.run('card', 70, (k) => setSwap(top + (HELD - top) * k, 0, 0), () => { fillCard(store.getState()); setSwap(HELD, 0, 0); });
+      return;
+    }
     if (cardPhase === 'out') return;                         // already on its way out: the newest dish is written when it has gone
-    const from = cardPhase === 'in' ? Math.max(.2, parseFloat($('cardSwap').style.opacity || '1')) : 1; cardPhase = 'out';
+    const from = cardPhase === 'held' ? HELD : cardPhase === 'in' ? Math.max(.2, parseFloat($('cardSwap').style.opacity || '1')) : 1; cardPhase = 'out';
     tweens.run('card', 64 * from, (k) => setSwap(from * (1 - k), mx * 6 * k, my * 5 * k), () => {
       fillCard(store.getState()); cardPhase = 'in'; if (store.getState().open === 'dish') fit(true);
       tweens.run('card', 96, (k) => setSwap(k, -mx * 6 * (1 - k), -my * 5 * (1 - k)), () => { cardPhase = 'idle'; setSwap(1, 0, 0); });
     }, true);
   }
+  /* a card that was held dim while dishes went by comes up when the table is no longer passing any (it has arrived, or a finger caught it) */
+  function cardLands() { if (cardPhase !== 'held' || (env.landing && !env.landing())) return; cardPhase = 'in'; fillCard(store.getState()); tweens.run('card', 110, (k) => setSwap(HELD + (1 - HELD) * k, 0, 0), () => { cardPhase = 'idle'; setSwap(1, 0, 0); }); }
   function render(s, prev, meta) {
     const m = model(), v = select(s, m); if (!v.cat) return;
     const full = !prev || prev.lang !== s.lang || builtLang !== s.lang || builtRev !== m;
@@ -278,6 +289,14 @@ export function createUI(store, env) {
     if (el.getAttribute('src') !== src) el.src = src;
     el.style.left = rect[0] + 'px'; el.style.top = rect[1] + 'px'; el.style.width = rect[2] + 'px'; el.style.height = rect[3] + 'px'; el.style.opacity = '1'; el.style.filter = 'blur(5px)'; el.hidden = false;
   }
+  /* Reduced motion: the table does not travel to another section or to the bar. The picture as it stood (handed over by the
+     stage, just drawn) lies over the scene for a moment and fades: a plain cross-fade to wherever the guest now is. */
+  function cut(picture) {
+    const el = $('cut'); if (!el || env.instant()) return;
+    try { el.width = picture.width; el.height = picture.height; el.getContext('2d').drawImage(picture, 0, 0); } catch (e) { return; }
+    el.hidden = false; el.style.opacity = '1';
+    tweens.run('cut', 280, (k) => { el.style.opacity = String((1 - k).toFixed(3)); }, () => { el.hidden = true; el.width = el.height = 1; }, true);
+  }
   /* the first-visit hint: a hand that shows the glide once. It is drawn by the clock, never by CSS. */
   function hint(on, dir) {
     const el = $('hint'); if (on === hintOn) return; hintOn = on;
@@ -327,7 +346,7 @@ export function createUI(store, env) {
 
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (frame) { fitTo = 0; fit(false); } });      // the words may wrap differently once their own letters have arrived
 
-  return { render, layout, setLift, sheet: () => fitTo, standin, hint, edge, finger, renderNotice, t, rows,
+  return { render, layout, setLift, sheet: () => fitTo, standin, hint, edge, finger, cut, cardLands, renderNotice, t, rows,
     setNotice(n) { notice = n; renderNotice(); }, rebuild() { builtLang = null; cardKey = null; },
     isModal: () => listOpen || trayOpen };
 }

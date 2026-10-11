@@ -115,7 +115,7 @@ test('the glide: the table follows a scripted finger exactly, the card changes a
   /* back again: push the table away */
   await drag(page, [x, 500], [x, 500 - 70], { steps: 4, ms: 16 }); await settle(page, 60); assert.equal((await info(page)).p, i.p - 1);
   /* only the dishes near the camera exist, and what was left behind has been let go */
-  i = await info(page); assert.ok(i.actors.length <= 8 && i.actors.every((a) => Math.abs(a.i - i.p) <= 4.4), 'actors: ' + i.actors.map((a) => a.i)); assert.ok(i.textures <= 2 * (8 + 10), 'pictures on the GPU: ' + i.textures);
+  i = await info(page); assert.ok(i.actors.length <= 8 && i.actors.filter((a) => !a.guest).every((a) => Math.abs(a.i - i.p) <= 4.4), 'actors: ' + i.actors.map((a) => a.i)); assert.ok(i.textures <= 2 * (8 + 10), 'pictures on the GPU: ' + i.textures);
   /* a tap on the dish further up glides to it; a tap on the dish in focus lifts it */
   await d(page, { type: 'focus', id: 'labaneh' }); await settle(page, 80); i = await info(page); const up = i.hot.find((h) => h.id === 'hummus');
   await page.evaluate(([px_, y]) => { window.__mana.pointer('down', px_, y); window.__mana.pointer('up', px_, y); }, [up.cx, up.cy + up.ry * .5]);
@@ -125,7 +125,7 @@ test('the glide: the table follows a scripted finger exactly, the card changes a
   assert.deepEqual(errors, []); await ctx.close();
 });
 
-test('categories: a sideways swipe or a chip walks on along the SAME table, past the section\'s name; nothing goes dark; only the bar is another room', async () => {
+test('categories: a sideways swipe or a chip walks on along the SAME table, past the section\'s name; nothing goes dark, on the way to the bar either', async () => {
   const { page, errors, ctx } = await open(browser, demo(T + PULL + '&lang=en'));
   await tableUp(page);
   const f = (await info(page)).frame, x = f.cx, lane0 = (await info(page)).lane.x;
@@ -146,15 +146,15 @@ test('categories: a sideways swipe or a chip walks on along the SAME table, past
   await page.click('.chip[data-id="starters"]'); assert.equal((await st(page)).itemId, 'labaneh'); await settle(page, 80);
   /* the walk: at the last dish, a flick onwards is the next category; before the first dish of that, a flick back is the last dish again */
   await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); assert.equal((await info(page)).p, 8);
-  await drag(page, [x, 300], [x, 300 + 150], { steps: 12, release: false }); await tick(page, 1, 0, true);
-  i = await info(page); assert.ok(i.p > 8.2 && i.p < 8.85, 'past the last dish the table stretches: ' + i.p); assert.equal(await text(page, '#edgeTxt'), 'Mains', 'and says where the walk goes on');
-  await page.evaluate(([px_, y]) => { window.__mana.tick(8, .016, false); window.__mana.pointer('up', px_, y); }, [x, 450]);
+  await drag(page, [x, 300], [x, 300 + 170], { steps: 12, release: false }); await tick(page, 1, 0, true);
+  i = await info(page); assert.ok(i.p > 8.22 && i.p < 8.85, 'past the last dish the table stretches: ' + i.p); assert.equal(await text(page, '#edgeTxt'), 'Mains', 'and says where the walk goes on');
+  await page.evaluate(([px_, y]) => { window.__mana.tick(8, .016, false); window.__mana.pointer('up', px_, y); }, [x, 470]);
   s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle'); assert.equal((await info(page)).p, 0); assert.equal(await page.isVisible('#edge'), true);
   await settle(page, 60); await tick(page, 1, .03, true); assert.equal(await page.isVisible('#edge'), false);
   await drag(page, [x, 500], [x, 500 - 70], { steps: 4, ms: 16 });                           // push the table away at its first dish
   s = await st(page); assert.equal(s.categoryId, 'starters'); assert.equal(s.itemId, 'bread', 'backwards you arrive at the last dish'); assert.equal((await info(page)).p, 8);
-  /* from the food table to the bar and back: the surface changes in the dark */
-  await settle(page, 60); await page.click('.chip[data-id="wine"]'); await tick(page, 4, .03); i = await info(page); assert.ok(i.lampK < .5, 'into another room: here the lamp does go down, ' + i.lampK); assert.deepEqual(i.titles, []); await settle(page, 120); i = await info(page); assert.equal(i.scene, 'bar'); assert.equal(i.lampK, 1); assert.ok(i.fade > .95); assert.deepEqual(i.actors.map((a) => a.type), ['drink', 'drink', 'drink', 'drink']);
+  /* from the food table to the bar: another room, reached in the same kind of move (its own test is below) */
+  await settle(page, 60); await page.click('.chip[data-id="wine"]'); await tick(page, 4, .03); i = await info(page); assert.equal(i.lampK, 1, 'the lamp stays up on the way to the bar too'); assert.ok(i.edge && i.edge.to === 'bar' && Math.abs(i.walkOn) > 1, 'the camera travels there: ' + i.walkOn); assert.deepEqual(i.titles, []); await settle(page, 160); i = await info(page); assert.equal(i.scene, 'bar'); assert.equal(i.lampK, 1); assert.ok(i.fade > .95); assert.deepEqual(i.actors.map((a) => a.type), ['drink', 'drink', 'drink', 'drink']); assert.equal(i.edge, null);
   await d(page, { type: 'end' }); await d(page, { type: 'end' }); await settle(page, 120); s = await st(page); assert.equal(s.itemId, 'mojito');
   await drag(page, [x, 300], [x, 300 + 70], { steps: 4, ms: 16 }); await settle(page, 60); assert.equal((await st(page)).itemId, 'mojito', 'the end of the menu: it bounces and stays'); assert.equal((await info(page)).p, 3);
   assert.deepEqual(errors, []); await ctx.close();
@@ -333,6 +333,7 @@ test('demo and preview are never counted; the demo says so and leads back to the
 });
 
 test('Hebrew and English: direction, mirrored layout, the next section along the same table with its name in that language', async () => {
+  const lie = {};
   for (const lang of ['he', 'en']) {
     const { page, errors, ctx } = await open(browser, demo(T + (lang === 'en' ? '&lang=en' : '')));
     await tableUp(page); const rtl = lang === 'he';
@@ -341,7 +342,7 @@ test('Hebrew and English: direction, mirrored layout, the next section along the
     const geo = await page.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); return { w: innerWidth, name: r('bizName'), tray: r('trayBtn'), chip: document.querySelector('.chip').getBoundingClientRect(), price: r('dPrice'), title: r('dName'), add: r('addBtn') }; });
     if (rtl) assert.ok(geo.name.right > geo.w - 130 && geo.tray.left < 40 && geo.chip.right > geo.w - 30 && geo.price.left < geo.title.left && geo.add.left < 40, 'mirrored');
     else assert.ok(geo.name.left < 130 && geo.tray.right > geo.w - 40 && geo.chip.left < 30 && geo.price.left > geo.title.left && geo.add.right > geo.w - 40);
-    const lane0 = (await info(page)).lane.x, side = (await info(page)).actors.map((a) => Math.sign(a.x - lane0)); assert.deepEqual(side, rtl ? [1, -1, 1, -1] : [-1, 1, -1, 1], lang + ': the places are mirrored too');
+    const lane0 = (await info(page)).lane.x; lie[lang] = (await info(page)).actors.map((a) => +(a.x - lane0).toFixed(2)); assert.ok(lie[lang].every((x) => Math.abs(x) <= .05), lang + ': one straight row down the middle of the table: ' + lie[lang]);
     await drag(page, [195, 400], [195 + (rtl ? 120 : -120), 404], { steps: 6, ms: 16 });       // Hebrew: finger right = next
     assert.equal((await st(page)).categoryId, 'mains', lang + ': the swipe towards the start of the line brings the next category'); const lane1 = (await info(page)).lane.x;
     assert.ok(Math.abs(lane1 - lane0) < .01, lang + ': the next section is further along the same table'); assert.deepEqual((await info(page)).titles.map((t) => t.text), [rtl ? 'עיקריות' : 'Mains'], lang + ': its name is lettered on the table');
@@ -349,6 +350,7 @@ test('Hebrew and English: direction, mirrored layout, the next section along the
     await page.keyboard.press('ArrowDown'); assert.equal((await st(page)).itemId, 'tortellini', 'down is always the next dish');
     assert.deepEqual(errors, []); await ctx.close();
   }
+  assert.deepEqual(lie.he, lie.en.map((x) => (x === 0 ? 0 : -x)), 'what little a hand missed the line by is mirrored too');
 });
 
 test('keys: arrows, Page Up/Down, Home/End glide; Enter lifts; Tab reaches every control with a visible focus', async () => {
@@ -373,6 +375,98 @@ test('keys: arrows, Page Up/Down, Home/End glide; Enter lifts; Tab reaches every
   assert.deepEqual(errors, []); await ctx.close();
 });
 
+test('a set table: the row is straight and the camera does not sway on the way; the dish the table settles on comes up, and goes down as it moves on', async () => {
+  const { page, errors, ctx } = await open(browser, demo(T + '&lang=en', '#c=starters&i=chopped-salad'));
+  await tableUp(page); await tick(page, 30, .03);
+  let i = await info(page); const f = i.frame, x0 = i.cam.line, hero = () => actor(page, 'chopped-salad');
+  assert.ok(i.actors.every((a) => Math.abs(a.x - i.lane.x) <= .05), 'every dish on the line'); assert.ok((await hero()).near > .98, 'at rest the dish in focus has come up: ' + (await hero()).near); assert.ok(i.actors.filter((a) => a.id !== 'chopped-salad').every((a) => a.near === 0));
+  const zs = i.actors.map((a) => a.z); for (let k = 1; k < zs.length; k++) assert.ok(Math.abs(zs[k] - zs[k - 1] - f.S) < .1, 'plates stand a plate and a rim apart: ' + (zs[k] - zs[k - 1]).toFixed(2));
+  assert.ok((await hero()).light > .99 && i.actors.filter((a) => Math.abs(a.i - 2) === 1).every((a) => a.light > .35 && a.light < .7), 'the lamp is on the dish in focus; its neighbours wait in half light: ' + i.actors.map((a) => a.light));
+  /* a slow drag: it sets down as it leaves the line, the next one comes up as it arrives; the camera keeps to the middle of the table */
+  const xs = [], lifts = []; await page.evaluate(([x, y]) => window.__mana.pointer('down', x, y), [f.cx, 520]);
+  for (let k = 1; k <= 14; k++) { await page.evaluate(([x, y]) => { window.__mana.pointer('move', x, y); window.__mana.tick(1, .03, false); }, [f.cx, 520 - k * 20]); i = await info(page); xs.push(i.cam.line); lifts.push([i.p, (await hero()).near, (await actor(page, 'artichoke')).near]); }
+  assert.ok(Math.max(...xs.map((x) => Math.abs(x - x0))) < 1e-6 && Math.abs(x0 - i.lane.x) < 1e-6, 'the line the camera follows is the middle of the table, all the way: ' + xs.map((x) => (x - x0).toFixed(3)));
+  const half = lifts.find((l) => l[0] > 2.45 && l[0] < 2.75); assert.ok(half && half[1] < .45 && half[2] < .35 && lifts.every((l, k) => !k || l[1] <= lifts[k - 1][1] + 1e-9), 'half way between two dishes the one we leave is nearly down, the next is not up yet: ' + JSON.stringify(half));
+  await page.evaluate(([x, y]) => { window.__mana.tick(10, .03, false); window.__mana.pointer('up', x, y); }, [f.cx, 240]); await settle(page, 80); await tick(page, 30, .03);
+  i = await info(page); assert.equal(i.p, 3); assert.ok((await actor(page, 'artichoke')).near > .98 && (await hero()).near === 0, 'the next dish is up now, the last one is back on the table');
+  /* a hard flick: nothing comes up while the table flies; the dish it lands on does */
+  await drag(page, [f.cx, 560], [f.cx, 560 - 300], { steps: 5, ms: 14 }); await tick(page, 3, .03); i = await info(page); assert.equal(i.mode, 'settle'); assert.ok(i.actors.every((a) => a.near < .3), 'in flight: ' + i.actors.map((a) => a.near));
+  await settle(page, 90); await tick(page, 30, .03); i = await info(page); const landed = i.actors.find((a) => a.i === i.p); assert.ok(i.p >= 6 && landed.near > .98 && i.actors.filter((a) => a !== landed).every((a) => a.near === 0));
+  assert.ok(i.cam.zoom > .999, 'and the camera has come back in: ' + i.cam.zoom);
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('one long table laid in courses: near the end of a section the next one is already there, its name lettered in the gap; walking on, nothing is laid again', async () => {
+  const { page, errors, ctx } = await open(browser, demo(T + '&lang=en', '#c=starters&i=caesar'));
+  await tableUp(page); let i = await info(page); const f = i.frame, x = f.cx, own = (j) => j.actors.filter((a) => !a.guest && !a.leaving), beside = (j) => j.actors.filter((a) => a.guest && !a.leaving);
+  assert.deepEqual(beside(i).map((a) => a.id), [], 'in the middle of a section only its own dishes'); assert.deepEqual(i.titles, []); assert.equal(i.actors.length, 7);
+  await d(page, { type: 'focus', id: 'fish-soup' }); await settle(page, 80); i = await info(page);
+  assert.deepEqual(beside(i).map((a) => [a.id, a.cat]), [['pappardelle', 'mains'], ['tortellini', 'mains']], 'two places from the end: the first two mains are on the table'); assert.equal(i.actors.filter((a) => !a.leaving).length, 7, 'never more dishes than in the middle of a section'); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']);
+  const bread = i.actors.find((a) => a.id === 'bread'), first = i.actors.find((a) => a.id === 'pappardelle'), gap = first.z - bread.z, title = i.titles[0].z;
+  assert.ok(gap > f.S * 1.3 && gap < f.S * 1.8, 'a course begins a wider gap further on: ' + gap); assert.ok(title > bread.z + .5 && title < first.z - .5, 'and its name is lettered in that gap');
+  const far = i.actors.find((a) => a.id === 'tortellini'); assert.ok(Math.abs(far.z - first.z - f.S) < .1, 'set like any other row');
+  /* walk on with the finger: the same plates, the same places; the camera only goes on */
+  await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); const z0 = (await info(page)).cam.pos[2];
+  await drag(page, [x, 520], [x, 520 - 70], { steps: 4, ms: 16 }); let s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle'); i = await info(page);
+  const now = i.actors.find((a) => a.id === 'pappardelle'); assert.ok(!now.guest && !now.leaving && Math.abs(now.z - first.z) < 1e-6 && now.vis > .99, 'the first main is the plate that was standing there: it did not blink'); assert.ok(Math.abs(i.cam.pos[2] - z0) < 1.2, 'the camera did not jump: ' + (i.cam.pos[2] - z0)); assert.ok(Math.abs(i.walkOn) > 2.5 && Math.abs(i.walkOn) < 4.6);
+  await settle(page, 120); i = await info(page); assert.equal(i.walkOn, 0); assert.equal(i.p, 0);
+  assert.deepEqual(beside(i).map((a) => a.id).sort(), ['bread', 'croquettes', 'fish-soup'], 'what was left behind is the course before now: the same three plates'); assert.ok(Math.abs(i.actors.find((a) => a.id === 'bread').z - bread.z) < 1e-6); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']);
+  /* and back: the last starter again, where it stood */
+  await drag(page, [x, 300], [x, 300 + 70], { steps: 4, ms: 16 }); s = await st(page); assert.equal(s.itemId, 'bread'); await settle(page, 120); i = await info(page); assert.ok(Math.abs(i.actors.find((a) => a.id === 'bread').z - bread.z) < 1e-6 && i.walkOn === 0 && i.p === 8);
+  /* a tap on a dish of the next course walks on to it */
+  const hot = i.hot.find((h) => h.id === 'pappardelle'); assert.ok(hot, 'the first main can be seen and tapped from the last starter');
+  /* the bar is another room: nothing of it stands on the food table, and the drinks do go on along their own counter */
+  await d(page, { type: 'focus', id: 'chocolate' }); await settle(page, 160); i = await info(page); assert.deepEqual(beside(i).map((a) => a.cat), [], 'after the last dessert the table is bare: the bar is elsewhere');
+  await d(page, { type: 'focus', id: 'wine-sparkling' }); await page.waitForFunction(() => window.__mana.pending() === 0, null, { timeout: 30000 }); await settle(page, 200); i = await info(page);
+  assert.deepEqual(beside(i).map((a) => a.cat), ['beer', 'beer', 'beer'], 'the beers stand further along the same counter'); assert.deepEqual(i.titles.map((t) => t.text), ['Beer']); assert.equal(own(i).length, 4);
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('a hard flick past several dishes: their names go by dimmed, the card does not flash for each; the one it lands on fades in', async () => {
+  const o = await open(browser, demo('&capture=1&pr=0.3&lang=en', '#c=starters&i=labaneh')), page = o.page; await page.evaluate(() => window.__mana.settle());
+  const out = await page.evaluate(async () => { const M = window.__mana, el = document.getElementById('cardSwap'), tr = [], snap = () => { const g = M.glide(); tr.push([+g.p.toFixed(2), g.mode, g.target, el.style.opacity || '1', document.getElementById('dName').textContent]); };
+    await M.frame(0); M.pointer('down', 195, 640); for (let k = 1; k <= 3; k++) { M.pointer('move', 195, 640 - k * k * 44); await M.frame(33.33); } await M.frame(16); M.pointer('up', 195, 244);
+    for (let k = 0; k < 36; k++) { await M.frame(33.33); snap(); } return tr; });
+  const end = out[out.length - 1], flight = out.filter((l) => l[1] === 'settle' && Math.abs(l[2] - l[0]) > .5 && l[4] !== 'Labaneh & olives');      // from the first dish gone by until the one it lands on is nearest
+  assert.ok(end[2] >= 3, 'a hard flick: ' + end[2] + ' dishes'); assert.ok(flight.length >= 3, 'frames in flight: ' + flight.length);
+  assert.ok(flight.slice(2).every((l) => +l[3] <= .35) && flight.every((l) => +l[3] < .9), 'in flight the card stays dim, also just before the last dish: ' + flight.map((l) => l[3])); assert.ok(new Set(flight.map((l) => l[4])).size >= 2, 'and still says which dish is passing');
+  assert.equal(end[1], 'rest'); assert.equal(end[3], '1'); assert.equal(end[4], (await page.evaluate(() => window.__mana.model().cats[0].items.map((it) => it.name.en)))[end[2]], 'the card shows the dish it landed on');
+  assert.deepEqual(o.errors, []); await o.ctx.close();
+});
+
+test('from the table to the bar and back: one move across the dark between two rooms; it can be turned round half way; Back and Hebrew go the same way', async () => {
+  const { page, errors, ctx } = await open(browser, demo(T + '&lang=en', '#c=sweet&i=chocolate'));
+  await tableUp(page); let i = await info(page); assert.equal(i.scene, 'table'); assert.deepEqual(i.rooms, { table: 1, bar: 0 }); assert.equal(i.edge, null); assert.equal(i.bloom && i.drinks.drinks, 0);
+  const loaded = () => page.waitForFunction(() => window.__mana.pending() === 0, null, { timeout: 30000 }), camZ = async () => (await info(page)).cam.pos[2];
+  await page.click('.chip[data-id="wine"]'); i = await info(page); const far = i.walkOn, line = i.edge;
+  assert.equal(i.scene, 'bar'); assert.ok(line && line.to === 'bar', 'a line across the walk: the table on this side of it, the bar beyond'); assert.ok(Math.abs(far) > 4 && Math.abs(far) < 9, 'the first drink stands ' + far + ' along'); assert.equal(i.lampK, 1);
+  assert.ok(i.actors.some((a) => a.id === 'chocolate' && a.leaving && a.left), 'the dessert stays on the table behind us'); assert.equal(i.actors.filter((a) => a.type === 'drink').length, 4, 'the drinks already stand on the counter ahead');
+  /* on the way: both rooms are in the picture, the table going down and the bar coming up; the eye comes down; the camera only goes forward */
+  await loaded(); const way = []; let z = await camZ();
+  for (let k = 0; k < 8; k++) { await tick(page, 2, .03, true); i = await info(page); way.push([i.walkOn, i.rooms.table, i.rooms.bar, i.cam.E]); const z1 = i.cam.pos[2]; assert.ok((z1 - z) * Math.sign(-far) >= -1e-6, 'never backwards: ' + z + ' → ' + z1); z = z1; }
+  assert.ok(way.some((w) => w[1] > .15 && w[2] > .15), 'for a moment both are lit: ' + JSON.stringify(way)); assert.ok(way.every((w, k) => !k || (Math.abs(w[0]) < Math.abs(way[k - 1][0]) && w[1] <= way[k - 1][1] && w[2] >= way[k - 1][2] && w[3] <= way[k - 1][3] + 1e-9)), 'one move, nothing goes back and forth');
+  assert.ok(way[2][3] < 45 && way[2][3] > 31.5, 'the eye is on its way down: ' + way[2][3]); assert.ok((await info(page)).bloom, 'the bar glows');
+  await settle(page, 160); i = await info(page); assert.deepEqual(i.rooms, { table: 0, bar: 1 }); assert.equal(i.edge, null, 'the line has gone: the counter runs on to the back-bar'); assert.equal(i.walkOn, 0); assert.ok(Math.abs(i.cam.E - 31) < .05); assert.deepEqual(i.actors.map((a) => a.type), ['drink', 'drink', 'drink', 'drink'], 'nothing of the table is left');
+  /* back, and turned round half way */
+  await page.click('.chip[data-id="sweet"]'); i = await info(page); assert.equal(i.scene, 'table'); assert.ok(i.edge && i.edge.to === 'table'); assert.ok(Math.sign(i.walkOn) === -Math.sign(far), 'the other way: ' + i.walkOn); const back = i.edge.at;
+  await loaded(); await tick(page, 3, .03, true); i = await info(page); assert.ok(i.rooms.table > .1 && i.rooms.bar > .1 && Math.abs(i.walkOn) > .5 && i.edge.away === 0, 'on the way, not yet over the line: ' + JSON.stringify(i.rooms) + ' ' + i.walkOn);
+  await page.click('.chip[data-id="wine"]'); i = await info(page); assert.equal(i.scene, 'bar'); assert.ok(i.edge.to === 'bar' && Math.abs(i.edge.at - back) < 1e-6, 'turned round: the same line, crossed the other way (' + back + ' → ' + i.edge.at + ')'); assert.ok(Math.abs(i.walkOn) < Math.abs(far), 'and not as far to go: ' + i.walkOn);
+  /* turned round once more, this time after the line was crossed and had begun to draw away: it turns round where it is */
+  await settle(page, 160); await page.click('.chip[data-id="sweet"]'); await loaded(); let over = null; for (let k = 0; k < 30 && !(over && over.away > 0); k++) { await tick(page, 1, .03, true); over = (await info(page)).edge; }
+  assert.ok(over && over.away > 0 && over.to === 'table', 'over the line: it draws away behind us'); await page.click('.chip[data-id="wine"]'); i = await info(page); assert.ok(i.edge.to === 'bar' && i.edge.away === 0 && Math.abs(i.edge.z - over.z) < .01, 'the line does not jump: ' + over.z + ' → ' + i.edge.z);
+  await tick(page, 2, .03, true); await page.click('.chip[data-id="sweet"]'); await tick(page, 2, .03, true); await page.click('.chip[data-id="beer"]'); await tick(page, 2, .03, true); await page.click('.chip[data-id="mains"]');      // and again, faster than anyone would
+  await loaded(); await settle(page, 200); await loaded(); await settle(page, 60); i = await info(page); assert.equal(i.scene, 'table'); assert.deepEqual(i.rooms, { table: 1, bar: 0 }); assert.equal(i.edge, null); assert.equal(i.drinks.drinks, 0); assert.ok(i.heroReady && i.actors.every((a) => !a.leaving || a.left)); assert.equal((await st(page)).itemId, 'pappardelle');
+  /* the Back button: an address further back in the history is another dish; if that dish is in the other room, the same move */
+  await page.evaluate(() => { location.hash = '#c=beer&i=beer-ipa'; }); await page.waitForFunction(() => window.__mana.state().itemId === 'beer-ipa'); i = await info(page); assert.ok(i.edge && i.edge.to === 'bar'); await loaded(); await settle(page, 160);
+  await page.goBack(); await page.waitForFunction(() => window.__mana.state().itemId === 'pappardelle'); i = await info(page); assert.equal(i.scene, 'table'); assert.ok(i.edge && i.edge.to === 'table' && Math.abs(i.walkOn) > 3, 'Back walks back to the table'); await loaded(); await settle(page, 200); assert.deepEqual((await info(page)).rooms, { table: 1, bar: 0 });
+  assert.deepEqual(errors, []); await ctx.close();
+  /* Hebrew: the finger goes the other way, the walk is the same walk */
+  const he = await open(browser, demo(T, '#c=sweet&i=chocolate')); await tableUp(he.page); assert.equal((await st(he.page)).lang, 'he');
+  await drag(he.page, [110, 400], [110 + 130, 404], { steps: 6, ms: 16 }); assert.equal((await st(he.page)).categoryId, 'wine'); i = await info(he.page); assert.ok(i.edge && i.edge.to === 'bar' && Math.sign(i.walkOn) === Math.sign(far) && Math.abs(i.walkOn - far) < .5, 'the same road in Hebrew: ' + i.walkOn + ' / ' + far);
+  await he.page.waitForFunction(() => window.__mana.pending() === 0, null, { timeout: 30000 }); await settle(he.page, 160); assert.deepEqual((await info(he.page)).rooms, { table: 0, bar: 1 });
+  await drag(he.page, [260, 400], [260 - 130, 404], { steps: 6, ms: 16 }); assert.equal((await st(he.page)).categoryId, 'sweet'); assert.equal((await info(he.page)).edge.to, 'table'); assert.deepEqual(he.errors, []); await he.ctx.close();
+});
+
 test('reduced motion: no sway, no travel, no overshoot; things cross-fade in place', async () => {
   const { page, errors, ctx } = await open(browser, demo(T + PULL + '&lang=en'), { reducedMotion: 'reduce' });
   await tableUp(page); let i = await info(page); const cam0 = i.cam.pos;
@@ -385,6 +479,13 @@ test('reduced motion: no sway, no travel, no overshoot; things cross-fade in pla
   await d(page, { type: 'close' }); await tick(page, 2, .016); assert.equal((await info(page)).lift, 0);
   const f = i.frame; await drag(page, [f.cx, 300], [f.cx, 300 + 70], { steps: 4, ms: 16 }); await settle(page, 60); assert.equal((await info(page)).p, 1, 'a finger still glides: the table follows the hand');
   assert.equal(await page.isVisible('#hint'), false); assert.deepEqual(errors, []); await ctx.close();
+  /* to the bar: no travel either. The picture as it was fades over the bar, already in place (the fade runs on the page's one clock) */
+  const o = await open(browser, demo('&capture=1&pr=0.3&lang=en', '#c=sweet&i=chocolate'), { reducedMotion: 'reduce' }); await o.page.evaluate(() => window.__mana.settle());
+  const cut = () => o.page.evaluate(() => { const el = document.getElementById('cut'); return { hidden: el.hidden, opacity: el.hidden ? null : +el.style.opacity, w: el.width }; });
+  assert.equal((await cut()).hidden, true); await o.page.click('.chip[data-id="wine"]');
+  let c = await cut(); i = await info(o.page); assert.deepEqual([c.hidden, c.opacity], [false, 1], 'the last picture of the table lies over the scene'); assert.ok(c.w > 50); assert.equal(i.scene, 'bar'); assert.equal(i.edge, null); assert.equal(i.walkOn, 0, 'nothing travels');
+  await o.page.evaluate(() => window.__mana.frame(120)); c = await cut(); assert.ok(c.opacity > .2 && c.opacity < .8, 'and fades: ' + c.opacity); i = await info(o.page); assert.deepEqual(i.rooms, { table: 0, bar: 1 }, 'the bar under it is simply there');
+  await o.page.evaluate(async () => { await window.__mana.frame(120); await window.__mana.frame(120); }); assert.equal((await cut()).hidden, true); assert.deepEqual(o.errors, []); await o.ctx.close();
 });
 
 test('no WebGL, a lost context and a phone that cannot keep up all end in the list; the last two recover', async () => {
@@ -492,19 +593,20 @@ test('the stage shows what the state says, also after interrupted and rapid chan
       const r = rnd(); M.dispatch(r < .3 ? { type: 'step', dir: pick([-1, 1]) } : r < .45 ? { type: 'focus', id: pick(items) } : r < .55 ? { type: 'open', what: 'dish' } : r < .65 ? { type: 'close' } : r < .8 ? { type: 'setCategory', id: pick(cats) } : r < .9 ? { type: 'swipe', sx: pick([-1, 1]) } : { type: 'setLang', lang: pick(['he', 'en']) });
       if (r > .93) { M.pointer('down', 180, 200); M.pointer('move', 180, 200 + 160 * rnd()); if (rnd() < .5) M.pointer('up', 180, 300); }
       if (rnd() < .5) M.tick(1 + Math.floor(rnd() * 3), 1 / 30, rnd() < .15);                              // sometimes mid-flight, sometimes not drawn at all
-      const s = M.state(), e = m.itemById.get(s.itemId), i = M.info(), live = i.actors.filter((a) => !a.leaving);
+      const s = M.state(), e = m.itemById.get(s.itemId), i = M.info(), live = i.actors.filter((a) => !a.leaving && !a.guest), beside = i.actors.filter((a) => !a.leaving && a.guest), nb = [m.cats[e.cat.index - 1], m.cats[e.cat.index + 1]].filter((c) => c && c.scene === e.cat.scene).map((c) => c.id);
       if (!live.some((a) => a.id === s.itemId) && bad.length < 5) bad.push(n + ': the dish in focus is not on the table');
       if (live.some((a) => !e.cat.ids.includes(a.id)) && bad.length < 5) bad.push(n + ': a dish of another category stands on this table');
+      if ((beside.length > 6 || beside.some((a) => !nb.includes(a.cat))) && bad.length < 5) bad.push(n + ': beside this section only its neighbours on the same table may be laid: ' + beside.map((a) => a.cat + '/' + a.id));
       if (live.length > 11 && bad.length < 5) bad.push(n + ': ' + live.length + ' dishes mounted');      // near the camera, plus the dish it is travelling to and its two neighbours
       if (i.scene !== e.cat.scene && bad.length < 5) bad.push(n + ': scene ' + i.scene + ' for ' + e.cat.id);
     }
     M.pointer('up', 180, 300); M.dispatch({ type: 'close' });
     for (let k = 0; k < 40; k++) { await new Promise((r) => setTimeout(r, 100)); M.tick(6, 1 / 30, false); if (M.pending() === 0 && M.info().moving !== true) break; }
     M.tick(1, 0, true); const s = M.state(), i = M.info(), e = m.itemById.get(s.itemId);
-    return { bad, left: i.actors.filter((a) => a.left).length, actors: i.actors.filter((a) => !a.left).map((a) => a.id + (a.leaving ? '!' : '')), index: e.i, p: i.p, mode: i.mode, textures: i.textures, drinks: i.drinks.drinks, wantDrinks: i.actors.filter((a) => a.type === 'drink' || a.tris).length, lift: i.lift, lampK: i.lampK, hero: i.heroReady, n: e.cat.ids.length };
+    return { bad, left: i.actors.filter((a) => a.left).length, actors: i.actors.filter((a) => !a.left && !a.guest).map((a) => a.id + (a.leaving ? '!' : '')), all: i.actors.filter((a) => !a.leaving).length, index: e.i, p: i.p, mode: i.mode, textures: i.textures, drinks: i.drinks.drinks, wantDrinks: i.actors.filter((a) => a.type === 'drink' || a.tris).length, lift: i.lift, lampK: i.lampK, hero: i.heroReady, n: e.cat.ids.length };
   });
   assert.deepEqual(res.bad, []); assert.ok(res.actors.every((a) => !a.endsWith('!')), 'nothing stale is left on the table: ' + res.actors); assert.equal(res.p, res.index); assert.equal(res.mode, 'rest'); assert.equal(res.lift, 0); assert.equal(res.lampK, 1); assert.ok(res.hero);
-  assert.equal(res.actors.length, Math.min(res.n - 1, res.index + 3) - Math.max(0, res.index - 3) + 1, 'exactly the dishes near the camera'); assert.ok(res.left <= 7, 'at most the last section\'s few dishes are still on the table behind us: ' + res.left); assert.ok(res.textures <= 2 * (7 + res.left) + 10, 'pictures on the GPU: ' + res.textures); assert.equal(res.drinks, res.wantDrinks);
+  assert.equal(res.actors.length, Math.min(res.n - 1, res.index + 3) - Math.max(0, res.index - 3) + 1, 'exactly the dishes near the camera'); assert.ok(res.all <= 7, 'with the neighbouring courses, never more than seven in all: ' + res.all); assert.ok(res.left <= 7, 'at most the last section\'s few dishes are still on the table behind us: ' + res.left); assert.ok(res.textures <= 2 * (7 + res.left) + 10, 'pictures on the GPU: ' + res.textures); assert.equal(res.drinks, res.wantDrinks);
   assert.deepEqual(errors, []); await ctx.close();
 });
 

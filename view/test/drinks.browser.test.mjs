@@ -98,7 +98,7 @@ test('leaving the bar frees what the drinks used; losing the GPU in the middle o
   await d(page, { type: 'setCategory', id: 'wine' }); await settle(page, 80); let i = await info(page);
   assert.equal(i.drinks.drinks, 4, 'only the drinks near the camera exist'); assert.ok(i.drinks.geometries >= 10 && i.memory.labels > 1); assert.ok(i.actors.every((a) => a.tris <= 12000), 'triangles per drink (bottle + glass + their reflections)');
   await d(page, { type: 'setCategory', id: 'beer' }); await settle(page, 80); i = await info(page); assert.equal(i.actors.filter((a) => !a.leaving).length, 4, 'the beers near the camera'); assert.ok(i.actors.filter((a) => a.leaving).every((a) => a.left) && i.drinks.drinks <= 8, 'the same counter: the wines we walked past still stand behind us, no more than the few that were near (' + i.drinks.drinks + ' drinks)');
-  await d(page, { type: 'setCategory', id: 'mains' }); await settle(page, 80); await d(page, { type: 'setCategory', id: 'sweet' }); await settle(page, 100);
+  await d(page, { type: 'setCategory', id: 'oven' }); await settle(page, 80); await d(page, { type: 'setCategory', id: 'sweet' }); await settle(page, 100);      // (by way of the oven: the course before it has no name card, whose lettering would be counted as a label)
   i = await info(page); assert.deepEqual(i.drinks, { drinks: 0, geometries: 0 }, 'no bottle, glass, label or shared shape left'); assert.equal(i.memory.labels, 0); assert.equal(i.scene, 'table');
   assert.ok(i.gl.geometries <= base.gl.geometries + 6, 'geometries back to the food scene (' + base.gl.geometries + ' → ' + i.gl.geometries + ')'); assert.ok(i.textures <= 24);
   /* context loss during a pour */

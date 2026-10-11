@@ -164,21 +164,26 @@ export const SHADOW_VS = `
 uniform float uE; uniform vec2 uO; uniform float uLen; uniform vec2 uCast;   // [view] uCast: pushed away from wherever the lamp is
 varying vec2 vUv;
 void main(){
-  vUv = uv;
-  vec2 q = position.xy - uO;
-  vec3 p = vec3(q.x * 1.05, 0.0, -q.y / sin(uE) * uLen * 1.05 - 0.02) + vec3(uCast.x, 0.0, uCast.y);         // the dish's outline on the table, pushed a little away from the lamp
+  vUv = (uv - 0.5) * 1.3 + 0.5;                                              // [view] the shadow has room beyond the picture's own edge: it is soft, and a plate fills its picture
+  vec2 q = position.xy * 1.3 - uO;
+  vec3 p = vec3(q.x * 1.02, 0.0, -q.y / sin(uE) * uLen * 1.02 - 0.02) + vec3(uCast.x, 0.0, uCast.y);         // the dish's outline on the table, pushed a little away from the lamp
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
+/* [view] A contact shadow in two parts. All round the rim, where the dish stands: the table is darker next to anything that
+   sits on it. And away from the lamp: a wide soft shadow that opens as the dish comes up. Both are read from the small
+   versions of the dish's own matte (its mip chain), so the softness costs five lookups and no blur pass. */
 export const SHADOW_FS = `
-uniform sampler2D aux; uniform float uK;
+uniform sampler2D aux; uniform float uK; uniform float uSoft; uniform vec2 uCast; uniform float uE; uniform float uLen;
 varying vec2 vUv;
-float tap(vec2 o){ return texture2D(aux, vUv + o).g; }
+float m(vec2 o, float lod){ return texture2D(aux, clamp(vUv + o, 0.0, 1.0), lod).g; }
 void main(){
-  float a = tap(vec2(0.0));
-  float near = (a + tap(vec2(0.012, 0.0)) + tap(vec2(-0.012, 0.0)) + tap(vec2(0.0, 0.012)) + tap(vec2(0.0, -0.012))) / 5.0;
-  float far = (tap(vec2(0.045, 0.012)) + tap(vec2(-0.045, -0.012)) + tap(vec2(0.012, -0.045)) + tap(vec2(-0.012, 0.045))
-             + tap(vec2(0.032, 0.032)) + tap(vec2(-0.032, 0.032)) + tap(vec2(0.032, -0.032)) + tap(vec2(-0.032, -0.032))) / 8.0;
-  gl_FragColor = vec4(0.0, 0.0, 0.0, (near * 0.55 + far * 0.45) * uK);
+  vec2 home = vec2(uCast.x, -uCast.y * sin(uE) / uLen) / 1.02;               // the quad was pushed away from the lamp: this is where the dish itself stands
+  float sit = m(home, 3.1) * max(0.0, 1.0 - uSoft * 0.5);
+  float near = (m(vec2(0.010, 0.006), 3.6 + uSoft) + m(vec2(-0.010, -0.006), 3.6 + uSoft)) * 0.5;
+  float wide = (m(vec2(0.022, -0.022), 5.2) + m(vec2(-0.022, 0.022), 5.2)) * 0.5;
+  float a = max(sit * 0.9, near * 0.56 + wide * 0.44);
+  a *= 1.0 - smoothstep(0.0, 0.145, length(max(abs(vUv - 0.5) - 0.5, 0.0)));      // past the picture's edge there is nothing new to read: it only thins out
+  gl_FragColor = vec4(0.0, 0.0, 0.0, a * a * (3.0 - 2.0 * a) * uK);
 }`;
 export const SPARK_VS = `
 attribute float aSeed; uniform float uTime; uniform float uPx; uniform float uOn; varying float vA;
@@ -229,7 +234,10 @@ export const QUAD_VS = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = v
    -x side and on its +x side. uPool = where the lamp's pool falls (x, z) and how wide (r squared); uDim = the lamp's level
    (it goes down and comes up when the guest moves to another table); the far end falls into the dark. */
 export const LANE = `
-uniform vec4 uLane; uniform vec2 uLanes;
+uniform vec4 uLane; uniform vec2 uLanes; uniform vec3 uEdge;
+/* [view] where this room gives way to the other one: uEdge = a line across the walk (its z), which side of it is ours (+1 or -1;
+   0 = there is no such line) and how wide the dark is on our side of it. Beyond the line the other room is drawn. */
+float ours(vec3 w){ return uEdge.y == 0.0 ? 1.0e3 : uEdge.y * (w.z - uEdge.x); }
 float laneEdge(vec3 w, out float j){ j = clamp(floor((w.x - uLane.x) / uLane.z + 0.5), -uLanes.x, uLanes.y); return uLane.y - abs(w.x - uLane.x - j * uLane.z); }`;
 export const TABLE_FS = `
 uniform sampler2D map; uniform sampler2D hmap; uniform float uSize; uniform float uSpec; uniform float uShin; uniform float uBump;
@@ -238,6 +246,7 @@ uniform vec3 uLampPos; uniform vec3 uPool; uniform float uDim; uniform vec2 uFar
 varying vec3 vW;
 ${LANE}
 void main(){
+  float mine = ours(vW); if (mine < 0.0) discard;
   if (uGlow > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }      // the table gives off no light, it only hides what is under it
   float j; float edge = laneEdge(vW, j);
   vec2 uv = (vW.xz + vec2(j * 1.731, j * 0.413)) / uSize;
@@ -248,17 +257,17 @@ void main(){
   vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
   vec3 l = normalize(uLampPos - vW);
   float d = length(vW.xz - uPool.xy);
-  float pool = uDim / pow(1.0 + d * d / uPool.z, 1.5);
+  float pool = uDim / pow(1.0 + d * d / uPool.z, 2.2);                              // a shaded lamp over the table: its light stays on the dish under it and lets the rest of the table go
   float dif = max(dot(n, l), 0.0) * pool;
   vec3 hv = normalize(l + normalize(uCam - vW));
   float sp = pow(max(dot(n, hv), 0.0), uShin) * uSpec * pool;
-  vec3 amb = vec3(0.105, 0.097, 0.09) * (0.45 + 0.55 * uDim);                       // the room is dim, never black: the table shows its own wood to every edge of the screen
-  vec3 col = alb * (amb + uLamp * dif * 1.25) + uLamp * sp;
+  vec3 amb = vec3(0.052, 0.045, 0.040) * (0.45 + 0.55 * uDim);                     // the room is dim, never black: the table shows its own wood to every edge of the screen
+  vec3 col = alb * (amb + uLamp * dif * 1.18) + uLamp * sp;
   col = mix(col, alb * amb * 0.85, 0.9 * smoothstep(uFar.x, uFar.y, abs(vW.z - uPool.y)));     // far along it: the same wood, in shadow
   col *= 0.7 + 0.3 * smoothstep(0.0, 0.34, edge);                                   // the top darkens a little towards its long edges,
   col += uLamp * alb * 0.5 * pool * smoothstep(0.05, 0.0, abs(edge - 0.035));       // which catch a line of light
   col *= smoothstep(0.0, 0.02, edge);                                              // beside the table: the dark of the room
-  gl_FragColor = vec4(sqrt(col) * uFade, 1.0);
+  gl_FragColor = vec4(sqrt(col) * uFade * smoothstep(0.0, uEdge.z, mine), 1.0);
 }`;
 /* [view] A print or a name card: flat paper with a white edge, lit by the same lamp. Never given depth. */
 export const CARD_FS = `
@@ -324,6 +333,7 @@ varying vec3 vW;
 ${LANE}
 ${BACKBAR}
 void main(){
+  float mine = ours(vW); if (mine < 0.0) discard;
   if (uGlow > 0.5) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
   float j; float edge = laneEdge(vW, j);
   vec2 uv = (vW.xz + vec2(j * 1.731, j * 0.413)) / uSize;
@@ -351,7 +361,7 @@ void main(){
   col *= 0.75 + 0.25 * smoothstep(0.0, 0.3, edge);
   col += vec3(1.0, 0.72, 0.42) * 0.05 * pool * smoothstep(0.05, 0.0, abs(edge - 0.035));       // the edge of the counter catches a little light
   col *= smoothstep(0.0, 0.02, edge) * smoothstep(0.0, 1.2, vW.z - uBack);
-  gl_FragColor = vec4(col * uFade, 1.0);
+  gl_FragColor = vec4(col * uFade * smoothstep(0.0, uEdge.z, mine), 1.0);
 }`;
 
 /* What glass and liquid reflect: a small made-up room, no image. A soft lamp above and in front, a tall strip to one side

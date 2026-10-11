@@ -40,12 +40,14 @@ const stageMod = NO_GL || SKIP_GL || Q.get('view') === 'list' ? null : import('.
 const glide = createGlide({
   now: () => ticker.now(), wake: () => ticker.wake(), walk: () => WALK,
   pxPerDish: () => { const f = stage && stage.metrics(); return f ? f.pxPerDish : 300; },
-  depth: (y) => depthAt(stage && stage.metrics(), y),
+  depth: (y) => depthAt(stage && stage.metrics(), y), along: (p) => (stage ? stage.along(p) : p), dish: (u) => (stage ? stage.dish(u) : u),
   onFocus(i) { const s = store.getState(), cat = store.getModel().catById.get(s.categoryId); if (cat && cat.ids[i] != null) store.dispatch({ type: 'focus', id: cat.ids[i] }, { via: 'glide' }); },
   onEdge(dir) { const before = store.getState().categoryId; store.dispatch({ type: 'step', dir }, { via: 'glide' }); return store.getState().categoryId !== before; },
   onRest(i, own) { if (own && !reduce && !TEST && navigator.vibrate) { try { navigator.vibrate(8); } catch (e) { /* optional */ } } }      // a light tick when the table settles on a dish
 });
 const tweens = createTweens(ticker);
+/* flying: the table is on its way past dishes it will not stop at (a hard flick, a row of the list, End) · landing: the dish nearest the focus line is the one it stops at */
+const flying = () => glide.state.mode === 'settle' && Math.abs(glide.state.target - glide.state.p) > 1.2, landing = () => !(glide.state.mode === 'settle' && Math.abs(glide.state.target - glide.state.p) > .5);
 /* The point of the table under a finger at screen height y: how many dishes nearer than the focus line it lies (see walk.js for
    the camera). Solving the projection for it, instead of dividing pixels by a constant, keeps that very point under the finger. */
 function depthAt(f, y) {
@@ -110,7 +112,7 @@ function open(snapshot) {
   store = createStore(model, initialState(model, { lang: Q.get('lang') || mem.get('halom-menu-lang'), simple: wantList, tray, route: parseHash(location.hash) }));
   ui = createUI(store, {
     reduce, tweens, demo: source.kind === 'demo', sitePath: new URL(cfg().sitePath || '../', document.baseURI).href, path: location.pathname + location.search,
-    instant: () => TEST && !CAPTURE, capture: CAPTURE, walk: () => WALK, onSheet: () => ticker.wake(),
+    instant: () => TEST && !CAPTURE, capture: CAPTURE, walk: () => WALK, onSheet: () => ticker.wake(), flying, landing,
     setLang(l) { mem.set('halom-menu-lang', l); store.dispatch({ type: 'setLang', lang: l }); },
     onPick(id) { const s = store.getState(); if (s.simple) store.dispatch({ type: 'open', what: 'dish', id }, { via: 'list' }); else store.dispatch({ type: 'focus', id }, { via: 'list' }); },
     onCategory(id) { store.dispatch({ type: 'setCategory', id }, { via: 'chip' }); },
@@ -147,8 +149,9 @@ function follow(s, prev, meta, load) {
 }
 function viewOf(s) {
   const m = store.getModel(), v = select(s, m);
+  const beside = (c) => (c ? { id: c.id, name: tx(c.raw.name, s.lang), kind: c.raw.kind, scene: c.scene, items: c.items } : null);      // the courses before and after: the table shows where they begin
   return { catId: v.cat.id, catName: v.categoryName, catIndex: v.cat.index, nCats: m.cats.length, scene: v.scene, kind: v.kind, items: v.cat.items, index: v.index, itemId: s.itemId,
-    lifted: s.open === 'dish', rtl: isRtl(s.lang), lang: s.lang, pourSeq: s.pourSeq, nav: s.nav, rev };
+    lifted: s.open === 'dish', rtl: isRtl(s.lang), lang: s.lang, pourSeq: s.pourSeq, nav: s.nav, rev, prev: beside(v.prevCat), next: beside(v.nextCat) };
 }
 function syncStage() { if (stage && store && !store.getState().simple) stage.sync(viewOf(store.getState())); }
 function toList(noticeKey, retry) {
@@ -175,7 +178,7 @@ async function startStage() {
     canvas: $('gl'), glide, theme: store.getModel().snapshot.theme, intro: !TEST, themes: new URL('themes/', document.baseURI).href, reduce, walk: WALK,
     bloom: Q.get('bloom') !== '0', auto: !TEST && Q.get('adapt') !== 'off', pixelRatio: Q.get('pr') ? Number(Q.get('pr')) : 0, wake: () => ticker.wake(),
     cardInfo(item) { const l = store.getState().lang; return { title: tx(item.name, l), price: money(item.price, l), rtl: isRtl(l) }; },
-    onFrame: (f) => ui.layout(f), onLift: (L) => ui.setLift(L), sheet: () => ui.sheet(),
+    onFrame: (f) => ui.layout(f), onLift: (L) => ui.setLift(L), sheet: () => ui.sheet(), onCut: (picture) => ui.cut(picture),
     onHero(ok) { if (ok && firstHero) { firstHero = false; standin(false); mark('menu-table-drawn'); maybeHint(); } },
     onBusy: (on) => { $('busy').hidden = !on; },
     onTier: (tier) => { if (tier >= 4) toList('listNotice', true); },
@@ -195,7 +198,7 @@ ticker.add((dt) => {
   if (!store) return more;
   const s = store.getState();
   if (stage && !s.simple && !stage.isLost()) { const m = stage.step(dt); if (!skipDraw) stage.draw(); if (m === true) more = true; else if (m && !more) more = 'slow'; }
-  edgeHint(s);
+  edgeHint(s); if (ui) ui.cardLands();
   return more;
 });
 function edgeHint(s) {

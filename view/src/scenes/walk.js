@@ -2,19 +2,25 @@
    Pure numbers (no three.js, no DOM), so the frame, the places and the camera are unit-tested in node.
 
    World: y is up, the table top is y = 0. A category is one table (a "lane") running along z; dish i stands at
-     z = lane.z - walk · i · S        walk = +1: the next dish is further up the table (pull it towards you)
+     z = lane.z - walk · place[i].z   walk = +1: the next dish is further up the table (pull it towards you)
                                       walk = -1: the next dish comes from the near end (swipe it up, like a feed)
+   place[i].z is how far along the table dish i was put down (see placesOf): on a set table that follows the size of the
+   plates, rim to rim; on the bar every drink has the same room.
    The camera looks at the focus point from elevation E through a shifted lens: the dish in focus is seen from exactly E
    (the angle its photo was taken from, near enough) wherever on the screen it sits, a little above the middle. */
-import { SIZE, RAD, clamp, tableDef, hash01 } from './common.js';
+import { SIZE, RAD, clamp, tableDef, hash01, shapeOf } from './common.js';
 
 export const PLATE = SIZE * 0.94;          // world width of a plate (the relief's image plane is SIZE across)
 export const LANE = 5.4;                   // from the middle of one table to the middle of the next
 
 
+const RIM = .5;                             // clear table between the rims of two plates that were set down one after the other
 export const PRESETS = {
-  /* food and desserts: seen like a guest who has just sat down */
-  table: { id: 'table', holo: false, kind: 'table', E: 45, D: 9.6, S: 2.5, width: 1e4, stagger: .2, pool: 6.2, liftE: 45, liftZoom: 1.07, liftY: .82, far: [2.4, 9],
+  /* food and desserts: seen like a guest who has just sat down. One straight row down the middle of the table, set rim to
+     rim (S is the room two plates take); `wander` is how far a hand misses the line, never to one side and then the other.
+     pool = how wide the lamp's light falls (small: it stays on the dish in focus); open = how much wider while the guest is
+     moving along the table */
+  table: { id: 'table', holo: false, kind: 'table', E: 45, D: 9.6, S: 2 * SIZE * .47 + RIM, rim: RIM, width: 1e4, stagger: 0, wander: .045, pool: 2.4, open: .85, liftE: 45, liftZoom: 1.07, liftY: .82, far: [1.9, 7],
     surface: (theme) => tableDef(theme, 'oak') },
   /* drinks, wine, beer: the bar counter, the eye lower, the back-bar glowing at the far end */
   bar: { id: 'bar', holo: false, kind: 'bar', E: 31, D: 10.5, S: 3.7, width: 1e4, stagger: .3, pool: 7.5, liftE: 11, liftEStand: 24, liftZoom: 1.02, liftY: 0, far: [6, 14], wall: 12.5,
@@ -52,16 +58,56 @@ export function frameOf(preset, W, H, rtl, kind) {
 /* A lifted dish on a phone sits in the middle of what the sheet leaves free (a standing drink: near the sheet, it rises above it). */
 export const liftCyFor = (H, sheet, standing) => (standing ? 64 + (H - sheet - 64) * .92 : 60 + (H - sheet - 60) * .5);
 
-/* Where dish i stands, relative to the middle line of its table: a little left, a little right, never quite straight. */
-export function placeOf(preset, i, id, rtl) {
-  const side = (i % 2 ? 1 : -1) * (rtl ? -1 : 1), j = hash01(String(id), 1) - .5, k = hash01(String(id), 2) - .5;
-  return { dx: side * preset.stagger * (.8 + .4 * hash01(String(id), 3)) + j * .1, dz: k * .16, spin: (hash01(String(id), 4) - .5) * .16 };
+/* How much of the table a thing takes along the walk, from its middle to its rim: a plate is round, a print lies flat,
+   a folded name card is only a hand deep. */
+export const reachOf = (shape) => (shape.type === 'text' ? .52 : shape.type === 'photo' ? .98 : shape.r);
+
+/* Where the things of one section were put down: [{ z, m, cx, dx, dz, spin }], one per item, the same every time.
+     z        how far along the table the camera stops for it, from the first dish (0)        m   the pace there (see alongAt)
+     cx       where the focus line passes, sideways                                           dx, dz, spin   how the thing itself lies
+   A set table (preset.rim): ONE straight row down the middle. The room between two neighbours follows their own size, rim to
+   rim, so a name card stands closer to its plate than two plates do to each other. What reads as a hand is small and has no
+   pattern: a finger's width off the line, a few degrees askew. The focus line itself is straight, so nothing sways on the way.
+   The bar and the projector stage: every drink has the same room and stands a little to one side, then the other, so the
+   one behind is not hidden; there the focus line leans from one to the next. */
+export function placesOf(preset, items, kind, rtl) {
+  const S = preset.S, set = preset.rim != null, flip = rtl ? -1 : 1, out = [];
+  let z = 0, reach = 0;
+  for (let i = 0; i < items.length; i++) {
+    const id = String(items[i].id), j = hash01(id, 1) - .5, k = hash01(id, 2) - .5, spin = (hash01(id, 4) - .5) * .16;
+    if (set) {
+      const r = reachOf(shapeOf(items[i], kind)); if (i) z += reach + preset.rim + r; reach = r;
+      out.push({ z, m: S, cx: 0, dx: flip * j * 2 * preset.wander, dz: k * .08, spin });
+    } else {
+      const side = (i % 2 ? 1 : -1) * flip, dx = side * preset.stagger * (.8 + .4 * hash01(id, 3)) + j * .1;
+      out.push({ z: i * S, m: S, cx: dx, dx, dz: k * .16, spin });
+    }
+  }
+  for (let i = 1; i < out.length - 1; i++) out[i].m = (out[i + 1].z - out[i - 1].z) / 2;      // the pace through a dish: the mean of the room before and after it
+  return out;
 }
-/* the sideways position of the focus line at p (between two dishes it leans from one to the other) */
+/* the sideways position of the focus line at p (between two drinks it leans from one to the other; on a set table it is straight) */
 export function centreAt(places, p) {
   const n = places.length; if (!n) return 0;
   const q = clamp(p, 0, n - 1), a = Math.floor(q), b = Math.min(n - 1, a + 1), t = q - a, s = t * t * (3 - 2 * t);
-  return places[a].dx + (places[b].dx - places[a].dx) * s;
+  return places[a].cx + (places[b].cx - places[a].cx) * s;
+}
+/* How far along the table the focus line is at p (in dishes): through every place, one smooth curve in between (so the
+   table does not change pace with a jolt where a small thing follows a large one), straight on past both ends at the pace
+   of S a dish. alongAt and dishAt undo each other; where every dish has the same room, both are the plain p · S. */
+export function alongAt(places, p, S) {
+  const n = places.length; if (!n) return p * S;
+  if (p <= 0) return places[0].z + p * S; if (p >= n - 1) return places[n - 1].z + (p - (n - 1)) * S;
+  const a = Math.floor(p), t = p - a, A = places[a], B = places[a + 1], t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * A.z + (t3 - 2 * t2 + t) * A.m + (3 * t2 - 2 * t3) * B.z + (t3 - t2) * B.m;
+}
+export function dishAt(places, z, S) {
+  const n = places.length; if (!n) return z / S;
+  if (z <= places[0].z) return (z - places[0].z) / S; if (z >= places[n - 1].z) return n - 1 + (z - places[n - 1].z) / S;
+  let lo = 0, hi = n - 1; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (places[mid].z <= z) lo = mid; else hi = mid; }
+  let a = lo, b = lo + 1;                                                    // between two places the curve only rises: halve the step until it is found
+  for (let k = 0; k < 26; k++) { const mid = (a + b) / 2; if (alongAt(places, mid, S) <= z) a = mid; else b = mid; }
+  return (a + b) / 2;
 }
 
 /* The camera, as { pos, look, fov, offset:[x, y] } for a W×H frame: at `zoom` times closer than the preset's distance, looking at

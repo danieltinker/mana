@@ -1,7 +1,7 @@
 # Mana — what a guest sees (`projects/menus/view/`)
 
-What opens from the QR code: one full-screen table that runs away from the guest and reaches every edge of the screen.
-They glide along it from dish to dish, and from one section of the menu to the next.
+What opens from the QR code: one full-screen table that runs away from the guest and reaches every edge of the screen,
+set in one straight row under a lamp. They glide along it from dish to dish, from one course to the next, and on to the bar.
 A static folder: no build step on the host, no CDN at run time. Version 2 (branch `v2`).
 
 ```
@@ -18,7 +18,7 @@ src/
   snapshot.js   where the menu comes from, validation, money, placeholders, the two counting calls
   ui.js         everything a guest reads (real DOM)                         gestures.js  which finger movement means what
   main.js       boot order: text → table → pictures; wiring; the filming API
-  scenes/walk.js  the table as geometry: where dishes stand, the camera, sizes on screen (pure)
+  scenes/walk.js  the table as geometry: how it is set (where dishes stand), the camera, sizes on screen (pure)
   gl/           the stage (three.js) and the shaders          drinks/   drawn wine and beer, the pour
 test/  tools/  films/                  tests, local server with a backend stub, build, film tool and its scripts
 ```
@@ -41,8 +41,8 @@ opening something adds one: Back closes what is open, and the next Back leaves t
 |---|---|---|
 | swipe up (down: back) | the table follows the finger exactly; let go and it carries on, then settles on the next dish | trackpad (followed exactly), mouse wheel (a notch is one dish, in one glide), ↓ ↑, Space, PageDown / PageUp (three dishes), Home, End |
 | flick | one dish; a hard flick passes several | |
-| swipe on past the last dish | the walk goes on along the same table into the next section; its name is lettered on the wood before its first dish | keep pressing ↓ |
-| swipe sideways | the next (or previous) section, by the same walk along the table. Only between the table and the bar is it another room: there the lamp goes down and comes up | category chips, ← → (mirrored in Hebrew) |
+| swipe on past the last dish | the walk goes on along the same table into the next section, which is already laid there: its name is lettered on the wood before its first dish | keep pressing ↓ |
+| swipe sideways | the next (or previous) section, by the same walk along the table. The bar is another room, reached by the same kind of move: the camera travels on across a stretch of dark, the table's light goes down behind it and the bar's comes up ahead | category chips, ← → (mirrored in Hebrew) |
 | tap the dish in focus, or its card | the dish rises, the card grows into a sheet as tall as what it has to say (at most 56% of a phone) | Enter |
 | drag a lifted dish | it turns, keeps its speed, comes back (a drawn bottle turns all the way and stays) | ← → |
 | swipe down, tap outside, ✕ | back on the table | Esc, Back |
@@ -55,7 +55,35 @@ direction in use.
 
 The numbers of the glide are in `src/physics.js` (momentum 0.2 s, one critically damped spring whose stiffness is chosen per
 release so the table never speeds up after the finger has left it, rubber band past the ends). Reduced motion: no sway, no
-overshoot, cross-fades instead of travel.
+overshoot, nothing rises; a change of section or of room is a plain cross-fade from the picture as it was (`ui.cut`).
+
+## How the table is set
+`placesOf` in `src/scenes/walk.js` puts the dishes of a section down; the stage (`src/gl/stage.js`) lights and moves them.
+
+- **One straight row.** Every dish stands on the middle line of the table and the camera travels along that line, so
+  nothing sways from side to side on the way. What reads as a hand is small and has no pattern: at most a finger's width
+  off the line (`wander`), a few degrees askew. (There used to be a stagger, left then right: it read as a zigzag.)
+- **Rim to rim.** The room between two neighbours follows their size: two plates take `S`, a name card or a print stands
+  closer. A finger moves the table by distance, not by "dishes" (`alongAt` / `dishAt`), so the point that was grabbed stays
+  under it; the pace through a small thing is eased, so the table does not jolt there.
+- **Courses.** Near the end of a section the next one is already on the table, a wider gap further along, its name
+  lettered in the gap (`layGuests`, `guests`). These are the very plates the guest arrives at: walking on lays nothing
+  again. There are never more dishes on the table than in the middle of a section (seven).
+- **The lamp.** Its pool falls on the dish in focus and lets the rest of the table go (`TABLE_FS`); neighbours wait in
+  half light, in their own colours. While the guest is moving along the table the lamp opens (`open`); it closes on the
+  dish they stop at. A dish at the lamp is still exactly its photo.
+- **Shadows.** A contact shadow all round the rim and a wide soft one away from the lamp, both read from the small
+  versions of the dish's own matte (its mip chain: five lookups, no blur pass).
+- **Presence.** The dish the table settles on comes up a little (`RISE`), straightens, and its shadow opens; it goes back
+  down as the table moves on, and nothing comes up while the table is still flying (`CALM`). The camera stands back a
+  touch in flight and comes in as it lands (`BREATH`); never under a finger. While dishes fly past, the card says their
+  names dimmed and does not fade for each one.
+- **The bar** keeps its own setting (every drink the same room, a little to one side then the other so the one behind
+  is not hidden) and its own light.
+- **From the table to the bar and back** (`across` in `sync`, `S.edge`, `stepRooms`): the other room lies further along
+  the same walk, beyond a stretch of dark. Both are in the picture for a moment, each on its own side of a line across
+  the walk and each with its own light; the camera, the lamp and the eye (45° to 31°) make one move. Turning round half
+  way is the same move back across the same line. The same code runs for a chip, a swipe, a key, a link and Back.
 
 ## Honest looks
 A relief or a photo is shown in its true colour, solid on the table with its shadow. A placeholder from the stock library
@@ -70,8 +98,10 @@ No WebGL, a lost GPU that does not come back, a slow phone at the end of the qua
 menu. Every name, price, description and state is in the DOM at all times, which is also what a screen reader reads.
 
 ## Speed
-Only the dishes near the camera exist (three before, three ahead); their pictures are loaded as the guest moves, and those
-no dish uses any more are freed, except the ten seen last. The pixel ratio is capped and a quality ladder steps down on a slow phone (bloom off → pixel
+Only the dishes near the camera exist (three before, three ahead, counting the first or last of a neighbouring course near
+a section's end); their pictures are loaded as the guest moves, and those no dish uses any more are freed, except the ten
+seen last. A dish's matte carries a mip chain for its shadow (a third more memory for that one small picture). The bar's
+counter is fetched when a neighbouring section is at the bar, so the walk there does not arrive in the dark. The pixel ratio is capped and a quality ladder steps down on a slow phone (bloom off → pixel
 ratio 1 → 0.7 → the list). Nothing is laid out during a drag; the card's words change once per dish. The closed list waits far
 below the screen, so its small pictures are fetched when it is first opened, not while the table loads.
 `node test/load.mjs` prints what a phone downloads: for Olea the first dish needs about 720 kB (script 181, the table's wood 233,
@@ -119,8 +149,8 @@ ten minutes.
 npm install                 # three@0.128, esbuild, fonts (dev only)
 npm run build               # src/ → app.js + chunks/
 npm run serve               # http://localhost:8787/projects/menus/view/?demo=olea  and  /m/olea (stub: olea, kiosk, paused, flaky, slow, broken)
-npm test                    # physics, glide, store (fuzz), snapshot + counting against the stub, geometry, drinks
-npm run test:browser        # headless Chromium, one at a time: glide, categories, lift, list, placeholders, /m/, preview, languages, reduced motion, no WebGL, the bar
+npm test                    # physics, glide, store (fuzz), snapshot + counting against the stub, geometry (how the table is set), drinks
+npm run test:browser        # headless Chromium, one at a time: glide, categories, courses, the set table, table ↔ bar, lift, list, placeholders, /m/, preview, languages, reduced motion, no WebGL, the bar
 node test/load.mjs          # bytes a phone downloads before the first dish is sharp
 python3 tools/build-kiosk.py   # rebuilds demo/kiosk and demo/solo
 ```

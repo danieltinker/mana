@@ -19,20 +19,26 @@ import {
 } from 'three';
 import * as SH from './shaders.js';
 import { SIZE, RAD, clamp, shapeOf } from '../scenes/common.js';
-import { presetById, frameOf, placeOf, centreAt, cameraFor, liftCyFor, LANE } from '../scenes/walk.js';
+import { presetById, frameOf, placesOf, centreAt, alongAt, dishAt, cameraFor, liftCyFor, LANE } from '../scenes/walk.js';
 import { springStep, turnStep } from '../physics.js';
 import { createDrinkKit } from './drinks.js';
 import { pourAt, REST, LEAD } from '../drinks/pour.js';
 import { labelText } from '../drinks/spec.js';
 
-const PI = Math.PI, TAU = PI * 2, PUCK = .07, FLOAT = .5;
+const PI = Math.PI, TAU = PI * 2, PUCK = .07, FLOAT = .5, BARP = presetById('bar');
 const smooth = (x) => { x = clamp(x); return x * x * (3 - 2 * x); };
 const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
 const BEHIND = 3, AHEAD = 3, KEEP = 3.6;        // dishes that exist around the camera · beyond KEEP they are let go
 const TEX_KEEP = 10;                            // pictures kept ready after their dish has left (most recent first)
 const GAP = .62;                                // between two sections on the same table: this much more than a dish's place, for the section's name
 const IDLE_AFTER = 45;                          // seconds without a touch before the gentle sway comes to rest and the loop sleeps
+const ROOMS = ['table', 'bar'];
+const LEAVE = 1.3, DARK = 1.5, ARRIVE = 1.45, FAR = 16;   // from one room to the other, along the walk: past what stands where we are · the dark between the two (each side of the line) · up to the first thing of the next room · where a room's far end is, for the line
 const CARD = [1.5, .95], LEAN = 28 * RAD;       // a folded name card: width, slant height, how far its faces lean
+const RISE = .075, CALM = [.5, 2.6];             // the dish the table settles on comes up this far (a tap lifts it the rest of the way) · it waits until the glide is slower than this (dishes a second: fully calm, not calm at all)
+const BREATH = .022;                            // while the table is still travelling fast the camera stands back by this much, and comes in as it lands
+/* 1 when the table is still or under a finger, 0 while it still travels fast on its own */
+const calmOf = (G) => (G.mode === 'settle' ? 1 - smooth((Math.abs(G.v) - CALM[0]) / (CALM[1] - CALM[0])) : 1);
 
 export function createStage(opts) {
   const canvas = opts.canvas, reduce = !!opts.reduce, themes = opts.themes || 'themes/', glide = opts.glide;
@@ -47,29 +53,36 @@ export function createStage(opts) {
   const U = { time: { value: 0 }, accent: { value: new Color(theme.accent || '#5fd0ff') }, px: { value: pr }, hub: { value: new Vector2() }, glow: { value: 0 }, pulse: { value: 9 },
     refl: { value: 0 }, mask: { value: new Vector4(0, 2, 0, 0) }, at: { value: new Vector2() } };
   const scene = new Scene(), camera = new PerspectiveCamera(30, 1, .1, 160), loader = new TextureLoader();
+  camera.layers.enable(1);                                   // layer 1: what stands on the food table (see draw: it can sit out the light-only pass)
   const small = Math.min(window.innerWidth, window.innerHeight) < 600;
   const geoHi = new PlaneGeometry(1, 1, small ? 220 : 300, small ? 220 : 300), geoLo = new PlaneGeometry(1, 1, 96, 96), geoFlat = new PlaneGeometry(1, 1);
   const px1 = (r, g, b) => { const t = new DataTexture(new Uint8Array([r, g, b]), 1, 1, RGBFormat); t.needsUpdate = true; return t; };
   const flatTex = px1(128, 128, 128), darkTex = px1(18, 16, 14);
   const addMat = (fs, uniforms, vs, extra) => new ShaderMaterial(Object.assign({ uniforms, vertexShader: vs || SH.UV_VS, fragmentShader: fs, transparent: true, depthWrite: false, blending: AdditiveBlending }, extra || {}));
 
-  /* ---- the tables: one plane that goes wherever the camera goes; the shader lays the long tables out on it ---- */
-  const tU = { map: { value: darkTex }, hmap: { value: flatTex }, uSize: { value: 6 }, uSpec: { value: .1 }, uShin: { value: 20 }, uBump: { value: 0 }, uGlow: U.glow, uFade: { value: 0 },
-    uLamp: { value: new Color(1, .95, .86) }, uCam: { value: camera.position }, uLampPos: { value: new Vector3(.5, 3.6, 1.5) }, uPool: { value: new Vector3(0, .1, 9.5) },
-    uDim: { value: 1 }, uFar: { value: new Vector2(5.5, 13) }, uLane: { value: new Vector4(0, 2.1, LANE, 0) }, uLanes: { value: new Vector2(0, 0) } };
+  /* ---- the tables: one plane that goes wherever the camera goes; the shader lays the long tables out on it ----
+     Two rooms can be in the picture at once, the table and the bar (the guest walks from one to the other): the lamp, the
+     camera and the lanes are shared, and each room has its own surface, its own level of light (uFade) and its own side of
+     the line where one gives way to the other (uEdge). */
+  const lit = { uGlow: U.glow, uCam: { value: camera.position }, uLampPos: { value: new Vector3(.5, 3.6, 1.5) }, uPool: { value: new Vector3(0, .1, 9.5) }, uDim: { value: 1 },
+    uLane: { value: new Vector4(0, 2.1, LANE, 0) }, uLanes: { value: new Vector2(0, 0) } };
+  const surfaceU = () => Object.assign({ map: { value: darkTex }, hmap: { value: flatTex }, uSize: { value: 6 }, uSpec: { value: .1 }, uShin: { value: 20 }, uBump: { value: 0 }, uFade: { value: 0 },
+    uLamp: { value: new Color(1, .95, .86) }, uFar: { value: new Vector2(5.5, 13) }, uEdge: { value: new Vector3(0, 0, 1) } }, lit);
+  const tU = surfaceU();
   const groundG = new PlaneGeometry(1, 1).rotateX(-PI / 2);
   const tableM = new Mesh(groundG, new ShaderMaterial({ uniforms: tU, vertexShader: SH.WORLD_VS, fragmentShader: SH.TABLE_FS })); tableM.frustumCulled = false; tableM.scale.set(260, 1, 260); scene.add(tableM);
   const actorsG = new Group(); scene.add(actorsG);
-  const kit = createDrinkKit({ U, cam: camera.position, lampPos: tU.uLampPos, maxAniso, blank: flatTex, motion: !reduce });
+  const kit = createDrinkKit({ U, cam: camera.position, lampPos: lit.uLampPos, maxAniso, blank: flatTex, motion: !reduce });
+  const rooms = { table: { u: tU, far: presetById('table').far, s: null, want: null, live: false, fade: 0 }, bar: { u: null, far: null, s: null, want: null, live: false, fade: 0 } };      // s: the surface in use · want: one on its way · live: its numbers are in the shader
 
   /* ---- the bar: the same long slab in stone, and the back-bar far ahead ---- */
   let BAR = null;
   function buildBar() {
     if (BAR) return BAR;
-    const cu = Object.assign({}, tU, { uBack: { value: -12 }, uGloss: { value: 1 } }), g = new Group();
+    const cu = Object.assign(surfaceU(), { uBack: { value: -12 }, uGloss: { value: 1 } }), g = new Group();
     const counter = new Mesh(groundG, new ShaderMaterial({ uniforms: cu, vertexShader: SH.WORLD_VS, fragmentShader: SH.COUNTER_FS })); counter.frustumCulled = false; counter.scale.set(260, 1, 260); g.add(counter);
-    const wall = new Mesh(new PlaneGeometry(160, 30), new ShaderMaterial({ uniforms: { uFade: tU.uFade, uGlow: U.glow }, vertexShader: SH.WORLD_VS, fragmentShader: SH.WALL_FS })); wall.frustumCulled = false; g.add(wall);
-    g.visible = false; scene.add(g); BAR = { g, counter, wall, cu }; return BAR;
+    const wall = new Mesh(new PlaneGeometry(160, 30), new ShaderMaterial({ uniforms: { uFade: cu.uFade, uGlow: U.glow }, vertexShader: SH.WORLD_VS, fragmentShader: SH.WALL_FS })); wall.frustumCulled = false; g.add(wall);
+    g.visible = false; scene.add(g); BAR = { g, counter, wall, cu }; rooms.bar.u = cu; rooms.bar.far = BARP.far; return BAR;
   }
 
   /* ---- the projector look: a puck on the table, a cone of light, the picture floating over it (placeholders, and surface 'holo') ---- */
@@ -105,22 +118,22 @@ export function createStage(opts) {
   /* ---- what the stage knows ---- */
   const spring = (x) => ({ x, v: 0 });
   const S = { w: 0, h: 0, frame: null, view: null, preset: null, walk: opts.walk === -1 ? -1 : 1, first: true, clock: 0,
-    lane: { x: 0, z: 0, places: [], n: 0, cat: null }, actors: new Map(),
+    lane: { x: 0, z: 0, places: [], n: 0, cat: null, kind: 'food' }, guests: { prev: null, next: null }, mounts: 0, actors: new Map(),
     dev: spring(0), E: spring(45), zoom: spring(1), cy: spring(300), lookY: spring(0), offX: spring(0), lift: spring(0), pool: spring(8.5),
-    dimT: 9, dimFrom: 1, lampK: 1, devZ: { x: 0, v: 0 }, titles: [], dragX: { dx: 0, active: false }, touchAt: 0, sway: 0, tilt: [0, 0], tiltT: [0, 0], ptr: [0, 0], ptrT: [0, 0],
+    lampK: 1, room: 'table', edge: null, fov: spring(30), D: spring(10), lens: { W: 0, H: 0, D: 10, fov: 30 }, devZ: { x: 0, v: 0 }, titles: [], dragX: { dx: 0, active: false }, touchAt: 0, sway: 0, tilt: [0, 0], tiltT: [0, 0], ptr: [0, 0], ptrT: [0, 0],
     turning: false, bump: 0, swayK: 0, hot: [], bloom: opts.bloom !== false, tier: 0, slow: 0, lost: false, auto: opts.auto !== false, moving: true, frames: 0, disposed: false, pours: 0, hush: false,
     heroReady: null, stats: { calls: 0, triangles: 0 }, base: new Vector3(), focus: new Vector3(), intro: 0 };
   const texCache = new Map(); let pending = 0, texTick = 0;
   const waiters = [];
   const busy = (d) => { const was = pending; pending += d; if (opts.onBusy && (was === 0) !== (pending === 0)) opts.onBusy(pending > 0); if (pending === 0) waiters.splice(0).forEach((f) => f()); };
 
-  function getTex(url, mip, onReady) {
+  function getTex(url, mip, onReady, soft) {
     let e = texCache.get(url);
     if (e) { e.refs++; e.last = ++texTick; if (e.ready) onReady(e.tex); else e.wait.push(onReady); return e; }
     e = { tex: null, refs: 1, ready: false, failed: false, wait: [onReady], url, last: ++texTick }; texCache.set(url, e); busy(1);
     e.tex = loader.load(url, (t) => {
       if (!texCache.has(url) || texCache.get(url) !== e) { t.dispose(); busy(-1); return; }
-      t.generateMipmaps = mip; t.minFilter = mip ? LinearMipmapLinearFilter : LinearFilter; t.anisotropy = mip ? maxAniso : 1; t.needsUpdate = true;
+      t.generateMipmaps = mip; t.minFilter = mip ? LinearMipmapLinearFilter : LinearFilter; t.anisotropy = mip && !soft ? maxAniso : 1; t.needsUpdate = true;
       e.ready = true; e.wait.splice(0).forEach((f) => f(t)); busy(-1); wake();
     }, undefined, () => { e.failed = true; e.wait.length = 0; if (opts.onAssetError) opts.onAssetError(url); busy(-1); wake(); });
     return e;
@@ -131,8 +144,8 @@ export function createStage(opts) {
     idle.sort((a, b) => b.last - a.last).slice(TEX_KEEP).forEach((e) => { if (e.tex) e.tex.dispose(); texCache.delete(e.url); });
   }
 
-  /* ---- surfaces ---- */
-  const surf = { cur: null, want: null, texs: new Map() };   // id → { map, h, ready }
+  /* ---- surfaces: what a room's table is made of ---- */
+  const surf = { texs: new Map() };                          // id → { map, h, ready }
   function loadSurface(def) {
     let s = surf.texs.get(def.id + (def.img || '')); if (s) return s;
     s = { map: null, h: null, ready: false, def }; surf.texs.set(def.id + (def.img || ''), s);
@@ -141,25 +154,39 @@ export function createStage(opts) {
     if (!def.img) s.h = loader.load(themes + def.id + '_h.jpg', (t) => { set(t); wake(); });
     return s;
   }
-  function showKind(kind) { const bar = kind === 'bar'; tableM.visible = !bar && kind !== 'holo'; if (bar) buildBar(); if (BAR) BAR.g.visible = bar; if (H) H.g.visible = kind === 'holo'; }
+  const roomOf = (preset) => (preset.holo ? null : rooms[preset.kind] || rooms.table);
+  const inUse = (s) => rooms.table.s === s || rooms.table.want === s || rooms.bar.s === s || rooms.bar.want === s;
   function wantSurface(def) {
-    if (def.id === 'holo') { surf.want = null; surf.cur = null; U.refl.value = 0; buildHolo(); showKind('holo'); bloomM.uniforms.k.value = 1; return; }
+    if (def.id === 'holo') { S.room = 'holo'; U.refl.value = 0; buildHolo(); bloomM.uniforms.k.value = 1; return; }
     bloomM.uniforms.k.value = .75;
-    const s = loadSurface(def);
-    if (surf.cur === s) { surf.want = null; return; }
-    if (!surf.cur) showKind(def.kind || 'table');             // nothing is on screen yet
-    surf.want = s;
-    if (surf.texs.size > 3) surf.texs.forEach((v, k) => { if (v !== s && v !== surf.cur) { if (v.map && v.map !== darkTex) v.map.dispose(); if (v.h) v.h.dispose(); surf.texs.delete(k); } });
+    const kind = def.kind || 'table'; if (kind === 'bar') buildBar();
+    const R = rooms[kind], s = loadSurface(def); S.room = kind;
+    if (R.s === s) R.want = null; else if (!R.s) { R.s = s; R.live = false; } else R.want = s;      // another table for the same room (the theme changed): swapped in the dark
+    if (surf.texs.size > 3) surf.texs.forEach((v, k) => { if (!inUse(v)) { if (v.map && v.map !== darkTex) v.map.dispose(); if (v.h) v.h.dispose(); surf.texs.delete(k); } });
   }
-  function stepSurface(dt) {
-    if (surf.want && surf.want.ready && (tU.uFade.value < .04 || !surf.cur || reduce)) {     // tables are swapped in the dark, between two categories
-      const s = surf.cur = surf.want, d = s.def; surf.want = null; showKind(d.kind || 'table'); if (BAR && d.kind === 'bar') BAR.cu.uGloss.value = d.gloss == null ? 1 : d.gloss;
-      tU.map.value = s.map; tU.hmap.value = s.h || flatTex; tU.uSize.value = d.size; tU.uSpec.value = d.spec; tU.uShin.value = d.shin; tU.uBump.value = d.bump; U.refl.value = d.refl;
-      const tint = d.tint || [1, .95, .86]; tU.uLamp.value.setRGB(tint[0], tint[1], tint[2]);
+  function dress(R) {                                        // the surface's own numbers into its shader
+    const s = R.s, d = s.def, u = R.u, tint = d.tint || [1, .95, .86];
+    u.map.value = s.map; u.hmap.value = s.h || flatTex; u.uSize.value = d.size; u.uSpec.value = d.spec; u.uShin.value = d.shin; u.uBump.value = d.bump; u.uLamp.value.setRGB(tint[0], tint[1], tint[2]); u.uFar.value.set(R.far[0], R.far[1]);
+    if (u.uGloss) u.uGloss.value = d.gloss == null ? 1 : d.gloss;
+    R.live = true;
+  }
+  /* each room's light: up in the room the guest is in, down in the one they have left. Walking from one to the other, both
+     are in the picture for a moment, each on its own side of the line (S.edge) */
+  function stepRooms(dt) {
+    let moving = false;
+    for (let k = 0; k < ROOMS.length; k++) {
+      const kind = ROOMS[k], R = rooms[kind]; if (!R.u) continue;
+      if (R.want && R.want.ready && (R.fade < .04 || reduce)) { R.s = R.want; R.want = null; R.live = false; }
+      if (R.s && R.s.ready && !R.live) dress(R);
+      const target = S.room === kind && R.live && !R.want ? 1 : 0, was = R.fade;
+      R.fade = reduce ? target : was + (target - was) * ease(dt, R.want ? 12 : target ? 5.5 : 4.2);
+      if (Math.abs(R.fade - target) > .004) moving = true; else R.fade = target;
+      R.u.uFade.value = R.fade;
+      const e = S.edge; if (e) R.u.uEdge.value.set(e.z, kind === e.to ? e.s : -e.s, e.w); else R.u.uEdge.value.set(0, 0, 1);
     }
-    const target = surf.want ? 0 : surf.cur ? 1 : 0, was = tU.uFade.value;
-    tU.uFade.value = reduce ? target : was + (target - was) * ease(dt, surf.want ? 12 : 6);
-    return Math.abs(tU.uFade.value - target) > .004;
+    tableM.visible = rooms.table.fade > .002; if (BAR) BAR.g.visible = rooms.bar.fade > .002; if (H) H.g.visible = S.room === 'holo';
+    const R = rooms[S.room]; U.refl.value = R && R.live ? R.s.def.refl * R.fade : 0;
+    return moving;
   }
 
   /* ---- actors: one per dish near the camera ---- */
@@ -181,10 +208,10 @@ export function createStage(opts) {
     if (a.cardTex) a.cardTex.needsUpdate = true; else { a.cardTex = new CanvasTexture(cv); a.cardTex.anisotropy = maxAniso; }
     a.um.map.value = a.cardTex; a.ready = true;
   }
-  function makeActor(item, i) {
-    const view = S.view, P = S.preset, kind = view.kind, shape = shapeOf(item, kind), as = item.asset, g = new Group(), place = S.lane.places[i];
-    const a = { id: item.id, item, i, cat: view.catId, kind, shape, type: shape.type, g, x: S.lane.x + place.dx, z: S.lane.z - S.walk * i * P.S + place.dz, spin: place.spin,
-      vis: 0, visT: 1, light: 1, turn: { x: 0, v: 0 }, lift: 0, ready: false, leaving: false, tex: [], sat: 1, pour: null, pose: null, holo: !!(P.holo || shape.holo), stock: !!shape.holo };
+  function makeActor(item, i, L) {
+    const view = S.view, P = S.preset, kind = L.kind, shape = shapeOf(item, kind), as = item.asset, g = new Group(), place = L.places[i];
+    const a = { id: item.id, item, i, cat: L.cat, kind, shape, type: shape.type, g, x: L.x + place.dx, z: zOf(L, i) + place.dz, spin: place.spin, guest: L !== S.lane, seen: 0,
+      room: roomOf(P), vis: 0, visT: 1, light: 1, turn: { x: 0, v: 0 }, lift: 0, near: 0, ready: false, leaving: false, tex: [], sat: 1, pour: null, pose: null, holo: !!(P.holo || shape.holo), stock: !!shape.holo };
     if (shape.type === 'relief' || shape.type === 'stand') {
       const um = a.um = { map: { value: darkTex }, aux: { value: flatTex }, uH: { value: as.h }, uE: { value: as.e * RAD }, uFocus: { value: 0 }, uReveal: { value: 0 }, uTime: U.time, uScan: { value: -9 }, uGlitch: { value: 0 }, uGlow: U.glow,
         uMirror: { value: 0 }, uAccent: U.accent, uCenter: { value: g.position }, uHolo: { value: a.holo ? 1 : 0 }, uLight: { value: 1 }, uRefl: U.refl, uMask: U.mask, uSat: { value: 1 }, uO: { value: new Vector2(as.o ? as.o[0] : 0, as.o ? as.o[1] : 0) } };
@@ -192,11 +219,11 @@ export function createStage(opts) {
       a.mesh = new Mesh(geoLo, dishMat(false)); a.mesh.frustumCulled = false; a.mesh.rotation.order = 'YXZ'; a.mesh.visible = false; g.add(a.mesh);
       a.mir = new Group(); a.mir.scale.y = -1; g.add(a.mir);
       a.refl = new Mesh(geoLo, dishMat(true)); a.refl.frustumCulled = false; a.refl.rotation.order = 'YXZ'; a.refl.renderOrder = -1.5; a.refl.visible = false; a.mir.add(a.refl);
-      a.shadow = new Mesh(geoFlat, new ShaderMaterial({ uniforms: { aux: um.aux, uE: um.uE, uO: um.uO, uLen: { value: as.o ? .5 : 1 }, uK: { value: 0 }, uCast: { value: new Vector2() } }, vertexShader: SH.SHADOW_VS, fragmentShader: SH.SHADOW_FS, transparent: true, depthWrite: false }));
+      a.shadow = new Mesh(geoFlat, new ShaderMaterial({ uniforms: { aux: um.aux, uE: um.uE, uO: um.uO, uLen: { value: as.o ? .5 : 1 }, uK: { value: 0 }, uCast: { value: new Vector2() }, uSoft: { value: 0 } }, vertexShader: SH.SHADOW_VS, fragmentShader: SH.SHADOW_FS, transparent: true, depthWrite: false }));
       a.shadow.frustumCulled = false; a.shadow.renderOrder = -2; a.shadow.position.y = .006; a.shadow.visible = false; g.add(a.shadow);
       if (shape.reliefX) a.mesh.position.x = a.refl.position.x = a.shadow.position.x = shape.reliefX;      // a glass will stand beside it
       let got = 0; const done = () => { if (++got >= 2) { a.ready = true; a.mesh.visible = true; } };
-      a.tex.push(getTex(as.color, true, (t) => { um.map.value = t; done(); }), getTex(as.aux, false, (t) => { um.aux.value = t; done(); }));
+      a.tex.push(getTex(as.color, true, (t) => { um.map.value = t; done(); }), getTex(as.aux, true, (t) => { um.aux.value = t; done(); }, true));
     } else if (shape.type === 'drink') {
       a.ready = true;                                        // drawn in code: nothing to wait for
     } else {
@@ -233,9 +260,11 @@ export function createStage(opts) {
         a.kit = [ring]; a.float = shape.type === 'stand' ? .03 : .15;
       }
     }
+    if (a.room === rooms.table) g.traverse(onTable);
     g.position.set(a.x, 0, a.z); actorsG.add(g);
     return a;
   }
+  const onTable = (o) => { o.layers.set(1); };
   function dropActor(a) {
     actorsG.remove(a.g); a.tex.forEach((e) => { e.refs--; e.last = ++texTick; });
     a.g.traverse((o) => { if (o.material) o.material.dispose(); });
@@ -252,49 +281,104 @@ export function createStage(opts) {
       const it = view.items[i]; let a = S.actors.get(it.id);
       if (a && a.leaving) {                                    // left behind on the same table and walked back to: it is the same dish, it does not blink
         const pl = S.lane.places[i];
-        if (a.visT > 0 && Math.abs(a.z - (S.lane.z - S.walk * i * S.preset.S + pl.dz)) < .03 && Math.abs(a.x - (S.lane.x + pl.dx)) < .03) { a.leaving = false; a.i = i; a.cat = view.catId; return; }
+        if (a.visT > 0 && Math.abs(a.z - (zOf(S.lane, i) + pl.dz)) < .03 && Math.abs(a.x - (S.lane.x + pl.dx)) < .03) { a.leaving = false; a.guest = false; a.i = i; a.cat = view.catId; return; }
         dropActor(a); a = null;
       }
-      if (!a) S.actors.set(it.id, makeActor(it, i));
+      if (!a) S.actors.set(it.id, makeActor(it, i, S.lane));
     };
-    S.actors.forEach((a) => { if (!a.leaving && a.cat === view.catId && Math.abs(a.i - p) > KEEP && Math.abs(a.i - f) > 1) { dropActor(a); dropped = true; } });
+    S.actors.forEach((a) => { if (!a.leaving && !a.guest && a.cat === view.catId && Math.abs(a.i - p) > KEEP && Math.abs(a.i - f) > 1) { dropActor(a); dropped = true; } });
     for (let i = lo; i <= hi; i++) want(i);
     for (let i = Math.max(0, f - 1); i <= Math.min(n - 1, f + 1); i++) want(i);      // and the dish we are travelling to, so its picture is there when the camera arrives
+    /* Near either end of a section the table does not stop: the neighbouring course is laid a little further along it, its
+       name lettered in the gap. As many of its dishes exist as the camera would see of our own (never more in all). */
+    const tick = ++S.mounts;
+    guests(S.guests.next, 1, c + AHEAD - (n - 1), tick); guests(S.guests.prev, -1, BEHIND - c, tick);
+    S.actors.forEach(unseen);
     if (dropped) sweepTextures();
+  }
+  /* (two small callbacks made once, not once a frame) a guest nobody asked for this time leaves · something else still stands where a neighbouring course would go */
+  const spot = { L: null, end: 0, way: 0, free: true };
+  const unseen = (a) => { if (a.guest && !a.leaving && a.seen !== S.mounts) { a.leaving = true; a.visT = 0; } };
+  const taken = (a) => { const L = spot.L; if (a.leaving && a.visT > 0 && (a.z - spot.end) * spot.way > .4 * S.preset.S && !(a.cat === L.cat && a.i < L.n && Math.abs(a.z - (zOf(L, a.i) + L.places[a.i].dz)) < .03)) spot.free = false; };
+  function guests(L, side, k, tick) {
+    if (!L || k <= 0 || !S.view) return;
+    const m = L.items.length, own = S.lane, end = zOf(own, side > 0 ? own.n - 1 : 0), way = -S.walk * side;      // way: from our last dish on towards theirs, along z
+    spot.L = L; spot.end = end; spot.way = way; spot.free = true; S.actors.forEach(taken);      // a section we jumped away from keeps its place until it has gone
+    if (!spot.free) return;
+    for (let q = 0; q < Math.min(k, m); q++) {
+      const j = side > 0 ? q : m - 1 - q, it = L.items[j]; let a = S.actors.get(it.id);
+      if (a && a.leaving) { if (a.visT > 0 && Math.abs(a.z - (zOf(L, j) + L.places[j].dz)) < .03) { a.leaving = false; a.guest = true; a.i = j; a.cat = L.cat; } else { dropActor(a); a = null; } }
+      if (!a) { a = makeActor(it, j, L); S.actors.set(it.id, a); }
+      a.seen = tick;
+    }
+    addTitle(L.title, own.x, end + way * (1 + GAP) / 2 * S.preset.S, S.view.rtl);
+  }
+  /* the sections before and after the open one, as lanes on the same table: theirs begins a gap beyond where ours ends */
+  function layGuests(view) {
+    const P = S.preset, own = S.lane, gap = (1 + GAP) * P.S, side = (o, dir) => {
+      if (!o || !o.items.length || presetById(o.scene).id !== P.id || !own.n) return null;
+      const places = placesOf(P, o.items, o.kind, view.rtl), at = dir > 0 ? zOf(own, own.n - 1) - S.walk * gap : zOf(own, 0) + S.walk * gap;      // where their dish nearest to us stands
+      return { x: own.x, z: at + S.walk * places[dir > 0 ? 0 : places.length - 1].z, places, n: places.length, cat: o.id, kind: o.kind, items: o.items, title: dir > 0 ? o.name : view.catName };
+    };
+    S.guests.next = side(view.next, 1); S.guests.prev = side(view.prev, -1);
+    /* a neighbour in the other room (the bar after the desserts): its counter is fetched now, so the walk there does not arrive in the dark */
+    for (let k = 0; k < 2; k++) { const o = k ? view.next : view.prev, Q = o ? presetById(o.scene) : null; if (Q && Q.id !== P.id && !Q.holo && !P.holo) loadSurface(Q.surface(theme)); }
   }
 
   /* ---- what the navigation state asks for ---- */
-  function layLane(view, x, z) { const P = S.preset; S.lane = { x, z, cat: view.catId, n: view.items.length, places: view.items.map((it, i) => placeOf(P, i, it.id, view.rtl)) }; }
-  function focusPoint(p) { const P = S.preset, L = S.lane; return [L.x + centreAt(L.places, p), L.z - S.walk * p * P.S]; }
+  /* a lane: the section that is open, laid along the table from lane.z (its first dish); see placesOf */
+  const zOf = (L, i) => L.z - S.walk * L.places[i].z;
+  function focusPoint(p) { const P = S.preset, L = S.lane; return [L.x + centreAt(L.places, p), L.z - S.walk * alongAt(L.places, p, P.S)]; }
   function sync(view) {
     if (S.lost || S.disposed) { S.view = view; return; }
     const prev = S.view, preset = presetById(view.scene), presetChanged = !S.preset || S.preset.id !== preset.id, P0 = S.preset;
     const catChanged = !prev || prev.catId !== view.catId || presetChanged || prev.rtl !== view.rtl || prev.rev !== view.rev;
     const at = prev && P0 && S.lane.cat != null ? focusPoint(S.lastP == null ? glide.state.p : S.lastP) : [0, 0];      // where the camera stands now
+    if (reduce && prev && !S.first && opts.onCut && (prev.catId !== view.catId || presetChanged) && S.w) { draw(); opts.onCut(canvas); }      // reduced motion: no travel. The page keeps the picture as it is now and cross-fades from it
     S.view = view; S.preset = preset;
     if (presetChanged || !prev) wantSurface(preset.surface(theme));
     if (!S.frame || presetChanged || (prev && prev.rtl !== view.rtl)) refit();
     if (catChanged) {
       const dir = prev && view.nav && view.nav.kind === 'category' ? (view.nav.dir || 1) : 0;
-      const P = preset, n = view.items.length, i = clamp(view.index, 0, n - 1), camX = at[0] + S.dev.x, camZ = at[1] + S.devZ.x, fwd = -S.walk * P.S;      // fwd: from one dish to the next, along z
-      const same = !!prev && !presetChanged && prev.rtl === view.rtl && prev.rev === view.rev && !!dir && !S.first;
+      const P = preset, n = view.items.length, i = clamp(view.index, 0, n - 1), camX = at[0] + S.dev.x, camZ = at[1] + S.devZ.x, way = -S.walk, fwd = way * P.S;      // way: from one dish to the next, along z · fwd: the room of one dish that way
+      const places = placesOf(P, view.items, view.kind, view.rtl);
+      const walked = !!prev && prev.rtl === view.rtl && prev.rev === view.rev && !!dir && !S.first, same = walked && !presetChanged;
+      const across = walked && presetChanged && !reduce && !!P0 && !!roomOf(P0) && !!roomOf(P) && roomOf(P0) !== roomOf(P);
       if (same) {
         /* The next section is further along the SAME table. The dish we walk to stands one place and a gap beyond where we
            are (and beyond its own neighbours on our side); the section's name is lettered in the gap. Nothing goes dark. */
-        const pad = dir > 0 ? Math.min(BEHIND, i) : Math.min(AHEAD, n - 1 - i), T = pad + 1 + GAP, zT = camZ + dir * fwd * T;
-        S.actors.forEach((a) => { const u = (a.z - camZ) / fwd * dir; a.leaving = true; a.visT = a.visT > 0 && u < .5 ? 1 : 0; });      // what stands in our way makes room; what we leave behind stays on the table
-        layLane(view, S.lane.x, zT - fwd * i); S.lastP = i;
-        if (reduce) { S.devZ.x = 0; S.dev.x = 0; S.actors.forEach((a) => { a.visT = 0; }); dropTitles(); }
-        else { S.devZ.x = camZ - zT; S.dev.x = camX - focusPoint(i)[0]; addTitle(dir > 0 ? view.catName : prev.catName, S.lane.x, zT - dir * fwd * (pad + (1 + GAP) / 2), view.rtl); }
+        const G = dir > 0 ? S.guests.next : S.guests.prev, was = S.lastP == null ? glide.state.p : S.lastP, there = S.actors.get(view.itemId);
+        if (G && G.cat === view.catId && !reduce && there && there.guest && !there.leaving && (dir > 0 ? was > S.lane.n - 2.4 : was < 1.4)) {
+          /* We were near the end, and that section is already laid a gap further on: its dishes are these very dishes. The
+             camera only has to go on (what is left behind stays, and is now the course before). */
+          S.actors.forEach((a) => { if (a.guest && a.cat === view.catId && !a.leaving) a.guest = false; else if (!a.leaving) { a.leaving = true; a.guest = false; } });
+          S.lane = { x: G.x, z: G.z, cat: view.catId, kind: view.kind, n, places: G.places }; S.lastP = i;
+          S.devZ.x = camZ - zOf(S.lane, i); S.dev.x = camX - focusPoint(i)[0];
+        } else {
+          const pad = dir > 0 ? Math.min(BEHIND, i) : Math.min(AHEAD, n - 1 - i), own = Math.abs(places[i].z - places[i - dir * pad].z), T = own + (1 + GAP) * P.S, zT = camZ + dir * way * T;
+          S.actors.forEach((a) => { const u = (a.z - camZ) / fwd * dir; a.leaving = true; a.guest = false; a.visT = a.visT > 0 && u < .5 ? 1 : 0; });      // what stands in our way makes room; what we leave behind stays on the table
+          S.lane = { x: S.lane.x, z: zT + S.walk * places[i].z, cat: view.catId, kind: view.kind, n, places }; S.lastP = i;
+          if (reduce) { S.devZ.x = 0; S.dev.x = 0; S.actors.forEach((a) => { a.visT = 0; }); dropTitles(); }
+          else { S.devZ.x = camZ - zT; S.dev.x = camX - focusPoint(i)[0]; addTitle(dir > 0 ? view.catName : prev.catName, S.lane.x, zT - dir * way * (own + (1 + GAP) / 2 * P.S), view.rtl); }
+        }
+      } else if (across) {
+        /* Another room: from the table to the bar, or back. It lies further along the same walk, beyond a stretch of dark.
+           The camera travels there in one move, the lamp with it; each room keeps to its own side of a line across the walk
+           (S.edge) and its own light goes down, or comes up, on the way. Turning round half way is the same move the other
+           way, across the same line. */
+        const t = dir * way, pad = dir > 0 ? Math.min(BEHIND, i) : Math.min(AHEAD, n - 1 - i), own = Math.abs(places[i].z - places[i - dir * pad].z), e = S.edge;
+        const back = !!e && e.s === -t, zL = back && !e.away ? e.zTo : camZ + t * (LEAVE + DARK), zT = zL + t * (DARK + ARRIVE + own);      // back: the room we go to lies beyond a line we crossed a moment ago; it is still the line between the two
+        S.actors.forEach((a) => { const u = (a.z - camZ) * t / P0.S; a.leaving = true; a.guest = false; a.visT = a.visT > 0 && u < .5 ? 1 : 0; }); dropTitles();
+        S.edge = { z: back && (e.z - zL) * t < FAR ? e.z : zL + t * FAR, zTo: zL, to: P.kind, s: t, w: DARK, away: 0 };      // a new line comes in from the far end of the room, and one that was drawing away turns round: nothing that is lit goes dark at once
+        S.lane = { x: S.lane.x, z: zT + S.walk * places[i].z, cat: view.catId, kind: view.kind, n, places }; S.lastP = i;
+        S.devZ.x = camZ - zT; S.dev.x = camX - focusPoint(i)[0];
       } else {
-        /* another room (the bar), another language's direction, or a new edition of the menu: laid afresh where we stand.
-           Only here does the lamp go down and come up. */
-        S.actors.forEach((a) => { a.leaving = true; a.visT = 0; }); dropTitles();
-        layLane(view, prev ? S.lane.x : 0, 0); S.lane.z = at[1] + S.walk * i * P.S; S.lastP = i;
+        /* another language's direction, a new edition of the menu, or no travel wanted (reduced motion): laid afresh where we stand */
+        S.actors.forEach((a) => { a.leaving = true; a.guest = false; a.visT = 0; }); dropTitles(); S.edge = null;
+        S.lane = { x: prev ? S.lane.x : 0, z: at[1] + S.walk * places[i].z, cat: view.catId, kind: view.kind, n, places }; S.lastP = i;
         S.dev.x = 0; S.dev.v = 0; S.devZ.x = 0; S.devZ.v = 0;
-        if (prev && dir && presetChanged && !reduce && !S.first) { S.dimT = 0; S.dimFrom = S.lampK; }
       }
-      S.heroReady = null;
+      layGuests(view); S.heroReady = null;
     }
     mount();
     /* the pour: once when a drink is lifted, once more each time the guest asks; anything else that happens ends it */
@@ -311,7 +395,8 @@ export function createStage(opts) {
   }
   /* the name of a section, lettered on the table in the gap before its first dish */
   function addTitle(text, x, z, rtl) {
-    if (!text) return; while (S.titles.length > 1) dropTitle(S.titles[0]);
+    if (!text) return; for (let k = 0; k < S.titles.length; k++) if (Math.abs(S.titles[k].z - z) < .3) { if (S.titles[k].text === text) return; dropTitle(S.titles[k]); break; }      // it is lettered there already
+    while (S.titles.length > 2) dropTitle(S.titles[0]);
     const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 256; const c = cv.getContext('2d');
     const font = (px) => '700 ' + px + 'px "Frank Ruhl Libre","Times New Roman",serif';
     let px = 132; c.font = font(px); const w0 = c.measureText(text).width; if (w0 > 900) { px = Math.max(40, Math.floor(px * 900 / w0)); c.font = font(px); }
@@ -331,6 +416,7 @@ export function createStage(opts) {
   function camTargets() {
     const P = S.preset, F = S.frame, view = S.view, hero = S.actors.get(view.itemId), lifted = !!view.lifted;
     let E = P.E, zoom = 1, cy = F.cy, lookY = 0, offX = 0;
+    if (!lifted && glide.state.mode === 'settle') zoom = 1 - BREATH * smooth((Math.abs(glide.state.v) - CALM[0]) / 5);      // never under a finger: there the table follows the hand exactly
     if (lifted) {
       const drink = hero && hero.type === 'drink', stand = hero && hero.type === 'stand';
       const sheet = F.wide ? F.sheetH : clamp((opts.sheet && opts.sheet()) || F.sheetH, F.cardH, F.sheetH);      // how much of the phone the open sheet takes: as much as it has to say
@@ -345,7 +431,7 @@ export function createStage(opts) {
     }
     return { E, zoom, cy, lookY, offX };
   }
-  function snapCamera() { const t = camTargets(); S.E.x = t.E; S.zoom.x = t.zoom; S.cy.x = t.cy; S.lookY.x = t.lookY; S.offX.x = t.offX; S.E.v = S.zoom.v = S.cy.v = S.lookY.v = S.offX.v = 0; S.lift.x = S.view && S.view.lifted ? 1 : 0; S.lift.v = 0; S.pool.x = S.preset.pool; }
+  function snapCamera() { const t = camTargets(); S.fov.x = S.frame.fov; S.D.x = S.frame.D; S.fov.v = S.D.v = 0; S.E.x = t.E; S.zoom.x = t.zoom; S.cy.x = t.cy; S.lookY.x = t.lookY; S.offX.x = t.offX; S.E.v = S.zoom.v = S.cy.v = S.lookY.v = S.offX.v = 0; S.lift.x = S.view && S.view.lifted ? 1 : 0; S.lift.v = 0; S.pool.x = S.preset.pool; }
   function touch() { S.touchAt = S.clock; }
 
   /* ---- one step of motion ---- */
@@ -353,14 +439,15 @@ export function createStage(opts) {
   function step(dt) {
     S.clock += dt; const t = S.clock; U.time.value = t; U.pulse.value += dt;
     const view = S.view; if (!view || !S.frame || S.lost) return false;
-    let moving = stepSurface(dt);
+    let moving = stepRooms(dt);
     const P = S.preset, F = S.frame, G = glide.state, p = G.p, lifted = !!view.lifted, holoScene = !!P.holo, isBar = P.kind === 'bar';
     S.lastP = p; mount();
     const hero = S.actors.get(view.itemId) || null;
     const go = (s, target, w) => { if (reduce) { s.x = target; s.v = 0; return; } springStep(s, target, w, dt); if (Math.abs(s.x - target) > 1e-3 || Math.abs(s.v) > 1e-2) moving = true; else { s.x = target; s.v = 0; } };
     /* camera */
     const tg = camTargets();
-    go(S.E, tg.E, 9); go(S.zoom, tg.zoom, 10); go(S.cy, tg.cy, 11); go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * .46 : P.pool, 7);
+    go(S.E, tg.E, S.edge ? 6.5 : 9); go(S.fov, F.fov, 6.5); go(S.D, F.D, 6.5); go(S.zoom, tg.zoom, 10); go(S.cy, tg.cy, S.edge && !lifted ? 6.5 : 11);      // into another room the eye comes down (or up) as slowly as the camera travels
+    go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * (P.open ? .8 : .46) : P.pool * (1 + (reduce ? 0 : P.open || 0) * (G.mode === 'drag' || G.mode === 'wheel' ? 1 : 1 - calmOf(G))), lifted ? 7 : 4.2);      // on a set table the lamp opens while the guest is moving along it, and closes on the dish they stop at
     if (opts.onLift) opts.onLift(clamp(S.lift.x, 0, 1.2));
     if (S.dragX.active) { S.dev.x = -S.dragX.dx / F.ppu * .3; S.dev.v = 0; moving = true; } else go(S.dev, 0, 12);      // a sideways push: the table gives a little; let go and the walk goes on to the next section
     go(S.devZ, 0, 5.6);                                      // on to the next section: a longer glide along the same table
@@ -375,31 +462,36 @@ export function createStage(opts) {
     for (let k = 0; k < 2; k++) { S.tilt[k] += (S.tiltT[k] - S.tilt[k]) * kf; S.ptr[k] += (S.ptrT[k] - S.ptr[k]) * kf; if (Math.abs(S.tiltT[k] - S.tilt[k]) + Math.abs(S.ptrT[k] - S.ptr[k]) > .002) moving = true; }
     const yaw = reduce ? 0 : Math.sin(t * .52) * .06 * env + S.tilt[0] * .13 + S.ptr[0] * -.075, pitch = reduce ? 0 : Math.sin(t * .37 + 1) * .7 * env + S.tilt[1] * 3 + S.ptr[1] * 1.6;
     if (live) moving = moving || 'slow';
-    const look = [fx, S.lookY.x, fz], cam = cameraFor(F, look, S.E.x + pitch, S.zoom.x, yaw, F.cx, S.cy.x), base = cameraFor(F, look, S.E.x, S.zoom.x, 0, F.cx, S.cy.x);
+    const L = S.lens; L.W = F.W; L.H = F.H; L.D = S.D.x; L.fov = S.fov.x;
+    const look = [fx, S.lookY.x, fz], cam = cameraFor(L, look, S.E.x + pitch, S.zoom.x, yaw, F.cx, S.cy.x), base = cameraFor(L, look, S.E.x, S.zoom.x, 0, F.cx, S.cy.x);
     camera.position.fromArray(cam.pos); V.fromArray(look); camera.lookAt(V);
     if (Math.abs(camera.fov - cam.fov) > 1e-4 || camera.aspect !== S.w / S.h) { camera.fov = cam.fov; camera.aspect = S.w / S.h; }
     camera.setViewOffset(S.w, S.h, cam.offset[0], cam.offset[1], S.w, S.h); camera.updateMatrixWorld();
     S.base.fromArray(base.pos); S.focus.set(fp[0], 0, fp[1]);
-    /* lamp and table: the pool of light travels with the focus; it goes down and comes up when the guest changes table */
-    if (S.dimT < 1) { S.dimT += dt; const d = S.dimT; S.lampK = d < .12 ? S.dimFrom + (.12 - S.dimFrom) * smooth(d / .12) : d < .2 ? .12 : .12 + .88 * smooth((d - .2) / .24); moving = true; if (d >= .44) { S.dimT = 9; S.lampK = 1; } } else S.lampK = 1;
+    /* lamp and table: the pool of light travels with the focus, into the other room too (each room has its own level of light: stepRooms) */
+    S.lampK = 1;
     const lampX = fp[0] + S.offX.x, lampZ = fp[1] + S.devZ.x;      // the lamp walks with us
-    tU.uPool.value.set(lampX, lampZ + .1, S.pool.x); tU.uLampPos.value.set(lampX + .5, 3.6, lampZ + 1.5); tU.uDim.value = S.lampK; tU.uFar.value.set(P.far[0], P.far[1]);
-    tU.uLane.value.set(S.lane.x, P.width / 2, LANE, 0); U.mask.value.set(S.lane.x, P.width / 2, 0, 0);
-    tableM.position.set(fx, 0, fz); if (BAR) { BAR.counter.position.set(fx, 0, fz); BAR.cu.uBack.value = fz - (P.wall || 12.5); BAR.wall.position.set(fx, 9, BAR.cu.uBack.value); }
+    lit.uPool.value.set(lampX, lampZ + .1, S.pool.x); lit.uLampPos.value.set(lampX + .5, 3.6, lampZ + 1.5); lit.uDim.value = S.lampK;
+    lit.uLane.value.set(S.lane.x, P.width / 2, LANE, 0); U.mask.value.set(S.lane.x, P.width / 2, 0, 0);
+    /* the line between two rooms stays where it is while the guest crosses it; once they are over it, it draws away behind them, fast enough for the new room to be lit to its far end by the time they arrive */
+    const here = roomOf(P), E_ = S.edge;
+    if (E_) { moving = true; if (!E_.away) E_.z += (E_.zTo - E_.z) * ease(dt, 9); if (E_.away || (fz - E_.zTo) * E_.s > 0) { E_.away += dt; E_.z -= E_.s * dt * (4 + 90 * E_.away); if (Math.abs(E_.z - fz) > 34) S.edge = null; } }
+    tableM.position.set(fx, 0, fz); if (BAR) { BAR.counter.position.set(fx, 0, fz); BAR.cu.uBack.value = fz - BARP.wall; BAR.wall.position.set(fx, 9, BAR.cu.uBack.value); }
     U.hub.value.set(S.lane.x, fz); U.at.value.set(lampX, lampZ);
     /* things on the table */
-    const C = camera.position, B = S.base, kv = reduce ? 1 : ease(dt, 7);
+    const C = camera.position, B = S.base, kv = reduce ? 1 : ease(dt, 7), calm = calmOf(G), set = P.rim != null;      // set: a table laid for a meal (see placesOf), where the dish in focus is presented; on the bar nothing leaves the counter
     let scan = -9;
     if (H) { const ph = t - H.scanAt; if (ph > 0 && ph < 1.6 && !reduce) scan = -.06 + ph / 1.6; if (ph > 7) H.scanAt = t; }
     const dead = []; let anyHolo = false; S.glowing = false;
     S.titles.slice().forEach((tt) => {
       if (Math.abs(tt.z - fz) > (KEEP + 1.4) * P.S) { dropTitle(tt); return; }
       if (tt.k < 1) { tt.k = reduce ? 1 : Math.min(1, tt.k + dt * 5); moving = true; }
-      const dl = Math.hypot(tt.x - lampX, tt.z - lampZ); tt.u.uK.value = tt.k * tU.uFade.value * (lifted ? .45 : 1); tt.u.uLight.value = (.34 + .66 / Math.pow(1 + dl * dl / S.pool.x, 1.5)) * (.25 + .75 * S.lampK);
+      const dl = Math.hypot(tt.x - lampX, tt.z - lampZ); tt.u.uK.value = tt.k * (here ? here.fade : 1) * (lifted ? .45 : 1); tt.u.uLight.value = (.34 + .66 / Math.pow(1 + dl * dl / S.pool.x, 1.5)) * (.25 + .75 * S.lampK);
     });
     S.actors.forEach((a) => {
       const isHero = a === hero && !a.leaving, P_ = a.g.position;
       const hide = lifted && isBar && !isHero && hero && (hero.type === 'drink' || hero.type === 'stand');      // an open drink has the counter to itself
+      if (a.leaving && a.visT > 0 && a.room && a.room !== here && a.room.fade < .2) a.visT = 0;      // left behind in the other room: gone with its light
       const visT = a.ready ? (hide ? 0 : a.visT) : 0; a.vis += (visT - a.vis) * (a.leaving && !reduce ? ease(dt, 11) : kv);
       if (Math.abs(visT - a.vis) > .004 || (!a.ready && !a.leaving)) moving = true;
       if (a.leaving && a.visT > 0 && Math.abs(a.z - fz) > (KEEP + .8) * P.S) a.visT = 0;      // left behind on the table, and now far behind
@@ -407,12 +499,15 @@ export function createStage(opts) {
       if (a.leaving && a.vis < .012) { dead.push(a); return; }
       a.g.visible = a.vis > .004;
       const wx = a.x, wz = a.z, rev = reduce ? (a.vis > .5 ? 1 : 0) : smooth(a.vis);
-      const dl = Math.hypot(wx - lampX, wz - lampZ); let lf = (.16 + .84 / Math.pow(1 + dl * dl / S.pool.x, 1.5)) * (.25 + .75 * S.lampK);
-      const sold = a.item.available === false; if (sold && !isHero) lf *= .7;
+      const dl = Math.hypot(wx - lampX, wz - lampZ); const pool = 1 / Math.pow(1 + dl * dl / S.pool.x, 1.5); let lf = (set ? Math.sqrt((.2 + pool) / 1.2) : .16 + .84 * pool) * (.25 + .75 * S.lampK) * (a.room ? a.room.fade : 1);      // the lamp's pool, as the table under it takes it (a plate is never darker than the wood it stands on), in the light of its own room
+      const sold = a.item.available === false; if (sold && !isHero) lf *= .86;
       a.light += (lf - a.light) * (reduce ? 1 : ease(dt, 9)); if (Math.abs(lf - a.light) > .004) moving = true;
       const satT = sold ? (isHero ? .12 : .08) : 1; a.sat += (satT - a.sat) * kv; if (Math.abs(satT - a.sat) > .01) moving = true;
       /* lift: the dish in focus comes up towards the eye; a standing drink stays on the counter and the eye comes down instead */
       const liftT = isHero ? S.lift.x : 0; a.lift = isHero ? liftT : a.lift + (0 - a.lift) * (reduce ? 1 : ease(dt, 10)); if (a.lift > .002 && !isHero) moving = true;
+      /* presence: the dish the table settles on comes up a little towards the guest, straightens, and its shadow opens; it goes back down as the table moves on */
+      const nearT = a.leaving || a.guest || a.cat !== view.catId || reduce || !set ? 0 : smooth(1 - Math.abs(a.i - p) * 2.2) * calm; a.near += (nearT - a.near) * ease(dt, nearT > a.near ? 6.5 : 10);
+      if (Math.abs(nearT - a.near) > .003) moving = true; else a.near = nearT;
       /* turn: only the lifted dish, by the finger; let go and it carries on, then comes back straight (a bottle stays where it stops) */
       const lim = a.type === 'drink' ? (a.drink.spec.turns ? Infinity : 0) : a.type === 'stand' ? .95 : a.type === 'relief' ? .45 : a.type === 'photo' ? .3 : .5;
       if (isHero && lifted) { if (!S.turning) { if (lim === 0) { a.turn.x = 0; a.turn.v = 0; } else turnStep(a.turn, lim, reduce ? 0 : dt); } }
@@ -420,9 +515,9 @@ export function createStage(opts) {
       else turnStep(a.turn, Math.max(lim, .01), reduce ? 0 : dt);
       if (reduce && !(isHero && lifted)) { a.turn.x = 0; a.turn.v = 0; }
       if (Math.abs(a.turn.x) > .0015 || Math.abs(a.turn.v) > .01) moving = true;
-      const yaw_ = a.turn.x, up = a.lift * P.liftY;
+      const pres = a.near * (1 - a.lift), yaw_ = a.turn.x, up = a.lift * P.liftY + pres * RISE;
       P_.set(wx, 0, wz);
-      const ry = Math.atan2(B.x - wx, B.z - wz) * .85 + (a.holo ? 0 : a.spin) + yaw_;
+      const ry = Math.atan2(B.x - wx, B.z - wz) * .85 + (a.holo ? 0 : a.spin * (1 - .6 * a.near)) + yaw_;
       a.um.uReveal.value = rev; a.um.uLight.value = a.light; a.um.uSat.value = a.sat;
       if (a.drink) {
         const sp = a.drink.spec;
@@ -448,11 +543,11 @@ export function createStage(opts) {
           a.mir.position.y = 2 * PUCK; a.refl.material.depthTest = true; a.refl.visible = a.ready && holoScene; a.shadow.visible = false;
           if (live) moving = moving || 'slow';
         } else {
-          const sc = SIZE * s * (.96 + .04 * rev) * (1 + .035 * a.lift);
+          const sc = SIZE * s * (.96 + .04 * rev) * (1 + .035 * a.lift + .012 * pres);
           [a.mesh, a.refl].forEach((m) => { m.position.y = .016 + up; m.rotation.y = ry; m.rotation.x = 0; m.scale.setScalar(sc); });
-          a.mir.position.y = 0; a.refl.material.depthTest = false; a.refl.visible = a.ready && a.lift < .02 && U.refl.value > .02 && (a.type === 'stand' || a.shape.top > .5);
-          a.shadow.visible = a.ready; a.shadow.rotation.y = ry; a.shadow.scale.setScalar(sc * (1 + .16 * a.lift)); a.shadow.material.uniforms.uK.value = (a.type === 'stand' ? .42 : .62) * rev * (1 - .42 * a.lift);
-          const cx = wx - (lampX + .5), cz = wz - (lampZ + 1.5), cl = Math.hypot(cx, cz) || 1, push = (Math.min(.05, cl * .012) + .22 * a.lift) / sc; a.shadow.material.uniforms.uCast.value.set(cx / cl * push, cz / cl * push - .1 * a.lift / sc);
+          a.mir.position.y = 0; a.refl.material.depthTest = false; a.refl.visible = a.ready && a.lift < .02 && a.room === here && U.refl.value > .02 && (a.type === 'stand' || a.shape.top > .5);
+          const su = a.shadow.material.uniforms; a.shadow.visible = a.ready; a.shadow.rotation.y = ry; a.shadow.scale.setScalar(sc * (1 + .16 * a.lift + .03 * pres)); su.uK.value = (a.type === 'stand' ? .5 : .74) * rev * (1 - .42 * a.lift - .1 * pres); su.uSoft.value = 1.6 * a.lift + .7 * pres;
+          const cx = wx - (lampX + .5), cz = wz - (lampZ + 1.5), cl = Math.hypot(cx, cz) || 1, push = (Math.min(.1, .035 + cl * .016) + .22 * a.lift + .05 * pres) / sc; su.uCast.value.set(cx / cl * push, cz / cl * push - (.1 * a.lift + .02 * pres) / sc);      // it falls away from the lamp, and opens as the dish comes up
         }
       } else if (a.type === 'drink') {
         if (a.holo) { anyHolo = true; a.ub.uOn.value += ((isHero ? 1 : .4) * rev - a.ub.uOn.value) * ease(dt, 5); }
@@ -472,17 +567,20 @@ export function createStage(opts) {
       H.hoop.position.y = FLOAT + Math.max(scan, 0) * .92; H.hoop.material.uniforms.uOn.value = scan > -1 ? H.fxOn * Math.sin(clamp((scan + .06) / 1.0) * PI) : 0;
       H.halo.position.set(lampX, .8, lampZ - 1.4); H.halo.material.opacity = .14 + (reduce ? 0 : Math.sin(t * .9) * .02); H.floor.position.set(fx, -.02, fz);
     }
-    const ready = !!(hero && hero.ready && hero.vis > .9 && (surf.cur || holoScene) && tU.uFade.value > .85 || (hero && hero.ready && holoScene));
+    const ready = !!(hero && hero.ready && hero.vis > .9 && here && here.fade > .85 || (hero && hero.ready && holoScene));
     if (ready !== S.heroReady) { S.heroReady = ready; if (opts.onHero) opts.onHero(ready, hero ? hero.id : null); }
     if (S.dragX.active || S.turning || glide.busy()) moving = true;
     S.moving = moving; return moving;
   }
   function draw() {
     if (S.lost || !S.w || !S.view) return;
-    const bloom = S.bloom && (S.glowing || (S.preset && S.preset.kind !== 'table')); renderer.info.reset();
+    const bloom = S.bloom && (S.glowing || S.room === 'holo' || rooms.bar.fade > .01); renderer.info.reset();      // the bar glows for as long as any of it is in the picture
     if (bloom) {
-      const hv = H ? H.halo.visible : false; U.glow.value = 1; if (H) H.halo.visible = false;
-      renderer.setRenderTarget(rtG); renderer.render(scene, camera); U.glow.value = 0; if (H) H.halo.visible = hv;
+      /* the light-only pass. If nothing on the food table gives off light (no projected placeholder there), its dishes sit this
+         pass out: the only light is the bar's, far behind anything flat on a table. On the walk between the two rooms that
+         saves drawing every relief a second time. */
+      const hv = H ? H.halo.visible : false, flat = !S.glowing && S.room !== 'holo'; U.glow.value = 1; if (H) H.halo.visible = false; if (flat) camera.layers.disable(1);
+      renderer.setRenderTarget(rtG); renderer.render(scene, camera); U.glow.value = 0; if (H) H.halo.visible = hv; if (flat) camera.layers.enable(1);
       blur(rtG, rtB1, 2 / rtG.width, 0); blur(rtB1, rtB2, 0, 1.5 / rtB1.height); blur(rtB2, rtC1, 2 / rtB2.width, 0); blur(rtC1, rtC2, 0, 2 / rtC1.height);
     }
     renderer.setRenderTarget(null); renderer.render(scene, camera);
@@ -539,7 +637,7 @@ export function createStage(opts) {
     return { pictures: mb(pictures), labels: mb(labels), surfaces: mb(surfaces), targets: mb(targets), total: mb(pictures + labels + surfaces + targets) };
   }
   /* let go of everything that stands on the table; the next sync lays it again */
-  function reset() { dropTitles(); S.devZ.x = 0; S.devZ.v = 0; [...S.actors.values()].forEach(dropActor); S.view = null; S.first = true; S.hot = []; S.heroReady = null; S.lane = { x: 0, z: 0, places: [], n: 0, cat: null }; S.lastP = null; S.dev.x = 0; S.dev.v = 0; S.dimT = 9; S.lampK = 1; S.full = false; }
+  function reset() { dropTitles(); S.devZ.x = 0; S.devZ.v = 0; [...S.actors.values()].forEach(dropActor); S.view = null; S.first = true; S.hot = []; S.heroReady = null; S.lane = { x: 0, z: 0, places: [], n: 0, cat: null, kind: 'food' }; S.guests.prev = S.guests.next = null; S.lastP = null; S.dev.x = 0; S.dev.v = 0; S.lampK = 1; S.edge = null; S.full = false; }
   return {
     sync, size, hit, repaintCards, step, draw, perf, touch,
     /* a sideways drag: the table follows the finger; let go and it slides to wherever the state now says */
@@ -555,13 +653,15 @@ export function createStage(opts) {
     setTilt(x, y) { S.tiltT[0] = clamp(x, -1, 1); S.tiltT[1] = clamp(y, -1, 1); wake(); },
     feedFrameTime(raw) { S.frames = 99; perf(raw); },
     metrics: () => (S.frame ? S.frame : null),
+    /* how far along the table dish p stands, in the room of one plate (what a finger's travel is measured in), and back */
+    along: (p) => (S.preset && S.lane.n ? alongAt(S.lane.places, p, S.preset.S) / S.preset.S : p), dish: (u) => (S.preset && S.lane.n ? dishAt(S.lane.places, u * S.preset.S, S.preset.S) : u),
     pending: () => pending,
     loaded: (ms = 8000) => (pending === 0 ? Promise.resolve() : new Promise((res) => { waiters.push(res); setTimeout(res, ms); })),
-    info: () => ({ moving: S.moving, tier: S.tier, bloom: S.bloom, pixelRatio: pr, frames: S.frames, p: +glide.state.p.toFixed(4), mode: glide.state.mode, lampK: +S.lampK.toFixed(3), lift: +S.lift.x.toFixed(3), fade: +tU.uFade.value.toFixed(3), heroReady: !!S.heroReady,
-      actors: [...S.actors.values()].map((a) => ({ id: a.id, i: a.i, type: a.type, holo: a.holo, ready: a.ready, leaving: a.leaving, left: a.leaving && a.visT > 0, vis: +a.vis.toFixed(3), yaw: +a.turn.x.toFixed(3), lift: +a.lift.toFixed(3), sat: +a.sat.toFixed(2), x: +a.x.toFixed(2), z: +a.z.toFixed(2), pouring: !!a.pour, pose: a.pose ? { tilt: +a.pose.tilt.toFixed(3), level: +a.pose.level.toFixed(3), foam: +a.pose.foam.toFixed(3), fade: +a.pose.fade.toFixed(3), t: a.pour ? +a.pour.t.toFixed(2) : null } : null, tris: a.drink ? a.drink.tris : undefined })),
+    info: () => ({ moving: S.moving, tier: S.tier, bloom: S.bloom, pixelRatio: pr, frames: S.frames, p: +glide.state.p.toFixed(4), mode: glide.state.mode, lampK: +S.lampK.toFixed(3), lift: +S.lift.x.toFixed(3), fade: +(S.room === 'holo' ? 1 : rooms[S.room].fade).toFixed(3), rooms: { table: +rooms.table.fade.toFixed(3), bar: +rooms.bar.fade.toFixed(3) }, edge: S.edge ? { z: +S.edge.z.toFixed(2), at: +S.edge.zTo.toFixed(3), to: S.edge.to, s: S.edge.s, away: +S.edge.away.toFixed(2) } : null, heroReady: !!S.heroReady,
+      actors: [...S.actors.values()].map((a) => ({ id: a.id, i: a.i, type: a.type, holo: a.holo, ready: a.ready, leaving: a.leaving, left: a.leaving && a.visT > 0, guest: a.guest, cat: a.cat, vis: +a.vis.toFixed(3), yaw: +a.turn.x.toFixed(3), lift: +a.lift.toFixed(3), near: +a.near.toFixed(3), light: +a.light.toFixed(3), sat: +a.sat.toFixed(2), x: +a.x.toFixed(2), z: +a.z.toFixed(2), pouring: !!a.pour, pose: a.pose ? { tilt: +a.pose.tilt.toFixed(3), level: +a.pose.level.toFixed(3), foam: +a.pose.foam.toFixed(3), fade: +a.pose.fade.toFixed(3), t: a.pour ? +a.pour.t.toFixed(2) : null } : null, tris: a.drink ? a.drink.tris : undefined })),
       hot: S.hot.map((h) => ({ id: h.id, cx: Math.round(h.cx), cy: Math.round(h.cy), rx: Math.round(h.rx), ry: Math.round(h.ry) })),
       pours: S.pours, drinks: kit.stats(), stats: { calls: S.stats.calls, triangles: S.stats.triangles }, memory: memory(), lane: { x: +S.lane.x.toFixed(2), z: +S.lane.z.toFixed(2) }, walkOn: +S.devZ.x.toFixed(3), titles: S.titles.map((t) => ({ text: t.text, z: +t.z.toFixed(2), k: +t.k.toFixed(2) })),
-      textures: texCache.size, surfaces: surf.texs.size, scene: S.preset ? S.preset.id : null, lost: S.lost, frame: S.frame, cam: { pos: camera.position.toArray(), E: +S.E.x.toFixed(2), zoom: +S.zoom.x.toFixed(3), cy: +S.cy.x.toFixed(1), fov: camera.fov }, gl: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures } }),
+      textures: texCache.size, surfaces: surf.texs.size, scene: S.preset ? S.preset.id : null, lost: S.lost, frame: S.frame, cam: { pos: camera.position.toArray(), line: +S.focus.x.toFixed(4), E: +S.E.x.toFixed(2), zoom: +S.zoom.x.toFixed(3), cy: +S.cy.x.toFixed(1), fov: camera.fov }, gl: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures } }),
     /* no table for now (the list is the menu): let go of everything heavy; the next sync builds it again */
     sleep() { reset(); texCache.forEach((e) => e.tex && e.tex.dispose()); texCache.clear(); renderer.setRenderTarget(null); renderer.clear(); },
     reset, isLost: () => S.lost,

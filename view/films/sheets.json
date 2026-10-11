@@ -23,5 +23,13 @@
 
  {"name": "bar-glide-pour", "url": "?demo=olea&lang=en#c=wine", "width": 390, "height": 844, "fps": 20, "seconds": 2.4, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 620], [195, 420]], "ms": 300, "ease": "linear"}, {"at": 0.75, "tap": [195, 470]}], "sheet": {"from": 0, "every": 0.1, "count": 24, "cols": 8, "width": 320}},
 
+ {"name": "table-to-bar", "url": "?demo=olea&lang=en#c=sweet&i=chocolate", "width": 390, "height": 844, "fps": 20, "seconds": 1.6, "steps": [{"at": 0.05, "click": ".chip[data-id=\"wine\"]"}], "sheet": {"from": 0, "every": 0.05, "count": 32, "cols": 8, "width": 320}},
+
+ {"name": "bar-to-table", "url": "?demo=olea&lang=en#c=wine&i=wine-white", "width": 390, "height": 844, "fps": 20, "seconds": 1.6, "finger": true, "steps": [{"at": 0.05, "drag": [[110, 400], [300, 408]], "ms": 200, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 32, "cols": 8, "width": 320}},
+
+ {"name": "table-to-bar-turned-round", "url": "?demo=olea&lang=en#c=sweet&i=chocolate", "width": 390, "height": 844, "fps": 20, "seconds": 1.6, "steps": [{"at": 0.05, "click": ".chip[data-id=\"wine\"]"}, {"at": 0.3, "click": ".chip[data-id=\"sweet\"]"}, {"at": 0.65, "click": ".chip[data-id=\"wine\"]"}], "sheet": {"from": 0, "every": 0.05, "count": 32, "cols": 8, "width": 320}},
+
+ {"name": "next-course", "url": "?demo=olea&lang=en#c=starters&i=bread", "width": 390, "height": 844, "seconds": 1.2, "finger": true, "steps": [{"at": 0.05, "drag": [[195, 540], [195, 300]], "ms": 250, "ease": "linear"}], "sheet": {"from": 0, "every": 0.05, "count": 24, "cols": 8, "width": 320}},
+
  {"name": "desktop-1280x800", "url": "?demo=olea&lang=en", "width": 1280, "height": 800, "seconds": 1.1, "steps": [{"at": 0.05, "wheel": 100}, {"at": 0.65, "tap": [832, 492]}], "sheet": {"from": 0, "every": 0.05, "count": 22, "cols": 4, "width": 520}}
 ]

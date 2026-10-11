@@ -7,7 +7,11 @@
      fly     the same spring, when something else chose the dish (a key, a chip, a row of the list, a link)
 
    It reports which dish is nearest the focus line (onFocus) while the GUEST is moving the table; when the dish was chosen
-   elsewhere the state already knows, and nothing is reported back. */
+   elsewhere the state already knows, and nothing is reported back.
+
+   Dishes do not all take the same room on a set table (a name card stands closer than a plate). h.along(p) says how far along
+   the table p is, in the units h.depth(y) measures, and h.dish(u) is its inverse; a finger and a trackpad move the table by
+   distance, so the point that was grabbed stays under the finger. Without them a dish is one unit, as in the tests. */
 import { velocity, rubber, unrubber, settleTarget, stiffnessFor, springStep, atRest, clamp, OMEGA_FLY, EDGE_PULL } from './physics.js';
 
 const WHEEL_IDLE = 110;          // ms without a wheel event = the wheel gesture is over
@@ -17,7 +21,7 @@ const NOTCH = 50;                // px in one event, out of the blue: a mouse wh
 export function createGlide(h) {
   const G = { n: 1, max: 0, p: 0, v: 0, target: 0, omega: OMEGA_FLY, mode: 'rest', focus: 0, own: false,
     raw0: 0, d0: 0, from: 0, samples: [], wheelAt: 0, wheelRaw: 0, px: 300, lock: 0 };
-  const s = { x: 0, v: 0 };
+  const s = { x: 0, v: 0 }, along = h.along || ((p) => p), dish = h.dish || ((u) => u);
   const nearest = () => clamp(Math.round(G.p), 0, G.max);
   function report() { const i = nearest(); if (i !== G.focus) { G.focus = i; if (G.own) h.onFocus(i); } }
   function settle(target, v) { G.target = clamp(target, 0, G.max); G.v = v; G.omega = stiffnessFor(G.p, v, G.target); G.mode = 'settle'; h.wake(); }
@@ -39,10 +43,10 @@ export function createGlide(h) {
     },
     /* h.depth(y) = how far along the table, in dishes from the focus line, the point under a finger at screen height y lies.
        Holding that point under the finger is what makes the table follow the hand exactly, perspective and all. */
-    dragStart(y) { G.mode = 'drag'; G.own = true; G.d0 = h.depth(y); G.raw0 = unrubber(G.p, G.max); G.from = G.focus; G.v = 0; G.samples = [{ t: h.now(), x: G.p }]; h.wake(); },
+    dragStart(y) { G.mode = 'drag'; G.own = true; G.d0 = h.depth(y); G.raw0 = along(unrubber(G.p, G.max)); G.from = G.focus; G.v = 0; G.samples = [{ t: h.now(), x: G.p }]; h.wake(); },
     dragMove(y) {
       if (G.mode !== 'drag') return;
-      G.p = rubber(G.raw0 + h.walk() * (h.depth(y) - G.d0), G.max);
+      G.p = rubber(dish(G.raw0 + h.walk() * (h.depth(y) - G.d0)), G.max);
       G.samples.push({ t: h.now(), x: G.p }); if (G.samples.length > 24) G.samples.shift();
       report(); h.wake();
     },
@@ -57,7 +61,7 @@ export function createGlide(h) {
         settle(t, out ? dir * 1.4 : G.v); G.omega = Math.max(G.omega, 14); return;      // (nothing that way: a nudge against the end)
       }
       if (G.mode !== 'wheel') { G.px = Math.max(40, h.pxPerDish()); G.mode = 'wheel'; G.own = true; G.wheelRaw = unrubber(G.p, G.max); G.from = G.focus; G.v = 0; }
-      G.wheelRaw = clamp(G.wheelRaw + dy / G.px, -1.2, G.max + 1.2); G.p = rubber(G.wheelRaw, G.max); G.wheelAt = h.now(); report(); h.wake();
+      G.wheelRaw = clamp(dish(along(G.wheelRaw) + dy / G.px), -1.2, G.max + 1.2); G.p = rubber(G.wheelRaw, G.max); G.wheelAt = h.now(); report(); h.wake();
     },
     step(dt) {
       if (G.mode === 'wheel') {

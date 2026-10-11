@@ -20,7 +20,7 @@ export const OMEGA_MAX = 17;      // 1/s    the firmest (a hard flick into a nea
 export const OMEGA_FLY = 10.5;    // 1/s    travel asked for by a key, a chip or the list
 export const BAND = 0.85;         // dish   the furthest the rubber band stretches
 export const BAND_SLOPE = 0.55;   //        how much of the finger's travel the band gives at its start
-export const EDGE_PULL = 0.22;        // dish   stretched this far past the last dish and let go: on to the next category (about 150 px of finger on a phone)
+export const EDGE_PULL = 0.22;        // dish   stretched this far past the last dish and let go: on to the next category (about 160 px of finger on a phone)
 export const VELOCITY_WINDOW = 80; // ms    the finger's speed is measured over its last samples only
 
 export const clamp = (x, a, b) => Math.min(b, Math.max(a, x));

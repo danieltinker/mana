@@ -52,6 +52,19 @@ test('both ends stretch like a rubber band; a pull or a flick past the last dish
   const one = rig({ n: 1 }); one.drag(200, 300, { hold: true }); assert.ok(one.S.p > 0 && one.S.p < BAND, 'a single dish still moves under the finger'); one.tick(200); one.g.dragEnd(false); one.run(); assert.equal(one.S.p, 0);
 });
 
+test('dishes of different sizes: the finger and the trackpad move the table by distance, so what was grabbed stays under the finger', () => {
+  /* a table where dish 2 is a name card: it takes half the room of a plate. along(p) = how far along the table p is, in plates */
+  const Z = [0, 1, 1.75, 2.5, 3.5], along = (p) => { const a = Math.max(0, Math.min(Z.length - 2, Math.floor(p))); return Z[a] + (p - a) * (Z[a + 1] - Z[a]); }, dish = (u) => { let a = 0; while (a < Z.length - 2 && u > Z[a + 1]) a++; return a + (u - Z[a]) / (Z[a + 1] - Z[a]); };
+  let t = 0; const g = createGlide({ now: () => t, wake() {}, walk: () => 1, pxPerDish: () => 300, depth: (y) => y / 300, along, dish, onFocus() {}, onEdge: () => false, onRest() {} }), S = g.state;
+  g.enter(5, 0); t = 1000;
+  g.dragStart(400); t += 8; g.dragMove(400 + 300); assert.ok(Math.abs(S.p - 1) < 1e-9, 'a plate\'s room of finger travel: one dish');
+  t += 8; g.dragMove(400 + 300 + 225); assert.ok(Math.abs(S.p - 2) < 1e-9, 'three quarters of that reaches the name card, which stands closer: ' + S.p);
+  t += 8; g.dragMove(400 + 300 + 225 + 112.5); assert.ok(Math.abs(S.p - 2.5) < 1e-9, 'and half its own room is half a dish: ' + S.p);
+  for (const y of [450, 700, 990, 1270]) { t += 8; g.dragMove(y); assert.ok(Math.abs(along(S.p) - (y - 400) / 300) < 1e-9, 'the table has moved exactly as far as the finger, at ' + y); }
+  t += 300; g.dragEnd(false); for (let i = 0; i < 400 && g.busy(); i++) { t += 8; g.step(.008); } assert.equal(S.p, 3); assert.equal(S.mode, 'rest');
+  t += 1000; for (let k = 0; k < 10; k++) { g.wheel(15); t += 16; g.step(.016); } assert.ok(Math.abs(along(S.p) - (along(3) + 150 / 300)) < 1e-9, 'a trackpad too: half a plate of scrolling is half a plate of table, ' + S.p);
+});
+
 test('the other way round (walk = -1, the feed): a swipe up is the next dish', () => {
   const r = rig({ walk: -1 }); r.drag(-70, 64); r.run(); assert.equal(r.S.p, 1);
   const d = rig({ walk: -1 }); d.drag(-150, 200, { hold: true }); assert.ok(Math.abs(d.S.p - .5) < 1e-9);
