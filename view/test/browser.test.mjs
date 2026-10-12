@@ -257,7 +257,7 @@ test('/m/<slug> and ?m=: open_menu and track_item with the right bodies, once pe
   const calls = () => srv.server.calls.slice(), mark = srv.server.calls.length;
   let o = await open(browser, srv.origin + '/m/olea?t=1' + T + '&lang=en#c=mains&i=kebab'), page = o.page;
   await tableUp(page);
-  assert.equal(await page.evaluate(() => document.baseURI), srv.origin + VIEW); assert.equal(await text(page, '#dName'), 'Lamb kebab'); assert.equal(await text(page, '#bizName'), 'Olea'); assert.equal(await page.title(), 'Olea');
+  assert.equal(await page.evaluate(() => document.baseURI), srv.origin + '/mana/view/'); assert.equal(await text(page, '#dName'), 'Lamb kebab');     // under /m/ the base is halom.io's /mana/view/ assert.equal(await text(page, '#bizName'), 'Olea'); assert.equal(await page.title(), 'Olea');
   assert.deepEqual(calls().slice(mark), [{ fn: 'open_menu', args: { p_slug: 'olea', p_lang: 'en', p_src: 'qr' } }], 'one open_menu, from the printed code, in English');
   assert.equal(await page.isVisible('#home'), false); assert.equal(await text(page, '#demoNote'), null); assert.equal(await page.evaluate(() => document.getElementById('demoLine').textContent + document.getElementById('demoNote').textContent + document.getElementById('homeLbl').textContent), '', 'nothing says "demo" on a real menu');
   assert.equal(await page.getAttribute('.row[data-id="pappardelle"]', 'href'), '/m/olea?t=1' + T + '&lang=en#c=mains&i=pappardelle');
@@ -277,7 +277,7 @@ test('/m/<slug> and ?m=: open_menu and track_item with the right bodies, once pe
   assert.deepEqual(calls().slice(m3).map((c) => c.fn + ':' + (c.args.p_item || c.args.p_src)), ['open_menu:link', 'track_item:malabi']); await o.ctx.close();
   /* placeholders under the short link: the library is found next to the viewer */
   o = await open(browser, srv.origin + '/m/kiosk?gl=off&lang=en'); await o.page.evaluate(() => window.__mana.ready);
-  assert.ok(srv.server.requests.some((r) => r.path === '/projects/menus/stock/stock.json')); assert.equal(await text(o.page, '.row[data-id="k-pizza"] .illus-tag'), 'Illustration'); assert.match(await o.page.getAttribute('.row[data-id="k-pizza"] img.thumb', 'src'), /\/projects\/menus\/stock\/img\/pizza_t\.jpg$/); await o.ctx.close();
+  assert.ok(srv.server.requests.some((r) => r.path === '/mana/stock/stock.json')); assert.equal(await text(o.page, '.row[data-id="k-pizza"] .illus-tag'), 'Illustration'); assert.match(await o.page.getAttribute('.row[data-id="k-pizza"] img.thumb', 'src'), /\/mana\/stock\/img\/pizza_t\.jpg$/); await o.ctx.close();
   o = await open(browser, srv.origin + VIEW + '?m=olea&lang=en&gl=off'); await o.page.evaluate(() => window.__mana.ready); assert.equal(await text(o.page, '#list h3'), 'To start'); await o.ctx.close();
   o = await open(browser, srv.origin + '/m/paused'); page = o.page; await page.waitForSelector('#status[data-kind="unavailable"]');
   assert.match(await page.textContent('#statusTitle'), /התפריט לא זמין כרגע/); assert.match(await page.textContent('#statusBody'), /אוליאה/); assert.equal(await page.isVisible('#statusBtn'), false); await o.ctx.close();

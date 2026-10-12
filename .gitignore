@@ -1,0 +1,10 @@
+node_modules
+dist/
+.env
+.env.*
+.pages/
+out/
+test-results/
+*.log
+.DS_Store
+studio/test/stack/fake-gen/models/*.bin

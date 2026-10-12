@@ -1,5 +1,5 @@
 /* Local stand-in for the hosts the viewer talks to, for development and tests only (never deployed):
-     static files   like GitHub Pages: this folder at /projects/menus/view/, the placeholder library at /projects/menus/stock/,
+     static files   like GitHub Pages: this folder at /projects/menus/view/ (and at /mana/view/, as on halom.io), the placeholder library at /projects/menus/stock/,
                     gzip, 10-minute cache, and /m/<slug> rewritten to index.html
      Supabase stub  POST /stub/rest/v1/rpc/open_menu | public_menu  →  the three answers in CONTRACT.md (plus a 500 and a slow one)
                     POST /stub/rest/v1/rpc/track_item               →  204, and the call is kept in server.calls for tests
@@ -26,6 +26,7 @@ export function createServer(opts = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x'); let path = decodeURIComponent(url.pathname);
     log.push({ method: req.method, path, apikey: req.headers.apikey || null });
+    if (path.startsWith('/mana/')) path = '/projects/menus/' + path.slice('/mana/'.length);     // halom.io serves the same folder at /mana/ (the /m/<slug> base)
     const send = (code, body, type, extra) => {
       let buf = Buffer.isBuffer(body) ? body : Buffer.from(body); const h = Object.assign({ 'Content-Type': type, 'Cache-Control': 'max-age=600', 'Access-Control-Allow-Origin': '*' }, extra || {});
       if (/^(text|application\/json)/.test(type) && /gzip/.test(req.headers['accept-encoding'] || '') && buf.length > 512) { buf = gzipSync(buf); h['Content-Encoding'] = 'gzip'; }

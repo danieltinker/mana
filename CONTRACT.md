@@ -12,7 +12,10 @@ no app, no account. Everything not approved stays private.
 Generation runs **in the owner's browser** (no server, no paid provider): same two Apache-2.0 models and the same
 post-processing as Halom's Python pipeline (`base/pipeline.py`).
 
-## Where things live (static hosting: GitHub Pages repo `danieltinker/halom-projects`)
+## Where things live (static hosting: GitHub Pages, this repo's `pages` branch; until 12 Oct 2026 `danieltinker/halom-projects`, folder `projects/menus/`)
+
+The paths below are the old repository's. On the `pages` branch of `danieltinker/mana` the same files sit at the root (`index.html`, `studio/`, `view/`, `gen/`, `config.js`, …), and halom.io serves them at `/mana/…`.
+
 | Path in repo | What | Lane |
 |---|---|---|
 | `projects/menus/index.html` (+ `landing/`) | owner-facing product page | studio |
@@ -270,7 +273,7 @@ rest is icons, pictures and the controls themselves. No paragraph of instruction
   the section's name lettered on the wood. The lamp dips only between table and bar.
 - **Demo menus (`?demo=`).** The ordering button reads "להזמנה אונליין" / "Order online" and explains itself instead of
   leaving the page. Real menus keep "Order on <host>" and the business's own link.
-- **Short links.** Under `/m/<slug>` the viewer writes `<base href="/projects/menus/view/">` itself, so the live routes
-  `/m/:slug -> projects/menus/view/index.html` and `/projects/(.*)` are both required.
+- **Short links.** Under `/m/<slug>` the viewer writes `<base href="/mana/view/">` itself (until 12 Oct 2026:
+  `/projects/menus/view/`), so the live routes `/m/:slug -> view/index.html` and `/mana/(.*)` are both required.
 - **Published settings** (`projects/menus/config.js`): `auth.providers: []` and `features.scan: false` until the founder
   registers a sign-in provider and adds the scanner's key; then the lead flips them, after one real test each.

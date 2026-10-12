@@ -6,10 +6,7 @@ Nothing here has been deployed, pushed, published or sent.
 
 | Path | What |
 |---|---|
-| `01-name.md` | The name, checked: meanings, conflicts found, verdict, three alternates, what a lawyer must confirm |
-| `02-brand.md` | Positioning, pillars, voice, taglines, naming system, the visual identity |
-| `03-campaign.md` | Alternatives with sources, price proposal, 10-restaurant pilot, content, print, launch checklist |
-| `04-sales-playbook.md`, `04-sales-playbook.he.md` | The sales playbook for version 2: who first, demo or call, the visit, exact words, links, objections, follow-up, log, numbers |
+| Name study, brand kit, campaign kit, sales playbooks | Not in this public repository. They are in the Halom Project on claude.ai: `ventures/mana/name.md`, `brand.md`, `campaign.md`, `sales-playbook.md`, `sales-playbook.he.md` |
 | `assets/` | The mark, lockups, icons, avatar (SVG + PNG), `tokens.json`, `_sheet.png` |
 | `site/` | The product page: `index.html`, `guide/`, `privacy/`, `terms/`, `mana.css`, `mana.js`, `fonts/`, `img/` |
 | `print/` | A6 table card, 60 mm sticker, A5 leave-behind (SVG, PDF, previews), `cards/olea/` |
