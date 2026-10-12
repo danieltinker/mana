@@ -63,7 +63,7 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
   const path = !everPublished();
   const cats = useMemo(() => sortRows(d.categories), [d.categories]);
   const [catDialog, setCatDialog] = useState<{ cat: Cat | null } | null>(null);
-  const [paste, setPaste] = useState(false), [imp, setImp] = useState(false), [reorder, setReorder] = useState(false), [only, setOnly] = useState(false);
+  const [paste, setPaste] = useState(false), [imp, setImp] = useState(false), [reorder, setReorder] = useState(false), [only, setOnly] = useState(false), [tools, setTools] = useState(false);
   const [pic, setPic] = useState<string | null>(null), [focusCat, setFocusCat] = useState<string | null>(null), [live, setLive] = useState('');
   const sheetId = route.value[0] === 'menu' && route.value[1] === 'i' ? route.value[2] : null;
   useEffect(() => { initIllus(); }, [d.biz.id]);
@@ -106,9 +106,8 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
             {!empty && <h1 tabIndex={-1}>{title}</h1>}
             <div class="menu-tools">
               {!path && <Seg small value={view} label={t('menu.view')} onChange={(v) => go(v === 'grid' ? 'pictures' : 'menu')} options={[{ value: 'list', label: t('menu.view.list'), icon: 'list' }, { value: 'grid', label: t('menu.view.grid'), icon: 'grid' }]} />}
-              {view === 'list' && d.items.length > 1 && <button type="button" class={'toolbtn' + (reorder ? ' on' : '')} aria-pressed={reorder ? 'true' : 'false'} onClick={() => setReorder(!reorder)} data-tool="reorder"><Icon name="reorder" size={18} /><span>{t('menu.reorder')}</span></button>}
-              {view === 'list' && <button type="button" class="toolbtn" onClick={() => setCatDialog({ cat: null })} data-tool="section"><Icon name="plus" size={18} /><span>{t('menu.addCategory')}</span></button>}
-              {view === 'list' && !empty && <button type="button" class="toolbtn" onClick={() => setImp(true)} data-tool="import"><Icon name="scan" size={18} /><span>{t('menu.import')}</span></button>}
+              {view === 'list' && reorder && <button type="button" class="toolbtn on" aria-pressed="true" onClick={() => setReorder(false)} data-tool="reorder"><Icon name="check" size={18} /><span>{t('menu.reorderDone')}</span></button>}
+              {view === 'list' && !reorder && <button type="button" class="toolbtn" aria-haspopup="dialog" onClick={() => setTools(true)} data-tool="more"><Icon name="plus" size={18} /><span>{t('menu.tools')}</span></button>}
               {missing > 0 && (view === 'grid' || !path) && <button type="button" class={'toolbtn' + (only ? ' on' : '')} aria-pressed={only ? 'true' : 'false'} onClick={() => setOnly(!only)} data-tool="nophoto"><Icon name="camera" size={18} /><span>{t('menu.noPhoto')}</span><b>{missing}</b></button>}
             </div>
           </header>
@@ -154,6 +153,14 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
 
       {catDialog && <SectionDialog cat={catDialog.cat} onClose={(made) => { setCatDialog(null); if (made) setFocusCat(made); }} />}
       {paste && <PasteSheet onClose={() => setPaste(false)} />}
+      {/* one button for the things done now and then: a new section, importing more of the menu, putting it in order */}
+      <Sheet open={tools} onClose={() => setTools(false)} title={t('menu.tools')} name="tools">
+        <div class="actlist">
+          <Btn icon="plus" onClick={() => { setTools(false); setCatDialog({ cat: null }); }} data-tool="section">{t('menu.addCategory')}</Btn>
+          {!empty && <Btn icon="scan" onClick={() => { setTools(false); setImp(true); }} data-tool="import">{t('menu.import')}</Btn>}
+          {d.items.length > 1 && <Btn icon="reorder" aria-pressed="false" onClick={() => { setTools(false); setReorder(true); }} data-tool="reorder">{t('menu.reorder')}</Btn>}
+        </div>
+      </Sheet>
       <Sheet open={imp} onClose={() => setImp(false)} title={t('menu.import')} name="import">
         <div class="actlist">
           <Btn kind="primary" icon="scan" onClick={() => { setImp(false); startScanFlow(); }} data-way="scan">{t('menu.way.scan')}</Btn>

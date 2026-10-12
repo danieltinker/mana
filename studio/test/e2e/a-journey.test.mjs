@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import jsQR from 'jsqr';
 import { PNG } from 'pngjs';
-import { setup, teardown, newPage, app, viewer, shot, unique, PASSWORD, PHOTOS, anon, sql, OUT, stack, stackConfig, aiCalls, menuPhoto, guests, dbIs, liveSnapshot } from './helpers.mjs';
+import { setup, teardown, newPage, app, viewer, shot, unique, PASSWORD, PHOTOS, anon, sql, OUT, stack, stackConfig, aiCalls, menuPhoto, guests, dbIs, liveSnapshot, tool } from './helpers.mjs';
 
 let page;
 const email = unique('journey') + '@example.com';
@@ -144,7 +144,7 @@ test('4 · the editor: quick add with focus kept, paste with review, reorder, th
   assert.equal(sql(`select price_minor || '|' || stock_id from public.items where id = '${item('סלט יווני')}'`), '4600|salad', 'a typed dish gets its illustration too');
 
   // paste a list: review first, nothing saved until confirmed
-  await page.locator('[data-tool=import]').click();
+  await tool(page, 'import');
   await page.locator('[data-sheet=import] [data-way=paste]').click();
   await page.getByLabel('הרשימה').fill('# יינות\nמרלו | 140 | גליל\nשרדונה | שלוש\n# משקאות\nבירה קירין | 28 | בקבוק 330 מ"ל');
   await page.getByRole('button', { name: 'בדיקה' }).click();
@@ -160,7 +160,7 @@ test('4 · the editor: quick add with focus kept, paste with review, reorder, th
   assert.equal(sql(`select desc_he from public.items where id = '${item('בירה קירין')}'`), 'בקבוק 330 מ"ל');
 
   // reorder with the keyboard-operable buttons (shown in "reorder")
-  await page.locator('[data-tool=reorder]').click();
+  await tool(page, 'reorder');
   await page.getByRole('button', { name: 'להעלות את סלט קצוץ' }).click();
   await saved();
   assert.equal(sql(`select string_agg(i.name_he, ',' order by i.position) from public.items i join public.categories c on c.id = i.category_id where c.name_he = 'ראשונות'`), 'סלט קצוץ,חומוס הבית');
@@ -171,7 +171,7 @@ test('4 · the editor: quick add with focus kept, paste with review, reorder, th
   assert.equal(sql(`select string_agg(name_he, ',' order by position) from public.categories where business_id = '${S.bizId}'`), 'עיקריות,ראשונות,משקאות,יינות');
   await page.getByRole('button', { name: 'להעלות את ראשונות' }).click();
   await saved();
-  await page.locator('[data-tool=reorder]').click();
+  await tool(page, 'reorder');
   await shot(page, '04-menu-he-390');
 
   // the dish sheet: one language at a time, the rest behind "More"
@@ -312,6 +312,8 @@ test('6 · publish: the real viewer shows the draft, quick style picks, one butt
   assert.equal(await page.locator('.templink, [data-temp-link]').count(), 0, 'no "temporary address" notice');
   assert.equal(await page.locator('[data-action=open-menu]').getAttribute('href'), 'https://halom.io/m/' + slug);
   for (const a of await page.locator('a[target=_blank]').evaluateAll((els) => els.map((e) => [e.href, e.rel]))) { assert.match(a[1], /noopener/); assert.match(a[0], /^https?:\/\//); }
+  assert.equal(await page.locator('[data-field=contact_phone]').count(), 0, 'the phone is one quiet line until the owner asks for the field');
+  await page.locator('[data-action=add-phone]').click();
   await page.locator('[data-field=contact_phone]').fill('050-123 4567');
   await dbIs(`select coalesce(contact_phone, '') from public.businesses where id = '${S.bizId}'`, '050-123 4567');
   assert.match(sql(`select status || '|' || (trial_ends_at > now() + interval '29 days') from public.entitlements where business_id = '${S.bizId}'`), /^trialing\|true$/);
@@ -392,7 +394,7 @@ test('7 · after publishing, Home is a dashboard: quiet outlines before any gues
   assert.deepEqual(await page.locator('.nav [data-tab]').evaluateAll((els) => els.map((e) => e.getAttribute('data-tab'))), ['home', 'menu', 'style']);
   assert.equal(await page.locator('[data-dash-empty]').innerText(), 'המספרים יופיעו אחרי הסריקות הראשונות.');
   assert.equal(await page.locator('[data-n=views7]').innerText(), '–');
-  assert.equal(await page.locator('.dash.is-ghost [data-tile]').count(), 6, 'the same six tiles, as outlines');
+  assert.equal(await page.locator('.dash.is-ghost [data-tile]').count(), 3, 'the same three tiles, as outlines');
   assert.equal(await page.locator('[data-pub-state]').getAttribute('data-pub-state'), 'live');
   assert.ok(await page.locator('[data-nudge]').count() <= 2, 'at most two nudges');
   assert.match(await page.locator('[data-nudge=photos]').innerText(), /ל־\d+ מנות אין תמונה/);

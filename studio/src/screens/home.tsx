@@ -37,15 +37,6 @@ function Hours({ hours, ghost }: { hours: number[]; ghost?: boolean }) {
     </svg>
   );
 }
-function Ring({ pct, ghost }: { pct: number; ghost?: boolean }) {
-  const R = 22, C = 2 * Math.PI * R;
-  return (
-    <svg class={'chart ring' + (ghost ? ' is-ghost' : '')} viewBox="0 0 56 56" role="presentation" aria-hidden="true" data-chart="ring">
-      <circle cx="28" cy="28" r={R} class="ring-bg" />
-      {!ghost && pct > 0 && <circle cx="28" cy="28" r={R} class="ring-fg" stroke-dasharray={`${(pct / 100) * C} ${C}`} transform="rotate(-90 28 28)" />}
-    </svg>
-  );
-}
 function TopDishes({ items, ghost }: { items: Stats['items']; ghost?: boolean }) {
   const rows = ghost ? [5, 4, 3, 2.2, 1.5].map((v, i) => ({ id: 'g' + i, name_he: '', name_en: '', opens: v, adds: 0 })) : items.slice(0, 5);
   const max = Math.max(1, ...rows.map((r) => r.opens));
@@ -155,6 +146,12 @@ export function HomeScreen() {
           </p>
           <Spark values={s ? s.days.map((x) => x.views) : []} ghost={ghost} />
           <p class="dt-foot"><span>{t('home.t.views30')}</span>{!ghost && <Ltr data-n="views30">{num(tt!.views30)}</Ltr>}</p>
+          {/* three smaller numbers of the same 30 days, read in one line under the chart instead of three tiles */}
+          <ul class="dt-minis">
+            <li data-mini="english"><Ltr data-n="english">{ghost ? '–' : share(tt!.en30, tt!.views30) + '%'}</Ltr><span><Icon name="globe" size={14} />{t('home.t.english')}</span></li>
+            <li data-mini="qr"><Ltr data-n="qr">{ghost ? '–' : share(tt!.qr30, tt!.views30) + '%'}</Ltr><span><Icon name="qr" size={14} />{t('home.t.qr')}</span></li>
+            <li data-mini="adds"><Ltr data-n="adds">{ghost ? '–' : num(tt!.adds30)}</Ltr><span><Icon name="bookmark" size={14} />{t('home.t.adds')}</span></li>
+          </ul>
         </div>
 
         <div class="dt dt-top" data-tile="top">
@@ -168,21 +165,6 @@ export function HomeScreen() {
           <Hours hours={s ? s.hours : []} ghost={ghost} />
         </div>
 
-        <div class="dt dt-small" data-tile="english">
-          <Ring pct={ghost ? 0 : share(tt!.en30, tt!.views30)} ghost={ghost} />
-          <p class="dt-pct"><Ltr data-n="english">{ghost ? '–' : share(tt!.en30, tt!.views30) + '%'}</Ltr></p>
-          <p class="dt-label"><Icon name="globe" size={16} />{t('home.t.english')}</p>
-        </div>
-        <div class="dt dt-small" data-tile="qr">
-          <Ring pct={ghost ? 0 : share(tt!.qr30, tt!.views30)} ghost={ghost} />
-          <p class="dt-pct"><Ltr data-n="qr">{ghost ? '–' : share(tt!.qr30, tt!.views30) + '%'}</Ltr></p>
-          <p class="dt-label"><Icon name="qr" size={16} />{t('home.t.qr')}</p>
-        </div>
-        <div class="dt dt-small" data-tile="adds">
-          <span class="dt-glyph"><Icon name="bookmark" size={26} /></span>
-          <p class="dt-pct"><Ltr data-n="adds">{ghost ? '–' : num(tt!.adds30)}</Ltr></p>
-          <p class="dt-label">{t('home.t.adds')}</p>
-        </div>
       </section>
 
       <nav class="acts" aria-label={t('home.actions')}>

@@ -276,7 +276,7 @@ im.save(r'${pagePhoto}', quality=88)`]);
     await page.unroute('**/rest/v1/rpc/my_stats');
     await until(() => has('[data-stats=ready]'), 20000, 'the numbers');
     await c.frames(2); c.hold(28);                                       // the numbers are in
-    const small = await rect('[data-tile=adds]'), yEnd = Math.max(0, Math.round(small.bottom - (H - 62 - 22)));
+    const small = await rect('[data-tile=hours]'), yEnd = Math.max(0, Math.round(small.bottom - (H - 62 - 22)));
     await glide(c, 0, yEnd, 60);
     await c.frames(1); c.hold(150 - c.n);
     await end();

@@ -102,6 +102,15 @@ export const shot = async (page, name, opts = {}) => {
   return p;
 };
 export const sql = (q) => stack.sql(q).trim();
+/** The menu's tools: a new section, Import and Sort are in the "Add and arrange" sheet; once sorting, "Done" is in the toolbar itself. */
+export async function tool(page, name, how = 'click') {
+  const direct = page.locator(`.menu-tools [data-tool=${name}]`);
+  if (await direct.count()) return direct.first()[how]();
+  await page.locator('.menu-tools [data-tool=more]')[how]();
+  const inSheet = page.locator(`dialog[open][data-sheet=tools] [data-tool=${name}]`);
+  await inSheet.waitFor();
+  return inSheet[how]();
+}
 export { stack, browser };
 
 /** No sideways scrolling, and nothing a finger must hit is smaller than 44 px. Returns a list of problems. */

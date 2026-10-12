@@ -17,7 +17,7 @@ import { HomeScreen } from './screens/home.tsx';
 import { MenuScreen } from './screens/menu.tsx';
 import { ReviewScreen } from './screens/pictures.tsx';
 import { StyleScreen } from './screens/style.tsx';
-import { PublishScreen } from './screens/publish.tsx';
+import { PublishScreen, PhoneField } from './screens/publish.tsx';
 import { ScanScreen } from './screens/scan.tsx';
 import { PreviewFab, PreviewDock } from './screens/preview.tsx';
 
@@ -65,6 +65,7 @@ function AccountMenu() {
             ))}
           </div>
         )}
+        {D.value && <div class="acct-phone"><PhoneField /></div>}
         <ul class="menulist">
           <li><button type="button" lang={other} onClick={() => setLang(other)} data-menu="language"><Icon name="globe" /><span>{t('app.langSwitch')}</span></button></li>
           <li><button type="button" onClick={() => { setOpen(false); go('new'); }} data-menu="add-business"><Icon name="plus" /><span>{t('app.addBusiness')}</span></button></li>

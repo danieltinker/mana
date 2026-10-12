@@ -14,6 +14,17 @@ import { Btn, Note, Ltr, CopyBtn, Icon, Confirm, Loading, Sheet, Sticky, Field, 
 import { PreviewFrame } from './preview.tsx';
 import { AccentDots, TableStrip } from './style.tsx';
 
+/** The owner's phone, for Halom only: one quiet line after the first publish (the field opens when asked), and in the account menu. */
+export function PhoneField({ autoFocus }: { autoFocus?: boolean }) {
+  const d = D.value!;
+  return <Field label={t('pub.contactPhone')} optional hint={t('pub.contactPhoneHint')}>{(f) => <input {...f} type="tel" dir="ltr" inputMode="tel" maxLength={40} autocomplete="tel" autoFocus={autoFocus} value={d.biz.contact_phone || ''} data-field="contact_phone" onInput={(e) => edit('businesses', d.biz.id, { contact_phone: (e.target as HTMLInputElement).value.trim() || null })} />}</Field>;
+}
+function PhoneLine() {
+  const [shown, setShown] = useState(() => !!D.value!.biz.contact_phone);
+  if (!shown) return <button type="button" class="linkbtn" onClick={() => setShown(true)} data-action="add-phone"><Icon name="plus" size={16} /><span>{t('pub.contactPhoneAsk')}</span></button>;
+  return <div class="done-phone"><PhoneField autoFocus /></div>;
+}
+
 const QR_OPTS = { errorCorrectionLevel: 'Q' as const, margin: 4 };
 function download(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob), a = document.createElement('a');
@@ -181,11 +192,7 @@ export function PublishScreen() {
           <button type="button" class="act" onClick={nativeShare} data-action="share"><Icon name="share" size={24} /><span>{t('pub.share')}</span></button>
           <a class="act" href={share} target="_blank" rel="noopener noreferrer" data-action="open-menu"><Icon name="open" size={24} /><span>{t('pub.open')}</span></a>
         </div>
-        {just.first && (
-          <div class="done-phone">
-            <Field label={t('pub.contactPhone')} optional hint={t('pub.contactPhoneHint')}>{(f) => <input {...f} type="tel" dir="ltr" inputMode="tel" maxLength={40} autocomplete="tel" value={d.biz.contact_phone || ''} data-field="contact_phone" onInput={(e) => edit('businesses', d.biz.id, { contact_phone: (e.target as HTMLInputElement).value.trim() || null })} />}</Field>
-          </div>
-        )}
+        {just.first && <PhoneLine />}
         <Sticky><Btn kind="primary" block onClick={() => { setJust(null); go(''); }} data-action="to-home">{t('pub.done.next')}</Btn></Sticky>
         <QrSheet open={qr} onClose={() => setQr(false)} />
       </div>
@@ -210,7 +217,7 @@ export function PublishScreen() {
         <div class="pubgrid">
           {!wide && <PreviewFrame />}
           <div class="pubside">
-            <section class="blk" aria-labelledby="pk-accent"><h2 id="pk-accent">{t('look.accent')}</h2><AccentDots /></section>
+            <section class="blk" aria-labelledby="pk-accent"><h2 id="pk-accent">{t('look.accent')}</h2><AccentDots few /></section>
             <section class="blk" aria-labelledby="pk-table"><h2 id="pk-table">{t('look.surface')}</h2><TableStrip /></section>
             <a class="linkbtn" href="#/style" data-link="style"><Icon name="look" size={17} /><span>{t('pub.moreStyle')}</span></a>
             {(noPrice > 0 || waiting > 0) && (

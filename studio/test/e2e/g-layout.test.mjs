@@ -5,7 +5,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { setup, teardown, newPage, app, account, seedBusiness, signInUi, layoutProblems, shot, PHOTOS, sql, stack, stackConfig, menuPhoto, guests, dbIs, unique, PASSWORD } from './helpers.mjs';
+import { setup, teardown, newPage, app, account, seedBusiness, signInUi, layoutProblems, shot, PHOTOS, sql, stack, stackConfig, menuPhoto, guests, dbIs, unique, PASSWORD, tool } from './helpers.mjs';
 
 let owner, biz, asset, wine, pathOwner, pathBiz, emptyOwner;
 const jpeg = () => new Blob([fs.readFileSync(PHOTOS.plate2)], { type: 'image/jpeg' });
@@ -76,12 +76,13 @@ for (const lang of ['he', 'en']) {
       await page.goto(app('menu'));
       await page.locator('section.sec').first().waitFor();
       await fits('menu', 500);
-      await page.locator('[data-tool=reorder]').click();
+      await open('[data-tool=more]', 'tools', 'sheet tools'); await closeSheet(page);
+      await tool(page, 'reorder');
       await page.locator('.grip').first().waitFor();
       await fits('menu reorder');
-      await page.locator('[data-tool=reorder]').click();
-      await open('[data-tool=section]', 'section', 'sheet section'); await closeSheet(page);
-      await open('[data-tool=import]', 'import', 'sheet import');
+      await tool(page, 'reorder');
+      await page.locator('[data-tool=more]').click(); await open('[data-sheet=tools] [data-tool=section]', 'section', 'sheet section'); await closeSheet(page);
+      await page.locator('[data-tool=more]').click(); await open('[data-sheet=tools] [data-tool=import]', 'import', 'sheet import');
       await page.locator('[data-sheet=import] [data-way=paste]').click();
       await page.locator('[data-sheet=paste] textarea').fill('# Starters\nHummus | 32 | with chickpeas\nA line with a very long name that goes on and on and on | 12.5 | and a long description too, to see how it wraps on a narrow phone\nBad | x');
       await fits('sheet paste');
@@ -295,12 +296,14 @@ test('keyboard: skip link, reorder without a pointer, a dish opens and closes wi
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.className), 'skip');
   // reorder with the keyboard: the mode is a button, the arrows are buttons, the move is announced
-  await page.locator('[data-tool=reorder]').focus(); await page.keyboard.press('Enter');
-  assert.equal(await page.locator('[data-tool=reorder]').getAttribute('aria-pressed'), 'true');
+  await page.locator('[data-tool=more]').focus(); await page.keyboard.press('Enter');
+  await page.locator('dialog[open][data-sheet=tools]').waitFor(); await page.waitForFunction(() => document.activeElement && document.activeElement.closest('dialog[open]'));   // the sheet has taken the focus
+  await page.locator('[data-sheet=tools] [data-tool=reorder]').focus(); await page.keyboard.press('Enter');
+  assert.equal(await page.locator('.menu-tools [data-tool=reorder]').getAttribute('aria-pressed'), 'true');
   await page.getByRole('button', { name: 'להוריד את ' + LONG[0] }).focus(); await page.keyboard.press('Space');
   await dbIs(`select name_he from public.items where business_id = '${biz.id}' and category_id = '${biz.category.id}' order by position limit 1`, 'סלט קיסר');
   assert.match(await page.locator('p.sr[aria-live]').first().innerText(), /עבר למקום 2/);
-  await page.locator('[data-tool=reorder]').click();
+  await tool(page, 'reorder');
 
   // a dish far down the page: Enter opens its sheet, Esc closes it, and the page and the focus are where they were
   const last = page.getByRole('link', { name: 'עריכת מרלו' });
@@ -367,7 +370,7 @@ test('drag to reorder: the handle moves a dish with the pointer, the buttons sta
   const order = () => sql(`select string_agg(name_he, '|' order by position) from public.items where business_id = '${pathBiz.id}'`);
   assert.equal(order(), ITEMS.map((i) => i[0]).join('|'));
   assert.equal(await page.locator('.grip').count(), 0, 'no handles until the owner asks to reorder');
-  await page.locator('[data-tool=reorder]').click();
+  await tool(page, 'reorder');
   const row = page.locator(`li.row[data-item="${pathBiz.items[0].id}"]`);
   const grip = await row.locator('.grip').boundingBox(), h = (await row.boundingBox()).height;
   assert.ok(grip.width >= 44 && grip.height >= 44, 'the handle is large enough for a finger');
@@ -422,7 +425,7 @@ test('on a phone (touch): a dish\'s picture offers the camera or the gallery wit
 
   // the scanner: one sheet with the camera, the gallery, and the line about several pages
   await page.goto(app('menu')); await page.locator('section.sec').first().waitFor();
-  await page.locator('[data-tool=import]').tap();
+  await tool(page, 'import', 'tap');
   await page.locator('[data-sheet=import] [data-way=scan]').tap();
   const choose = page.locator('[data-sheet=scan-choose]');
   await choose.waitFor();

@@ -20,14 +20,17 @@ export const TABLES: { id: string; en: string; he: string }[] = [
 const PRESETS = ['#ff8a5c', '#ffc9b6', '#f5c04f', '#c9c56a', '#7fd6a4', '#6ec9e0', '#8fb0ff', '#d59bf0', '#ff8fa3', '#e8e2d6'];
 const COLOR_NAMES: Record<string, [string, string]> = { '#ff8a5c': ['כתום', 'Orange'], '#ffc9b6': ['אפרסק', 'Peach'], '#f5c04f': ['צהוב', 'Yellow'], '#c9c56a': ['זית', 'Olive'], '#7fd6a4': ['ירוק', 'Green'], '#6ec9e0': ['טורקיז', 'Turquoise'], '#8fb0ff': ['כחול', 'Blue'], '#d59bf0': ['סגול', 'Purple'], '#ff8fa3': ['ורוד', 'Pink'], '#e8e2d6': ['שמנת', 'Cream'] };
 
-export function AccentDots({ fromLogo, onAdjusted }: { fromLogo?: string | null; onAdjusted?: (v: boolean) => void }) {
+const FEW = ['#ff8a5c', '#f5c04f', '#c9c56a', '#7fd6a4', '#8fb0ff'];      // the publish screen shows five; the style screen has them all
+export function AccentDots({ fromLogo, onAdjusted, few }: { fromLogo?: string | null; onAdjusted?: (v: boolean) => void; few?: boolean }) {
   const b = D.value!.biz;
+  const cur = (b.accent || '').toLowerCase();
+  const shown = few ? FEW.concat(cur && !FEW.includes(cur) ? [cur] : []) : PRESETS;      // the owner's own colour stays in sight
   const setAccent = (hex: string) => { const ok = isBright(hex) ? hex : brighten(hex); onAdjusted && onAdjusted(ok.toLowerCase() !== hex.toLowerCase()); edit('businesses', b.id, { accent: ok }, { now: true }); };
   return (
     <div class="dots" role="radiogroup" aria-label={t('look.accent')}>
       {fromLogo && <button type="button" role="radio" class="dot2 dot2-wide" aria-checked={b.accent.toLowerCase() === fromLogo ? 'true' : 'false'} style={{ '--c': fromLogo }} onClick={() => setAccent(fromLogo)} data-accent-logo><span class="sw" /><span>{t('look.accentFromLogo')}</span></button>}
-      {PRESETS.map((c) => <button key={c} type="button" role="radio" class="dot2" aria-checked={b.accent.toLowerCase() === c ? 'true' : 'false'} aria-label={COLOR_NAMES[c][lang.value === 'he' ? 0 : 1]} style={{ '--c': c }} data-accent={c} onClick={() => setAccent(c)}><span class="sw" /></button>)}
-      <label class="dot2 dot2-custom" style={{ '--c': b.accent }} title={t('look.accentCustom')}><span class="sw"><Icon name="plus" size={16} /></span><span class="sr">{t('look.accentCustom')}</span><input type="color" class="sr" value={b.accent} onChange={(e) => setAccent((e.target as HTMLInputElement).value)} /></label>
+      {shown.map((c) => <button key={c} type="button" role="radio" class="dot2" aria-checked={b.accent.toLowerCase() === c ? 'true' : 'false'} aria-label={COLOR_NAMES[c] ? COLOR_NAMES[c][lang.value === 'he' ? 0 : 1] : t('look.accentCustom')} style={{ '--c': c }} data-accent={c} onClick={() => setAccent(c)}><span class="sw" /></button>)}
+      {!few && <label class="dot2 dot2-custom" style={{ '--c': b.accent }} title={t('look.accentCustom')}><span class="sw"><Icon name="plus" size={16} /></span><span class="sr">{t('look.accentCustom')}</span><input type="color" class="sr" value={b.accent} onChange={(e) => setAccent((e.target as HTMLInputElement).value)} /></label>}
     </div>
   );
 }

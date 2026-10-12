@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { setup, teardown, newPage, app, viewer, account, anon, seedBusiness, signInUi, sql, shot, PHOTOS, OUT, stack, stackConfig, aiCalls, menuPhoto, dbIs, unique, PASSWORD } from './helpers.mjs';
+import { setup, teardown, newPage, app, viewer, account, anon, seedBusiness, signInUi, sql, shot, PHOTOS, OUT, stack, stackConfig, aiCalls, menuPhoto, dbIs, unique, PASSWORD, tool } from './helpers.mjs';
 
 let owner, biz, page;
 const item = (i) => biz.items[i].id;
@@ -205,7 +205,7 @@ test('database limits come back as human sentences (24 sections)', async () => {
   const rows = Array.from({ length: 24 - Number(sql(`select count(*) from public.categories where business_id = '${biz.id}'`)) }, (_, i) => ({ business_id: biz.id, name_he: 'קטגוריה ' + i, position: 10 + i }));
   assert.equal((await owner.client.from('categories').insert(rows)).error, null);
   await page.goto(app('menu'));
-  await page.locator('[data-tool=section]').click();
+  await tool(page, 'section');
   await page.locator('[data-sheet=section] [data-field=cat_he]').fill('אחת יותר מדי');
   await page.locator('[data-sheet=section]').getByRole('button', { name: 'הוספה' }).click();
   await page.locator('dialog[open]').getByText('הגעתם ל־24 קטגוריות, וזה המקסימום').waitFor({ timeout: 15000 });
@@ -382,9 +382,9 @@ const freshOwner = async (name = 'סריקות') => {
   return { o, id: b.data.id, p };
 };
 const scan = async (p, files) => {
-  await p.locator('[data-ways] [data-way=scan], [data-tool=import]').first().waitFor({ timeout: 20000 });           // the menu screen is back
+  await p.locator('[data-ways] [data-way=scan], [data-tool=more]').first().waitFor({ timeout: 20000 });           // the menu screen is back
   const trigger = (await p.locator('[data-ways] [data-way=scan]').count()) ? p.locator('[data-ways] [data-way=scan]') : null;
-  if (!trigger) { await p.locator('[data-tool=import]').click(); }
+  if (!trigger) { await tool(p, 'import'); }
   const [fc] = await Promise.all([p.waitForEvent('filechooser'), (trigger || p.locator('[data-sheet=import] [data-way=scan]')).click()]);
   await fc.setFiles(files);
 };
