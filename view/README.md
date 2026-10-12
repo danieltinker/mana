@@ -2,7 +2,7 @@
 
 What opens from the QR code: one full-screen table that runs away from the guest and reaches every edge of the screen,
 set in one straight row under a lamp. They glide along it from dish to dish, from one course to the next, and on to the bar.
-A static folder: no build step on the host, no CDN at run time. Version 2 (branch `v2`).
+A static folder: no build step on the host, no CDN at run time. Version 3 (branch `mana-v3`).
 
 ```
 index.html  app.css  app.js            the page; app.js is the built entry (text, navigation, glide): about 23 kB gzipped
