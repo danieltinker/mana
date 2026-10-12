@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Lift</title>
+<link rel="icon" href="data:,">
+<!-- "The Lift" (food film concept 1, ventures/mana/food-films-2026-10-12.md): one photo of a dish lies flat on oak, rises into
+     its relief, turns a little under a moving light, and the line "See the dish before you order." comes up.
+     Made in code from ONE picture: the colour photo and its relief map (R = height, G = matte). Nothing is added to the food.
+     The page has no clock of its own: render.mjs asks for one moment at a time (window.lift.at(seconds)) and takes a picture.
+     Query: ?dish=<name in view/demo/olea/img>  &lang=en|he  &label=demo|real  &w=1080&h=1920 -->
+<style>
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(/view/fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;src:url(/view/fonts/frank-ruhl-libre-latin-wght-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(/view/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;src:url(/view/fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;src:url(/view/fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;src:url(/view/fonts/ibm-plex-sans-hebrew-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122,U+2212}
+:root{--ivory:#FCF8F6;--yolk:#F5B120}
+html,body{margin:0;background:#000;overflow:hidden}
+#frame{position:relative;overflow:hidden;background:#000}
+canvas{display:block}
+.vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 78% at 50% 47%,rgba(0,0,0,0) 46%,rgba(0,0,0,.5) 80%,rgba(0,0,0,.86) 100%)}
+#grain{position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:overlay;opacity:.16;pointer-events:none}
+.label{position:absolute;top:5.2%;inset-inline:0;text-align:center;font:400 calc(var(--u)*2.0) "IBM Plex Sans Hebrew",sans-serif;color:var(--ivory);opacity:.5;letter-spacing:.01em}
+.end{position:absolute;inset-inline:0;bottom:12.5%;display:flex;flex-direction:column;align-items:center;gap:calc(var(--u)*2.6);color:var(--ivory);text-align:center}
+.line{font:500 calc(var(--u)*5.5)/1.12 "Frank Ruhl Libre",Georgia,serif;margin:0;padding-inline:8%;text-shadow:0 2px 24px rgba(0,0,0,.6)}
+[dir=rtl] .line{line-height:1.18}
+.credit{display:flex;align-items:center;gap:calc(var(--u)*1.1);font:400 calc(var(--u)*2.2) "IBM Plex Sans Hebrew",sans-serif;opacity:.86;direction:ltr}
+.credit svg{width:calc(var(--u)*4.4);height:auto}
+</style>
+</head>
+<body>
+<div id="frame">
+  <canvas id="gl"></canvas>
+  <div class="vig"></div>
+  <canvas id="grain"></canvas>
+  <p class="label" id="label"></p>
+  <div class="end" id="end">
+    <p class="line" id="line"></p>
+    <div class="credit" id="credit">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg>
+      <span>Menu by Mana</span>
+    </div>
+  </div>
+</div>
+<script type="module">
+import * as THREE from '/three.module.js';
+
+const Q = new URLSearchParams(location.search);
+const W = +Q.get('w') || 1080, H = +Q.get('h') || 1920, LANG = Q.get('lang') === 'he' ? 'he' : 'en', DISH = Q.get('dish') || 'shakshuka';
+const LABEL = Q.get('label') || 'demo';
+const WORDS = {
+  en: { line: 'See the dish before you order.', demo: 'Demo dish · made with AI', real: 'One real photo. Depth and light are computed.' },
+  he: { line: 'רואים את המנה לפני שמזמינים.', demo: 'מנת הדגמה · נוצרה בבינה מלאכותית', real: 'תמונה אמיתית אחת. העומק והאור מחושבים.' },
+};
+document.documentElement.lang = LANG; document.getElementById('end').dir = LANG === 'he' ? 'rtl' : 'ltr';
+document.getElementById('line').textContent = WORDS[LANG].line;
+document.getElementById('label').textContent = WORDS[LANG][LABEL] || '';
+const frame = document.getElementById('frame');
+frame.style.width = W + 'px'; frame.style.height = H + 'px'; frame.style.setProperty('--u', (W / 100) + 'px');
+
+/* ---------- the picture of the dish and its metadata (elevation e, height h) from the demo menu ---------- */
+const menu = await (await fetch('/view/demo/olea/menu.json')).json();
+let meta = null;
+for (const c of menu.categories) for (const it of c.items) if (it.id === DISH && it.asset) meta = it.asset;
+if (!meta) throw new Error('no dish ' + DISH);
+const img = (u) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u; });
+const [cImg, aImg, oak, oakH] = await Promise.all([img('/view/demo/olea/' + meta.color), img('/view/demo/olea/' + meta.aux), img('/view/themes/oak.jpg'), img('/view/themes/oak_h.jpg')]);
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H, false);
+renderer.setClearColor(0x000000, 1);
+const tex = (im, { mip = true, repeat = false } = {}) => { const t = new THREE.Texture(im); t.generateMipmaps = mip; t.minFilter = mip ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 8; if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true; return t; };
+const colorT = tex(cImg), auxT = tex(aImg), oakT = tex(oak, { repeat: true }), oakHT = tex(oakH, { repeat: true });
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(24, W / H, 0.05, 60);
+const E = THREE.MathUtils.degToRad(meta.e || 45), SE = Math.sin(E);
+const uLight = new THREE.Vector3(), uCam = new THREE.Vector3();
+
+/* ---------- the table: oak under one low light from behind, falling off to dark ---------- */
+const table = new THREE.Mesh(new THREE.PlaneGeometry(30, 30).rotateX(-Math.PI / 2), new THREE.ShaderMaterial({
+  uniforms: { map: { value: oakT }, hmap: { value: oakHT }, uL: { value: uLight }, uCam: { value: uCam }, uScale: { value: 6.5 }, uPool: { value: 2.2 } },
+  vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `uniform sampler2D map; uniform sampler2D hmap; uniform vec3 uL; uniform vec3 uCam; uniform float uScale; uniform float uPool; varying vec3 vW;
+  void main(){
+    vec2 uv = vec2(vW.z, -vW.x) / uScale + vec2(0.37, 0.21);                        // the boards run away from the guest, as on the menu's own table
+    vec3 alb = texture2D(map, uv).rgb; alb *= alb;                                   // to linear, roughly
+    float e = 1.0 / 512.0, h0 = texture2D(hmap, uv).r;
+    vec3 N = normalize(vec3(-(texture2D(hmap, uv + vec2(e, 0.0)).r - h0) * 5.0, 1.0, -(texture2D(hmap, uv + vec2(0.0, e)).r - h0) * 5.0));
+    vec3 Lv = uL - vW; vec3 L = normalize(Lv);
+    vec2 d = (vW.xz - vec2(uL.x * 0.3, -0.75)) * vec2(0.8, 1.0);
+    float pool = pow(1.0 / (1.0 + dot(d, d) / uPool), 2.1);
+    vec3 V = normalize(uCam - vW), Hh = normalize(L + V);
+    float dif = max(dot(N, L), 0.0), sp = pow(max(dot(N, Hh), 0.0), 26.0);
+    vec3 lamp = vec3(1.0, 0.86, 0.66);
+    vec3 col = alb * (vec3(0.010, 0.008, 0.007) + lamp * (0.18 + 1.25 * dif) * pool) + lamp * sp * 0.08 * pool;
+    col *= smoothstep(5.5, 0.8, length(vW.xz - vec2(0.0, -0.3)));
+    gl_FragColor = vec4(sqrt(col), 1.0);
+  }`,
+}));
+scene.add(table);
+
+/* ---------- the dish: the photo laid flat (uLift 0, a print) or pushed out along its own camera's axis (uLift 1, the relief) ---------- */
+const yawG = new THREE.Group(), pitchG = new THREE.Group(); scene.add(yawG); yawG.add(pitchG);
+const dishU = { map: { value: colorT }, aux: { value: auxT }, uH: { value: meta.h || 0.12 }, uE: { value: E }, uLift: { value: 0 }, uL: { value: uLight }, uCam: { value: uCam }, uRot: { value: new THREE.Matrix3() }, uLit: { value: 1 } };
+const dish = new THREE.Mesh(new THREE.PlaneGeometry(2, 2, 320, 320), new THREE.ShaderMaterial({
+  uniforms: dishU, transparent: true, depthWrite: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  vertexShader: `uniform sampler2D aux; uniform float uH; uniform float uE; uniform float uLift; varying vec2 vUv; varying vec3 vW;
+  void main(){
+    vUv = uv; float se = sin(uE), ce = cos(uE);
+    float h = texture2D(aux, uv).r * uH * uLift;
+    vec2 q = position.xy;
+    vec3 p = vec3(q.x, h * se, -q.y / se + h * ce);
+    vec4 w = modelMatrix * vec4(p, 1.0); vW = w.xyz;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }`,
+  fragmentShader: `uniform sampler2D map; uniform sampler2D aux; uniform float uH; uniform float uE; uniform float uLift; uniform vec3 uL; uniform vec3 uCam; uniform mat3 uRot; uniform float uLit;
+  varying vec2 vUv; varying vec3 vW;
+  void main(){
+    float a = texture2D(aux, vUv).g; if (a < 0.03) discard;
+    vec3 c = texture2D(map, vUv).rgb;
+    float se = sin(uE), d = 1.0 / 512.0, k = uH * uLift * se;
+    float gx = (texture2D(aux, vUv + vec2(d, 0.0)).r - texture2D(aux, vUv - vec2(d, 0.0)).r) * k / (4.0 * d);
+    float gy = (texture2D(aux, vUv + vec2(0.0, d)).r - texture2D(aux, vUv - vec2(0.0, d)).r) * k / (4.0 * d);
+    vec3 N = normalize(uRot * vec3(-gx, 1.0, gy * se));
+    vec3 L = normalize(uL - vW), V = normalize(uCam - vW), Hh = normalize(L + V);
+    vec3 up = uRot * vec3(0.0, 1.0, 0.0);
+    float flat0 = max(dot(up, L), 0.05);
+    float dif = max(dot(N, L), 0.0);
+    float lum = dot(c, vec3(0.299, 0.587, 0.114));
+    float sat = max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+    /* the photo keeps its own light; the lamp only adds a little shape, and a highlight on what is wet and glossy */
+    float shape = clamp(1.0 + 0.55 * (dif - flat0) / flat0 * uLift, 0.72, 1.28);
+    float gloss = smoothstep(0.18, 0.62, lum) * (0.35 + 0.65 * smoothstep(0.15, 0.55, sat)) * uLift;
+    float sp = pow(max(dot(N, Hh), 0.0), 70.0) * gloss * 0.42;
+    vec3 col = c * mix(1.0, shape, 0.9) * uLit + vec3(1.0, 0.9, 0.75) * sp;
+    gl_FragColor = vec4(col, smoothstep(0.03, 0.4, a));
+  }`,
+}));
+dish.renderOrder = 2; pitchG.add(dish);
+
+/* ---------- its shadow on the oak, read from the dish's own matte at blurred sizes (mip levels) ---------- */
+const shadowU = { aux: { value: auxT }, uE: { value: E }, uLift: { value: 0 }, uRise: { value: 0 }, uCast: { value: new THREE.Vector2() } };
+const footprint = new THREE.PlaneGeometry(2 * 1.5, (2 / SE) * 1.5).rotateX(-Math.PI / 2);
+const shadow = new THREE.Mesh(footprint, new THREE.ShaderMaterial({
+  uniforms: shadowU, transparent: true, depthWrite: false,
+  vertexShader: `uniform float uE; varying vec2 vUv; void main(){ vec4 w = modelMatrix * vec4(position, 1.0);
+    vec3 p = position; vUv = vec2(p.x / 2.0 + 0.5, (-p.z * sin(uE)) / 2.0 + 0.5); gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: `uniform sampler2D aux; uniform float uLift; uniform float uRise; uniform vec2 uCast; varying vec2 vUv;
+    float m(vec2 o, float b){ vec2 u = vUv + o; if (u.x < 0.0 || u.y < 0.0 || u.x > 1.0 || u.y > 1.0) return 0.0; return texture2D(aux, u, b).g; }
+    void main(){
+      float contact = m(vec2(0.0), 2.2 + uRise * 30.0);
+      float far = (m(uCast, 4.0) + m(uCast * 1.6, 5.0)) * 0.5;
+      float a = contact * (0.62 - uRise * 3.2) * uLift + far * 0.5 * uLift;
+      gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(a, 0.0, 0.82));
+    }`,
+}));
+shadow.position.y = 0.004; shadow.renderOrder = 1; yawG.add(shadow);
+
+/* ---------- the grain: the same noise for the same frame, every run ---------- */
+const gc = document.getElementById('grain'); gc.width = Math.round(W / 3); gc.height = Math.round(H / 3);
+const gx = gc.getContext('2d'), gimg = gx.createImageData(gc.width, gc.height);
+function grain(n) { let s = (n * 2654435761) >>> 0; const d = gimg.data; for (let i = 0; i < d.length; i += 4) { s = (s * 1664525 + 1013904223) >>> 0; const v = s >>> 24; d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255; } gx.putImageData(gimg, 0, 0); }
+
+/* ---------- the move, as numbers in seconds ---------- */
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const ease = (x) => { x = clamp(x); return x * x * (3 - 2 * x); };
+const easeIO = (x) => { x = clamp(x); return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const span = (t, a, b) => (t - a) / (b - a);
+const lerp = (a, b, k) => a + (b - a) * k;
+const deg = THREE.MathUtils.degToRad;
+const DURATION = 10;
+
+function at(t) {
+  /* the dish: a flat print until 1.8 s, its relief by 4.6 s; it floats a hand's breadth up, then is set down at the end */
+  const lift = easeIO(span(t, 1.8, 4.6));
+  const rise = 0.07 * easeIO(span(t, 3.2, 5.0)) * (1 - easeIO(span(t, 8.3, 9.3)));
+  /* it turns toward the light and back: at most 17 degrees, inside what one photo can show */
+  const yaw = deg(17) * easeIO(span(t, 5.0, 6.7)) - deg(21) * easeIO(span(t, 6.7, 8.1)) + deg(4) * easeIO(span(t, 8.1, 9.2));
+  const pitch = deg(-6) * Math.sin(Math.PI * clamp(span(t, 5.2, 8.2)));
+  /* the camera: from the guest's seat, a little higher at first, pushing in slowly and coming down to the photo's own angle */
+  const el = deg(lerp((meta.e || 45) + 9, (meta.e || 45) - 1, easeIO(span(t, 0.0, 6.0))));
+  const dist = lerp(9.6, 8.1, easeIO(span(t, 0.4, 7.0)));
+  const side = 0.16 * Math.sin(Math.PI * clamp(span(t, 1.5, 9.5)));
+  /* one low light from behind, crossing the grain at first, then passing over the dish so a highlight slides on the sauce */
+  const lx = lerp(-3.2, -1.5, ease(span(t, 0, 2.6))) + lerp(0, 3.0, easeIO(span(t, 4.8, 8.4)));
+  uLight.set(lx, lerp(0.9, 1.5, ease(span(t, 0, 5))), -2.2);
+
+  dishU.uLift.value = lift; shadowU.uLift.value = Math.max(lift, 0.0); shadowU.uRise.value = rise;
+  yawG.rotation.y = yaw; pitchG.rotation.x = pitch; pitchG.position.y = 0.012 + rise;
+  pitchG.updateMatrixWorld(true);
+  dishU.uRot.value.setFromMatrix4(pitchG.matrixWorld);
+  /* the shadow is cast away from the light, further as the dish rises */
+  const away = new THREE.Vector2(-uLight.x, -uLight.z).normalize();
+  const local = away.clone().rotateAround(new THREE.Vector2(), yaw);
+  shadowU.uCast.value.set(local.x * (0.025 + rise * 0.9) * 0.5, -local.y * (0.025 + rise * 0.9) * SE * 0.5);
+  dishU.uLit.value = lerp(0.9, 1.0, ease(span(t, 1.5, 4.5))) * (1 - 0.1 * ease(span(t, 8.2, 9.6)));
+
+  const target = new THREE.Vector3(side * 0.3, 0.08 + rise * 0.6, -0.05);
+  camera.position.set(target.x + side, target.y + dist * Math.sin(el), target.z + dist * Math.cos(el));
+  camera.lookAt(target.x, target.y - 0.32, target.z);
+  uCam.copy(camera.position);
+
+  document.getElementById('line').style.opacity = ease(span(t, 7.9, 8.8));
+  document.getElementById('line').style.transform = `translateY(${(1 - ease(span(t, 7.9, 8.9))) * W * 0.012}px)`;
+  document.getElementById('credit').style.opacity = 0.86 * ease(span(t, 8.5, 9.3));
+  grain(Math.round(t * 30));
+  renderer.render(scene, camera);
+}
+
+await document.fonts.ready;
+await Promise.all([...document.fonts].map((f) => f.load().catch(() => {})));
+at(0); at(0);
+window.lift = { at: (t) => { at(t); return new Promise((r) => requestAnimationFrame(() => r(true))); }, duration: DURATION, ready: true };
+</script>
+</body>
+</html>
