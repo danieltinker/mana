@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Menu</title>
+<meta name="theme-color" content="#0b0907">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<script>/* Served for /m/<slug> as well as from this folder. The base and the two files of the page are written HERE, once the
+   address is known: written as plain tags, the browser's look-ahead asks for /m/app.css and /m/app.js first, only to fail. */
+(function () { var b = /^\/m\//.test(location.pathname) ? '/mana/view/' : ''; window.__manaBase = b;
+  document.write((b ? '<base href="' + b + '">' : '') + '<link rel="stylesheet" href="' + b + 'app.css">'); })();</script>
+</head>
+<body>
+<div class="app" id="app" data-mode="boot">
+  <a class="skip" id="skip" href="#list"></a>
+
+  <!-- the scene: one table, the whole screen -->
+  <div class="scene" id="scene">
+    <canvas id="gl" aria-hidden="true"></canvas>
+    <canvas class="cut" id="cut" aria-hidden="true" hidden></canvas>
+    <img class="standin" id="standin" alt="" aria-hidden="true" hidden>
+    <div class="finger" id="finger" aria-hidden="true" hidden></div>
+  </div>
+
+  <header class="top" id="top">
+    <div class="bar">
+      <a class="home" id="home" hidden>
+        <svg class="flip" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.5 3.2L4.7 8l4.8 4.8M5 8h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="homeLbl"></span>
+      </a>
+      <div class="brand">
+        <img class="brand-logo" id="logo" alt="" hidden>
+        <div class="brand-txt"><p class="brand-name" id="bizName"></p><span class="demo-tag" id="demoNote" hidden></span></div>
+      </div>
+      <div class="tools">
+        <button class="tool" id="langBtn" type="button" hidden></button>
+        <button class="tool" id="listBtn" type="button" aria-haspopup="dialog" hidden>
+          <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><path d="M3.5 5.5h13M3.5 10h13M3.5 14.5h13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </button>
+        <button class="tool tool-tray" id="trayBtn" type="button" aria-haspopup="dialog" hidden>
+          <svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true"><ellipse cx="10" cy="10.6" rx="7.6" ry="4.7" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="10" cy="10.6" rx="3.5" ry="2.1" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>
+          <b id="trayCount" hidden>0</b>
+        </button>
+      </div>
+    </div>
+    <nav class="chips" id="chips"></nav>
+    <i class="busy" id="busy" aria-hidden="true" hidden></i>
+  </header>
+
+  <p class="edge" id="edge" aria-hidden="true" hidden><span id="edgeTxt"></span><svg viewBox="0 0 16 16" width="15" height="15"><path d="M8 13V3.6M4 7.4l4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></p>
+  <div class="hint" id="hint" aria-hidden="true" hidden>
+    <svg viewBox="0 0 44 60" width="44" height="60"><path d="M22 4v15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="1 5"/><path d="M15.5 13.5L22 20l6.5-6.5" class="hint-tip" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.2 43.5V30.2a2.6 2.6 0 0 1 5.2 0v8.2l6.1 1.3c1.9.4 3.1 2.2 2.8 4.1l-1 6.4a5 5 0 0 1-4.9 4.2h-5.1a5 5 0 0 1-4-2l-4.6-6.2a2.3 2.3 0 0 1 3.4-3l2.1 2z" fill="rgba(11,9,7,.5)" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+  </div>
+
+  <!-- one card for the dish in focus; lifted, it grows into the full sheet -->
+  <section class="card" id="card" aria-labelledby="dName">
+    <div class="card-head" id="cardHead">
+      <i class="grip" aria-hidden="true"></i>
+      <div class="card-swap" id="cardSwap">
+        <p class="eyebrow"><span class="illus-tag" id="dIllus" hidden></span><span class="badge sold" id="dSold" hidden></span><span class="idx" id="dIdx" dir="ltr"></span></p>
+        <div class="title-row">
+          <h1 id="dName" tabindex="-1"></h1>
+          <p class="price" id="dPriceRow"><span id="dPrice" dir="ltr"></span><small id="dNote"></small></p>
+        </div>
+        <p class="desc" id="dDesc"></p>
+        <ul class="tags" id="dTags"></ul>
+      </div>
+      <button class="add" id="addBtn" type="button">
+        <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><b id="addCount" hidden></b>
+      </button>
+      <button class="card-open" id="openBtn" type="button" aria-expanded="false"></button>
+      <button class="round close" id="closeBtn" type="button" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="card-more" id="cardMore">
+      <img class="detail-photo" id="dPhoto" alt="" hidden>
+      <p class="illus-line" id="dIllusLine" hidden></p>
+      <p class="desc full" id="dDescFull"></p>
+      <ul class="tags labelled" id="dTagsFull"></ul>
+      <p class="allergens" id="dAllergens" hidden><b id="dAllergensLbl"></b> <span id="dAllergensTxt"></span></p>
+      <dl class="facts" id="dFacts" hidden></dl>
+      <section class="notes" id="dNotes" hidden><h2 id="dNotesTitle"></h2><dl id="dNotesList"></dl></section>
+      <div class="actions">
+        <button class="chip-btn" id="pourBtn" type="button" hidden><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M8 1.6c2.2 3 3.6 5.1 3.6 7.2a3.6 3.6 0 0 1-7.2 0c0-2.1 1.4-4.2 3.6-7.2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg><span id="pourLbl"></span></button>
+        <button class="primary" id="addBtn2" type="button"></button>
+        <a class="ghost order" id="orderLink2" target="_blank" rel="noopener noreferrer" hidden></a>
+        <p class="note order-note" id="orderNote2" role="status" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <div class="sr" id="live" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- the whole menu as a list: a sheet over the scene, the page itself without the table, and what a screen reader reads -->
+  <div class="backdrop" id="backdrop" hidden></div>
+  <aside class="sheet list" id="list" aria-labelledby="listTitle" tabindex="-1">
+    <div class="sheet-head"><h2 id="listTitle"></h2><button class="round" id="listClose" type="button"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <p class="notice" id="notice" hidden><span id="noticeTxt"></span> <button class="link" id="noticeBtn" type="button" hidden></button></p>
+    <div class="list-body" id="listBody"></div>
+    <p class="credit"><a id="credit" target="_blank" rel="noopener"></a></p>
+    <p class="demo-line" id="demoLine" hidden></p>
+  </aside>
+
+  <aside class="sheet tray" id="traySheet" role="dialog" aria-modal="true" aria-labelledby="trayTitle" hidden>
+    <div class="sheet-head"><h2 id="trayTitle"></h2><button class="round" id="trayClose" type="button"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <ul class="lines" id="trayList"></ul>
+    <p class="note" id="trayEmpty"></p>
+    <div class="total" id="trayTotalRow"><span id="trayTotalLbl"></span><span id="trayTotal"></span></div>
+    <p class="note" id="trayNote"></p>
+    <a class="primary order" id="orderLink" target="_blank" rel="noopener noreferrer" hidden></a>
+    <p class="note order-note" id="orderNote" role="status" hidden></p>
+    <button class="link" id="trayClear" type="button"></button>
+  </aside>
+
+  <div class="status" id="status" role="status">
+    <div class="status-card">
+      <p class="status-mark" aria-hidden="true"></p>
+      <h1 id="statusTitle"></h1>
+      <p id="statusBody"></p>
+      <button class="primary" id="statusBtn" type="button" hidden></button>
+    </div>
+  </div>
+</div>
+<noscript><p style="padding:24px;font:16px sans-serif;color:#f4ede2;background:#0b0907">This menu needs JavaScript. Please ask the staff for a printed menu. / התפריט הזה צריך JavaScript. אפשר לבקש מהצוות תפריט מודפס.</p></noscript>
+<script>document.write('<script type="module" src="' + (window.__manaBase || '') + 'app.js"><\/script>');</script>
+</body>
+</html>

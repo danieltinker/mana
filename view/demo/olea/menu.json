@@ -1,0 +1,1771 @@
+{
+ "v": 1,
+ "slug": "olea",
+ "revision": 1,
+ "publishedAt": "2026-10-05T12:00:00Z",
+ "business": {
+  "name": {
+   "he": "אוליאה",
+   "en": "Olea"
+  },
+  "area": {
+   "he": "סמטת הזית 4",
+   "en": "4 Olive Lane"
+  },
+  "cuisine": {
+   "he": "ביסטרו שכונתי",
+   "en": "Neighbourhood bistro"
+  },
+  "logo": null,
+  "orderUrl": "https://example.com/olea",
+  "phone": null
+ },
+ "locale": {
+  "default": "he",
+  "langs": [
+   "he",
+   "en"
+  ],
+  "currency": "ILS"
+ },
+ "theme": {
+  "accent": "#c9c56a",
+  "surface": "oak",
+  "tableImg": null
+ },
+ "categories": [
+  {
+   "id": "starters",
+   "name": {
+    "he": "ראשונות",
+    "en": "To start"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "labaneh",
+     "name": {
+      "he": "לאבנה וזיתים",
+      "en": "Labaneh & olives"
+     },
+     "desc": {
+      "he": "לאבנה מסוננת, זעתר, שמן זית וזיתים דפוקים",
+      "en": "Strained yogurt, za’atar, olive oil, cracked olives"
+     },
+     "price": {
+      "amount": 3800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב",
+      "en": "Milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/labaneh.jpg",
+      "aux": "img/labaneh.png",
+      "thumb": "img/labaneh_t.jpg",
+      "kind": "flat",
+      "e": 49.6,
+      "h": 0.0657,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "hummus",
+     "name": {
+      "he": "חומוס חם",
+      "en": "Warm hummus"
+     },
+     "desc": {
+      "he": "גרגירים שלמים, טחינה, פפריקה ופטרוזיליה",
+      "en": "Whole chickpeas, tahini, paprika, parsley"
+     },
+     "price": {
+      "amount": 3600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "שומשום",
+      "en": "Sesame"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/hummus.jpg",
+      "aux": "img/hummus.png",
+      "thumb": "img/hummus_t.jpg",
+      "kind": "flat",
+      "e": 47.4,
+      "h": 0.0659,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "chopped-salad",
+     "name": {
+      "he": "סלט קצוץ",
+      "en": "Chopped salad"
+     },
+     "desc": {
+      "he": "עגבנייה, מלפפון, בצל, פטרוזיליה, לימון ושמן זית",
+      "en": "Tomato, cucumber, onion, parsley, lemon, olive oil"
+     },
+     "price": {
+      "amount": 3400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan",
+      "gf"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/chopped-salad.jpg",
+      "aux": "img/chopped-salad.png",
+      "thumb": "img/chopped-salad_t.jpg",
+      "kind": "medium",
+      "e": 53.0,
+      "h": 0.2018,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "artichoke",
+     "name": {
+      "he": "ארטישוק ופקורינו",
+      "en": "Artichoke & pecorino"
+     },
+     "desc": {
+      "he": "זיתי קלמטה, בצל סגול, פטרוזיליה ויוגורט",
+      "en": "Kalamata olives, red onion, parsley, yogurt"
+     },
+     "price": {
+      "amount": 4800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian",
+      "gf"
+     ],
+     "allergens": {
+      "he": "חלב",
+      "en": "Milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/artichoke.jpg",
+      "aux": "img/artichoke.png",
+      "thumb": "img/artichoke_t.jpg",
+      "kind": "low",
+      "e": 48.0,
+      "h": 0.1203,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "filo",
+     "name": {
+      "he": "כיסוני פילו",
+      "en": "Filo parcels"
+     },
+     "desc": {
+      "he": "אפויים עם קממבר, ריבת שום בצד",
+      "en": "Baked with Camembert, garlic jam on the side"
+     },
+     "price": {
+      "amount": 4600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/filo.jpg",
+      "aux": "img/filo.png",
+      "thumb": "img/filo_t.jpg",
+      "kind": "low",
+      "e": 44.4,
+      "h": 0.1203,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "caesar",
+     "name": {
+      "he": "קיסר חסה צרובה",
+      "en": "Charred lettuce Caesar"
+     },
+     "desc": {
+      "he": "לבבות חסה, קרוטונים, פרמזן ורוטב אנשובי",
+      "en": "Lettuce hearts, croutons, parmesan, anchovy dressing"
+     },
+     "price": {
+      "amount": 5200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "דגים, חלב, ביצים, גלוטן",
+      "en": "Fish, milk, egg, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/caesar.jpg",
+      "aux": "img/caesar.png",
+      "thumb": "img/caesar_t.jpg",
+      "kind": "low",
+      "e": 50.2,
+      "h": 0.1233,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "croquettes",
+     "name": {
+      "he": "קרוקט צ׳דר",
+      "en": "Cheddar croquettes"
+     },
+     "desc": {
+      "he": "שלוש יחידות, עם סילאן תאנים",
+      "en": "Three, with fig syrup"
+     },
+     "price": {
+      "amount": 4200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן, ביצים",
+      "en": "Milk, gluten, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/croquettes.jpg",
+      "aux": "img/croquettes.png",
+      "thumb": "img/croquettes_t.jpg",
+      "kind": "medium",
+      "e": 49.1,
+      "h": 0.2013,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "fish-soup",
+     "name": {
+      "he": "מרק דגים",
+      "en": "Fish soup"
+     },
+     "desc": {
+      "he": "ציר עגבניות, דג לבן וכוסברה",
+      "en": "Tomato broth, white fish, coriander"
+     },
+     "price": {
+      "amount": 5400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": false,
+     "tags": [
+      "gf"
+     ],
+     "allergens": {
+      "he": "דגים",
+      "en": "Fish"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/fish-soup.jpg",
+      "aux": "img/fish-soup.png",
+      "thumb": "img/fish-soup_t.jpg",
+      "kind": "medium",
+      "e": 53.0,
+      "h": 0.2014,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "bread",
+     "name": {
+      "he": "לחם ושמן זית",
+      "en": "Bread & olive oil"
+     },
+     "desc": {
+      "he": "לחם מחמצת מהטאבון, שמן הזית של הבית ומלח גס",
+      "en": "Sourdough from our oven, the house olive oil, coarse salt"
+     },
+     "price": {
+      "amount": 1800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "גלוטן",
+      "en": "Gluten"
+     },
+     "details": {},
+     "asset": null
+    }
+   ]
+  },
+  {
+   "id": "mains",
+   "name": {
+    "he": "עיקריות",
+    "en": "Mains"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "pappardelle",
+     "name": {
+      "he": "פפרדלה סלמון",
+      "en": "Salmon pappardelle"
+     },
+     "desc": {
+      "he": "פסטה טרייה, גרידת לימון, צלפים, שמנת ופרמזן",
+      "en": "Fresh pasta, lemon zest, capers, cream, parmesan"
+     },
+     "price": {
+      "amount": 7800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "דגים, חלב, גלוטן, ביצים",
+      "en": "Fish, milk, gluten, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/pappardelle.jpg",
+      "aux": "img/pappardelle.png",
+      "thumb": "img/pappardelle_t.jpg",
+      "kind": "low",
+      "e": 47.7,
+      "h": 0.1215,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "tortellini",
+     "name": {
+      "he": "טורטליני ריקוטה ותרד",
+      "en": "Ricotta & spinach tortellini"
+     },
+     "desc": {
+      "he": "חמאה, זרעי עגבניות, בזיליקום ופרמזן",
+      "en": "Butter, tomato seeds, basil, parmesan"
+     },
+     "price": {
+      "amount": 7400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן, ביצים",
+      "en": "Milk, gluten, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/tortellini.jpg",
+      "aux": "img/tortellini.png",
+      "thumb": "img/tortellini_t.jpg",
+      "kind": "low",
+      "e": 49.1,
+      "h": 0.1206,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "gnocchi",
+     "name": {
+      "he": "ניוקי פטריות",
+      "en": "Mushroom gnocchi"
+     },
+     "desc": {
+      "he": "שמנת, פטריות, ערמונים ומעט כמהין",
+      "en": "Cream, mushrooms, chestnuts, a little truffle"
+     },
+     "price": {
+      "amount": 7600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/gnocchi.jpg",
+      "aux": "img/gnocchi.png",
+      "thumb": "img/gnocchi_t.jpg",
+      "kind": "low",
+      "e": 44.3,
+      "h": 0.1197,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "meatballs",
+     "name": {
+      "he": "קציצות עוף",
+      "en": "Chicken meatballs"
+     },
+     "desc": {
+      "he": "רוטב עגבניות ופלפלים, ארטישוק ועשבי תיבול",
+      "en": "Tomato and pepper sauce, artichoke, herbs"
+     },
+     "price": {
+      "amount": 7200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/meatballs.jpg",
+      "aux": "img/meatballs.png",
+      "thumb": "img/meatballs_t.jpg",
+      "kind": "low",
+      "e": 48.2,
+      "h": 0.1213,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "sea-bream",
+     "name": {
+      "he": "דניס שלם",
+      "en": "Whole sea bream"
+     },
+     "desc": {
+      "he": "על הגריל, עם לימון ופטרוזיליה",
+      "en": "Grilled over charcoal, lemon, parsley"
+     },
+     "price": {
+      "amount": 12800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "gf"
+     ],
+     "allergens": {
+      "he": "דגים",
+      "en": "Fish"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/sea-bream.jpg",
+      "aux": "img/sea-bream.png",
+      "thumb": "img/sea-bream_t.jpg",
+      "kind": "low",
+      "e": 37.5,
+      "h": 0.1191,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "shrimp",
+     "name": {
+      "he": "שרימפס וקלמרי",
+      "en": "Shrimp & calamari"
+     },
+     "desc": {
+      "he": "שום, חמאה ויין לבן",
+      "en": "Garlic, butter, white wine"
+     },
+     "price": {
+      "amount": 9800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "gf"
+     ],
+     "allergens": {
+      "he": "פירות ים, חלב",
+      "en": "Shellfish, milk"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/shrimp.jpg",
+      "aux": "img/shrimp.png",
+      "thumb": "img/shrimp_t.jpg",
+      "kind": "low",
+      "e": 45.5,
+      "h": 0.1216,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "kebab",
+     "name": {
+      "he": "קבב טלה",
+      "en": "Lamb kebab"
+     },
+     "desc": {
+      "he": "שלושה שיפודים, סלט קצוץ וחמוצים",
+      "en": "Three skewers, chopped salad, pickles"
+     },
+     "price": {
+      "amount": 8800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/kebab.jpg",
+      "aux": "img/kebab.png",
+      "thumb": "img/kebab_t.jpg",
+      "kind": "low",
+      "e": 50.8,
+      "h": 0.1213,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "burger",
+     "name": {
+      "he": "המבורגר אוליאה",
+      "en": "Olea burger"
+     },
+     "desc": {
+      "he": "בקר, צ׳דר מיושן, פטריות, רוקט וצ׳יפס",
+      "en": "Beef, aged cheddar, mushrooms, rocket, fries"
+     },
+     "price": {
+      "amount": 8200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "חלב, גלוטן, שומשום",
+      "en": "Milk, gluten, sesame"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/burger.jpg",
+      "aux": "img/burger.png",
+      "thumb": "img/burger_t.jpg",
+      "kind": "tall",
+      "e": 44.6,
+      "h": 0.3469,
+      "o": null,
+      "s": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "oven",
+   "name": {
+    "he": "מהטאבון",
+    "en": "From the oven"
+   },
+   "kind": "food",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "margherita",
+     "name": {
+      "he": "מרגריטה",
+      "en": "Margherita"
+     },
+     "desc": {
+      "he": "עגבניות, מוצרלה טרייה ובזיליקום",
+      "en": "Tomato, fresh mozzarella, basil"
+     },
+     "price": {
+      "amount": 6200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/margherita.jpg",
+      "aux": "img/margherita.png",
+      "thumb": "img/margherita_t.jpg",
+      "kind": "flat",
+      "e": 53.0,
+      "h": 0.0643,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "zucchini",
+     "name": {
+      "he": "קישואים וריקוטה",
+      "en": "Zucchini & ricotta"
+     },
+     "desc": {
+      "he": "מוצרלה, ריקוטה ולימון",
+      "en": "Mozzarella, ricotta, lemon"
+     },
+     "price": {
+      "amount": 6800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/zucchini.jpg",
+      "aux": "img/zucchini.png",
+      "thumb": "img/zucchini_t.jpg",
+      "kind": "flat",
+      "e": 53.0,
+      "h": 0.0642,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "onion-goat",
+     "name": {
+      "he": "ריבת בצל וגבינת עיזים",
+      "en": "Onion jam & goat cheese"
+     },
+     "desc": {
+      "he": "עגבניות, מוצרלה ורוקט",
+      "en": "Tomato, mozzarella, rocket"
+     },
+     "price": {
+      "amount": 7200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/onion-goat.jpg",
+      "aux": "img/onion-goat.png",
+      "thumb": "img/onion-goat_t.jpg",
+      "kind": "flat",
+      "e": 53.0,
+      "h": 0.064,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "salami",
+     "name": {
+      "he": "סלמי חריף",
+      "en": "Spicy salami"
+     },
+     "desc": {
+      "he": "עגבניות, צ׳ילי, מוצרלה ופרמזן",
+      "en": "Tomato, chilli, mozzarella, parmesan"
+     },
+     "price": {
+      "amount": 7600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "spicy"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/salami.jpg",
+      "aux": "img/salami.png",
+      "thumb": "img/salami_t.jpg",
+      "kind": "flat",
+      "e": 53.0,
+      "h": 0.0647,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "bianca",
+     "name": {
+      "he": "ביאנקה",
+      "en": "Bianca"
+     },
+     "desc": {
+      "he": "קרם פרש, תרד, פטריות ופרמזן",
+      "en": "Crème fraîche, spinach, mushrooms, parmesan"
+     },
+     "price": {
+      "amount": 7000,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/bianca.jpg",
+      "aux": "img/bianca.png",
+      "thumb": "img/bianca_t.jpg",
+      "kind": "flat",
+      "e": 45.9,
+      "h": 0.0658,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "shakshuka",
+     "name": {
+      "he": "שקשוקה בטאבון",
+      "en": "Baked shakshuka"
+     },
+     "desc": {
+      "he": "שלוש ביצים ברוטב עגבניות חריף, מוגשת במחבת",
+      "en": "Three eggs in spicy tomato, served in the pan"
+     },
+     "price": {
+      "amount": 5800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian",
+      "spicy"
+     ],
+     "allergens": {
+      "he": "ביצים",
+      "en": "Egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/shakshuka.jpg",
+      "aux": "img/shakshuka.png",
+      "thumb": "img/shakshuka_t.jpg",
+      "kind": "low",
+      "e": 42.6,
+      "h": 0.1211,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "lasagne",
+     "name": {
+      "he": "לזניה",
+      "en": "Lasagne"
+     },
+     "desc": {
+      "he": "ראגו בקר, בשמל ופרמזן",
+      "en": "Beef ragù, béchamel, parmesan"
+     },
+     "price": {
+      "amount": 7400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "חלב, גלוטן, ביצים",
+      "en": "Milk, gluten, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "photo",
+      "color": "img/lasagne.jpg",
+      "aux": null,
+      "thumb": "img/lasagne_t.jpg",
+      "kind": null,
+      "e": null,
+      "h": null,
+      "o": null,
+      "s": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "sweet",
+   "name": {
+    "he": "מתוקים",
+    "en": "Sweet"
+   },
+   "kind": "dessert",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "cheesecake",
+     "name": {
+      "he": "עוגת גבינה באסקית",
+      "en": "Basque cheesecake"
+     },
+     "desc": {
+      "he": "קרום שרוף, לב רך",
+      "en": "Burnt top, soft centre"
+     },
+     "price": {
+      "amount": 4400,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, ביצים",
+      "en": "Milk, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/cheesecake.jpg",
+      "aux": "img/cheesecake.png",
+      "thumb": "img/cheesecake_t.jpg",
+      "kind": "medium",
+      "e": 48.3,
+      "h": 0.2074,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "knafeh",
+     "name": {
+      "he": "כנאפה עם גלידה",
+      "en": "Knafeh & ice cream"
+     },
+     "desc": {
+      "he": "מוגשת חמה, עם פיסטוק וגלידת חלב עיזים",
+      "en": "Served warm, with pistachio and goat’s-milk ice cream"
+     },
+     "price": {
+      "amount": 4200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן, אגוזים",
+      "en": "Milk, gluten, nuts"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/knafeh.jpg",
+      "aux": "img/knafeh.png",
+      "thumb": "img/knafeh_t.jpg",
+      "kind": "medium",
+      "e": 47.4,
+      "h": 0.2026,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "malabi",
+     "name": {
+      "he": "מלבי",
+      "en": "Malabi"
+     },
+     "desc": {
+      "he": "סירופ ורדים, קוקוס ופיסטוק",
+      "en": "Rose syrup, coconut, pistachio"
+     },
+     "price": {
+      "amount": 3200,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian",
+      "gf"
+     ],
+     "allergens": {
+      "he": "חלב, אגוזים",
+      "en": "Milk, nuts"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/malabi.jpg",
+      "aux": "img/malabi.png",
+      "thumb": "img/malabi_t.jpg",
+      "kind": "tall",
+      "e": 53.0,
+      "h": 0.3475,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "lemon-tart",
+     "name": {
+      "he": "טארט לימון ופיסטוק",
+      "en": "Lemon & pistachio tart"
+     },
+     "desc": {
+      "he": "",
+      "en": ""
+     },
+     "price": {
+      "amount": 3800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן, ביצים, אגוזים",
+      "en": "Milk, gluten, egg, nuts"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/lemon-tart.jpg",
+      "aux": "img/lemon-tart.png",
+      "thumb": "img/lemon-tart_t.jpg",
+      "kind": "low",
+      "e": 53.0,
+      "h": 0.1191,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "brulee",
+     "name": {
+      "he": "קרם ברולה",
+      "en": "Crème brûlée"
+     },
+     "desc": {
+      "he": "וניל וסוכר שרוף",
+      "en": "Vanilla, torched sugar"
+     },
+     "price": {
+      "amount": 3600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": false,
+     "tags": [
+      "vegetarian",
+      "gf"
+     ],
+     "allergens": {
+      "he": "חלב, ביצים",
+      "en": "Milk, egg"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/brulee.jpg",
+      "aux": "img/brulee.png",
+      "thumb": "img/brulee_t.jpg",
+      "kind": "medium",
+      "e": 53.0,
+      "h": 0.1984,
+      "o": null,
+      "s": null
+     }
+    },
+    {
+     "id": "chocolate",
+     "name": {
+      "he": "אצבע שוקולד",
+      "en": "Chocolate bar"
+     },
+     "desc": {
+      "he": "גנאש על בסיס פריך",
+      "en": "Ganache on a crisp base"
+     },
+     "price": {
+      "amount": 2800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegetarian"
+     ],
+     "allergens": {
+      "he": "חלב, גלוטן",
+      "en": "Milk, gluten"
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/chocolate.jpg",
+      "aux": "img/chocolate.png",
+      "thumb": "img/chocolate_t.jpg",
+      "kind": "low",
+      "e": 44.5,
+      "h": 0.1196,
+      "o": null,
+      "s": null
+     }
+    }
+   ]
+  },
+  {
+   "id": "wine",
+   "name": {
+    "he": "יין",
+    "en": "Wine"
+   },
+   "kind": "wine",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "wine-white",
+     "name": {
+      "he": "לבן הבית",
+      "en": "House white"
+     },
+     "desc": {
+      "he": "רענן והדרי",
+      "en": "Crisp and citrusy"
+     },
+     "price": {
+      "amount": 3600,
+      "currency": "ILS",
+      "note": {
+       "he": "כוס",
+       "en": "glass"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "wine": {
+       "producer": "Nahal Shakedim",
+       "name": "Lavan",
+       "vintage": "2024",
+       "region": {
+        "he": "הגליל העליון",
+        "en": "Upper Galilee"
+       },
+       "grape": "Sauvignon Blanc",
+       "serving": {
+        "he": "בכוס, 150 מ״ל",
+        "en": "By the glass, 150 ml"
+       },
+       "color": "white",
+       "notes": {
+        "sweetness": {
+         "he": "יבש",
+         "en": "Dry"
+        },
+        "acidity": {
+         "he": "גבוהה",
+         "en": "High"
+        },
+        "body": {
+         "he": "קל",
+         "en": "Light"
+        },
+        "fruit": {
+         "he": "הדרים, תפוח ירוק",
+         "en": "Citrus, green apple"
+        },
+        "minerality": {
+         "he": "בינונית",
+         "en": "Medium"
+        },
+        "pairings": {
+         "he": "דגים, לאבנה וסלטים",
+         "en": "Fish, labaneh, salads"
+        }
+       }
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "wine-rose",
+     "name": {
+      "he": "רוזה",
+      "en": "Rosé"
+     },
+     "desc": {
+      "he": "בהיר ויבש, עם ניחוח תות",
+      "en": "Pale, dry, strawberry on the nose"
+     },
+     "price": {
+      "amount": 3800,
+      "currency": "ILS",
+      "note": {
+       "he": "כוס",
+       "en": "glass"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "wine": {
+       "producer": "Shesh Ruchot",
+       "name": "Vered",
+       "vintage": "2024",
+       "region": {
+        "he": "הרי יהודה",
+        "en": "Judean Hills"
+       },
+       "grape": "Grenache",
+       "serving": {
+        "he": "בכוס, 150 מ״ל",
+        "en": "By the glass, 150 ml"
+       },
+       "color": "rose",
+       "notes": {
+        "sweetness": "",
+        "acidity": "",
+        "body": "",
+        "fruit": "",
+        "minerality": "",
+        "pairings": ""
+       }
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "wine-red",
+     "name": {
+      "he": "אדום הבית",
+      "en": "House red"
+     },
+     "desc": {
+      "he": "טאנינים רכים ופרי כהה",
+      "en": "Soft tannins, dark fruit"
+     },
+     "price": {
+      "amount": 3800,
+      "currency": "ILS",
+      "note": {
+       "he": "כוס",
+       "en": "glass"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "wine": {
+       "producer": "Nahal Shakedim",
+       "name": "Adom",
+       "vintage": "2022",
+       "region": {
+        "he": "הגליל העליון",
+        "en": "Upper Galilee"
+       },
+       "grape": "Syrah, Carignan",
+       "serving": {
+        "he": "בכוס, 150 מ״ל",
+        "en": "By the glass, 150 ml"
+       },
+       "color": "red",
+       "notes": {
+        "sweetness": {
+         "he": "יבש",
+         "en": "Dry"
+        },
+        "acidity": {
+         "he": "בינונית",
+         "en": "Medium"
+        },
+        "body": {
+         "he": "בינוני",
+         "en": "Medium"
+        },
+        "fruit": {
+         "he": "שזיף, פלפל שחור",
+         "en": "Plum, black pepper"
+        },
+        "minerality": "",
+        "pairings": {
+         "he": "קבב, המבורגר ולזניה",
+         "en": "Kebab, burger, lasagne"
+        }
+       }
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "wine-orange",
+     "name": {
+      "he": "יין כתום",
+      "en": "Orange wine"
+     },
+     "desc": {
+      "he": "שלושה שבועות על הקליפות, מעט עפיצות",
+      "en": "Three weeks on the skins, a little grip"
+     },
+     "price": {
+      "amount": 4400,
+      "currency": "ILS",
+      "note": {
+       "he": "כוס",
+       "en": "glass"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "wine": {
+       "producer": "Tzlil HaEven",
+       "name": "Orange No. 3",
+       "vintage": "2023",
+       "region": {
+        "he": "רמת הנגב",
+        "en": "Negev Highlands"
+       },
+       "grape": "French Colombard",
+       "serving": {
+        "he": "בכוס, 150 מ״ל",
+        "en": "By the glass, 150 ml"
+       },
+       "color": "orange",
+       "notes": {
+        "sweetness": "",
+        "acidity": "",
+        "body": "",
+        "fruit": {
+         "he": "משמש מיובש, תה",
+         "en": "Dried apricot, tea"
+        },
+        "minerality": "",
+        "pairings": {
+         "he": "ארטישוק, פיצה ביאנקה",
+         "en": "Artichoke, pizza bianca"
+        }
+       }
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "wine-sparkling",
+     "name": {
+      "he": "מבעבע ברוט",
+      "en": "Sparkling brut"
+     },
+     "desc": {
+      "he": "לכל השולחן",
+      "en": "For the table"
+     },
+     "price": {
+      "amount": 16800,
+      "currency": "ILS",
+      "note": {
+       "he": "בקבוק",
+       "en": "bottle"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "wine": {
+       "producer": "Casa Lumera",
+       "name": "Brut Nature",
+       "vintage": "NV",
+       "region": {
+        "he": "ונטו, איטליה",
+        "en": "Veneto, Italy"
+       },
+       "grape": "Glera",
+       "serving": {
+        "he": "בקבוק 750 מ״ל",
+        "en": "750 ml bottle"
+       },
+       "color": "sparkling",
+       "notes": {
+        "sweetness": "",
+        "acidity": "",
+        "body": "",
+        "fruit": "",
+        "minerality": "",
+        "pairings": ""
+       }
+      }
+     },
+     "asset": null
+    }
+   ]
+  },
+  {
+   "id": "beer",
+   "name": {
+    "he": "בירה",
+    "en": "Beer"
+   },
+   "kind": "beer",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "beer-lager",
+     "name": {
+      "he": "לאגר",
+      "en": "Lager"
+     },
+     "desc": {
+      "he": "נקייה ולתתית",
+      "en": "Clean and malty"
+     },
+     "price": {
+      "amount": 2800,
+      "currency": "ILS",
+      "note": {
+       "he": "חצי ליטר",
+       "en": "half litre"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "beer": {
+       "brewery": "Simta Brewing",
+       "style": "Helles lager",
+       "abv": "4.8%",
+       "serving": "tap",
+       "color": "pale"
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "beer-ipa",
+     "name": {
+      "he": "IPA",
+      "en": "IPA"
+     },
+     "desc": {
+      "he": "מרירה, עם אשכולית ואורן",
+      "en": "Bitter, grapefruit and pine"
+     },
+     "price": {
+      "amount": 3200,
+      "currency": "ILS",
+      "note": {
+       "he": "חצי ליטר",
+       "en": "half litre"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "beer": {
+       "brewery": "Simta Brewing",
+       "style": "West Coast IPA",
+       "abv": "6.2%",
+       "serving": "tap",
+       "color": "amber"
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "beer-wheat",
+     "name": {
+      "he": "בירת חיטה",
+      "en": "Wheat beer"
+     },
+     "desc": {
+      "he": "עכורה, עם בננה וציפורן",
+      "en": "Cloudy, banana and clove"
+     },
+     "price": {
+      "amount": 2900,
+      "currency": "ILS",
+      "note": {
+       "he": "330 מ״ל",
+       "en": "330 ml"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "beer": {
+       "brewery": "Gan HaShaked",
+       "style": "Hefeweizen",
+       "abv": "5.1%",
+       "serving": "bottle",
+       "color": "pale"
+      }
+     },
+     "asset": null
+    },
+    {
+     "id": "beer-stout",
+     "name": {
+      "he": "סטאוט",
+      "en": "Stout"
+     },
+     "desc": {
+      "he": "קלויה ויבשה, עם סיומת קפה",
+      "en": "Roasted, dry, coffee finish"
+     },
+     "price": {
+      "amount": 3000,
+      "currency": "ILS",
+      "note": {
+       "he": "330 מ״ל",
+       "en": "330 ml"
+      }
+     },
+     "available": true,
+     "tags": [],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {
+      "beer": {
+       "brewery": "Tzuk Brewing",
+       "style": "Dry stout",
+       "abv": "4.5%",
+       "serving": "can",
+       "color": "dark"
+      }
+     },
+     "asset": null
+    }
+   ]
+  },
+  {
+   "id": "cold",
+   "name": {
+    "he": "משקאות קרים",
+    "en": "Cold drinks"
+   },
+   "kind": "drinks",
+   "scene": "auto",
+   "items": [
+    {
+     "id": "orange-juice",
+     "name": {
+      "he": "מיץ תפוזים סחוט",
+      "en": "Fresh orange juice"
+     },
+     "desc": {
+      "he": "נסחט במקום",
+      "en": "Squeezed to order"
+     },
+     "price": {
+      "amount": 1800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/orange-juice.jpg",
+      "aux": "img/orange-juice.png",
+      "thumb": "img/orange-juice_t.jpg",
+      "kind": "stand",
+      "e": 45.0,
+      "h": 1.8238,
+      "o": [
+       -0.0046,
+       -0.4057
+      ],
+      "s": 0.62
+     }
+    },
+    {
+     "id": "lemonade",
+     "name": {
+      "he": "לימונדה עם נענע",
+      "en": "Lemonade with mint"
+     },
+     "desc": {
+      "he": "קנקן לשולחן",
+      "en": "A pitcher for the table"
+     },
+     "price": {
+      "amount": 3400,
+      "currency": "ILS",
+      "note": {
+       "he": "קנקן",
+       "en": "pitcher"
+      }
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/lemonade.jpg",
+      "aux": "img/lemonade.png",
+      "thumb": "img/lemonade_t.jpg",
+      "kind": "stand",
+      "e": 45.0,
+      "h": 1.811,
+      "o": [
+       -0.0575,
+       -0.3968
+      ],
+      "s": 0.62
+     }
+    },
+    {
+     "id": "iced-tea",
+     "name": {
+      "he": "תה קר עם אפרסק",
+      "en": "Peach iced tea"
+     },
+     "desc": {
+      "he": "בחליטה קרה, מתוק בעדינות",
+      "en": "Cold-brewed, lightly sweet"
+     },
+     "price": {
+      "amount": 1800,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/iced-tea.jpg",
+      "aux": "img/iced-tea.png",
+      "thumb": "img/iced-tea_t.jpg",
+      "kind": "stand",
+      "e": 45.0,
+      "h": 1.8335,
+      "o": [
+       -0.0009,
+       -0.3976
+      ],
+      "s": 0.62
+     }
+    },
+    {
+     "id": "mojito",
+     "name": {
+      "he": "מוחיטו למון גראס",
+      "en": "Lemongrass mojito"
+     },
+     "desc": {
+      "he": "ללא אלכוהול. למון גראס, נענע, ליים וסודה",
+      "en": "No alcohol. Lemongrass, mint, lime, soda"
+     },
+     "price": {
+      "amount": 2600,
+      "currency": "ILS",
+      "note": ""
+     },
+     "available": true,
+     "tags": [
+      "vegan"
+     ],
+     "allergens": {
+      "he": "",
+      "en": ""
+     },
+     "details": {},
+     "asset": {
+      "state": "relief",
+      "color": "img/mojito.jpg",
+      "aux": "img/mojito.png",
+      "thumb": "img/mojito_t.jpg",
+      "kind": "stand",
+      "e": 45.0,
+      "h": 1.7285,
+      "o": [
+       -0.0246,
+       -0.4111
+      ],
+      "s": 0.62
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,4 @@
+# config.js holds Supabase's publishable key (sb_publishable_…). It is made for browsers, is already served publicly
+# at halom.io/mana/config.js, and row-level security guards the data, so gitleaks' generic-api-key rule is a false
+# positive here. Secret keys (sb_secret_…, service_role) must never be in this repository.
+config.js:generic-api-key:4

@@ -1,0 +1,51 @@
+{
+ "info": {
+  "abi_version": "2025_0",
+  "arch": "wasm32",
+  "platform": "emscripten_4_0_9",
+  "python": "3.13.2"
+ },
+ "packages": {
+  "numpy": {
+   "depends": [],
+   "file_name": "numpy-2.2.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+   "imports": [
+    "numpy"
+   ],
+   "install_dir": "site",
+   "name": "numpy",
+   "package_type": "package",
+   "sha256": "800c98edc0c864dfa49f07005680c699b4b42b84eae1f8cb19d35b3634e7f05c",
+   "unvendored_tests": false,
+   "version": "2.2.5"
+  },
+  "opencv-python": {
+   "depends": [
+    "numpy"
+   ],
+   "file_name": "opencv_python-4.11.0.86-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+   "imports": [
+    "cv2"
+   ],
+   "install_dir": "site",
+   "name": "opencv-python",
+   "package_type": "package",
+   "sha256": "eb9feb15145b633f2bdc7e9a4758d73dab5be2904d34433391c86e8734c033d9",
+   "unvendored_tests": false,
+   "version": "4.11.0.86"
+  },
+  "pillow": {
+   "depends": [],
+   "file_name": "pillow-11.3.0-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+   "imports": [
+    "PIL"
+   ],
+   "install_dir": "site",
+   "name": "Pillow",
+   "package_type": "package",
+   "sha256": "57d88e2ac283c21830b4ee920cb73fbbf5c46df62d967089fce5fec46548bd7b",
+   "unvendored_tests": false,
+   "version": "11.3.0"
+  }
+ }
+}
