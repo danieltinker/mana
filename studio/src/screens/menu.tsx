@@ -12,7 +12,7 @@ import { illus, initIllus, setIllus, loadStock, stockForNew } from '../lib/stock
 import { aiOn, askAi } from '../lib/ai.ts';
 import { startScan } from '../lib/scan.ts';
 import { Btn, IconBtn, Field, Note, Dialog, Confirm, Sheet, Seg, Sticky, Switch, Icon, Ltr, go, route } from '../ui.tsx';
-import { DishPic, PicSheet, StudioLine, Tips, picState, phaseText, nameOf, coarse } from '../pic.tsx';
+import { DishPic, PicSheet, StudioLine, picState, phaseText, nameOf, coarse } from '../pic.tsx';
 import { ItemSheet } from './item.tsx';
 
 export const KINDS = ['food', 'dessert', 'drinks', 'wine', 'beer'];
@@ -284,7 +284,6 @@ function GridTop() {
         </div>
         <p class="hint">{t('pic.illus.note')}</p>
       </div>
-      <Tips />
       <StudioLine />
       {left.length > 0 && (
         <Note kind="warn" title={left.length === 1 ? t('pic.resume.title1') : t('pic.resume.title', { n: left.length })}

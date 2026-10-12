@@ -400,11 +400,11 @@ a.row-main:hover{background:var(--soft)}
 .actlist .btn-ghost{justify-content:center}
 
 /* ---- the pictures grid */
-.illus{display:grid;gap:6px;padding:14px 16px;border-radius:var(--r);background:var(--blush)}
-.illus-row{display:flex;align-items:center;gap:12px}
+.illus{display:grid;gap:2px;padding:4px 0 14px;border-bottom:1px solid var(--line, rgba(15,15,15,.14))}
+.illus-row{display:flex;align-items:center;gap:10px}
 .illus-row p{flex:1;min-width:0}
-.illus-ico{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--black);color:var(--peach);flex:none}
-.illus .hint{color:#6b3423}
+.illus-ico{display:grid;place-items:center;width:28px;height:28px;flex:none;color:var(--rose, #9A5238)}
+.illus .hint{font-size:.86em}
 .tips{display:grid;gap:8px}
 .tips-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .tip{display:grid;justify-items:center;align-content:start;gap:6px;min-height:72px;padding:10px 2px 8px;border-radius:14px;border:1px solid var(--line);background:var(--paper);font-size:.76rem;font-weight:500;color:var(--charcoal);line-height:1.2;text-align:center}
