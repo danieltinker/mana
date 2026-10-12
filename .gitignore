@@ -8,3 +8,4 @@ test-results/
 *.log
 .DS_Store
 studio/test/stack/fake-gen/models/*.bin
+_site/

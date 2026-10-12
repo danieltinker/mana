@@ -7,13 +7,15 @@
 
 **This repository is public.**
 - Never commit secrets, `.env` files, keys or tokens.
+- `config.js` and `CONTRACT.md` hold Supabase's publishable key. It is public by design; `.gitleaksignore` names those
+  lines. A secret key (`sb_secret_…`, `service_role`) must never appear anywhere.
 - Never commit personal data, lead lists, client data or business documents. Business documents (brand, campaign,
   sales playbooks, overview) live in the Halom Project, under `ventures/mana/`.
 
 **Changes reach people.**
 - Commit or push only when asked.
-- `tools/publish.sh` and any push to `pages` change the live site at halom.io/mana and every restaurant's menu.
-  Publish only on Daniel's explicit word.
+- **A push to `main` is a release.** GitHub Actions builds the site and publishes it to halom.io/mana and every
+  restaurant's menu. Push to `main` only on Daniel's explicit word; work on a branch until then.
 - halom.io's routes are in the studio site repository (`danieltinker/halom`, `public/vercel.json`).
 - halom.io is deployed only by Daniel, with `bash ~/Documents/halom/tools/deploy.sh`.
 

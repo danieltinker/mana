@@ -12,9 +12,9 @@ no app, no account. Everything not approved stays private.
 Generation runs **in the owner's browser** (no server, no paid provider): same two Apache-2.0 models and the same
 post-processing as Halom's Python pipeline (`base/pipeline.py`).
 
-## Where things live (static hosting: GitHub Pages, this repo's `pages` branch; until 12 Oct 2026 `danieltinker/halom-projects`, folder `projects/menus/`)
+## Where things live (static hosting: GitHub Pages, built from this repo's `main` by `tools/build-site.sh`; until 12 Oct 2026 `danieltinker/halom-projects`, folder `projects/menus/`)
 
-The paths below are the old repository's. On the `pages` branch of `danieltinker/mana` the same files sit at the root (`index.html`, `studio/`, `view/`, `gen/`, `config.js`, …), and halom.io serves them at `/mana/…`.
+The paths below are the old repository's. In the built site (`_site/`) the same files sit at the root (`index.html`, `studio/`, `view/`, `gen/`, `config.js`, …), and halom.io serves them at `/mana/…`.
 
 | Path in repo | What | Lane |
 |---|---|---|
