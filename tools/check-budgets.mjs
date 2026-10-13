@@ -22,7 +22,7 @@ import { resolve, dirname, join, relative, extname, basename } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const SITE = resolve(process.argv[2] || '_site');
-const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, file: 3 * KB * KB };
+const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB };
 const TEXT = /\.(html?|css|m?js|json|svg|txt|md|xml|webmanifest)$/i;
 if (!existsSync(SITE)) { console.error('✗ no built site at ' + SITE + ' (run tools/build-site.sh first)'); process.exit(2); }
 
@@ -77,6 +77,9 @@ function firstPaint(htmlPath) {
 function cssUrls(cssPath) { return [...read(cssPath).toString().matchAll(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)\s]*))\s*\)/g)].map((m) => m[1] ?? m[2] ?? m[3]); }
 function chunksOf(jsPath) { const s = read(jsPath).toString(); return [...s.matchAll(/(?:from\s*|import\s*\(\s*)["'](\.\/(?:chunks\/)?[^"']+\.js)["']/g)].map((m) => resolve(dirname(jsPath), m[1])); }
 
+/* static imports (what loads with a script) and on-demand ones (import()) of a built script, relative to it */
+const staticImports = (js) => [...read(js).toString().matchAll(/(?:\bfrom\s*|\bimport\s*)["'](\.\.?\/(?:chunks\/)?[^"']+\.js)["']/g)].map((m) => resolve(dirname(js), m[1]));
+const dynamicImports = (js) => [...read(js).toString().matchAll(/import\s*\(\s*["'](\.\.?\/(?:chunks\/)?[^"']+\.js)["']/g)].map((m) => resolve(dirname(js), m[1]));
 const sections = [];
 function section(title, rows, budget) { const total = rows.reduce((n, r) => n + (r ? r.sent : 0), 0); sections.push({ title, rows: rows.filter(Boolean), total, budget }); if (budget && total > budget) breaches.push(title + ': ' + kb(total) + ' kB sent > ' + kb(budget) + ' kB'); return total; }
 
@@ -135,7 +138,9 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     const shared = new Set(existsSync(join(SITE, 'view/app.js')) ? chunksOf(join(SITE, 'view/app.js')) : []);
     const html = read(seat).toString();
     for (const { tag } of tags(html, 'script')) { const p = local(attr(tag, 'src'), seat); if (!p || !existsSync(p)) continue; rows.push(row(p, 'script'));
-      for (const c of chunksOf(p)) if (existsSync(c)) rows.push(shared.has(c) ? null : row(c, 'its own chunk')); if ([...shared].some((c) => chunksOf(p).includes(c))) notes.push('(c) shared chunks left out: ' + [...shared].filter((c) => chunksOf(p).includes(c)).map(rel).join(', ')); }
+      for (const c of staticImports(p)) if (existsSync(c)) rows.push(shared.has(c) ? null : row(c, 'its own chunk')); if ([...shared].some((c) => staticImports(p).includes(c))) notes.push('(c) shared chunks left out: ' + [...shared].filter((c) => staticImports(p).includes(c)).map(rel).join(', '));
+      const later = dynamicImports(p).filter((c) => existsSync(c) && !shared.has(c));
+      if (later.length) section('(c) seat map, the 3D room (on demand, when a guest taps 3D)', later.map((c) => row(c, 'on-demand chunk')), BUDGET.seat3d); }
     for (const { tag } of tags(html, 'link')) if (/stylesheet/i.test(attr(tag, 'rel') || '')) { const p = local(attr(tag, 'href'), seat); if (p && existsSync(p)) rows.push(row(p, 'style')); }
     section('(c) seat map page', rows, BUDGET.seat);
   }

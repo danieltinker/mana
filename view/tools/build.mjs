@@ -7,8 +7,11 @@ import { dirname, join } from 'node:path';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 rmSync(join(root, 'chunks'), { recursive: true, force: true });
-const res = await build({
-  entryPoints: { app: join(root, 'src/main.js'), /* night:seating */ seat: join(root, 'src/seat/main.js') /* /night:seating */ }, outdir: root, bundle: true, format: 'esm', splitting: true, minify: !process.argv.includes('--dev'),
-  sourcemap: false, target: ['es2019'], chunkNames: 'chunks/[name]-[hash]', legalComments: 'inline', metafile: true, logLevel: 'info'
-});
-for (const f of Object.keys(res.metafile.outputs)) console.log(f.replace(root + '/', ''), statSync(f).size);
+const common = { outdir: root, bundle: true, format: 'esm', splitting: true, minify: !process.argv.includes('--dev'),
+  sourcemap: false, target: ['es2019'], chunkNames: 'chunks/[name]-[hash]', legalComments: 'inline', metafile: true, logLevel: 'info' };
+/* Two builds, so the guest menu keeps three.js inside its stage chunk (one request before the table, as before the seat
+   map existed). The seat map is its own build: its 3D room carries its own copy of three.js, loaded only when a guest
+   taps "3D" in a demo. */
+const res = await build({ ...common, entryPoints: { app: join(root, 'src/main.js') } });
+const seat = await build({ ...common, entryPoints: { seat: join(root, 'src/seat/main.js') }, chunkNames: 'chunks/seat-[name]-[hash]' });   /* night:seating */
+for (const f of [...Object.keys(res.metafile.outputs), ...Object.keys(seat.metafile.outputs)]) console.log(f.replace(root + '/', ''), statSync(f).size);
