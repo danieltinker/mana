@@ -299,4 +299,8 @@ const api = {
 };
 window.__mana = window.__menu = api;
 if (CAPTURE) $('app').classList.add('capture');
+/* night:page */
+/* hero mode (the product page's first screen): the dish alone, no chrome, scripted once; see hero.js. A separate chunk: a guest's menu never loads it. */
+if (Q.get('embed') === 'hero') { $('app').classList.add('hero'); import('./hero.js').then((m) => m.start({ api, ticker, reduce, debug: Q.get('debug') === '1' })).catch(() => {}); }
+/* /night:page */
 boot();
