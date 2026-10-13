@@ -100,7 +100,7 @@ export function start(env) {
   }
   /* at rest: the ring follows the plate (the engine's rest sway moves it a few pixels), the dish stays lifted, the fallbacks are watched */
   function watch() {
-    if (!running || paused) return;
+    clearTimeout(waitT); if (!running || paused) return;      // one chain of checks, whoever called
     const s = api.state(), i = api.info();
     if ((s && s.simple) || (i && (i.lost || i.tier >= 4))) return fallback();
     if (phase === 'rest') { if (ringOn) ringAt(hero()); if (s && !s.open) api.lift(true); }
