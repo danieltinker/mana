@@ -120,10 +120,16 @@ function keep(fn) { const a = document.activeElement, key = a && a.getAttribute 
 function renderPanels() {
   if (!L) return;
   keep(() => {
-    const A = $('colA'), Bc = $('colB'); A.textContent = ''; Bc.textContent = '';
+    const cols = [$('colA'), $('colB')];
     document.documentElement.classList.toggle('compact', UI.density === 'compact');
-    const on = UI.order.filter((p) => UI.on[p]);
-    on.forEach((p, i) => { const el = panel(p); (i % 2 === 0 ? A : Bc).appendChild(el); });
+    const on = UI.order.filter((p) => UI.on[p]), want = [[], []];
+    on.forEach((p, i) => want[i % 2].push(panel(p)));
+    /* a panel is replaced only when what it shows changed, so a tap never lands on a button that is being swapped */
+    cols.forEach((col, c) => {
+      const have = [...col.children];
+      if (have.length !== want[c].length || have.some((el, i) => el.dataset.panel !== want[c][i].dataset.panel)) { col.textContent = ''; want[c].forEach((el) => col.appendChild(el)); return; }
+      have.forEach((el, i) => { if (el.innerHTML !== want[c][i].innerHTML) col.replaceChild(want[c][i], el); });
+    });
   });
 }
 function panel(p) {
