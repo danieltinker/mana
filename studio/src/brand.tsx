@@ -9,35 +9,16 @@ export function LangToggle({ plain }: { plain?: boolean }) {
   return <button type="button" class={plain ? 'linkbtn' : 'langbtn'} onClick={() => setLang(lang.value === 'he' ? 'en' : 'he')} aria-label={t('app.langSwitchLabel')} lang={lang.value === 'he' ? 'en' : 'he'}><Icon name="globe" size={17} /><span>{t('app.langSwitch')}</span></button>;
 }
 
-/** What Mana does, without words: a photographed menu becomes dishes on a table, behind a QR code. Mirrored in Hebrew so it reads from the right. */
-export function Flow() {
+/** The start screen's picture: Olea's demo dish rising on the table (brand/site/img/hero.mp4 cut to the plate), played once and
+ *  held on its last frame, the poster first; a still when the person asked for less motion. The dish was made with AI and says so. */
+export function DishRise() {
+  const still = (() => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; } })();
   return (
-    <svg class="flow" viewBox="0 0 336 100" role="presentation" aria-hidden="true" focusable="false">
-      <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-        {/* a paper menu in a camera's frame */}
-        <rect x="30" y="16" width="52" height="68" rx="6" fill="#fff" stroke="#0F0F0F" stroke-width="1.6" />
-        <path d="M40 30h24M40 40h32M40 48h28M40 58h32M40 66h20" stroke="#c9b8b0" stroke-width="2.4" />
-        <path d="M40 30h14" stroke="#0F0F0F" stroke-width="2.4" />
-        <path d="M18 22v-8a4 4 0 0 1 4-4h8M82 10h8a4 4 0 0 1 4 4v8M94 78v8a4 4 0 0 1-4 4h-8M30 90h-8a4 4 0 0 1-4-4v-8" stroke="#9A5238" stroke-width="2.2" />
-        {/* dishes on a table */}
-        <circle cx="168" cy="50" r="40" fill="#16110e" stroke="none" />
-        <circle cx="168" cy="50" r="25" fill="#fffdfc" stroke="none" />
-        <circle cx="168" cy="50" r="16" fill="#FFC9B6" stroke="none" />
-        <path d="M160 48c3-5 10-6 15-2" stroke="#9A5238" stroke-width="2.2" />
-        <circle cx="163" cy="56" r="2.6" fill="#2f6b4a" stroke="none" /><circle cx="174" cy="55" r="2" fill="#2f6b4a" stroke="none" />
-        <path d="M204 14l1.900 5.100 5.100 1.900-5.100 1.900-1.900 5.100-1.900-5.100-5.100-1.900 5.100-1.900z" fill="#9A5238" stroke="none" />
-        {/* a phone at the table with the code */}
-        <rect x="252" y="10" width="52" height="80" rx="9" fill="#fff" stroke="#0F0F0F" stroke-width="1.6" />
-        <g fill="#0F0F0F" stroke="none">
-          <rect x="262" y="26" width="12" height="12" rx="2" /><rect x="282" y="26" width="12" height="12" rx="2" /><rect x="262" y="46" width="12" height="12" rx="2" />
-          <rect x="282" y="46" width="5" height="5" /><rect x="289" y="53" width="5" height="5" /><rect x="282" y="60" width="5" height="5" /><rect x="262" y="64" width="5" height="5" /><rect x="271" y="64" width="5" height="5" />
-        </g>
-        <path d="M272 82h12" stroke="#c9b8b0" stroke-width="2.4" />
-        {/* the way from one to the next */}
-        <path d="M104 50h20M212 50h28" stroke="#9A5238" stroke-width="2" stroke-dasharray="1 6" />
-        <path d="M122 45l5 5-5 5M238 45l5 5-5 5" stroke="#9A5238" stroke-width="2" />
-      </g>
-    </svg>
+    <figure class="dish" data-dish={still ? 'still' : 'film'}>
+      {still ? <img class="dish-still" src="dish-poster.jpg" alt="" width="390" height="370" decoding="async" />
+        : <video class="dish-v" src="dish.mp4" poster="dish-poster.jpg" width="390" height="370" muted autoPlay playsInline preload="auto" aria-hidden="true" tabIndex={-1} onCanPlay={(e) => { const v = e.currentTarget as HTMLVideoElement; if (v.paused) v.play().catch(() => {}); }} />}
+      <figcaption class="dish-cap">{t('auth.dishCaption')}</figcaption>
+    </figure>
   );
 }
 

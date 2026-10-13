@@ -103,6 +103,7 @@ const S: Record<string, [string, string]> = {
   'auth.with.apple': ['המשך עם Apple', 'Continue with Apple'],
   'auth.with.facebook': ['המשך עם Facebook', 'Continue with Facebook'],
   'auth.demo': ['תפריט לדוגמה', 'See a demo menu'],
+  'auth.dishCaption': ['מנה לדוגמה · נוצרה בבינה מלאכותית', 'Demo dish · made with AI'],
   'auth.forgot': ['שכחתי סיסמה', 'Forgot the password'],
   'auth.forgotLink': ['כתבו לנו בוואטסאפ', 'Message us on WhatsApp'],
   'auth.links': ['קישורים', 'Links'],
