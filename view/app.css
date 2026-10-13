@@ -254,3 +254,7 @@ ol,ul{padding:0;list-style:none}
 /* back-door: the door crack, a 2 px amber line at the card's top edge, and the little light that comes through it */
 .look-door-crack .card{border-top:2px solid var(--accent);box-shadow:0 -1px 0 rgba(201,151,92,.4),0 -8px 26px rgba(201,151,92,.2),0 -14px 50px rgba(0,0,0,.45)}
 .look-door-crack .card .grip{background:rgba(201,151,92,.28)}
+/* flea-living-room: the edge of a faded red carpet showing, a woven band along the card's top edge */
+.look-rug-edge .card::before{content:"";position:absolute;z-index:1;top:-1px;inset-inline:22px;height:5px;border-radius:0 0 3px 3px;background:repeating-linear-gradient(90deg,#b23a48 0 10px,#f2e8d5 10px 13px,#8b5e3c 13px 19px,#f2e8d5 19px 22px);opacity:.82;pointer-events:none}
+/* leaf-shadow: the shadow of a leaf lamp lying across the top of the card, a few soft diagonal veins that fade out */
+.look-leaf-vein .card::before{content:"";position:absolute;z-index:0;inset:0;border-radius:22px 22px 0 0;background:repeating-linear-gradient(118deg,transparent 0 22px,rgba(0,0,0,.24) 22px 26px);-webkit-mask-image:linear-gradient(to bottom,#000,transparent 72%);mask-image:linear-gradient(to bottom,#000,transparent 72%);pointer-events:none}

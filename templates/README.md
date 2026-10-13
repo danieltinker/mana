@@ -4,8 +4,8 @@ A **look** is what a restaurant's menu can wear tonight: the table surface its d
 lamp's pool falls, whether the dish card is dark or light, and one CSS-only detail that says what kind of place this is.
 A look changes nothing about the dishes themselves: every dish is still a relief from one photo, in its true colour.
 
-They are called looks, not templates, until each has its own texture and type (week 2). Tonight's four are live; the other
-95 concepts in `matrix.json` are data, waiting.
+They are called looks, not templates, until each has its own texture and type (week 2). Tonight's six are live; the other
+93 concepts in `matrix.json` are data, waiting.
 
 ```
 templates.v1.json   the live looks (the contract below); bundled into the guest menu by esbuild, never fetched at run time
@@ -36,7 +36,7 @@ tools/stills.mjs    renders one still per live look into view/looks/img/<id>.web
 photo (`theme.surface === 'custom'` with `tableImg`) still wins over the look's surface. An unknown `template` leaves the menu as
 it is today. The snapshot stays `v: 1`; older readers ignore the field.
 
-## The four live looks
+## The live looks (four, and the two stretch looks)
 
 | id | name | place | surface | the one detail |
 |---|---|---|---|---|
@@ -44,6 +44,8 @@ it is today. The snapshot stays `v: 1`; older readers ignore the field.
 | `casablanca-white` | לבן קזבלנקה · Casablanca White | Levantine light | `marble` with a matte finish, a wide daylight pool, a light card | a thin tile-stripe rule on the card |
 | `counter-shout` | צעקה מהדלפק · Counter Shout | a pita counter | `steel`, bright and wide | the dish's name on a paper ticket |
 | `back-door` | הדלת האחורית · Back Door | a hidden bar | `walnut`, a very low amber lamp in a narrow pool | a 2 px amber line at the card's top edge: the door crack |
+| `flea-living-room` | סלון פשפשים · Flea Living Room | a flea-market café | `oak`, afternoon light, a soft wide pool | the edge of a faded red rug: a woven band along the card's top edge |
+| `leaf-shadow` | צל עלה · Leaf Shadow | Asia-terranean | `slate`, leaf-shaped lamps | a leaf's shadow: soft diagonal veins across the top of the card |
 
 Try one: `view/?demo=olea&template=<id>`. The gallery is `view/looks/`. Olea's dishes were made with AI and say so.
 

@@ -37,15 +37,16 @@ async function legible(page, sels, where) {
 
 for (const look of LOOKS) {
   test('look ' + look.id + ' (' + look.name.en + '): the table is up on ' + look.surface + ', the detail is there, every word on the card reads', async () => {
-    const { page, errors, ctx } = await open(browser, demo('&template=' + look.id + '&lang=he'));
+    const n0 = srv.server.requests.length, { page, errors, ctx } = await open(browser, demo('&template=' + look.id + '&lang=he'));
     await page.evaluate(() => window.__mana.ready);
     const dom = await page.evaluate(() => { const a = document.getElementById('app'); return { look: a.dataset.look, card: a.dataset.card, cls: a.className, theme: window.__mana.model().snapshot.theme, accent: getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() }; });
     assert.equal(dom.look, look.id); assert.equal(dom.card, look.card); assert.ok(dom.cls.split(' ').includes('look-' + look.detail), 'the CSS detail class'); assert.equal(dom.theme.surface, look.surface); assert.equal(dom.theme.accent, look.accent); assert.equal(dom.accent, look.accent);
     await tableUp(page);
     const info = await page.evaluate(() => window.__mana.info());
     assert.equal(info.scene, 'table'); assert.ok(info.heroReady, 'the first dish is sharp'); assert.ok(!info.lost);
-    assert.ok(srv.server.requests.some((r) => r.path.endsWith('/themes/' + look.surface + '.jpg')), 'the look\'s table texture was fetched');
-    assert.ok(!srv.server.requests.some((r) => r.path.endsWith('/themes/oak.jpg') && look.surface !== 'oak') || look.surface === 'oak', 'not today\'s oak');
+    const fetched = srv.server.requests.slice(n0).map((r) => r.path);
+    assert.ok(fetched.some((p) => p.endsWith('/themes/' + look.surface + '.jpg')), 'the look\'s table texture was fetched');
+    if (look.surface !== 'oak') assert.ok(!fetched.some((p) => p.endsWith('/themes/oak.jpg')), 'not today\'s oak');
     /* at rest */
     const rest = await legible(page, REST, look.id + ' at rest');
     assert.ok(rest.some((r) => r.sel === '#dName') && rest.some((r) => r.sel === '#dPrice'), 'name and price measured');
