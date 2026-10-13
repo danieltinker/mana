@@ -6,13 +6,14 @@ export function initDialog({ $, $$, mq, lang, root }) {
   const doc = document, dlg = $('#demo');
   if (!dlg || typeof dlg.showModal !== 'function') return;
   const screen = $('#dlg-screen', dlg), stage = $('.dlg-stage', dlg), looksBar = $('.dlg-looks', dlg), filmBox = $('.dlg-film', dlg), video = filmBox && $('video', filmBox);
-  const TITLE = { menu: { he: 'תפריט ההדגמה של אוליאה', en: 'The Olea demo menu' }, seat: { he: 'מפת ישיבה', en: 'Seat map' }, tables: { he: 'שעון לשולחן', en: 'Table clocks' } };
+  const TITLE = { menu: { he: 'תפריט ההדגמה של אוליאה', en: 'The Olea demo menu' }, seat: { he: 'מפת ישיבה', en: 'Seat map' }, tables: { he: 'שעון לשולחן', en: 'Table clocks' }, lima: { he: 'קפה לימה, הטלפון של האורח', en: 'Café Lima, the guest’s phone' } };
   let tab = 'menu', look = 'album-side', frame = null, opener = null;
   const wide = () => mq('(min-width: 900px) and (min-height: 600px)');
 
   function src() {
     if (tab === 'seat') return './view/seat/?demo=olea&lang=' + lang();
     if (tab === 'tables') return './view/host/?demo=olea&speed=60&lang=' + lang();      // the manager's board, its clock one minute a second
+    if (tab === 'lima') return './view/floor/guest.html?demo=lima&table=t3&lang=' + lang();   // Café Lima: the guest's phone at table 3
     return './view/?demo=olea&lang=' + lang() + (tab === 'looks' ? '&template=' + look : '');
   }
   /* on a wide screen the menu stands in a phone: the frame is a phone's size (390 × 844), scaled to the phone drawn here */
@@ -45,7 +46,7 @@ export function initDialog({ $, $$, mq, lang, root }) {
     fit();
   }
   function setTab(id) {
-    tab = ['menu', 'looks', 'seat', 'tables', 'film'].indexOf(id) >= 0 && (id !== 'film' || filmBox) ? id : 'menu';
+    tab = ['menu', 'looks', 'seat', 'tables', 'lima', 'film'].indexOf(id) >= 0 && (id !== 'film' || filmBox) ? id : 'menu';
     $$('.dlg-tab', dlg).forEach((b) => b.setAttribute('aria-pressed', b.getAttribute('data-tab') === tab ? 'true' : 'false'));
   }
   function open(id) {

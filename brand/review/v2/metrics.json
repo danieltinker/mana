@@ -32,12 +32,12 @@
     "size": "1080×1920"
    }
   },
-  "requestsOnLoad390": 22,
+  "requestsOnLoad390": 30,
   "bytesGzipBeforeHero": {
-   "mainRaw": 15580,
-   "scripts": 6492,
-   "css": 15640,
-   "html": 13437
+   "mainRaw": 24695,
+   "scripts": 10177,
+   "css": 19664,
+   "html": 18228
   }
  }
 }

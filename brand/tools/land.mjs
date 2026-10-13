@@ -37,6 +37,8 @@ const LOOKS = [['album-side', 'צד א׳', 'Album Side'], ['casablanca-white', '
 const AI_DISHES = () => t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI');
 const hrefs = (path, extra = '') => `href="${path}lang=he${extra}" data-href-he="${path}lang=he${extra}" data-href-en="${path}lang=en${extra}"`;
 const DEMO = hrefs('./view/?demo=olea&amp;'), SEAT = hrefs('./view/seat/?demo=olea&amp;'), HOST = hrefs('./view/host/?demo=olea&amp;speed=60&amp;');
+/* Café Lima, the first place drawn from photos (view/floor/): the counter's board, and the guest's phone at table 3 */
+const LIMA = hrefs('./view/floor/?demo=lima&amp;'), LIMA_GUEST = hrefs('./view/floor/guest.html?demo=lima&amp;table=t3&amp;');
 
 /* ------------------------------------------------------------------------------------------------ drawings
    Decorative letters and numbers are never text nodes: they are paths, or CSS content on aria-hidden elements. */
@@ -357,9 +359,9 @@ const place = () => `<section class="sec place" id="place" aria-labelledby="plac
       </div>
       <figcaption><ul class="floor-key">${FLOOR_KEY.map(([k, he, en]) => `<li class="${k}"><i aria-hidden="true"></i>${t(he, en)}</li>`).join('')}</ul></figcaption>
     </figure>
-    <!-- a slot for a second link under the floor (for example a real place's 3D proof of concept): hidden until it has a link;
-         put one <a class="btn btn-glass"> with both languages inside and remove "hidden" -->
-    <p class="floor-more" id="floor-more" hidden></p>
+    <!-- the first real place: Café Lima, drawn from six photos (a first draft): the counter's board (same tab, like every link here) and the guest's phone in the demo -->
+    <p class="floor-more" id="floor-more"><span class="floor-more-t">${t('המקום הראשון שצויר מתמונות: קפה לימה, בתלת־ממד. טיוטה ראשונה.', 'The first place drawn from photos: Café Lima, in 3D. A first draft.')}</span>
+      <a class="btn btn-glass" ${LIMA}>${t('הלוח של הדלפק', 'The counter’s board')}</a> <a class="btn btn-glass" ${LIMA_GUEST} data-demo-open="lima">${t('הטלפון של האורח', 'The guest’s phone')}</a></p>
   </div>
 </section>`;
 
@@ -521,7 +523,7 @@ function dialog(media) {
     <div class="dlg-top">
       <h2 class="vh" id="dlg-h">${t('הדגמה', 'Demo')}</h2>
       <span class="dlg-mark" aria-hidden="true">${mark(INK, 30)}</span>
-      <div class="dlg-tabs">${tab('menu', 'התפריט', 'The menu', true)}${tab('looks', 'מראות', 'Looks')}${tab('seat', 'מפת ישיבה', 'Seat map')}${tab('tables', 'שעון לשולחן', 'Table clocks')}${film ? tab('film', 'הסרט', 'The film') : ''}</div>
+      <div class="dlg-tabs">${tab('menu', 'התפריט', 'The menu', true)}${tab('looks', 'מראות', 'Looks')}${tab('seat', 'מפת ישיבה', 'Seat map')}${tab('tables', 'שעון לשולחן', 'Table clocks')}${tab('lima', 'קפה לימה', 'Café Lima')}${film ? tab('film', 'הסרט', 'The film') : ''}</div>
       <button class="dlg-x" type="button" data-dlg-close data-label-he="לסגור" data-label-en="Close" aria-label="לסגור">${ico.close}</button>
     </div>
     <div class="dlg-body">

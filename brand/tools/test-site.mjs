@@ -89,7 +89,7 @@ for (const prefix of ['/mana/', '/projects/menus/']) for (const [w, h, touch] of
 const AI_LABEL = { he: 'מנות לדוגמה · נוצרו בבינה מלאכותית', en: 'Demo dishes · made with AI' };      // the demo-food label
 const AI_WORDS = /\bAI\b|בינה מלאכותית/;
 const builtWith = (m) => renderIndex(Object.assign(mediaFound(), m));
-const stubViewer = async (page) => page.route(/\/view\/((seat|host)\/)?(\?|index\.html|$)/, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><meta charset="utf-8"><title>viewer stub</title><body style="margin:0;background:#15110d;color:#fff;font:16px sans-serif"><p id="stub">viewer stub</p>' }));
+const stubViewer = async (page) => page.route(/\/view\/((seat|host|floor)\/)?(\?|index\.html|guest\.html|$)/, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><meta charset="utf-8"><title>viewer stub</title><body style="margin:0;background:#15110d;color:#fff;font:16px sans-serif"><p id="stub">viewer stub</p>' }));
 
 await check('words: "AI" only inside .ai-tag elements and the demo-food label is there; the relief is never a "3D model"; no "3D" in the meta; no invented e-mail address', async () => {
   for (const pg of PAGES) for (const lang of ['he', 'en']) {
@@ -188,7 +188,7 @@ await check('levitation: twelve ingredients in four depths drift on their own pa
     return { on: document.querySelector('.lev').classList.contains('on'), run: document.querySelector('.lev').getAttribute('data-run'), depths: [...new Set([...document.querySelectorAll('.lev .lv[data-depth]')].map((e) => e.getAttribute('data-depth')))].sort().join(''),
       items: [...document.querySelectorAll('.lev .lv[data-depth]')].map((e) => { const r = e.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; return { t: e.style.transform, o: +getComputedStyle(e).opacity, behind: cx > wr.left && cx < wr.right && cy > wr.top && cy < wr.bottom }; }) }; });
   await o.page.waitForFunction(() => [...document.querySelectorAll('.lev .lv[data-depth]')].every((e) => /^translate3d\(/.test(e.style.transform)), null, { timeout: 10000 }).catch(() => {});      // the first frames (a busy machine is late)
-  const a = await snap(); await o.page.waitForTimeout(1500); const b = await snap();
+  const a = await snap(); await o.page.waitForTimeout(3000); const b = await snap();      // 3 s: software GL can hand the page only a few frames a second, and each frame advances at most 50 ms
   assert.equal(a.on, true, 'the levitation did not start'); assert.equal(a.run, '1'); assert.equal(a.depths, '0123'); assert.equal(a.items.length, 12);
   assert.ok(a.items.every((x) => /^translate3d\(/.test(x.t)), 'an ingredient is not moved by a transform');
   assert.ok(b.items.filter((x, i) => x.t !== a.items[i].t).length >= 11, 'the ingredients do not move');
@@ -258,14 +258,14 @@ await check('simple for guests: six tiles with their words; copying the section 
   }
 });
 
-await check('your place: the words as written, the "new · in demo" chip, the still plan on glass with the Olea room\'s twelve tables and the five table states; floor3d.js is asked for only when the section comes near; while it returns nothing the still stays', async () => {
+await check('your place: the words as written, the "new · in demo" chip, the still plan on glass with the Olea room\'s twelve tables and the five table states; Café Lima\'s two links under it; floor3d.js is asked for only when the section comes near; while it returns nothing the still stays', async () => {
   const o = await open('/mana/?lang=he&floor=on', { w: 1440, h: 900, touch: false });
   await o.page.waitForTimeout(1500); assert.ok(!o.reqs.some((u) => /floor3d/.test(u)), 'the floor module was fetched at the top of the page');
   const r = await o.page.evaluate(() => ({ chip: document.querySelector('#place .chip-new').innerText.trim(), p: [...document.querySelectorAll('#place .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), lines: [...document.querySelectorAll('#place .marks li')].map((l) => l.innerText.trim()), tables: document.querySelectorAll('.fl-t').length,
-    slot: (() => { const m = document.getElementById('floor-more'); return m && m.hidden && !m.checkVisibility(); })(), states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
+    slot: (() => { const m = document.getElementById('floor-more'); if (!m || m.hidden || !m.checkVisibility()) return null; const a = [...m.querySelectorAll('a')]; return { text: m.querySelector('.floor-more-t').innerText.trim(), hrefs: a.map((x) => x.getAttribute('href')), open: a[1].getAttribute('data-demo-open') }; })(), states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
   assert.equal(r.chip, 'בקרוב · אפשר לנסות בהדגמה'); assert.equal(r.p, 'מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.');
   assert.deepEqual(r.lines, ['זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.', 'כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.']); assert.equal(r.tables, 12);
-  assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.equal(r.slot, true, 'the slot under the floor is missing or shown'); assert.equal(r.host, 'relative');
+  assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.deepEqual(r.slot, { text: 'המקום הראשון שצויר מתמונות: קפה לימה, בתלת־ממד. טיוטה ראשונה.', hrefs: ['./view/floor/?demo=lima&lang=he', './view/floor/guest.html?demo=lima&table=t3&lang=he'], open: 'lima' }, 'Café Lima under the floor'); assert.equal(r.host, 'relative');
   await o.page.evaluate(() => document.getElementById('place').scrollIntoView({ block: 'center', behavior: 'instant' }));
   for (const t0 = Date.now(); !o.reqs.some((u) => /floor3d/.test(u)) && Date.now() - t0 < 6000;) await o.page.waitForTimeout(100);
   assert.ok(o.reqs.some((u) => /\/land\/chunks\/floor3d-/.test(u)), 'the floor module was never asked for');
@@ -425,6 +425,8 @@ await check('demo dialog: the Demo button opens it and its frame loads view/?dem
     await o.page.click('.dlg-tab[data-tab="seat"]'); assert.equal((await dlgState(o.page)).src, './view/seat/?demo=olea&lang=' + lang);
     await o.page.click('.dlg-tab[data-tab="tables"]'); assert.equal((await dlgState(o.page)).src, './view/host/?demo=olea&speed=60&lang=' + lang);      // the table clocks: the manager's board, sped up
     await o.page.waitForFunction(() => { try { const f = document.querySelector('#demo iframe'); return /\/view\/host\//.test(f.contentWindow.location.href) && f.contentDocument.getElementById('stub'); } catch (e) { return false; } }, null, { timeout: 8000 }).catch(() => {});      // closing while the frame still loads aborts its request (not an error of the page)
+    await o.page.click('.dlg-tab[data-tab="lima"]'); assert.equal((await dlgState(o.page)).src, './view/floor/guest.html?demo=lima&table=t3&lang=' + lang);      // Café Lima: the guest's phone
+    await o.page.waitForFunction(() => { try { const f = document.querySelector('#demo iframe'); return /\/view\/floor\//.test(f.contentWindow.location.href) && f.contentDocument.getElementById('stub'); } catch (e) { return false; } }, null, { timeout: 8000 }).catch(() => {});
     await o.page.keyboard.press('Escape'); await o.page.waitForFunction(() => !document.getElementById('demo').open);
     await o.page.waitForTimeout(100); r = await dlgState(o.page); assert.equal(r.frames, 0, 'the frame stayed after closing');
     assert.ok(await o.page.evaluate(() => document.activeElement && document.activeElement.matches('.top [data-demo-open]')), 'focus did not return to the button');
