@@ -21,6 +21,10 @@ echo "· guest menu";  deps view;   (cd view && npm run -s build)
 echo "· owner app";   deps studio; (cd studio && npm run -s check && npm run -s build)
 echo "· back office"; deps ops;    (cd ops && npm run -s build)
 
+# remaster: the product page's scripts (brand/src/land → brand/site/land/, ignored by git); esbuild and three.js come from
+# view/node_modules, so this runs after the guest menu's deps are installed
+echo "· product page"; node brand/tools/build-land.mjs
+# /remaster
 rm -rf "$OUT"; mkdir -p "$OUT"
 cp -R brand/site/. "$OUT/"
 cp config.js "$OUT/config.js"
@@ -39,7 +43,7 @@ for f in NOTICE.md match.js stock.json; do cp "stock/$f" "$OUT/stock/$f"; done
 cp -R stock/img "$OUT/stock/img"
 : > "$OUT/.nojekyll"      # serve every file as it is (no Jekyll on GitHub Pages)
 
-for p in index.html config.js view/index.html view/app.js studio/index.html ops/index.html gen/gen.js stock/stock.json; do
+for p in index.html land/main.js config.js view/index.html view/app.js studio/index.html ops/index.html gen/gen.js stock/stock.json; do
   [ -s "$OUT/$p" ] || { echo "✗ _site/$p is missing"; exit 1; }
 done
 grep -q "'/mana/view/'" "$OUT/view/index.html" || { echo "✗ the guest menu's short-link base is not /mana/view/"; exit 1; }

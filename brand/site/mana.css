@@ -84,6 +84,13 @@ html.solid .pill{backdrop-filter:none;-webkit-backdrop-filter:none;background:rg
 .pill .btn-sm{border-color:rgba(252,248,246,.5);color:var(--m-ivory);min-height:44px}
 .pill .btn-sm:hover{background:var(--m-ivory);color:var(--m-ink)}
 .pill :focus-visible{outline-color:var(--m-yolk)}
+/* remaster: on the photo guide, privacy and terms (ivory, no table) the pill is the product page's white glass */
+body:not(.on-table) .pill{background:linear-gradient(135deg,rgba(255,255,255,.86),rgba(255,255,255,.6));color:var(--black);border:1px solid rgba(255,255,255,.9);box-shadow:inset 0 1px 0 #fff,0 18px 40px -22px rgba(70,45,20,.35),0 1px 4px rgba(70,45,20,.06);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%)}
+body:not(.on-table) .pill .btn-sm{background:var(--black);border-color:var(--black);color:var(--ivory)}
+body:not(.on-table) .pill .btn-sm:hover{background:var(--yolk);border-color:var(--yolk);color:var(--black)}
+body:not(.on-table) .pill :focus-visible{outline-color:var(--black)}
+body:not(.on-table) .pill .brand ellipse:first-child{stroke:var(--black)}
+/* /remaster */
 
 /* the table: the first screen (the hero) and the last stop (start free) are the guest view's own oak under one lamp,
    darkened to the table's black at the edges. Text on the table sits on a soft scrim. */

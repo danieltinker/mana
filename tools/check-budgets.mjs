@@ -124,7 +124,7 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     const html = read(page).toString(); let inline = '', n = 0;
     for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) { const src = attr('<script' + m[1] + '>', 'src'); if (src) rows.push(need(local(src, page), 'script the page names')); else { inline += m[2] + '\n'; n++; } }
     rows.push({ file: 'index.html <script> (inline, ' + n + ')', why: 'inline scripts', raw: Buffer.byteLength(inline), sent: gzipSync(Buffer.from(inline), { level: 9 }).length });
-    if (!rows.some((r) => r && /mana\.js$/.test(r.file))) notes.push('index.html does not name mana.js');
+    if (!rows.some((r) => r && /(mana|land\/main)\.js$/.test(r.file))) notes.push('index.html does not name mana.js or land/main.js');      /* remaster: the page's script is land/main.js */
   }
   section("(b) product page, scripts before the hero", rows, BUDGET.page);
 }
@@ -163,6 +163,22 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
   for (const h of walk(SITE)) for (const [p, why] of firstPaint(h)) { const n = statSync(p).size; if (n > BUDGET.file) { big.push({ file: rel(p), why: why + ' of ' + rel(h), raw: n, sent: n }); breaches.push('(d) ' + rel(h) + ' loads ' + rel(p) + ' (' + kb(n) + ' kB, ' + why + ') at first paint: over 3 MB'); } }
   sections.push({ title: '(d) files over 3 MB at first paint', rows: big, total: big.reduce((n, r) => n + r.raw, 0), budget: null });
 }
+
+/* remaster: (e) the product page's own pieces (brand/src/land, bundled into land/; the generated media in img/). Raw bytes:
+   the page's first script (land/main.js, minified) ≤ 40 kB; each on-demand chunk (three.js and the 3D modules) ≤ 750 kB;
+   each dish mesh (img/dishes/*.glb) ≤ 700 kB; the host film (img/host/host-orbit.mp4) ≤ 2 MB. */
+{
+  const LAND = { main: 40 * KB, chunk: 750 * KB, glb: 700 * KB, host: 2 * KB * KB }, rows = [];
+  const cap = (p, max, why) => { if (!existsSync(p)) { breaches.push('missing: ' + rel(p) + ' (' + why + ')'); return; } const r = row(p, why + ' ≤ ' + kb(max) + ' kB raw'); rows.push(r); if (r.raw > max) breaches.push('(e) ' + rel(p) + ' is ' + kb(r.raw) + ' kB raw > ' + kb(max) + ' kB (' + why + ')'); };
+  if (existsSync(join(SITE, 'index.html')) && /land\/main\.js/.test(read(join(SITE, 'index.html')).toString())) {
+    cap(join(SITE, 'land/main.js'), LAND.main, "the page's first script");
+    const ch = join(SITE, 'land/chunks'); if (existsSync(ch)) for (const f of readdirSync(ch)) if (/\.js$/.test(f)) cap(join(ch, f), LAND.chunk, 'an on-demand chunk');
+  } else notes.push('(e) index.html does not load land/main.js: the page\'s own budgets were not measured');
+  const dishes = join(SITE, 'img/dishes'); if (existsSync(dishes)) for (const f of readdirSync(dishes)) if (/\.glb$/.test(f)) cap(join(dishes, f), LAND.glb, 'a dish mesh');
+  if (existsSync(join(SITE, 'img/host/host-orbit.mp4'))) cap(join(SITE, 'img/host/host-orbit.mp4'), LAND.host, 'the host film');
+  sections.push({ title: "(e) the product page's script, chunks, dish meshes and host film", rows, total: rows.reduce((n, r) => n + r.raw, 0), budget: null });
+}
+/* /remaster */
 
 /* the table */
 for (const s of sections) {
