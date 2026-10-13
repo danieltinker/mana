@@ -226,7 +226,7 @@ html[lang="en"] .sh-head h2{font-weight:420;font-variation-settings:"SOFT" 0,"WO
 .sheet[data-phase="ending"] .big{color:#C9521F}
 .sheet[data-phase="over"] .big{color:var(--rose-ink)}
 .sheet .meta{font-size:.92rem}
-.tables-set{display:grid;gap:2px}
+.tables-set{display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
 .trow{display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid var(--line)}
 .trow .tn{flex:1;min-width:0;overflow:hidden;display:flex;align-items:baseline;gap:8px}
 .trow .tn b{font-weight:500;white-space:nowrap}

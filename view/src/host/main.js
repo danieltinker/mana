@@ -223,7 +223,7 @@ const stepper = (label, value, dec, inc, opts = {}) => h('div', { class: 'steppe
   h('div', { class: 'lbl' }, [h('span', { text: label }), opts.hint ? h('small', { text: opts.hint }) : null]),
   h('div', { class: 'stepper', dir: 'ltr' }, [
     h('button', { class: 'round', type: 'button', id: opts.id ? opts.id + 'Dec' : null, 'aria-label': opts.decLabel || t('less') + ' · ' + label, disabled: opts.decOff, text: '−', onclick: dec }),
-    h('output', { class: 'val' + (opts.muted ? ' muted' : ''), id: opts.id ? opts.id + 'Val' : null, 'aria-live': 'polite', text: value }),
+    h('output', { class: 'val' + (opts.muted ? ' muted' : ''), id: opts.id ? opts.id + 'Val' : null, dir: 'auto', 'aria-live': 'polite', text: value }),
     h('button', { class: 'round', type: 'button', id: opts.id ? opts.id + 'Inc' : null, 'aria-label': opts.incLabel || t('moreMin') + ' · ' + label, disabled: opts.incOff, text: '+', onclick: inc })])]);
 const head = (title, sub) => h('header', { class: 'sh-head' }, [h('div', {}, [h('h2', { id: 'sheetTitle', tabindex: '-1', text: title }), sub ? h('p', { class: 'sub', text: sub }) : null]),
   h('button', { class: 'x', type: 'button', 'aria-label': t('close'), onclick: closeSheet, html: '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>' })]);
@@ -278,7 +278,7 @@ function settingsSheet(sh) {
         h('span', { class: 'tn' }, [h('b', { text: tName(id) }), isBar(id) ? null : h('small', { text: zoneName(tableById(L, id).zone) })]),
         h('div', { class: 'stepper sm', dir: 'ltr' }, [
           h('button', { class: 'round', type: 'button', id: 'ov-' + id + 'Dec', 'aria-label': t('less') + ' · ' + tFull(id), disabled: v - 5 < mlo, text: '−', onclick: () => set({ overrides: { [id]: v - 5 } }, 'ov-' + id + 'Dec') }),
-          h('output', { class: 'val' + (o == null ? ' muted' : ''), text: o == null ? t('minutes', { n: v }) : t('minutes', { n: v }) }),
+          h('output', { class: 'val' + (o == null ? ' muted' : ''), dir: 'auto', text: t('minutes', { n: v }) }),
           h('button', { class: 'round', type: 'button', id: 'ov-' + id + 'Inc', 'aria-label': t('moreMin') + ' · ' + tFull(id), disabled: v + 5 > mhi, text: '+', onclick: () => set({ overrides: { [id]: v + 5 } }, 'ov-' + id + 'Inc') })]),
         h('button', { class: 'reset', type: 'button', id: 'ov-' + id + 'Reset', hidden: o == null, 'aria-label': t('reset') + ' · ' + tFull(id), title: t('reset'), text: '↺', onclick: () => set({ overrides: { [id]: null } }, 'ov-' + id + 'Inc') })]));
     });
