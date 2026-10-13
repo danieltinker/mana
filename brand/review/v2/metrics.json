@@ -5,44 +5,48 @@
  },
  "after": {
   "390-he": {
-   "words": 176,
-   "height": 2685,
+   "words": 237,
+   "height": 5403,
    "sections": [
     [
-     "wrap",
-     60
+     "top",
+     50
     ],
     [
      "hero",
-     398
+     844
     ],
     [
      "how",
-     233
+     253
+    ],
+    [
+     "looks",
+     507
     ],
     [
      "demo",
-     417
+     404
+    ],
+    [
+     "seat",
+     527
     ],
     [
      "numbers",
-     541
+     568
+    ],
+    [
+     "reels",
+     752
     ],
     [
      "perks",
-     202
+     224
     ],
     [
      "price",
-     141
-    ],
-    [
-     "faq",
-     355
-    ],
-    [
-     "talk-sec",
-     209
+     530
     ],
     [
      "foot",
@@ -51,44 +55,48 @@
    ]
   },
   "390-he-scan": {
-   "words": 176,
-   "height": 2685,
+   "words": 237,
+   "height": 5403,
    "sections": [
     [
-     "wrap",
-     60
+     "top",
+     50
     ],
     [
      "hero",
-     398
+     844
     ],
     [
      "how",
-     233
+     253
+    ],
+    [
+     "looks",
+     507
     ],
     [
      "demo",
-     417
+     404
+    ],
+    [
+     "seat",
+     527
     ],
     [
      "numbers",
-     541
+     568
+    ],
+    [
+     "reels",
+     752
     ],
     [
      "perks",
-     202
+     224
     ],
     [
      "price",
-     141
-    ],
-    [
-     "faq",
-     355
-    ],
-    [
-     "talk-sec",
-     209
+     530
     ],
     [
      "foot",
@@ -97,44 +105,48 @@
    ]
   },
   "390-en": {
-   "words": 197,
-   "height": 2675,
+   "words": 261,
+   "height": 5414,
    "sections": [
     [
-     "wrap",
-     60
+     "top",
+     50
     ],
     [
      "hero",
-     398
+     844
     ],
     [
      "how",
-     231
+     251
+    ],
+    [
+     "looks",
+     522
     ],
     [
      "demo",
-     415
+     402
+    ],
+    [
+     "seat",
+     524
     ],
     [
      "numbers",
-     539
+     614
+    ],
+    [
+     "reels",
+     750
     ],
     [
      "perks",
-     202
+     240
     ],
     [
      "price",
-     141
-    ],
-    [
-     "faq",
-     353
-    ],
-    [
-     "talk-sec",
-     207
+     476
     ],
     [
      "foot",
@@ -143,50 +155,68 @@
    ]
   },
   "390-en-scan": {
-   "words": 196,
-   "height": 2675,
+   "words": 260,
+   "height": 5414,
    "sections": [
     [
-     "wrap",
-     60
+     "top",
+     50
     ],
     [
      "hero",
-     398
+     844
     ],
     [
      "how",
-     231
+     251
+    ],
+    [
+     "looks",
+     522
     ],
     [
      "demo",
-     415
+     402
+    ],
+    [
+     "seat",
+     524
     ],
     [
      "numbers",
-     539
+     614
+    ],
+    [
+     "reels",
+     750
     ],
     [
      "perks",
-     202
+     240
     ],
     [
      "price",
-     141
-    ],
-    [
-     "faq",
-     353
-    ],
-    [
-     "talk-sec",
-     207
+     476
     ],
     [
      "foot",
      130
     ]
    ]
+  },
+  "heroContrast": {
+   "390-he-h1": 17.15,
+   "390-he-.hero .lead": 11.93,
+   "390-he-.hero .demo-tag": 9.78,
+   "390-en-h1": 17.22,
+   "390-en-.hero .lead": 12.05,
+   "390-en-.hero .demo-tag": 9.78,
+   "1440-he-h1": 14.52,
+   "1440-he-.hero .lead": 10.61,
+   "1440-he-.hero .demo-tag": 9.43,
+   "1440-en-h1": 14.84,
+   "1440-en-.hero .lead": 10.62,
+   "1440-en-.hero .demo-tag": 9.42
   },
   "media": {
    "hero.mp4": {
@@ -220,14 +250,11 @@
     "size": "1080×1920"
    }
   },
-  "requestsOnLoad390": 13,
-  "firstScreenWithVideoHeld390": {
-   "firstPaintMs": 216,
-   "largestPaintMs": 216,
-   "largestPaint": "img.phone-poster",
-   "loadMs": 156,
-   "videoAskedMs": 224,
-   "videoBytesDelivered": 0
+  "requestsOnLoad390": 18,
+  "bytesGzipBeforeHero": {
+   "scripts": 8494,
+   "css": 11094,
+   "html": 11479
   }
  }
 }

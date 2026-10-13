@@ -1,6 +1,6 @@
-/* Mana product page, version 2: language switch, the hero video, the drawn flow, the live demo, the film and the "talk to us" form.
+/* Mana product page, version 3: language switch, the hero (the dish on the table, live), the drawn flow, the live demo, the film and the "talk to us" form.
    No dependencies. Everything on the page reads and links without this file; it only adds the behaviours above.
-   Nothing here downloads a video or the viewer before the page has painted, and never on Save-Data. */
+   Nothing here downloads the viewer or a video before the page has painted, and never on Save-Data. */
 (function () {
   'use strict';
   var doc = document, root = doc.documentElement, qs = new URLSearchParams(location.search);
@@ -54,45 +54,112 @@
     window.addEventListener('scroll', onMove, { passive: true }); window.addEventListener('resize', onMove);
   }
 
-  /* ---------------------------------------------------------------- the hero: the guest's view on film
-     The still is in the HTML and paints first. The video's address is added only after the page has loaded, then it
-     plays muted and looping. On Save-Data or reduced motion nothing is fetched: the still stays, with a play button. */
-  var heroPhone = $('#hero-phone'), heroVideo = heroPhone && $('video', heroPhone);
-  if (heroVideo) (function () {
-    var playBtn = $('[data-hero-play]', heroPhone), armed = false, wanted = false, visible = true;
-    function arm() {
-      if (armed) return; armed = true;
-      var en = lang() === 'en', made = 0;
-      [['webm', 'video/webm'], ['mp4', 'video/mp4']].forEach(function (k) {
-        var u = (en && heroVideo.getAttribute('data-' + k[0] + '-en')) || heroVideo.getAttribute('data-' + k[0]); if (!u) return;
-        var s = doc.createElement('source'); s.src = u; s.type = k[1]; heroVideo.appendChild(s); made++;
-      });
-      if (!made) { gone(); return; }
-      heroVideo.lastChild.addEventListener('error', gone);                                  // the last candidate failed: the still stays
-      heroVideo.muted = true; heroVideo.setAttribute('autoplay', ''); heroVideo.load();
+  /* ---------------------------------------------------------------- the hero: the dish alone on the table
+     The dish's flat photo is in the HTML and paints first, placed where the guest view will stand the dish (the same framing
+     as view/src/scenes/walk.js frameOf, for a frame that is not "wide"). After the page has painted, and never on Save-Data,
+     the guest view opens in hero mode in an iframe over it: the live relief rises in the same place. Off screen the page tells
+     the frame to stop its clock; Enter inside the frame opens the full demo. */
+  var heroStage = $('#hero-stage'), poster = heroStage && $('.hero-poster', heroStage);
+  function placePoster() {
+    if (!heroStage || !poster) return;
+    var W = heroStage.clientWidth, H = heroStage.clientHeight; if (!W || !H) return;
+    var top = H < 520 ? 88 : 100, cardH = Math.max(148, Math.min(190, Math.round(H * .2))), freeH = H - top - cardH;
+    var hero = Math.min(W * .84, freeH * .74), side = hero / .94, cy = top + freeH * .47;          // PLATE = SIZE × .94: the photo's square is a little wider than the plate
+    poster.style.width = poster.style.height = Math.round(side) + 'px'; poster.style.left = Math.round(W / 2) + 'px'; poster.style.top = Math.round(cy) + 'px';
+  }
+  placePoster();
+  if (heroStage && !framed) (function () {
+    var frame = null, visible = true, state = 'still', timer = 0;
+    function src() { return heroStage.getAttribute('data-src-' + lang()) + (qs.get('debug') === '1' ? '&debug=1' : ''); }      // ?debug=1 on the page: the frame prints its quality tier and marks (the morning's go/no-go)
+    function tell(run) { if (frame && frame.contentWindow) { try { frame.contentWindow.postMessage({ type: 'mana-hero', run: run }, location.origin); } catch (e) { /* gone */ } } }
+    function setState(st) { state = st; heroStage.setAttribute('data-hero', st); if (st === 'rest') { var h = $('.hero-hint', heroStage); if (h) h.hidden = false; } }
+    function start() {
+      if (frame) return;
+      frame = doc.createElement('iframe');
+      frame.setAttribute('title', heroStage.getAttribute('data-title-' + lang()));
+      frame.setAttribute('loading', 'eager'); frame.setAttribute('allow', 'accelerometer; gyroscope'); frame.className = 'hero-frame';
+      frame.addEventListener('load', function () { clearTimeout(timer); setState('loaded'); timer = setTimeout(function () { if (state === 'loaded') stop(); }, 30000); });      // nothing drawn in 30 s: the still stays
+      timer = setTimeout(function () { if (state === 'loading') stop(); }, 25000);
+      setState('loading'); frame.src = src(); heroStage.appendChild(frame);
     }
-    function gone() { wanted = false; heroPhone.setAttribute('data-video', 'none'); if (playBtn) playBtn.hidden = true; }
-    function showButton() { if (playBtn) playBtn.hidden = false; heroPhone.setAttribute('data-video', 'paused'); }
-    function play() {
-      wanted = true; arm();
-      if (!visible || !heroVideo.paused) return;                 // off screen: it starts when the phone comes back into view
-      var p = heroVideo.play();
-      if (p && p.catch) p.catch(function (e) {
-        if (e && e.name === 'AbortError') return;                // interrupted by our own pause (scrolled away while it was loading): still wanted
-        wanted = false; showButton();                            // autoplay refused (for example iOS Low Power Mode): offer the button
-      });
-    }
-    heroVideo.addEventListener('playing', function () { if (!visible) { heroVideo.pause(); return; } heroPhone.setAttribute('data-video', 'on'); if (playBtn) playBtn.hidden = true; });
-    heroVideo.addEventListener('error', gone);
-    if (playBtn) playBtn.addEventListener('click', play);
-    heroVideo.addEventListener('click', function () { if (heroVideo.paused) play(); else { wanted = false; heroVideo.pause(); showButton(); } });
-    if (saveData || reduced || qs.get('video') === 'off') { showButton(); return; }
-    var go = function () { (window.requestIdleCallback || function (f) { setTimeout(f, 200); })(play); };
+    function stop() { clearTimeout(timer); if (frame && frame.parentNode) frame.parentNode.removeChild(frame); frame = null; setState('still'); }
+    window.addEventListener('message', function (ev) {
+      if (ev.origin !== location.origin || !ev.data || ev.data.type !== 'mana-hero' || !frame || ev.source !== frame.contentWindow) return;
+      if (ev.data.open === 'demo') { var a = $('[data-demo-link]', heroStage); if (a) location.href = a.getAttribute('href'); return; }
+      if (ev.data.state) { clearTimeout(timer); setState(ev.data.state); if (!visible) tell(false); }
+    });
+    doc.addEventListener('mana:lang', function () { if (frame) { frame.src = src(); frame.setAttribute('title', heroStage.getAttribute('data-title-' + lang())); setState('loading'); } });
+    window.addEventListener('resize', placePoster);
+    if ('IntersectionObserver' in window) new IntersectionObserver(function (e) { visible = e[0].isIntersecting; tell(visible); }, { threshold: 0.1 }).observe(heroStage);
+    if (saveData || qs.get('hero') === 'off') return;
+    var go = function () { (window.requestIdleCallback || function (f) { setTimeout(f, 200); })(function () { if (visible) start(); else { var once = function () { if (visible) { start(); } else setTimeout(once, 500); }; once(); } }); };
     if (doc.readyState === 'complete') go(); else window.addEventListener('load', go);
-    if ('IntersectionObserver' in window) new IntersectionObserver(function (e) {             // no decoding while it is off screen
-      visible = e[0].isIntersecting; if (!armed) return;
-      if (visible) { if (wanted) play(); } else if (!heroVideo.paused) heroVideo.pause();
-    }, { threshold: 0.1 }).observe(heroPhone);
+  })();
+
+  /* ---------------------------------------------------------------- the English display face (Fraunces, declared in mana.css): fetched at idle on the English page,
+     and the moment the language switch is hovered or focused, so it never swaps inside the switch itself. The Hebrew page never asks for it. */
+  var fraunces = false;
+  function loadFraunces() { if (fraunces || !doc.fonts || !doc.fonts.load) return; fraunces = true; try { doc.fonts.load('400 1em Fraunces').catch(function () { /* the fallback serif stays */ }); } catch (e) { /* ignore */ } }
+  if (lang() === 'en') (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(loadFraunces);
+  $$('[data-lang-toggle]').forEach(function (b) { b.addEventListener('mouseenter', loadFraunces); b.addEventListener('focus', loadFraunces); b.addEventListener('touchstart', loadFraunces, { passive: true }); });
+
+  /* ---------------------------------------------------------------- the lamp: one pre-painted pool, moved with translate3d as the reader scrolls
+     Its anchors are the objects of the stops (the dish, the looks, the sheet, the phone, the name card); between two stops it
+     travels in a straight line; at the reels it dims to 80%; it goes out as the ivory tail comes up. Nothing is repainted. */
+  var lamp = $('#page-lamp');
+  if (lamp) (function () {
+    var anchors = [], tailTop = 0, vh = 0, pending = false;
+    function measure() {
+      vh = window.innerHeight || root.clientHeight; var y0 = window.pageYOffset || 0;
+      anchors = $$('[data-lamp="object"]').map(function (sec) {
+        var el = $('.stop-object, #hero-stage', sec) || sec, b = el.getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + y0 + b.height * 0.5, dim: parseFloat(sec.getAttribute('data-dim') || '1') };
+      }).sort(function (a, b) { return a.y - b.y; });
+      var tail = $('.ivory-tail'); tailTop = tail ? tail.getBoundingClientRect().top + y0 : Infinity;
+    }
+    function place() {
+      pending = false; if (!anchors.length) return;
+      var y = (window.pageYOffset || 0), at = y + vh * 0.5, i = 0;
+      while (i < anchors.length - 1 && anchors[i + 1].y < at) i++;
+      var a = anchors[i], b = anchors[Math.min(i + 1, anchors.length - 1)], span = Math.max(1, b.y - a.y), k = Math.max(0, Math.min(1, (at - a.y) / span));
+      var x = a.x + (b.x - a.x) * k, ly = a.y + (b.y - a.y) * k, dim = a.dim + (b.dim - a.dim) * k;
+      var out = Math.max(0, Math.min(1, (y + vh - tailTop + vh * 0.2) / (vh * 0.9)));                 // the ivory tail comes up: the lamp goes out
+      lamp.style.transform = 'translate3d(' + Math.round(x) + 'px,' + Math.round(ly - y) + 'px,0)';
+      lamp.style.opacity = String((dim * (1 - out)).toFixed(3));
+    }
+    function ask() { if (!pending) { pending = true; requestAnimationFrame(place); } }
+    measure(); place();
+    window.addEventListener('scroll', ask, { passive: true });
+    window.addEventListener('resize', function () { measure(); ask(); });
+    window.addEventListener('load', function () { measure(); ask(); });
+    doc.addEventListener('mana:lang', function () { setTimeout(function () { measure(); ask(); }, 50); });
+    if ('ResizeObserver' in window) new ResizeObserver(function () { measure(); ask(); }).observe(doc.body);
+  })();
+
+  /* ---------------------------------------------------------------- stop 4: the film on the phone, played once when it is on screen, then held */
+  var reel = $('.reel-video');
+  if (reel && 'IntersectionObserver' in window) (function () {
+    var started = false;
+    function start() {
+      if (started) return; started = true;
+      var u = (lang() === 'en' && reel.getAttribute('data-mp4-en')) || reel.getAttribute('data-mp4'); if (!u) return;
+      reel.muted = true; reel.loop = false; reel.src = u;
+      reel.addEventListener('playing', function () { reel.closest('.reel-phone').setAttribute('data-film', 'on'); }, { once: true });
+      var p = reel.play(); if (p && p.catch) p.catch(function () { /* refused: the still stays */ });
+    }
+    if (saveData || reduced) return;                                                                  // the poster stays
+    new IntersectionObserver(function (e, io) { if (e[0].isIntersecting) { io.disconnect(); start(); } }, { threshold: 0.5 }).observe(reel);
+  })();
+
+  /* ---------------------------------------------------------------- glass: blur only while the page keeps up. Ten frames are sampled on the first scroll; under 30 a second the pill goes solid. */
+  if (!mq('(prefers-reduced-transparency: reduce)')) (function () {
+    var done = false;
+    function sample() {
+      if (done) return; done = true; window.removeEventListener('scroll', sample);
+      var n = 0, t0 = 0; var tick = function (now) { if (!t0) t0 = now; if (++n < 11) { requestAnimationFrame(tick); return; } if ((now - t0) / 10 > 1000 / 30) root.classList.add('solid'); };
+      requestAnimationFrame(tick);
+    }
+    window.addEventListener('scroll', sample, { passive: true });
   })();
 
   /* ---------------------------------------------------------------- the live demo
@@ -191,7 +258,7 @@
     function showBad(key) { badText.textContent = T[lang()][key]; wa.href = waLink(); bad.hidden = false; bad.focus(); }
     function setBusy(b) { busy = b; btn.disabled = b; form.setAttribute('aria-busy', b ? 'true' : 'false'); $$('.lbl', btn).forEach(function (s) { s.hidden = b; }); $('.busy', btn).hidden = !b; $('.busy', btn).textContent = T[lang()].sending; }
     form.addEventListener('submit', function (ev) {
-      ev.preventDefault(); if (busy) return;
+      ev.preventDefault(); if (busy || form.hasAttribute('data-off')) return;                 // a preview build: the form is off and sends nothing
       bad.hidden = true;
       var p = f.place.value.trim().length < 2, c = !contactOk(f.contact.value);
       mark(f.place, p); mark(f.contact, c);
