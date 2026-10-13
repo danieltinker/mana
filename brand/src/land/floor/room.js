@@ -41,7 +41,7 @@ export function buildRoom(layout, { quality = 1 } = {}) {
     counter: new MeshStandardMaterial({ color: lin(0xf0ebe3), roughness: .5, metalness: 0 })
   };
   Object.keys(mat).forEach((k) => { mat[k].envMapIntensity = .5; }); mat.glass.envMapIntensity = 1.4; mat.slab.envMapIntensity = .7;
-  const zoneTint = { window: 0xe1ebf5, hall: 0xf5ead6, bar: 0xf5e2dc, corner: 0xdfede3 };
+  const zoneTint = { window: 0xdde9f5, hall: 0xf4e8d2, bar: 0xf4ded7, corner: 0xdbebe0 };
   const root = new Group();
 
   /* the slab: a rounded tile with a soft bevel; its top face at y = 0 */

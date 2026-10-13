@@ -14,8 +14,8 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
 const MOMENTS = [['normal', 1.5, 'yaw=-0.5'], ['soon', 5.5, 'yaw=-0.62'], ['up', 9, 'yaw=-0.74']];
 const VPS = [[1440, 900, false], [390, 844, true]];
 const shots = [], numbers = { note: 'headless Chromium, SwiftShader (software WebGL), this machine (2 shared cores)' };
-async function open(q, w, h, touch, reduced = false) {
-  const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2, hasTouch: touch, isMobile: touch, reducedMotion: reduced ? 'reduce' : 'no-preference' });
+async function open(q, w, h, touch, reduced = false, dpr = 2) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: dpr, hasTouch: touch, isMobile: touch, reducedMotion: reduced ? 'reduce' : 'no-preference' });
   const page = await ctx.newPage(); const errors = [], hosts = new Set();
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message)); page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.type() + ': ' + m.text()); });
   page.on('request', (r) => { try { hosts.add(new URL(r.url()).host); } catch (e) { /* data: */ } });
@@ -23,7 +23,7 @@ async function open(q, w, h, touch, reduced = false) {
   await page.waitForFunction(() => window.__floorState !== 'loading', null, { timeout: 60000 });
   return { ctx, page, errors, hosts };
 }
-for (const [w, h, touch] of VPS) for (const lang of ['he', 'en']) for (const [name, t, extra] of MOMENTS) {
+if (only !== 'numbers') for (const [w, h, touch] of VPS) for (const lang of ['he', 'en']) for (const [name, t, extra] of MOMENTS) {
   const id = `floor-${w}-${lang}-${name}`; if (only && !id.includes(only)) continue;
   const o = await open(`lang=${lang}&t=${t}&freeze&${extra}`, w, h, touch);
   await o.page.evaluate(() => document.fonts.ready); await o.page.waitForTimeout(1400);
@@ -43,6 +43,8 @@ if (!only || only === 'numbers') for (const [w, h, touch] of VPS) {
   const ri = await r.page.evaluate(() => window.__floor && window.__floor.info());
   const file = join(OUT, `floor-${w}-he-reduced.png`); await r.page.locator('.card').screenshot({ path: file }); shots.push({ id: `floor-${w}-he-reduced`, file });
   numbers[`${w}x${h} reduced`] = { firstFrameMs: await r.page.evaluate(() => window.__floorReadyMs), frames: ri && ri.frames, errors: r.errors }; await r.ctx.close();
+  const l = await open('lang=he&low', w, h, touch, false, 1); const lr = await l.page.evaluate(() => window.__floorReadyMs); await l.page.waitForTimeout(6000);
+  numbers[`${w}x${h} lowPower dpr1`] = { firstFrameMs: lr, ...(await l.page.evaluate(() => window.__floor && window.__floor.info())), errors: l.errors }; await l.ctx.close();
 }
 await browser.close();
 writeFileSync(join(OUT, 'numbers.json'), JSON.stringify(numbers, null, 2)); console.log(JSON.stringify(numbers, null, 1));

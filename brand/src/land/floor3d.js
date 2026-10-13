@@ -21,6 +21,7 @@ const BELL = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"
 const CSS = `
 .mf-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:pan-y;cursor:grab;-webkit-tap-highlight-color:transparent;outline:none}
 .mf-canvas.mf-grab{cursor:grabbing}
+.mf-still *{transition:none!important}
 .mf-layer{position:absolute;inset:0;pointer-events:none;overflow:hidden;font-family:"IBM Plex Sans Hebrew",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
 .mf-lab{position:absolute;left:0;top:0;display:flex;align-items:center;gap:5px;padding:2px 8px 2px 6px;border-radius:999px;direction:ltr;white-space:nowrap;
  background:linear-gradient(135deg,rgba(255,255,255,.86),rgba(255,255,255,.6));-webkit-backdrop-filter:blur(10px) saturate(170%);backdrop-filter:blur(10px) saturate(170%);
@@ -60,7 +61,7 @@ export async function mountFloor(host, opts = {}) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.5 : 1.75));
   if (!low) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = PCFSoftShadowMap; renderer.shadowMap.autoUpdate = true; }
   host.appendChild(canvas);
-  const layer = document.createElement('div'); layer.className = 'mf-layer'; layer.setAttribute('aria-hidden', 'true'); host.appendChild(layer);
+  const layer = document.createElement('div'); layer.className = 'mf-layer' + (reduced ? ' mf-still' : ''); layer.setAttribute('aria-hidden', 'true'); host.appendChild(layer);
 
   /* the scene: light, the slab and its room, the shadow on the ground */
   const scene = new Scene(), camera = new PerspectiveCamera(FOV, 1, .5, 120);
@@ -126,8 +127,8 @@ export async function mountFloor(host, opts = {}) {
       const cc = SC[s.st] || SC.free; m.c.ring.lerp(cc, k); m.c.dot.lerp(cc, k); m.c.pool.lerp(cc, k);
       m.c.ringA += (target.ringA - m.c.ringA) * k; m.c.dotA += (target.dotA - m.c.dotA) * k; m.c.poolA += (target.poolA - m.c.poolA) * k;
       const pulse = still || !PULSE[s.st] ? (s.st === 'up' ? 1 : 0) : .5 + .5 * Math.sin(time * 2 * Math.PI / PULSE[s.st]);
-      m.ring.set('#' + m.c.ring.getHexString(), s.st === 'up' ? 1 : ringOn ? s.frac : m.ring.mesh.material.uniforms.uFrac.value, m.c.ringA * (s.st === 'up' ? .7 + .3 * pulse : 1), pulse, s.st === 'soon' ? .32 + .22 * pulse : .16);
-      m.dot.set('#' + m.c.dot.getHexString(), m.c.dotA * .95); m.pool.set('#' + m.c.pool.getHexString(), m.c.poolA * (1 + (s.st === 'up' || s.st === 'soon' ? .35 * pulse : 0)));
+      m.ring.set(m.c.ring, s.st === 'up' ? 1 : ringOn ? s.frac : m.ring.mesh.material.uniforms.uFrac.value, m.c.ringA * (s.st === 'up' ? .7 + .3 * pulse : 1), pulse, s.st === 'soon' ? .32 + .22 * pulse : .16);
+      m.dot.set(m.c.dot, m.c.dotA * .95); m.pool.set(m.c.pool, m.c.poolA * (1 + (s.st === 'up' || s.st === 'soon' ? .35 * pulse : 0)));
       const txt = s.st === 'up' ? '0′' : ringOn ? s.left + '′' : '', cls = 'mf-lab' + (ringOn ? ' mf-on' : '') + (s.st === 'soon' ? ' mf-soon' : '') + (s.st === 'up' ? ' mf-up' : '');
       if (txt && txt !== m.shown) { m.txt.textContent = txt; m.shown = txt; }
       if (cls !== m.cls) { m.lab.className = cls; m.cls = cls; m.lab.style.setProperty('--c', col); m.lab.style.setProperty('--h', rgba(col, .22)); }

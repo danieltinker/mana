@@ -1,10 +1,10 @@
 /* The light parts of the floor: the table clock (a thin flat ring above a seated table that runs down, with a soft glow and
    a bright head), the status dots (free: sage, reserved: sky), the soft colour pool under a table, and the slab's blurred
-   shadow on the ground. Colours are given in sRGB and drawn as they are (no tone mapping), so they match the page's. */
+   shadow on the ground. Colours are sRGB Color objects: the ring's shader draws them as they are (no tone mapping, no conversion) and the
+   sprites convert them to linear for the renderer to convert back, so all of them match the page's. */
 import { ShaderMaterial, PlaneGeometry, Mesh, CanvasTexture, SpriteMaterial, Sprite, MeshBasicMaterial, Color, DoubleSide, sRGBEncoding } from 'three';
 
 export const STATE = { free: '#6FAE8E', seated: '#F5B120', soon: '#FF7A45', up: '#E25C7A', reserved: '#7FA9DB' };
-const rgb = (hex) => { const c = new Color(hex); return [c.r, c.g, c.b]; };      // hex in, sRGB numbers out (no conversion)
 
 const RING_V = `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const RING_F = `
@@ -32,12 +32,12 @@ export function makeRing(radius) {
   const m = new ShaderMaterial({
     vertexShader: RING_V, fragmentShader: RING_F, transparent: true, depthWrite: false, side: DoubleSide, toneMapped: false,
     extensions: { derivatives: true },
-    uniforms: { uColor: { value: rgb(STATE.seated) }, uFrac: { value: 1 }, uR: { value: radius }, uW: { value: W }, uAlpha: { value: 0 }, uPulse: { value: 0 }, uTrack: { value: .16 } }
+    uniforms: { uColor: { value: new Color(STATE.seated) }, uFrac: { value: 1 }, uR: { value: radius }, uW: { value: W }, uAlpha: { value: 0 }, uPulse: { value: 0 }, uTrack: { value: .16 } }
   });
   const mesh = new Mesh(g, m); mesh.rotation.x = -Math.PI / 2; mesh.renderOrder = 3;
   return {
     mesh,
-    set(color, frac, alpha, pulse, track) { const u = m.uniforms; u.uColor.value = rgb(color); u.uFrac.value = frac; u.uAlpha.value = alpha; u.uPulse.value = pulse; u.uTrack.value = track == null ? .16 : track; mesh.visible = alpha > .003; },
+    set(color, frac, alpha, pulse, track) { const u = m.uniforms; u.uColor.value.copy(color); u.uFrac.value = frac; u.uAlpha.value = alpha; u.uPulse.value = pulse; u.uTrack.value = track == null ? .16 : track; mesh.visible = alpha > .003; },
     dispose() { g.dispose(); m.dispose(); }
   };
 }
@@ -59,13 +59,13 @@ const poolTexture = () => poolTex || (poolTex = canvasTex(128, (x, s) => {
 export function makeDot() {
   const m = new SpriteMaterial({ map: dotTexture(), color: new Color(STATE.free).convertSRGBToLinear(), transparent: true, depthWrite: false, toneMapped: false, opacity: 0 });
   const s = new Sprite(m); s.scale.set(.34, .34, 1); s.renderOrder = 4;
-  return { sprite: s, set(color, alpha) { m.color.set(color).convertSRGBToLinear(); m.opacity = alpha; s.visible = alpha > .003; }, dispose() { m.dispose(); } };
+  return { sprite: s, set(color, alpha) { m.color.copy(color).convertSRGBToLinear(); m.opacity = alpha; s.visible = alpha > .003; }, dispose() { m.dispose(); } };
 }
 /* a soft pool of the state's colour on the floor under a table */
 export function makePool(r) {
   const g = new PlaneGeometry(2 * r, 2 * r), m = new MeshBasicMaterial({ map: poolTexture(), color: new Color(STATE.free).convertSRGBToLinear(), transparent: true, depthWrite: false, toneMapped: false, opacity: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const mesh = new Mesh(g, m); mesh.rotation.x = -Math.PI / 2; mesh.renderOrder = 1;
-  return { mesh, set(color, alpha) { m.color.set(color).convertSRGBToLinear(); m.opacity = alpha; mesh.visible = alpha > .003; }, dispose() { g.dispose(); m.dispose(); } };
+  return { mesh, set(color, alpha) { m.color.copy(color).convertSRGBToLinear(); m.opacity = alpha; mesh.visible = alpha > .003; }, dispose() { g.dispose(); m.dispose(); } };
 }
 /* the slab's shadow on the ground: a blurred rounded rectangle (canvas shadowBlur works in every browser) */
 export function makeGroundShadow(w, d) {
