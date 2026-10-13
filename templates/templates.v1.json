@@ -1,0 +1,59 @@
+{
+  "v": 1,
+  "looks": [
+    {
+      "id": "album-side",
+      "category": "cafe",
+      "subcategory": "cafe-listening",
+      "name": { "he": "צד א׳", "en": "Album Side" },
+      "surface": "concrete",
+      "accent": "#f0515f",
+      "card": "dark",
+      "light": { "pool": 1.3, "open": 0.6 },
+      "motion": "settle",
+      "detail": "tracks",
+      "fonts": "house"
+    },
+    {
+      "id": "casablanca-white",
+      "category": "israeli",
+      "subcategory": "israeli-levant",
+      "name": { "he": "לבן קזבלנקה", "en": "Casablanca White" },
+      "surface": "marble",
+      "accent": "#e0a526",
+      "card": "light",
+      "ink": "#0f0f0f",
+      "light": { "pool": 7, "open": 1.0 },
+      "finish": { "spec": 0.08, "shin": 12, "refl": 0 },
+      "motion": "settle",
+      "detail": "tile-stripe",
+      "fonts": "house"
+    },
+    {
+      "id": "counter-shout",
+      "category": "israeli",
+      "subcategory": "israeli-pita",
+      "name": { "he": "צעקה מהדלפק", "en": "Counter Shout" },
+      "surface": "steel",
+      "accent": "#ff5a3c",
+      "card": "dark",
+      "light": { "pool": 5.5, "open": 1.1 },
+      "motion": "settle",
+      "detail": "ticket",
+      "fonts": "house"
+    },
+    {
+      "id": "back-door",
+      "category": "bar",
+      "subcategory": "bar-hidden",
+      "name": { "he": "הדלת האחורית", "en": "Back Door" },
+      "surface": "walnut",
+      "accent": "#c9975c",
+      "card": "dark",
+      "light": { "pool": 1.0, "open": 0.5 },
+      "motion": "settle",
+      "detail": "door-crack",
+      "fonts": "house"
+    }
+  ]
+}
