@@ -70,7 +70,7 @@
   placePoster();
   if (heroStage && !framed) (function () {
     var frame = null, visible = true, state = 'still', timer = 0;
-    function src() { return heroStage.getAttribute('data-src-' + lang()); }
+    function src() { return heroStage.getAttribute('data-src-' + lang()) + (qs.get('debug') === '1' ? '&debug=1' : ''); }      // ?debug=1 on the page: the frame prints its quality tier and marks (the morning's go/no-go)
     function tell(run) { if (frame && frame.contentWindow) { try { frame.contentWindow.postMessage({ type: 'mana-hero', run: run }, location.origin); } catch (e) { /* gone */ } } }
     function setState(st) { state = st; heroStage.setAttribute('data-hero', st); if (st === 'rest') { var h = $('.hero-hint', heroStage); if (h) h.hidden = false; } }
     function start() {

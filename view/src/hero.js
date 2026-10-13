@@ -71,7 +71,7 @@ export function start(env) {
 
   /* ---- the ring: one stroke round the plate, drawn where the engine says the plate is on screen ---- */
   /* the rim, as one path that starts on the lamp's side (the near rim) and runs round towards the inline end */
-  function ringAt(h) { if (!h) return; const rx = h.rx * RING_K, ry = Math.max(h.ry * RING_K, rx * .34), sw = rtl ? 0 : 1, f = (n) => n.toFixed(1);
+  function ringAt(h) { if (!h) return; const rx = h.rx * RING_K, ry = Math.max(h.ry * RING_K, rx * .34), sw = rtl ? 1 : 0, f = (n) => n.toFixed(1);      // sweep 1 = clockwise on screen: from the near rim, leftwards first (the inline end in Hebrew)
     ring.setAttribute('d', 'M' + f(h.cx) + ' ' + f(h.cy + ry) + 'A' + f(rx) + ' ' + f(ry) + ' 0 1 ' + sw + ' ' + f(h.cx) + ' ' + f(h.cy - ry) + 'A' + f(rx) + ' ' + f(ry) + ' 0 1 ' + sw + ' ' + f(h.cx) + ' ' + f(h.cy + ry)); }
   const hero = () => { const i = api.info(); return i && i.hot && i.hot[0] ? i.hot[0] : null; };
   function sweep(ms) {
