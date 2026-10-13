@@ -45,7 +45,7 @@ Under `/m/<name>` the guest menu sets its own `<base href="/mana/view/">`, so it
 | `gen/` | The relief generator that runs in the owner's browser (two Apache-2.0 models), with its models and runtime | `/mana/gen/` |
 | `stock/` | The placeholder picture library, its pictures and its tools | `/mana/stock/` |
 | `db/` | SQL migrations for the Supabase project | — |
-| `functions/` | Supabase edge functions: `menus-ai` (the menu scanner) | — |
+| `functions/` | Supabase edge functions: `menus-ai` (the menu scanner) and `menus-signup` (an owner's sign-up) | — |
 | `base/`, `base-artifact/` | The first hologram-menu engine, kept for reference | — |
 
 ## Develop and test
@@ -83,7 +83,6 @@ It stays as a fallback: Pages → Source "Deploy from a branch" → `pages`.
   in the Halom Project on claude.ai, under `ventures/mana/`.
 - **Lead lists and client data.** This repository is public.
 - **Secrets.** Function secrets live in Supabase; `.env` files never go into git.
-- **The source of the deployed `menus-signup` and `menus-landing` functions.** Only `menus-ai` is here so far.
 - **Raw film masters and the generation lab** (about 3.3 GB). They are on the founder's Mac. Everything halom.io
   serves is here.
 

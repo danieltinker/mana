@@ -15,10 +15,11 @@ Nothing here has been deployed, pushed, published or sent.
 | `tools/film/` | The film: `compose.mjs`, `film.html`, `timeline.json`, `SCRIPT.md`, `stills.mjs` + `stills.html`, `to-site.mjs`, `proof.mjs`, `clips/` (the real clips), `placeholders/`, `out/` (masters, not in git) |
 | `review/v2/` | Contact sheets and numbers for version 2 |
 
-## Publishing the page (not done here)
-Copy the contents of `site/` into `projects/menus/` of the Pages repo, next to `studio/`, `view/`, `gen/`, `stock/` and
-`config.js`: `index.html`, `mana.css`, `mana.js`, `fonts/`, `img/`, `guide/`, `privacy/`, `terms/`. Every URL in the
-pages is relative, so they work under `/projects/menus/` and under `/mana/`. The page reads `./config.js` in its head
+## Publishing the page
+`tools/build-site.sh` (at the top of the repository) copies the contents of `site/` to the top of the published site,
+next to `studio/`, `view/`, `gen/`, `stock/` and `config.js`: `index.html`, `mana.css`, `mana.js`, `fonts/`, `img/`,
+`guide/`, `privacy/`, `terms/`. A push to `main` publishes it. Every URL in the pages is relative, so they work at
+`/mana/` and on `danieltinker.github.io/mana/`. The page reads `./config.js` in its head
 (the form's address, and `features.scan`: the menu scanner is named in step 1 only when it is `true`) and expects
 `./studio/` and `./view/` beside it. All four pages carry `<meta name="robots" content="noindex">`: remove that line in
 `tools/build-site.mjs` at launch and rebuild. `og:url` and `og:image` point at `https://halom.io/mana/`.
@@ -73,7 +74,7 @@ node tools/film/proof.mjs        # review/v2/film/: one frame per shot from the 
 node tools/serve.mjs [--scan]    # http://127.0.0.1:8791/mana/  (real viewer, stubbed leads function; --scan turns the scanner flag on)
 ```
 `MANA_VIEW=<folder>` chooses the viewer that the server, the checks and the sheets load (default `../view`; while that
-folder is being rebuilt use the published copy, `/home/claude/halom-projects/projects/menus/view`).
+folder is being rebuilt, build the site with `bash tools/build-site.sh` and use `_site/view`).
 The checks for the hero video and the film make their own small test clips with ffmpeg (`tools/test-media.mjs`, into
 `.scratch/media/`) and overlay them through the local server; they never touch `site/`. Chromium here plays WebM, not H.264.
 Playwright and sharp come from `/opt/npm-tools`; Chromium from `/opt/pw-browsers`; ffmpeg from `/usr/bin`.

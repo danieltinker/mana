@@ -18,8 +18,8 @@ node brand/tools/lift/render.mjs --view <folder of the guest view with its media
      [--label demo|real] [--scale 0.5] [--stills 0,3,6.5,9.5] [--out <folder>]
 ```
 
-`--view` is a copy of the published viewer folder (`halom-projects: projects/menus/view`): the pictures, fonts and table
-textures are not in this repository. three.js comes from `work/mana/view/node_modules`. A full-size frame (1080 × 1920)
+`--view` is the guest view with its media: this repository's `view/` folder (its pictures, fonts and table textures are
+in it), or `_site/view` after `bash tools/build-site.sh`. three.js comes from `view/node_modules` (`npm ci` there once). A full-size frame (1080 × 1920)
 takes about 3.4 s in headless Chromium with software WebGL, so a film is about 17 minutes per language.
 
 The label on the frame follows the film's own captions table: `demo` ("Demo dish · made with AI") for Olea, whose pictures

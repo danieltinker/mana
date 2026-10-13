@@ -1,7 +1,7 @@
 # Halom menus — backend (Supabase project `halom-studio`, live since 6 Oct 2026)
 
 URL `https://zemdhczqlhkabfwxccqq.supabase.co` · publishable key `sb_publishable_2VJC5Vn-AlpkXKpQPOVnfA_5nirGaKS`
-(public by design; it is in `projects/menus/config.js`). The full schema is `db/0001_core.sql` (applied). Read it: it is
+(public by design; it is in `config.js` at the root of this repository). The full schema is `db/0001_core.sql` (applied). Read it: it is
 the truth. This page is the short version for front-end work.
 
 ## Sign-up and sign-in (pilot rules)

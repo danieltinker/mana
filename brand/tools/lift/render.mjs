@@ -6,9 +6,8 @@
               --fps 30   --from 0 --to 10   --stills 0,3,6,9.5   --out <folder>   --crf 17
    Output: <out>/the-lift-<dish>-<lang>.mp4 and sheet-<dish>-<lang>.jpg (one frame every half second).
 
-   The guest view's media (pictures, fonts, table textures) are not in this repository; they live with the published
-   folder (halom-projects: projects/menus/view). Point --view at a copy of that folder. three.js comes from
-   work/mana/view/node_modules (npm install there once). */
+   Point --view at the guest view with its media (pictures, fonts, table textures): this repository's view/ folder, or
+   _site/view after tools/build-site.sh. three.js comes from view/node_modules (npm ci there once). */
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';

@@ -14,20 +14,19 @@ post-processing as Halom's Python pipeline (`base/pipeline.py`).
 
 ## Where things live (static hosting: GitHub Pages, built from this repo's `main` by `tools/build-site.sh`; until 12 Oct 2026 `danieltinker/halom-projects`, folder `projects/menus/`)
 
-The paths below are the old repository's. In the built site (`_site/`) the same files sit at the root (`index.html`, `studio/`, `view/`, `gen/`, `config.js`, …), and halom.io serves them at `/mana/…`.
+Older sections below still name the old repository's paths (`projects/menus/…`). In this repository the sources are
+the folders in the table; `tools/build-site.sh` puts the built files at the root of `_site/`, and halom.io serves them at `/mana/…`.
 
-| Path in repo | What | Lane |
-|---|---|---|
-| `projects/menus/index.html` (+ `landing/`) | owner-facing product page | studio |
-| `projects/menus/studio/` | owner dashboard (SPA) | studio |
-| `projects/menus/view/` | diner viewer | viewer |
-| `projects/menus/gen/` | in-browser generator: module, runtime, models | gen |
-| `projects/menus/config.js` | Supabase URL + publishable key + URL bases | lead |
+| Path in this repository | Built into `_site/` as | What | Lane |
+|---|---|---|---|
+| `brand/site/` | `index.html`, `guide/`, `privacy/`, `terms/` | owner-facing product page | studio |
+| `studio/` | `studio/` | owner dashboard (SPA) | studio |
+| `view/` | `view/` | diner viewer | viewer |
+| `gen/` | `gen/` | in-browser generator: module, runtime, models | gen |
+| `config.js` | `config.js` | Supabase URL + publishable key + URL bases | lead |
 
-Public URLs:
-- today: `https://danieltinker.github.io/halom-projects/projects/menus/...`
-- after the next halom.io release: `https://halom.io/projects/menus/...` (generic rewrite), and the diner short link
-  `https://halom.io/m/<slug>` → rewritten to `projects/menus/view/index.html`.
+Public URLs (since 13 Oct 2026): `https://halom.io/mana/...` (the product page, `studio/`, `ops/`, `view/`, `gen/`,
+`stock/`), proxied from `https://danieltinker.github.io/mana/...`; the diner short link `https://halom.io/m/<slug>` → `view/index.html`.
 Every page must therefore work under BOTH prefixes and when served for the path `/m/<slug>`. Use relative URLs for
 your own assets; the viewer's `index.html` sets `<base href>` itself when the path starts with `/m/`.
 No build step may be needed on the host: each lane hands back a ready static folder (a bundler is fine on our side).
