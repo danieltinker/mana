@@ -18,6 +18,7 @@
   },
   "logo": null,
   "orderUrl": "https://example.com/olea",
+  "bookUrl": "https://example.com/olea/book",
   "phone": null
  },
  "locale": {

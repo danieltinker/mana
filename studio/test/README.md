@@ -20,6 +20,8 @@ Run one browser job at a time. A suite takes longer than most shells wait, so st
 
 ## The local stack (one command)
 
+The stack serves the guest menu from `../view/`: build it first (`cd ../view && npm run build`); its output is not in git.
+
 ```
 npm run stack                # = node test/stack/start.mjs   (Ctrl-C stops everything; --keep keeps the database; --fake-gen uses the stand-in generator)
 ```
@@ -74,6 +76,12 @@ curl -sSL https://github.com/supabase/auth/releases/download/v2.180.0/auth-v2.18
 ```
 
 `node test/stack/smoke.mjs` is a short check that the stack answers like a Supabase project, version 2 calls included.
+
+`STACK_EXTRA_SQL=1` (or a comma list of file names) loads every `../db/proposed/*.sql` after `db/00*.sql`, and the generated
+`config.js` then says `features.bookUrl: true`. `npm run test:proposed` starts such a stack and proves the proposed migrations
+the way the app and the guest menu use them (PostgREST with the owner's JWT, the counts with the public key); no browser.
+`node test/timing.mjs` (against a running stack) times sign-up → three typed dishes → published, and with `TIMING_PHOTO=1` one
+dish photo → relief; the numbers are "headless, this machine", an upper bound.
 
 ## The browser tests (`test/e2e/`, Playwright with the system Chromium)
 

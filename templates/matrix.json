@@ -1,0 +1,2181 @@
+{
+  "v": 1,
+  "note": "All 99 template concepts of the design research, as data. Only the looks in templates.v1.json are built; the rest wait for week 2 (their own texture and type). Hebrew names of categories are null until a native speaker writes them.",
+  "categories": [
+    {
+      "id": "cafe",
+      "name": "Café",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "cafe-boho",
+          "name": "Boho / flea-market living room",
+          "dna": "Mismatched vintage furniture spilled onto the pavement, carpets and couches, every chair looks found; a home that happens to sell coffee.",
+          "variants": [
+            {
+              "id": "cafe-boho-flea",
+              "name": "Flea Living Room",
+              "surface": "Worn oak tabletop with the edge of a faded red carpet showing",
+              "light": "Afternoon window light plus one warm bulb; soft shadows",
+              "palette": [
+                "#8B5E3C",
+                "#C9A66B",
+                "#B23A48",
+                "#F2E8D5",
+                "#4F6D5A"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Karla"
+              },
+              "motion": "The relief settles like a plate set down on a rug: a 2-degree wobble, then still",
+              "sound": "Lo-fi room tone, cups, a slow reggae record from the next room"
+            },
+            {
+              "id": "cafe-boho-sidewalk",
+              "name": "Sidewalk Sofa",
+              "surface": "Sun-bleached painted wood with the stripe of an umbrella shadow across it",
+              "light": "Hard noon sun, umbrella shade stripes, high contrast",
+              "palette": [
+                "#F5E6C8",
+                "#E6B85C",
+                "#2E7D8C",
+                "#D96C3A",
+                "#1F1F1F"
+              ],
+              "fonts": {
+                "display": "Syne",
+                "text": "Work Sans"
+              },
+              "motion": "The shade stripe pans slowly across the dish, as if the sun is moving",
+              "sound": "Street ambience: scooter, espresso steam, laid-back surf-rock"
+            },
+            {
+              "id": "cafe-boho-chalk",
+              "name": "Chalkboard House",
+              "surface": "Black chalkboard slate with faint chalk scribbles and a wiped corner",
+              "light": "A single pendant bulb pool on a dark room",
+              "palette": [
+                "#1B1B1B",
+                "#F7F3EA",
+                "#E07A5F",
+                "#3D405B",
+                "#81B29A"
+              ],
+              "fonts": {
+                "display": "Caveat",
+                "text": "Nunito"
+              },
+              "motion": "The dish name is chalked letter by letter under the relief",
+              "sound": "Acoustic guitar set at low volume, a house cat somewhere, cups"
+            }
+          ]
+        },
+        {
+          "id": "cafe-specialty",
+          "name": "Urban specialty / roastery",
+          "dna": "The roaster is the altar: pale wood, raw concrete, one black counter; the smell is the decor and the barista chooses your blend.",
+          "variants": [
+            {
+              "id": "cafe-spec-bench",
+              "name": "Roastery Bench",
+              "surface": "Pale ash plank, oiled, with a faint ring from a hot cup",
+              "light": "Tall-window daylight, neutral white, no colour cast",
+              "palette": [
+                "#F4F1EC",
+                "#D9CFC1",
+                "#2B2B2B",
+                "#8C6A4A",
+                "#A8B5A0"
+              ],
+              "fonts": {
+                "display": "DM Serif Display",
+                "text": "Inter"
+              },
+              "motion": "A slow curl of steam rises off the relief and dissolves",
+              "sound": "Grinder burr, milk steam, soft piano; room 'coffee saloon' murmur"
+            },
+            {
+              "id": "cafe-spec-marble",
+              "name": "Black Marble Counter",
+              "surface": "Black marble with white veining, a brass drip tray at the edge",
+              "light": "One warm disc pendant over the counter; everything else falls off",
+              "palette": [
+                "#0F0F10",
+                "#E8E3DA",
+                "#C8A24A",
+                "#3A3F44",
+                "#7A9E7E"
+              ],
+              "fonts": {
+                "display": "Bodoni Moda",
+                "text": "Manrope"
+              },
+              "motion": "A brass-coloured light sweep travels along the marble veins",
+              "sound": "Low cumbia-jazz, cups on marble, a bean hopper refilled"
+            },
+            {
+              "id": "cafe-spec-greenhouse",
+              "name": "Greenhouse Grid",
+              "surface": "Handmade yellow cement tile with black diamonds and white circles",
+              "light": "Five-metre window daylight filtered through palms and starfruit leaves",
+              "palette": [
+                "#E9C46A",
+                "#FFFFFF",
+                "#1A1A1A",
+                "#2A9D8F",
+                "#6B4F3A"
+              ],
+              "fonts": {
+                "display": "Bricolage Grotesque",
+                "text": "Figtree"
+              },
+              "motion": "Leaf shadows drift over the dish; a leaf tip crosses the plate every few seconds",
+              "sound": "Greenhouse birds and water, an espresso pull every so often"
+            }
+          ]
+        },
+        {
+          "id": "cafe-art",
+          "name": "Art-house / gallery café",
+          "dna": "White-painted brick, pink windows, produce as a still life, the chalkboard as a hung work; the room reads like a small gallery with a kitchen.",
+          "variants": [
+            {
+              "id": "cafe-art-pink",
+              "name": "Pink Window",
+              "surface": "Stone table top against a white-painted brick ledge",
+              "light": "Daylight tinted pink by painted glass; soft and flattering",
+              "palette": [
+                "#F6C6D0",
+                "#FFFFFF",
+                "#7FA07A",
+                "#2F2F2F",
+                "#E8D9B0"
+              ],
+              "fonts": {
+                "display": "Instrument Serif",
+                "text": "Public Sans"
+              },
+              "motion": "The pink tint breathes slowly brighter and dimmer, as if clouds pass",
+              "sound": "Quiet indie-folk, ceramic clink, a street-side bistro chair scrape"
+            },
+            {
+              "id": "cafe-art-stilllife",
+              "name": "Still Life Shelf",
+              "surface": "Marbled granite counter with lemons and a squash arranged at the edge",
+              "light": "Side-window light, one direction, painterly",
+              "palette": [
+                "#D8D2C4",
+                "#1C1C1C",
+                "#C5A24E",
+                "#9A3B2E",
+                "#4B6043"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Lora"
+              },
+              "motion": "Produce rolls into the vignette around the relief and settles",
+              "sound": "Gallery hush with a radio playing low behind the counter"
+            },
+            {
+              "id": "cafe-art-wall",
+              "name": "Exhibition Wall",
+              "surface": "White plaster plinth, sharp-edged, with a small printed label",
+              "light": "A gallery spot fades up on the dish; the room stays dim",
+              "palette": [
+                "#FFFFFF",
+                "#111111",
+                "#FF4D00",
+                "#BFBFBF",
+                "#F2EFE9"
+              ],
+              "fonts": {
+                "display": "Archivo Black",
+                "text": "Archivo"
+              },
+              "motion": "Spot fades up, the label types itself, nothing else moves",
+              "sound": "Near silence; one soft click when the label appears"
+            }
+          ]
+        },
+        {
+          "id": "cafe-paris",
+          "name": "Parisian classic",
+          "dna": "Red seating, mahogany and mirrors, waiters in black, a zinc counter; the decor has not changed since the war and that is the point.",
+          "variants": [
+            {
+              "id": "cafe-paris-banquette",
+              "name": "Red Banquette",
+              "surface": "White marble bistro top with a brass rim and a silver tray edge",
+              "light": "Amber globe sconces bounced in mirrors; warm, even, no shadows",
+              "palette": [
+                "#8C1C2B",
+                "#3B2418",
+                "#F3E9D2",
+                "#B99A5B",
+                "#1A1A1A"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "EB Garamond"
+              },
+              "motion": "The relief slides in on a tray at the waiter's angle and stops with a tiny bounce",
+              "sound": "Saucer clink, murmur, a piano standard very low; street outside"
+            },
+            {
+              "id": "cafe-paris-zinc",
+              "name": "Zinc Comptoir",
+              "surface": "Patinated zinc bar top with wet rings and a folded newspaper",
+              "light": "Morning light through the facade, slightly cool, mixed with a warm bar lamp",
+              "palette": [
+                "#9DA3A6",
+                "#2B2B2B",
+                "#E8E0CF",
+                "#B22222",
+                "#5E6E52"
+              ],
+              "fonts": {
+                "display": "Libre Caslon Display",
+                "text": "Source Serif 4"
+              },
+              "motion": "A condensation ring appears under the cup, then the plate",
+              "sound": "Coffee machine, newspaper fold, radio news murmur"
+            },
+            {
+              "id": "cafe-paris-terrace",
+              "name": "Saint-Germain Terrace",
+              "surface": "Rattan chair weave and a round marble table under a striped awning",
+              "light": "Soft overcast, awning glow, cigarette-haze warm",
+              "palette": [
+                "#C9A66B",
+                "#F4EFE4",
+                "#2B4C3F",
+                "#8C1C2B",
+                "#2A2A2A"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Jost"
+              },
+              "motion": "Awning shadow scallops drift as the wind moves the canvas",
+              "sound": "Boulevard traffic, a passing conversation, cutlery"
+            }
+          ]
+        },
+        {
+          "id": "cafe-listening",
+          "name": "Listening / jazz café",
+          "dna": "A turntable and a wall of records are the kitchen's twin; whole album sides play, the room is tiny, the crowd sits outside under the stars.",
+          "variants": [
+            {
+              "id": "cafe-listen-album",
+              "name": "Album Side",
+              "surface": "Raw grey concrete with the corner of a record sleeve under the plate",
+              "light": "One warm bulb, late, everything else dark",
+              "palette": [
+                "#2B2B2B",
+                "#D9D4C7",
+                "#C8102E",
+                "#7A6F5D",
+                "#E3B23C"
+              ],
+              "fonts": {
+                "display": "Bebas Neue",
+                "text": "IBM Plex Mono"
+              },
+              "motion": "The plate shadow turns at 33 1/3 rpm, almost imperceptibly",
+              "sound": "Needle drop, crackle, a spiritual-jazz side played whole"
+            },
+            {
+              "id": "cafe-listen-hifi",
+              "name": "Hi-Fi Booth",
+              "surface": "Walnut veneer with a strip of speaker cloth along the edge",
+              "light": "Amber VU-meter glow and a desk lamp",
+              "palette": [
+                "#3A2A1E",
+                "#D4A95A",
+                "#0E0E0E",
+                "#F0E6D2",
+                "#6E8B74"
+              ],
+              "fonts": {
+                "display": "Righteous",
+                "text": "Space Grotesk"
+              },
+              "motion": "A VU needle bounces under the relief in time with the track",
+              "sound": "Turkish disco and Anatolian rock, warm and loud enough to feel"
+            },
+            {
+              "id": "cafe-listen-courtyard",
+              "name": "Courtyard Night",
+              "surface": "Cracked Bauhaus pavement tiles with a plastic-chair shadow",
+              "light": "String bulbs plus the bounce of a floodlit facade across the road",
+              "palette": [
+                "#1C2230",
+                "#F2C14E",
+                "#9FB8AD",
+                "#D7B98E",
+                "#B3473B"
+              ],
+              "fonts": {
+                "display": "Anton",
+                "text": "Rubik"
+              },
+              "motion": "String bulbs sway slowly; the dish is lit from two moving sides",
+              "sound": "Crowd under the stars, bottle clink, reggae from inside"
+            }
+          ]
+        },
+        {
+          "id": "cafe-togo",
+          "name": "Quick-to-go / kiosk",
+          "dna": "Order at the window, no seats to fight over; the counter is the brand and the facade is the sign.",
+          "variants": [
+            {
+              "id": "cafe-togo-window",
+              "name": "Window Order",
+              "surface": "Brushed stainless counter with a ticket spike",
+              "light": "Bright white facade daylight, flat and clean",
+              "palette": [
+                "#FFFFFF",
+                "#111111",
+                "#FF6A13",
+                "#E6E6E6",
+                "#2D6A4F"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "DM Sans"
+              },
+              "motion": "A ticket tears and the relief pops up in its place",
+              "sound": "Ticket printer, 'next', the knock of a portafilter"
+            },
+            {
+              "id": "cafe-togo-sunset",
+              "name": "Desert Sunset Pod",
+              "surface": "Gradated lava stone running red to orange to blue",
+              "light": "An ombre colour wash; the room itself is the light",
+              "palette": [
+                "#E63946",
+                "#F77F00",
+                "#FCBF49",
+                "#3A86FF",
+                "#FFFFFF"
+              ],
+              "fonts": {
+                "display": "Space Grotesk",
+                "text": "Outfit"
+              },
+              "motion": "The ombre cycles slowly like a sunset; the dish holds still in it",
+              "sound": "Bright ambient synth, a spoon on steel"
+            },
+            {
+              "id": "cafe-togo-alley",
+              "name": "Alley Skylight",
+              "surface": "Whitewashed brick ledge with a steel-mesh shelf behind",
+              "light": "A single skylight shaft that moves with the hour",
+              "palette": [
+                "#F7F7F5",
+                "#B8B8B8",
+                "#1D1D1D",
+                "#C7D3BF",
+                "#E0B089"
+              ],
+              "fonts": {
+                "display": "Epilogue",
+                "text": "Karla"
+              },
+              "motion": "The skylight beam angle creeps across the plate over the session",
+              "sound": "Street echo, a grinder, a door chime"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bistro",
+      "name": "Bistro & brasserie",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "bistro-grand",
+          "name": "Grand brasserie (1930s)",
+          "dna": "Light oak, cream and smoky tints, green marble banquettes, geometric chandeliers; elegance, intimacy and the spectacular in one tall room.",
+          "variants": [
+            {
+              "id": "bistro-grand-connemara",
+              "name": "Connemara",
+              "surface": "Connemara green marble with a sage-velvet banquette edge",
+              "light": "Geometric chandelier glow kept low; the marble does the shining",
+              "palette": [
+                "#2F5D50",
+                "#8A9A8B",
+                "#C9B58B",
+                "#F1EBDD",
+                "#1B1B1B"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Jost"
+              },
+              "motion": "A chandelier facet glint travels across the marble once per minute",
+              "sound": "1930s piano, the hush of a very tall room"
+            },
+            {
+              "id": "bistro-grand-cream",
+              "name": "Trocadéro Cream",
+              "surface": "Light oak with a cream linen runner and a smoked-glass coaster",
+              "light": "Smoky-tinted daylight through tall columns",
+              "palette": [
+                "#EFE6D2",
+                "#D8C3A5",
+                "#6F6659",
+                "#B48A4A",
+                "#2A2A2A"
+              ],
+              "fonts": {
+                "display": "Bodoni Moda",
+                "text": "Figtree"
+              },
+              "motion": "The linen settles, a silver cloche lifts and the relief is there",
+              "sound": "Distant string quartet, cutlery, a cork"
+            },
+            {
+              "id": "bistro-grand-checker",
+              "name": "Black & White Floor",
+              "surface": "Black-and-white marble checker seen from table height",
+              "light": "Brass sconces, warm, with a slow push-in",
+              "palette": [
+                "#0D0D0D",
+                "#F5F5F0",
+                "#4C6B5A",
+                "#B59A5F",
+                "#7B2D2D"
+              ],
+              "fonts": {
+                "display": "Marcellus",
+                "text": "Lato"
+              },
+              "motion": "A slow dolly along the checker perspective, then the dish lands",
+              "sound": "Deco-era swing at conversation level"
+            }
+          ]
+        },
+        {
+          "id": "bistro-neo",
+          "name": "Neo-bistro / bistronomie",
+          "dna": "Rough unfinished wood, cement walls, industrial lamps from Holland, menus on office clipboards; the luxury is on the plate, not in the room.",
+          "variants": [
+            {
+              "id": "bistro-neo-clipboard",
+              "name": "Clipboard",
+              "surface": "Rough unfinished oak plank with a clipboard clip at the corner",
+              "light": "Vintage industrial pendant, warm, one hard shadow",
+              "palette": [
+                "#A68A64",
+                "#8F8F8A",
+                "#1F1F1F",
+                "#E9E4DA",
+                "#6A7B5A"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Courier Prime"
+              },
+              "motion": "The clip snaps and a typed sheet slides under the relief",
+              "sound": "Danish-warehouse room tone, kitchen clatter, low indie"
+            },
+            {
+              "id": "bistro-neo-workshop",
+              "name": "Workshop Glass",
+              "surface": "Cement grey with the reflection of a steel-framed glass partition",
+              "light": "North daylight through workshop glazing; cool and honest",
+              "palette": [
+                "#B5B2A9",
+                "#2C2C2C",
+                "#F4F1EA",
+                "#9C5B3F",
+                "#5B6E4A"
+              ],
+              "fonts": {
+                "display": "Instrument Serif",
+                "text": "Manrope"
+              },
+              "motion": "A steel-window reflection glides across the dish",
+              "sound": "Kitchen heard through glass, muffled"
+            },
+            {
+              "id": "bistro-neo-tavern",
+              "name": "Promenade Tavern",
+              "surface": "Dark stained oak with a sea-glass reflection at the edge",
+              "light": "Sunset through a west window, then candles",
+              "palette": [
+                "#1E3A4C",
+                "#E0A96D",
+                "#3B2B20",
+                "#F2EBDD",
+                "#C84B31"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Assistant"
+              },
+              "motion": "The horizon light slides down the table as the sun drops",
+              "sound": "An eclectic Mediterranean playlist from North Africa to the Balkans, waves faint"
+            }
+          ]
+        },
+        {
+          "id": "bistro-bouillon",
+          "name": "Bouillon / people's brasserie",
+          "dna": "Red leatherette, bentwood chairs, white cloths in long rows, 300 covers, egg mayo for under two euros; the noise is the welcome.",
+          "variants": [
+            {
+              "id": "bistro-bouillon-rows",
+              "name": "Rows of Red",
+              "surface": "White paper over a long shared table, a pencil bill scribbled at the edge",
+              "light": "Globe lights in a huge room, bright and even",
+              "palette": [
+                "#B3261E",
+                "#F8F4EA",
+                "#4A3222",
+                "#D4AF37",
+                "#1A1A1A"
+              ],
+              "fonts": {
+                "display": "Abril Fatface",
+                "text": "Zilla Slab"
+              },
+              "motion": "The waiter's pencil writes the bill on the paper cloth beside the dish",
+              "sound": "300-cover roar, trays, a laugh from three tables down"
+            },
+            {
+              "id": "bistro-bouillon-bentwood",
+              "name": "Bentwood",
+              "surface": "Varnished ceramic tile with a bentwood chair back in frame",
+              "light": "Warm tungsten doubled in a mirror",
+              "palette": [
+                "#6B3F2A",
+                "#F2E6C9",
+                "#A52A2A",
+                "#2E2E2E",
+                "#8EA3A5"
+              ],
+              "fonts": {
+                "display": "Yeseva One",
+                "text": "Spectral"
+              },
+              "motion": "A mirror doubles the dish for a beat, then the reflection dims",
+              "sound": "Clatter with a chanson very low under it"
+            },
+            {
+              "id": "bistro-bouillon-loggia",
+              "name": "Loggia",
+              "surface": "Pale stone balustrade ledge, looking down into the room",
+              "light": "Daylight from an upstairs loggia",
+              "palette": [
+                "#E8DFCB",
+                "#9F2B2B",
+                "#3E3E3E",
+                "#B9C4C9",
+                "#D9A441"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Source Sans 3"
+              },
+              "motion": "Dishes arrive in a convoy, a stacked tray, the last one is yours",
+              "sound": "The crowd below, a bell at the pass"
+            }
+          ]
+        },
+        {
+          "id": "bistro-hotel",
+          "name": "Boutique-hotel brasserie",
+          "dna": "Clean white walls, black slatted blinds, silver trays, a handsome wooden bar; calm, a world away from the street outside.",
+          "variants": [
+            {
+              "id": "bistro-hotel-blind",
+              "name": "Slatted Blind",
+              "surface": "White linen over dark wood with venetian-blind stripes across it",
+              "light": "Blind-striped daylight, then lamp light after dark",
+              "palette": [
+                "#FFFFFF",
+                "#1E1E1E",
+                "#8C6D4F",
+                "#B0B7B1",
+                "#C4D7C5"
+              ],
+              "fonts": {
+                "display": "Libre Baskerville",
+                "text": "Nunito Sans"
+              },
+              "motion": "The blind stripes drift one slat-width over the course of a minute",
+              "sound": "Hotel-bar piano, ice in a glass, a lobby door"
+            },
+            {
+              "id": "bistro-hotel-tray",
+              "name": "Silver Tray",
+              "surface": "A silver serving tray on walnut, slightly tarnished",
+              "light": "Warm lamp light, soft reflections",
+              "palette": [
+                "#C0C4C6",
+                "#4A3222",
+                "#F4EFE6",
+                "#1E1E1E",
+                "#8A9A5B"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Assistant"
+              },
+              "motion": "The tray's reflection swings as it is set down",
+              "sound": "Herb-and-bitters cocktail being stirred, low conversation"
+            },
+            {
+              "id": "bistro-hotel-century",
+              "name": "Century House",
+              "surface": "Old patterned cement tile under a crisp white cloth corner",
+              "light": "Tall-window daylight in a hundred-year-old room",
+              "palette": [
+                "#E7DDD0",
+                "#2B2B2B",
+                "#6E8B74",
+                "#B33A3A",
+                "#C9A66B"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Heebo"
+              },
+              "motion": "A slow push-in through a doorway; the room opens and the dish is centred",
+              "sound": "Ceiling fan, Yemenite Quarter street beyond the shutters"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fine",
+      "name": "Fine dining",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "fine-counter",
+          "name": "Chef's counter",
+          "dna": "Nineteen seats in a ring around an open kitchen, a concrete counter, low-hung light, one turquoise wall; a performance you eat.",
+          "variants": [
+            {
+              "id": "fine-counter-ring",
+              "name": "Concrete Ring",
+              "surface": "Polished concrete counter, slightly cool to the touch",
+              "light": "A low-hung pendant pool; the rest of the room falls away",
+              "palette": [
+                "#8E8C86",
+                "#2A2A2A",
+                "#2FB6B0",
+                "#F0EDE6",
+                "#A66A3A"
+              ],
+              "fonts": {
+                "display": "Syne",
+                "text": "Inter"
+              },
+              "motion": "The pendant tightens on the relief like a spotlight, then holds",
+              "sound": "Near silence; a knife, a plate placed, the chef's voice"
+            },
+            {
+              "id": "fine-counter-marble",
+              "name": "U-Marble",
+              "surface": "U-shaped white marble counter with warm wood panelling behind",
+              "light": "Warm wall-wash, calm, no hot spots",
+              "palette": [
+                "#EFEDE8",
+                "#C9B79C",
+                "#5A4634",
+                "#0F0F0F",
+                "#8F9E8B"
+              ],
+              "fonts": {
+                "display": "Shippori Mincho",
+                "text": "Noto Sans"
+              },
+              "motion": "A small printed course card slides in beside the relief",
+              "sound": "Sparse piano, a card set on marble"
+            },
+            {
+              "id": "fine-counter-glass",
+              "name": "Glass Kitchen",
+              "surface": "Hand-cut Hebron stone slab",
+              "light": "Gallery white with one olive-tree shadow",
+              "palette": [
+                "#E7E1D6",
+                "#B7B1A4",
+                "#6E7F5E",
+                "#2B2B2B",
+                "#D8C7A1"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Assistant"
+              },
+              "motion": "The shadow of the chef's hand passes over the dish once",
+              "sound": "Womb-like hush; the street exists only as a muffled hum"
+            }
+          ]
+        },
+        {
+          "id": "fine-architectural",
+          "name": "Architectural / avant-garde",
+          "dna": "A twisted steel-and-glass exoskeleton, grey as the predominant tone, translucent acrylic tables; a meal with a beginning, a middle and an end.",
+          "variants": [
+            {
+              "id": "fine-arch-exo",
+              "name": "Exoskeleton",
+              "surface": "CNC-milled translucent acrylic lit from below",
+              "light": "Under-light, cool, with a faint grid",
+              "palette": [
+                "#B9BDC1",
+                "#5F6368",
+                "#DDE3E8",
+                "#0A0A0A",
+                "#8FA3B0"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "Space Grotesk"
+              },
+              "motion": "The acrylic glow pulses on a long breath cycle",
+              "sound": "A composed drone, low strings, nothing recognisable"
+            },
+            {
+              "id": "fine-arch-rooftop",
+              "name": "Rooftop Descent",
+              "surface": "Custom steel banquette grey with a sky reflection",
+              "light": "Dusk; the room darkens one notch per course",
+              "palette": [
+                "#2B2F3A",
+                "#596273",
+                "#D5D9E0",
+                "#7FA5B5",
+                "#B35B4F"
+              ],
+              "fonts": {
+                "display": "Sora",
+                "text": "Manrope"
+              },
+              "motion": "The camera descends one floor per course; the dish arrives at the landing",
+              "sound": "Wind on a rooftop, a distant city"
+            },
+            {
+              "id": "fine-arch-garden",
+              "name": "Noguchi Garden",
+              "surface": "A concrete path edge with a grass hillock behind",
+              "light": "Overcast Los Angeles light, soft and shadowless",
+              "palette": [
+                "#C7C2B8",
+                "#6F7B66",
+                "#ECEAE4",
+                "#3C3C3C",
+                "#A89F91"
+              ],
+              "fonts": {
+                "display": "Zen Kaku Gothic New",
+                "text": "Karla"
+              },
+              "motion": "Grass sways; the dish is the only still thing",
+              "sound": "Garden quiet, water somewhere"
+            }
+          ]
+        },
+        {
+          "id": "fine-plant",
+          "name": "Plant-forward minimal",
+          "dna": "Minimal, clean, locally sourced, with an air of understated elegance; the plate looks like a painting and the room is a cocoon.",
+          "variants": [
+            {
+              "id": "fine-plant-cocoon",
+              "name": "Cocoon",
+              "surface": "Natural-finish plaster plinth, matte",
+              "light": "Diffuse white, muffled, almost no shadow",
+              "palette": [
+                "#F3EFE8",
+                "#DAD2C5",
+                "#9BA48C",
+                "#3A3A3A",
+                "#C9A66B"
+              ],
+              "fonts": {
+                "display": "Instrument Serif",
+                "text": "Figtree"
+              },
+              "motion": "The relief fades up like a painting being unveiled",
+              "sound": "A brush on paper, then hush"
+            },
+            {
+              "id": "fine-plant-clay",
+              "name": "Local Clay",
+              "surface": "A hand-thrown local ceramic plate on undyed linen",
+              "light": "Candle plus daylight mix; the glaze catches it",
+              "palette": [
+                "#D9C8B4",
+                "#8C6F56",
+                "#4F5D4A",
+                "#F6F2EA",
+                "#B04A3A"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Lora"
+              },
+              "motion": "The plate turns ten degrees and the glaze flashes once",
+              "sound": "Low folk guitar, linen moved"
+            },
+            {
+              "id": "fine-plant-olive",
+              "name": "Olive Shadow",
+              "surface": "Hebron limestone with the shadow of an olive branch",
+              "light": "One leaf-shadow pattern over an otherwise flat wash",
+              "palette": [
+                "#E8E2D5",
+                "#6B7A58",
+                "#2F2F2F",
+                "#B9B09E",
+                "#D1A054"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Assistant"
+              },
+              "motion": "Olive-leaf shadows breathe with an invisible breeze",
+              "sound": "Cicadas faint, a fountain"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "israeli",
+      "name": "Israeli & Middle-Eastern kitchen",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "israeli-tavern",
+          "name": "Street tavern",
+          "dna": "Outdoors, no reservations, under the stars, Goldstar and paper; a record library the size of the kitchen and a crowd that is the show.",
+          "variants": [
+            {
+              "id": "israeli-tavern-stars",
+              "name": "Under the Stars",
+              "surface": "Brown kraft paper on a bar-height table, night",
+              "light": "String bulbs; a floodlit facade bouncing from across the street",
+              "palette": [
+                "#B48A5E",
+                "#141A26",
+                "#F2C14E",
+                "#8C2F39",
+                "#6F8F72"
+              ],
+              "fonts": {
+                "display": "Anton",
+                "text": "Heebo"
+              },
+              "motion": "The paper crinkles as the dish lands, then flattens",
+              "sound": "A vinyl B-side, crowd, bottles"
+            },
+            {
+              "id": "israeli-tavern-produce",
+              "name": "Produce Pile",
+              "surface": "Wooden crate slats with tomatoes and an eggplant at the edge",
+              "light": "One bare bulb, hard and honest",
+              "palette": [
+                "#D9442C",
+                "#5A3E2B",
+                "#F1E7D0",
+                "#3D5A3C",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "Secular One",
+                "text": "Rubik"
+              },
+              "motion": "A tomato rolls into frame and settles against the plate",
+              "sound": "Knife on board, Anatolian rock"
+            },
+            {
+              "id": "israeli-tavern-corner",
+              "name": "Synagogue Corner",
+              "surface": "Bauhaus-era terrazzo pavement with a chipped edge",
+              "light": "Floodlight bounce plus one bulb; a moth or two",
+              "palette": [
+                "#CFC6B8",
+                "#1E1E1E",
+                "#D4A017",
+                "#4A6C8C",
+                "#B33A3A"
+              ],
+              "fonts": {
+                "display": "Karantina",
+                "text": "Assistant"
+              },
+              "motion": "A moth-flicker in the light; the dish is dead still",
+              "sound": "Allenby traffic hum, a DJ set from inside"
+            }
+          ]
+        },
+        {
+          "id": "israeli-party",
+          "name": "Living-room party",
+          "dna": "Mismatched chairs, a brick counter, big-band at deafening volume, tables that become a dance floor, burning sage at the end of the night.",
+          "variants": [
+            {
+              "id": "israeli-party-longtable",
+              "name": "Long Table",
+              "surface": "White tablecloth with wine rings and a crumb line",
+              "light": "Warm tungsten, then 'party dim' with no strobe",
+              "palette": [
+                "#FFFFFF",
+                "#7A1F2B",
+                "#D9A441",
+                "#1A1A1A",
+                "#C98B6B"
+              ],
+              "fonts": {
+                "display": "Gloock",
+                "text": "Rubik"
+              },
+              "motion": "The cloth gets bumped: the relief jumps two millimetres on a bass hit",
+              "sound": "Big-band swelling, clapping, table-banging"
+            },
+            {
+              "id": "israeli-party-fire",
+              "name": "Fire on the Floor",
+              "surface": "Brick counter top with a scorched steel tray",
+              "light": "A flambé bloom lights the dish from one side for a second",
+              "palette": [
+                "#3B1F1A",
+                "#FF7A1A",
+                "#F4E3C1",
+                "#8C8C8C",
+                "#2E2E2E"
+              ],
+              "fonts": {
+                "display": "Bebas Neue",
+                "text": "Heebo"
+              },
+              "motion": "Flame flash, afterglow, then settle",
+              "sound": "Staff shout, applause, a pan hitting the pass"
+            },
+            {
+              "id": "israeli-party-sage",
+              "name": "Sage Hour",
+              "surface": "Raw wood at two in the morning, a candle stub",
+              "light": "Candle stubs plus the first grey of dawn",
+              "palette": [
+                "#4A4A4A",
+                "#9DA98A",
+                "#E8DCC3",
+                "#1C1C1C",
+                "#B5744F"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Assistant"
+              },
+              "motion": "Sage smoke drifts across the relief and clears",
+              "sound": "The last song, chairs stacked, a laugh"
+            }
+          ]
+        },
+        {
+          "id": "israeli-pita",
+          "name": "Pita counter",
+          "dna": "A deli-like open kitchen juts into the room, second-hand furniture, a comical abundance of ceiling lights, names called out, everything in a pita, on paper.",
+          "variants": [
+            {
+              "id": "israeli-pita-shout",
+              "name": "Counter Shout",
+              "surface": "Stainless deli counter with a sheet of paper",
+              "light": "A cluster of mismatched ceiling lights, bright and silly",
+              "palette": [
+                "#F2F2F2",
+                "#1B1B1B",
+                "#E63E1F",
+                "#F2B134",
+                "#5B8C5A"
+              ],
+              "fonts": {
+                "display": "Archivo Black",
+                "text": "Rubik"
+              },
+              "motion": "A name ticket flips and the relief slides over the counter",
+              "sound": "Names shouted, pans, Mediterranean pop"
+            },
+            {
+              "id": "israeli-pita-paper",
+              "name": "Cauliflower Paper",
+              "surface": "Brown paper with grease blooms and a tahini streak",
+              "light": "A warm bulb, close",
+              "palette": [
+                "#C9A678",
+                "#F5EBD7",
+                "#3A2A1A",
+                "#8B2E2E",
+                "#6B8E23"
+              ],
+              "fonts": {
+                "display": "Secular One",
+                "text": "Assistant"
+              },
+              "motion": "The paper tears open to reveal the dish",
+              "sound": "A tahini squeeze, a hand-clap pop"
+            },
+            {
+              "id": "israeli-pita-bleacher",
+              "name": "Bleacher",
+              "surface": "Plywood bleacher step, scuffed",
+              "light": "Fluorescent plus bulbs; nothing flattering, everything fun",
+              "palette": [
+                "#D6B98C",
+                "#202020",
+                "#F0F0F0",
+                "#D64545",
+                "#3F7CAC"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "Heebo"
+              },
+              "motion": "A crowd-step bounce; the dish rides it",
+              "sound": "Dancing, beers on tap, the pass bell"
+            }
+          ]
+        },
+        {
+          "id": "israeli-levant",
+          "name": "Levantine light",
+          "dna": "Whitewashed brick, saffron, turmeric and brass, concrete with tile stripes, plants back-lit like latticework; Middle-Eastern without the dark heavy patterns.",
+          "variants": [
+            {
+              "id": "israeli-levant-white",
+              "name": "Casablanca White",
+              "surface": "Whitewashed plaster and concrete with a tile stripe",
+              "light": "Sawtooth-skylight daylight",
+              "palette": [
+                "#FAF7F2",
+                "#E0A526",
+                "#CC7A2A",
+                "#7EC8E3",
+                "#B08D57"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Assistant"
+              },
+              "motion": "A lattice-light pattern drifts over the dish as evening comes",
+              "sound": "Soft Maghreb-jazz, plants rustling, a bar shaker"
+            },
+            {
+              "id": "israeli-levant-brass",
+              "name": "Brass Lattice",
+              "surface": "A brass tray on caramel leather",
+              "light": "Back-lit plants after dark, latticework shadows",
+              "palette": [
+                "#B08D57",
+                "#C9803E",
+                "#2B2B2B",
+                "#F4EFE6",
+                "#3F6B5B"
+              ],
+              "fonts": {
+                "display": "Marcellus",
+                "text": "Rubik"
+              },
+              "motion": "Lattice shadows breathe on a slow cycle",
+              "sound": "Evening courtyard, a tray set down"
+            },
+            {
+              "id": "israeli-levant-stripe",
+              "name": "Tile Stripe",
+              "surface": "Orange, light-blue and white tile stripes on concrete",
+              "light": "Noon skylight, bright and bleached",
+              "palette": [
+                "#F28C28",
+                "#9ED0E6",
+                "#FFFFFF",
+                "#8A8A8A",
+                "#3A2E2A"
+              ],
+              "fonts": {
+                "display": "Bricolage Grotesque",
+                "text": "Figtree"
+              },
+              "motion": "Stripes scroll under the dish on load, then lock",
+              "sound": "Lunchtime buzz, a skylight room's echo"
+            }
+          ]
+        },
+        {
+          "id": "israeli-seafood",
+          "name": "Sea & fish house",
+          "dna": "White tablecloths that do not mean fancy, an upbeat room with music in your veins, raw fish first, a sea view if you are lucky.",
+          "variants": [
+            {
+              "id": "israeli-seafood-cloth",
+              "name": "White Cloth, Loud Room",
+              "surface": "A white tablecloth, pressed, with a lemon half",
+              "light": "Warm pendants over a buzzing room",
+              "palette": [
+                "#FFFFFF",
+                "#0F3B5A",
+                "#E8B04B",
+                "#D14B3D",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Heebo"
+              },
+              "motion": "A cloth corner lifts in a draft and drops",
+              "sound": "Upbeat funk, a room laughing"
+            },
+            {
+              "id": "israeli-seafood-ice",
+              "name": "Crudo Ice",
+              "surface": "Crushed ice on a zinc tray, an oyster shell",
+              "light": "Cool white bar light with one warm candle",
+              "palette": [
+                "#E3EEF2",
+                "#93A3AB",
+                "#F7F4EE",
+                "#1B1B1B",
+                "#D97B66"
+              ],
+              "fonts": {
+                "display": "DM Serif Display",
+                "text": "Work Sans"
+              },
+              "motion": "Ice shimmer; a drop of lemon lands",
+              "sound": "A shucking knife, white wine poured"
+            },
+            {
+              "id": "israeli-seafood-terrace",
+              "name": "Sea Terrace",
+              "surface": "White cloth with a turquoise glass accent",
+              "light": "Sunset over the water, glare softened by an awning",
+              "palette": [
+                "#30B8B2",
+                "#F6E7C1",
+                "#0B3C49",
+                "#E9A23B",
+                "#FFFFFF"
+              ],
+              "fonts": {
+                "display": "Marcellus",
+                "text": "Assistant"
+              },
+              "motion": "The horizon light slides as the sun drops",
+              "sound": "Gulls, a terrace at golden hour, mainstream pop low"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "asian",
+      "name": "Asian & sushi",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "asian-terranean",
+          "name": "Asia-terranean",
+          "dna": "Bamboo, iron and concrete; a banana-leaf vein cast into the walls; a black slate street-food counter and a lounge that says come join the party.",
+          "variants": [
+            {
+              "id": "asian-terr-vein",
+              "name": "Leaf Shadow",
+              "surface": "Black slate with a cast leaf-vein relief",
+              "light": "Leaf-silhouette lamps, warm and graphic",
+              "palette": [
+                "#0E0E0E",
+                "#2E4A3B",
+                "#C8B48A",
+                "#8A5A2B",
+                "#E6DDCB"
+              ],
+              "fonts": {
+                "display": "Syne",
+                "text": "Noto Sans"
+              },
+              "motion": "The vein pattern ripples outward from under the dish",
+              "sound": "A lively street, a wok, low electronic"
+            },
+            {
+              "id": "asian-terr-bamboo",
+              "name": "Iron & Bamboo",
+              "surface": "Bamboo slats with an iron band",
+              "light": "Warm and low; bamboo shadow stripes",
+              "palette": [
+                "#B99B6B",
+                "#3A3A3A",
+                "#6B4A2B",
+                "#E8DFC9",
+                "#A23B2A"
+              ],
+              "fonts": {
+                "display": "Zen Kaku Gothic New",
+                "text": "Karla"
+              },
+              "motion": "Bamboo shadow stripes drift across the plate",
+              "sound": "A lemongrass terrace, cicadas"
+            },
+            {
+              "id": "asian-terr-five",
+              "name": "Five Elements",
+              "surface": "Concrete with a shallow water reflection",
+              "light": "Fire-warm pools against metal-cool washes",
+              "palette": [
+                "#2B2B2B",
+                "#C94A2B",
+                "#5B8FA8",
+                "#9C9C9C",
+                "#8B6B4A"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "Inter"
+              },
+              "motion": "The light cycles fire, water, metal, wood, earth on a long loop",
+              "sound": "Deep bass, a single water drop"
+            }
+          ]
+        },
+        {
+          "id": "asian-ritual",
+          "name": "Japanese ritual / tea house",
+          "dna": "Stripped-back, modernised craftsmanship, tea served delicately in a bowl, thirty seats underground; serenity at the pinnacle of refinement.",
+          "variants": [
+            {
+              "id": "asian-ritual-tea",
+              "name": "Tea Salon",
+              "surface": "Dark lacquered wood, flawless",
+              "light": "Paper-lantern soft, shadowless",
+              "palette": [
+                "#1A1A1A",
+                "#F2EDE4",
+                "#8A7A5A",
+                "#4E6A5A",
+                "#B9A88A"
+              ],
+              "fonts": {
+                "display": "Shippori Mincho",
+                "text": "Zen Kaku Gothic New"
+              },
+              "motion": "A bowl is set down; a steam ribbon rises",
+              "sound": "Water poured, then silence"
+            },
+            {
+              "id": "asian-ritual-hinoki",
+              "name": "Hinoki",
+              "surface": "Pale hinoki plank, unfinished",
+              "light": "Shoji-filtered daylight",
+              "palette": [
+                "#F5EFE3",
+                "#D9C9A6",
+                "#6E6657",
+                "#2B2B2B",
+                "#A3B18A"
+              ],
+              "fonts": {
+                "display": "Noto Serif JP",
+                "text": "Noto Sans JP"
+              },
+              "motion": "The shoji light shifts a shade warmer",
+              "sound": "A single chime, a breath"
+            },
+            {
+              "id": "asian-ritual-binchotan",
+              "name": "Binchotan",
+              "surface": "A black iron grill edge beside dark stone",
+              "light": "Ember orange from below",
+              "palette": [
+                "#0B0B0B",
+                "#FF5A1F",
+                "#6B6B6B",
+                "#E9E2D3",
+                "#4A3B2A"
+              ],
+              "fonts": {
+                "display": "Bebas Neue",
+                "text": "Noto Sans"
+              },
+              "motion": "The ember glow pulses",
+              "sound": "Charcoal crackle, fat on coals"
+            }
+          ]
+        },
+        {
+          "id": "asian-omakase",
+          "name": "Sushi counter / omakase",
+          "dna": "A wood-panelled bar with a vertical brass stripe, hand-painted fish, a coffered ceiling, a frieze of golden scales; subtle warm light.",
+          "variants": [
+            {
+              "id": "asian-omakase-scales",
+              "name": "Golden Scales",
+              "surface": "Wood bar with a vertical brass-stripe edge",
+              "light": "Minimal lamps above the counter, warm",
+              "palette": [
+                "#3E2A1B",
+                "#C9A24A",
+                "#F3EADB",
+                "#0F0F0F",
+                "#7A1F2B"
+              ],
+              "fonts": {
+                "display": "Cinzel",
+                "text": "Noto Sans"
+              },
+              "motion": "The scale frieze shimmers along the edge",
+              "sound": "Low house, a cocktail shaker, brass"
+            },
+            {
+              "id": "asian-omakase-hinoki",
+              "name": "Hinoki Counter",
+              "surface": "Pale hinoki counter, wiped",
+              "light": "A single warm wash, nothing else",
+              "palette": [
+                "#F1E8D8",
+                "#D7C3A0",
+                "#2B2B2B",
+                "#B33A3A",
+                "#6B8E7B"
+              ],
+              "fonts": {
+                "display": "Shippori Mincho",
+                "text": "Inter"
+              },
+              "motion": "One piece is placed; the next appears when the first is gone",
+              "sound": "Rice patted, a knife"
+            },
+            {
+              "id": "asian-omakase-neon",
+              "name": "Neon Fish",
+              "surface": "Coffered dark wood with a strip of old floor tile",
+              "light": "A neon accent on a dark room",
+              "palette": [
+                "#121212",
+                "#FF2D95",
+                "#19C7C2",
+                "#E7D9B8",
+                "#5C4A3A"
+              ],
+              "fonts": {
+                "display": "Righteous",
+                "text": "Space Grotesk"
+              },
+              "motion": "The neon flickers on",
+              "sound": "Izakaya chatter, city-pop"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "italian",
+      "name": "Pizza & Italian",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "italian-trattoria",
+          "name": "Trattoria vintage",
+          "dna": "Brick walls, wooden furniture, a wine rack, dried plants, objects bought in Italy and edited hard so it never becomes cliché.",
+          "variants": [
+            {
+              "id": "italian-tratt-brick",
+              "name": "West Village Brick",
+              "surface": "Worn walnut with a branded coaster at the corner",
+              "light": "Warm and low, wine-glass shadows",
+              "palette": [
+                "#7A4B2A",
+                "#B55A3C",
+                "#F1E9DA",
+                "#2A2A2A",
+                "#6C7A4F"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Lora"
+              },
+              "motion": "A wine-glass shadow sways across the plate",
+              "sound": "Italian sixties pop, low"
+            },
+            {
+              "id": "italian-tratt-verdura",
+              "name": "Verdura",
+              "surface": "White marble with herb sprigs",
+              "light": "Window daylight, morning",
+              "palette": [
+                "#F4F2EC",
+                "#6E8B3D",
+                "#C8C2B4",
+                "#1F1F1F",
+                "#D1A054"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Karla"
+              },
+              "motion": "Olive oil glistens as the light moves",
+              "sound": "A market morning, a knife on marble"
+            },
+            {
+              "id": "italian-tratt-greenhouse",
+              "name": "Dolce Vita Greenhouse",
+              "surface": "Floral-print banquette fabric at the edge of a marble top",
+              "light": "Glass-roof daylight on four floors of trattoria",
+              "palette": [
+                "#F6C1C7",
+                "#2E7D5B",
+                "#FFFFFF",
+                "#D4A017",
+                "#3A2A2A"
+              ],
+              "fonts": {
+                "display": "Abril Fatface",
+                "text": "Nunito"
+              },
+              "motion": "Ivy sways under the glass",
+              "sound": "A four-storey room roaring, Italian pop"
+            }
+          ]
+        },
+        {
+          "id": "italian-pizza",
+          "name": "Pizza artisan",
+          "dna": "Penny-round tiles, a white-tiled oven seen through a window, a marble bar, green leather, deco meets industrial; or worn wood, dripping candles and BYOB.",
+          "variants": [
+            {
+              "id": "italian-pizza-penny",
+              "name": "Penny Round",
+              "surface": "Matte-black penny-round tile",
+              "light": "Oven glow plus street daylight through the window",
+              "palette": [
+                "#121212",
+                "#EDE6D6",
+                "#2F6B4F",
+                "#C4C4C4",
+                "#E0552B"
+              ],
+              "fonts": {
+                "display": "DM Serif Display",
+                "text": "Manrope"
+              },
+              "motion": "The tile grid parallaxes behind the dish",
+              "sound": "Dough slap, an oven door"
+            },
+            {
+              "id": "italian-pizza-wax",
+              "name": "Candle Wax",
+              "surface": "A worn wooden table with dripped wax",
+              "light": "Candles only; the tin ceiling barely visible",
+              "palette": [
+                "#3C2A1E",
+                "#F2D9A6",
+                "#D9B36B",
+                "#1A1A1A",
+                "#8B2F2F"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Libre Baskerville"
+              },
+              "motion": "Candle flicker on the relief, nothing else",
+              "sound": "Old-school funk and rock and roll, low"
+            },
+            {
+              "id": "italian-pizza-dome",
+              "name": "Brick Dome",
+              "surface": "Red brick beside a marble slab",
+              "light": "Ember light with a tin-ceiling bounce",
+              "palette": [
+                "#9A4A2E",
+                "#EDEDE8",
+                "#B9B9B9",
+                "#2B2B2B",
+                "#5F7A3A"
+              ],
+              "fonts": {
+                "display": "Anton",
+                "text": "Work Sans"
+              },
+              "motion": "An ember flare from the dome",
+              "sound": "A wine bottle rolling dough, a wood fire"
+            }
+          ]
+        },
+        {
+          "id": "italian-courtyard",
+          "name": "Courtyard Italian-Mediterranean",
+          "dna": "A historic building, a courtyard, an open kitchen, focaccia and fries; a subtle club vibe with a living-room listening sound system.",
+          "variants": [
+            {
+              "id": "italian-court-beit",
+              "name": "Beit Courtyard",
+              "surface": "Old terrazzo beside a plaster wall",
+              "light": "Courtyard string lights and the moon",
+              "palette": [
+                "#D8CFC0",
+                "#2E2E2E",
+                "#C97C3A",
+                "#6A8A7A",
+                "#F3EBDD"
+              ],
+              "fonts": {
+                "display": "Gloock",
+                "text": "Heebo"
+              },
+              "motion": "Focaccia steam rises and thins",
+              "sound": "A funk-and-reggae DJ, late"
+            },
+            {
+              "id": "italian-court-board",
+              "name": "Focaccia Board",
+              "surface": "Olive-wood board, oiled",
+              "light": "Warm, close, a candle",
+              "palette": [
+                "#A67B4A",
+                "#F1E3C4",
+                "#556B2F",
+                "#2B2B2B",
+                "#C8372D"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Rubik"
+              },
+              "motion": "Oil pours and pools",
+              "sound": "Room buzz, a bottle opened"
+            },
+            {
+              "id": "italian-court-club",
+              "name": "Club Salon",
+              "surface": "Dark lacquer with a glass reflection",
+              "light": "Red-tinted club light",
+              "palette": [
+                "#140A0C",
+                "#B3122E",
+                "#E8D7B4",
+                "#5A5A5A",
+                "#2B6B5A"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "Space Grotesk"
+              },
+              "motion": "A bass pulse moves the reflection",
+              "sound": "An electro set in the early hours"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bar",
+      "name": "Bar & cocktail",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "bar-aperitivo",
+          "name": "Aperitivo café-bar",
+          "dna": "White tile, tin, brick and banquettes; a century-old corner turned into a daytime Negroni hour, baby's breath in the glass.",
+          "variants": [
+            {
+              "id": "bar-aper-negroni",
+              "name": "Negroni Hour",
+              "surface": "White marble with a tin-ceiling reflection",
+              "light": "Afternoon daylight, bright",
+              "palette": [
+                "#FFFFFF",
+                "#C8102E",
+                "#F2E4C9",
+                "#2B2B2B",
+                "#A7A7A7"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Josefin Sans"
+              },
+              "motion": "Spritz bubbles rise beside the relief",
+              "sound": "Spoons, aperitivo chatter, Italian sixties"
+            },
+            {
+              "id": "bar-aper-vermouth",
+              "name": "Vermouth & Grapes",
+              "surface": "A brick ledge with a chilled-glass ring",
+              "light": "Amber bulb, early evening",
+              "palette": [
+                "#7B2D2D",
+                "#E9D8A6",
+                "#3B2A1A",
+                "#F7F7F5",
+                "#6B8E6B"
+              ],
+              "fonts": {
+                "display": "Bodoni Moda",
+                "text": "Karla"
+              },
+              "motion": "A frosted glass sweats",
+              "sound": "Lazy jazz, ice"
+            },
+            {
+              "id": "bar-aper-chalk",
+              "name": "Corner Chalk",
+              "surface": "A chalkboard of specials beside marble",
+              "light": "Golden hour on a street corner",
+              "palette": [
+                "#1B1B1B",
+                "#F5F1E6",
+                "#D4A017",
+                "#B23A48",
+                "#4E6E58"
+              ],
+              "fonts": {
+                "display": "Caveat",
+                "text": "Inter"
+              },
+              "motion": "Chalk writes today's special",
+              "sound": "A street corner, a bicycle bell"
+            }
+          ]
+        },
+        {
+          "id": "bar-hidden",
+          "name": "Hidden hotel bar",
+          "dna": "A small door at the back of a lobby, wood and wicker, low light, early rock and roll loud; a seat at the bar is a coveted thing.",
+          "variants": [
+            {
+              "id": "bar-hidden-door",
+              "name": "Back Door",
+              "surface": "Dark wood with a wicker edge",
+              "light": "Very low amber; the door crack is the brightest thing",
+              "palette": [
+                "#2A1B12",
+                "#B98B5A",
+                "#0C0C0C",
+                "#D9C3A3",
+                "#7A2E2E"
+              ],
+              "fonts": {
+                "display": "Limelight",
+                "text": "Josefin Sans"
+              },
+              "motion": "A door-crack of light widens, then the dish",
+              "sound": "Early rock and roll at a pulsing volume"
+            },
+            {
+              "id": "bar-hidden-quirk",
+              "name": "1920s Quirk",
+              "surface": "A brass tray on green baize",
+              "light": "A fringed lamp, intimate",
+              "palette": [
+                "#0F4C3A",
+                "#C9A24A",
+                "#1A1A1A",
+                "#F0E6D2",
+                "#A63A50"
+              ],
+              "fonts": {
+                "display": "Poiret One",
+                "text": "Jost"
+              },
+              "motion": "A bell rings and the tray spins a quarter turn",
+              "sound": "Ragtime piano, a shaker"
+            },
+            {
+              "id": "bar-hidden-lobby",
+              "name": "Lobby Red",
+              "surface": "Red faux-leather with a brass stud",
+              "light": "A lamp and the flicker of a small TV",
+              "palette": [
+                "#A3202A",
+                "#2B2B2B",
+                "#C9A24A",
+                "#F2E6D0",
+                "#4B6F8A"
+              ],
+              "fonts": {
+                "display": "Righteous",
+                "text": "DM Sans"
+              },
+              "motion": "A sign hums and flickers once",
+              "sound": "Lobby radio, a door"
+            }
+          ]
+        },
+        {
+          "id": "bar-listening",
+          "name": "Listening bar",
+          "dna": "The DJ booth is the kitchen's twin: whole album sides on a custom system, picture discs and eggplants on the same shelf.",
+          "variants": [
+            {
+              "id": "bar-listen-dub",
+              "name": "Dub Room",
+              "surface": "Speaker-cabinet plywood",
+              "light": "A single red bulb",
+              "palette": [
+                "#1A0F0F",
+                "#C8102E",
+                "#E3B23C",
+                "#2E7D5B",
+                "#F2EAD7"
+              ],
+              "fonts": {
+                "display": "Anton",
+                "text": "IBM Plex Mono"
+              },
+              "motion": "A woofer cone pulses under the dish",
+              "sound": "Dub and reggae, bass you feel"
+            },
+            {
+              "id": "bar-listen-jazz",
+              "name": "Spiritual Jazz",
+              "surface": "Brushed brass on walnut",
+              "light": "Amber, late",
+              "palette": [
+                "#3A2A1E",
+                "#D4A95A",
+                "#0E0E0E",
+                "#F0E6D2",
+                "#4F6D5A"
+              ],
+              "fonts": {
+                "display": "Righteous",
+                "text": "Space Grotesk"
+              },
+              "motion": "A light bloom swells with the horn",
+              "sound": "Hard bop and spiritual jazz"
+            },
+            {
+              "id": "bar-listen-disc",
+              "name": "Anatolian Picture Disc",
+              "surface": "A picture-disc vinyl texture",
+              "light": "A bulb over the booth",
+              "palette": [
+                "#2B2B2B",
+                "#E63946",
+                "#F4D35E",
+                "#0EA5A5",
+                "#F7F3EA"
+              ],
+              "fonts": {
+                "display": "Bebas Neue",
+                "text": "Rubik"
+              },
+              "motion": "The disc spins at 45 rpm beneath the plate",
+              "sound": "Anatolian rock, Turkish disco"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bakery",
+      "name": "Bakery & pâtisserie",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "bakery-manufactory",
+          "name": "Manufactory",
+          "dna": "A thermal-oil oven in the middle of the room, white plaster, concrete, gold-tinted Calacatta counters, a teal glaze; the making is the show and the smell is the signage.",
+          "variants": [
+            {
+              "id": "bakery-manu-calacatta",
+              "name": "Calacatta",
+              "surface": "Gold-veined Calacatta marble",
+              "light": "Tall-window daylight",
+              "palette": [
+                "#F5F2EC",
+                "#D9CBA8",
+                "#2C6E6A",
+                "#9B9B9B",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "DM Serif Display",
+                "text": "Inter"
+              },
+              "motion": "Flour dust drifts through the light",
+              "sound": "An oven hum, a tray slid in"
+            },
+            {
+              "id": "bakery-manu-shelf",
+              "name": "White Shelf",
+              "surface": "A simple white shelf plank with crumbs",
+              "light": "Overnight-bakery warm, before dawn",
+              "palette": [
+                "#FFFFFF",
+                "#E8D5B5",
+                "#8B5A2B",
+                "#2B2B2B",
+                "#C2C2C2"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Karla"
+              },
+              "motion": "Loaf steam rises off the relief",
+              "sound": "Dawn radio, an oven door"
+            },
+            {
+              "id": "bakery-manu-tile",
+              "name": "Unglazed Tile",
+              "surface": "Unglazed terracotta subway tile",
+              "light": "A skylight",
+              "palette": [
+                "#C97B4A",
+                "#F3EFE8",
+                "#6F6F6F",
+                "#2E5E58",
+                "#1F1F1F"
+              ],
+              "fonts": {
+                "display": "Bricolage Grotesque",
+                "text": "Figtree"
+              },
+              "motion": "The tile grid parallaxes behind the plate",
+              "sound": "Café buzz, a grinder"
+            }
+          ]
+        },
+        {
+          "id": "bakery-atelier",
+          "name": "Pastry atelier",
+          "dna": "Baking on display, two stone counters face to face, white and sleek for pastry, grey and raw for bread; brass, cognac leather, a flower as the theme, lit day and night.",
+          "variants": [
+            {
+              "id": "bakery-atel-counters",
+              "name": "Two Counters",
+              "surface": "A split of thick black stone and flawless white stone",
+              "light": "Ceiling lamps in a rhythm, bright",
+              "palette": [
+                "#0E0E0E",
+                "#F7F5F1",
+                "#C9A24A",
+                "#B5B0A8",
+                "#E8B4BF"
+              ],
+              "fonts": {
+                "display": "Bodoni Moda",
+                "text": "Jost"
+              },
+              "motion": "A cloche lifts",
+              "sound": "Tearoom hush, a spoon on porcelain"
+            },
+            {
+              "id": "bakery-atel-lilies",
+              "name": "Paper Lilies",
+              "surface": "Dark marble bistro top with a brass edge",
+              "light": "The glow of a large golden round mirror",
+              "palette": [
+                "#2B2B2B",
+                "#F2E9E4",
+                "#E8B4BF",
+                "#C9A24A",
+                "#8A7E72"
+              ],
+              "fonts": {
+                "display": "Cormorant Garamond",
+                "text": "Lato"
+              },
+              "motion": "A paper lily unfolds beside the relief",
+              "sound": "Soft piano, a tea poured"
+            },
+            {
+              "id": "bakery-atel-vitrine",
+              "name": "Vitrine",
+              "surface": "A glass vitrine shelf with its own reflection",
+              "light": "Display-case white, crisp",
+              "palette": [
+                "#FFFFFF",
+                "#F0D9C2",
+                "#7B4B2A",
+                "#1C1C1C",
+                "#CBB7A4"
+              ],
+              "fonts": {
+                "display": "Playfair Display",
+                "text": "Nunito Sans"
+              },
+              "motion": "The vitrine slides open; the reflection moves",
+              "sound": "A Neve Tzedek morning, a box tied"
+            }
+          ]
+        },
+        {
+          "id": "bakery-boulangerie",
+          "name": "Neighbourhood boulangerie",
+          "dna": "A stone oven, croissants and baguettes, a few tables in and out; a quick or leisurely breakfast and a classic European room that has not changed since 1955.",
+          "variants": [
+            {
+              "id": "bakery-boul-oven",
+              "name": "Stone Oven",
+              "surface": "A flour-dusted wooden board",
+              "light": "Morning light, warm",
+              "palette": [
+                "#E9D8B5",
+                "#8B5A2B",
+                "#F8F4EC",
+                "#2B2B2B",
+                "#A8B5A0"
+              ],
+              "fonts": {
+                "display": "Yeseva One",
+                "text": "Source Serif 4"
+              },
+              "motion": "A flour puff when the dish lands",
+              "sound": "A baguette crackling as it cools"
+            },
+            {
+              "id": "bakery-boul-expat",
+              "name": "Expat Counter",
+              "surface": "White tile and chrome",
+              "light": "Bright, clean, early",
+              "palette": [
+                "#FFFFFF",
+                "#2C3E70",
+                "#B3473B",
+                "#F2E6D0",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "Libre Caslon Display",
+                "text": "Work Sans"
+              },
+              "motion": "A box ribbon ties itself",
+              "sound": "'Bonjour', an espresso"
+            },
+            {
+              "id": "bakery-boul-1955",
+              "name": "1955",
+              "surface": "Mint-green Formica, worn at the edge",
+              "light": "A tube light softened by a window",
+              "palette": [
+                "#BFD8C9",
+                "#F5EFD9",
+                "#7B4B2A",
+                "#2E2E2E",
+                "#C97B4A"
+              ],
+              "fonts": {
+                "display": "Yeseva One",
+                "text": "PT Serif"
+              },
+              "motion": "A ceiling-fan shadow sweeps slowly",
+              "sound": "An old radio, spoons on saucers"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "street",
+      "name": "Street & quick",
+      "he": null,
+      "subcategories": [
+        {
+          "id": "street-market",
+          "name": "Market stall",
+          "dna": "Levinsky and Carmel energy: crates, spice sacks, hand-painted signs, standing counters; noise is the seasoning.",
+          "variants": [
+            {
+              "id": "street-market-crate",
+              "name": "Crate & Sack",
+              "surface": "Wooden crate slats",
+              "light": "Tarp-filtered sun, striped",
+              "palette": [
+                "#D9A441",
+                "#8B5A2B",
+                "#F2E6D0",
+                "#B33A3A",
+                "#2E5E58"
+              ],
+              "fonts": {
+                "display": "Secular One",
+                "text": "Assistant"
+              },
+              "motion": "A hanging sign swings",
+              "sound": "Market calls, a scale, a radio"
+            },
+            {
+              "id": "street-market-sign",
+              "name": "Hand-painted Sign",
+              "surface": "A painted tin sign, chipped",
+              "light": "Harsh noon",
+              "palette": [
+                "#E63946",
+                "#F4D35E",
+                "#0EA5A5",
+                "#FFFFFF",
+                "#1B1B1B"
+              ],
+              "fonts": {
+                "display": "Karantina",
+                "text": "Rubik"
+              },
+              "motion": "A paint-drip wipe reveals the dish",
+              "sound": "Shuk bustle"
+            },
+            {
+              "id": "street-market-spice",
+              "name": "Spice Line",
+              "surface": "Terrazzo with a spill of spice",
+              "light": "Tungsten string lights",
+              "palette": [
+                "#C96A2B",
+                "#E0A526",
+                "#7A1F2B",
+                "#F3EBDD",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "Anton",
+                "text": "Heebo"
+              },
+              "motion": "Spice dust settles around the plate",
+              "sound": "A grinder, a radio"
+            }
+          ]
+        },
+        {
+          "id": "street-deli",
+          "name": "Deli & sandwich counter",
+          "dna": "A long narrow open kitchen juts out like a deli counter, stools in front, loaves on plain white shelves; bagels, cookies, jam, out the door.",
+          "variants": [
+            {
+              "id": "street-deli-ticket",
+              "name": "Ticket Window",
+              "surface": "Stainless steel with butcher paper",
+              "light": "Bright deli light",
+              "palette": [
+                "#E6E6E6",
+                "#1B1B1B",
+                "#D64545",
+                "#F2E6D0",
+                "#5B8C5A"
+              ],
+              "fonts": {
+                "display": "Archivo Black",
+                "text": "DM Sans"
+              },
+              "motion": "A ticket spike, then the dish",
+              "sound": "A printer, a name, a bag"
+            },
+            {
+              "id": "street-deli-bag",
+              "name": "Paper Bag",
+              "surface": "A brown paper bag flattened on wood",
+              "light": "Morning, warm",
+              "palette": [
+                "#C9A678",
+                "#F5EBD7",
+                "#8B5A2B",
+                "#2B2B2B",
+                "#6B8E23"
+              ],
+              "fonts": {
+                "display": "Fraunces",
+                "text": "Karla"
+              },
+              "motion": "The bag opens and the dish is inside",
+              "sound": "A bagel sliced, a jam jar"
+            },
+            {
+              "id": "street-deli-shelf",
+              "name": "Loaf Shelf",
+              "surface": "A plain white shelf, loaves at the edge",
+              "light": "Overnight-bakery warm",
+              "palette": [
+                "#FFFFFF",
+                "#E8D5B5",
+                "#8B5A2B",
+                "#2B2B2B",
+                "#A8B5A0"
+              ],
+              "fonts": {
+                "display": "DM Serif Display",
+                "text": "Work Sans"
+              },
+              "motion": "A loaf is lifted off the shelf",
+              "sound": "A paper rustle, coffee poured"
+            }
+          ]
+        },
+        {
+          "id": "street-beach",
+          "name": "Beach kiosk",
+          "dna": "Beachy, sofas on the sidewalk, umbrellas, a green smoothie, teak decks and the faint smell of a eucalyptus fire.",
+          "variants": [
+            {
+              "id": "street-beach-teak",
+              "name": "Teak Deck",
+              "surface": "Teak deck boards, salt-greyed",
+              "light": "Ocean glare and a eucalyptus fire at dusk",
+              "palette": [
+                "#B5774B",
+                "#DCE8EC",
+                "#0B3C49",
+                "#F2E6D0",
+                "#7A8C7E"
+              ],
+              "fonts": {
+                "display": "Jost",
+                "text": "Karla"
+              },
+              "motion": "Sea glare shimmers on the deck",
+              "sound": "Waves, a fire crackle"
+            },
+            {
+              "id": "street-beach-umbrella",
+              "name": "Umbrella Stripe",
+              "surface": "Sun-bleached wood under an umbrella",
+              "light": "Noon, stripes",
+              "palette": [
+                "#F9F1DC",
+                "#F2B134",
+                "#1D7874",
+                "#E07A5F",
+                "#2B2B2B"
+              ],
+              "fonts": {
+                "display": "Syne",
+                "text": "Work Sans"
+              },
+              "motion": "The stripe pans with the sun",
+              "sound": "A beach, a smoothie blender"
+            },
+            {
+              "id": "street-beach-smoothie",
+              "name": "Smoothie Green",
+              "surface": "A white plastic table with a little sand",
+              "light": "Hard sun",
+              "palette": [
+                "#FFFFFF",
+                "#7BC950",
+                "#F6D55C",
+                "#3CAEA3",
+                "#ED553B"
+              ],
+              "fonts": {
+                "display": "Unbounded",
+                "text": "Outfit"
+              },
+              "motion": "A blender whirl, then the dish",
+              "sound": "Beach pop, a scooter"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -14,14 +14,15 @@ import { createUI, showStatus } from './ui.js';
 import { bindGestures } from './gestures.js';
 import { createGlide } from './glide.js';
 import { createTicker, createTweens } from './clock.js';
-import { presetById, frameOf } from './scenes/walk.js';
+import { presetById, frameOf, PRESETS } from './scenes/walk.js';
 import { SIZE } from './scenes/common.js';
 import { EDGE_PULL } from './physics.js';
+/* night:templates */ import { applyLook, applyLookDom } from './looks.js'; /* /night:templates */
 
 const Q = new URLSearchParams(location.search), $ = (id) => document.getElementById(id);
 const CAPTURE = Q.get('capture') === '1';                              // filming: one hand-turned clock, frames wait for their pictures
 const TEST = Q.get('test') === '1' || CAPTURE;                         // no loop of its own: frames are advanced by __mana.tick / __mana.frame
-const reduce = Q.get('motion') === 'reduce' || (Q.get('motion') !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+let reduce = Q.get('motion') === 'reduce' || (Q.get('motion') !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);      /* night:templates: let, a look with motion "none" sets it before the stage exists */
 const mark = (name) => { try { performance.mark(name); } catch (e) { /* optional */ } };
 const mem = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage is optional */ } } };
 const source = sourceOf(location), live = source.kind === 'slug';
@@ -98,9 +99,15 @@ async function start(snapshot) {
 }
 function open(snapshot) {
   if (source.kind === 'demo' && Q.get('surface')) snapshot.theme.surface = Q.get('surface');      // demo only: try the same menu on another table (?surface=marble, ?surface=holo)
+  /* night:templates */
+  if (source.kind === 'demo' && Q.get('template')) snapshot.theme.template = Q.get('template');      // demo only: the same menu in a look (?template=album-side); a real menu's look comes with its snapshot
+  const look = applyLook(snapshot.theme, PRESETS);                      // the look's surface, accent and lamp (an owner's own table photo still wins); null = today's theme
+  if (look && look.motion === 'none' && !stage) reduce = true;
+  /* /night:templates */
   const model = buildModel(snapshot);
   if (!model.cats.length) return showStatus('empty', { lang: snapshot.locale.default });
   applyTheme(snapshot.theme);
+  /* night:templates */ applyLookDom(document.documentElement, $('app'), look); /* /night:templates */
   let tray = null; try { tray = JSON.parse(mem.get('halom-menu-tray:' + model.slug) || 'null'); } catch (e) { tray = null; }
   if (store) {                                                         // the same page, new content (a live preview, or the placeholder library arriving late)
     const cur = store.getState(); rev++;
@@ -175,7 +182,7 @@ async function startStage() {
   if (!store || store.getState().simple) return;
   const money = (p, l) => (p && p.amount != null ? formatMoney(p.amount, p.currency, l) : '');
   stage = mod && !NO_GL ? mod.createStage({
-    canvas: $('gl'), glide, theme: store.getModel().snapshot.theme, intro: !TEST, themes: new URL('themes/', document.baseURI).href, reduce, walk: WALK,
+    canvas: $('gl'), glide, theme: store.getModel().snapshot.theme, intro: !TEST, themes: new URL('themes/', document.baseURI).href, reduce, walk: WALK, /* night:page */ sway: HERO_SWAY, /* /night:page */
     bloom: Q.get('bloom') !== '0', auto: !TEST && Q.get('adapt') !== 'off', pixelRatio: Q.get('pr') ? Number(Q.get('pr')) : 0, wake: () => ticker.wake(),
     cardInfo(item) { const l = store.getState().lang; return { title: tx(item.name, l), price: money(item.price, l), rtl: isRtl(l) }; },
     onFrame: (f) => ui.layout(f), onLift: (L) => ui.setLift(L), sheet: () => ui.sheet(), onCut: (picture) => ui.cut(picture),
@@ -299,4 +306,11 @@ const api = {
 };
 window.__mana = window.__menu = api;
 if (CAPTURE) $('app').classList.add('capture');
+/* night:page */
+/* hero mode (the product page's first screen): the dish alone, no chrome, scripted once; see hero.js. A separate chunk: a guest's menu never loads it.
+   HERO_SWAY: the stage's rest sway, halved in hero mode (yaw ≤ 2°); declared here, read by startStage above (hoisted const: startStage runs after the snapshot). */
+const HERO = source.kind === 'demo' && Q.get('embed') === 'hero';     // hero mode is for Halom's own demos only: a real menu never loses its chrome or counts an open
+const HERO_SWAY = HERO ? .5 : 1;
+if (HERO) { $('app').classList.add('hero'); import('./hero.js').then((m) => m.start({ api, ticker, reduce, debug: Q.get('debug') === '1' })).catch(() => {}); }
+/* /night:page */
 boot();

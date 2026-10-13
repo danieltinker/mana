@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>מראות · Looks · מנה</title>
+<meta name="description" content="The looks a Mana menu can wear tonight: a listening café, Levantine light, a pita counter, a hidden bar, a flea-market living room, a leaf's shadow. Try each on the Olea demo.">
+<meta name="theme-color" content="#0b0907">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<style>
+/* The guest menu's own type (view/fonts, OFL) and the few colours of its table; the design tokens are not served under /mana/view/, so the values are written here. */
+@font-face{font-family:"Frank Ruhl Libre";font-style:normal;font-display:swap;font-weight:300 900;src:url(../fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"Frank Ruhl Libre";font-style:normal;font-display:swap;font-weight:300 900;src:url(../fonts/frank-ruhl-libre-latin-wght-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:400;src:url(../fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:400;src:url(../fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:500;src:url(../fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:500;src:url(../fonts/ibm-plex-sans-hebrew-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+:root{--bg:#0b0907;--panel:#15100c;--ink:#f4ede2;--ink-soft:#b9ad9d;--ink-faint:#8a7f72;--edge:rgba(244,237,226,.13);--edge-2:rgba(244,237,226,.24);--yolk:#e3b23c;--display:"Frank Ruhl Libre","David Libre","Times New Roman",serif;--body:"IBM Plex Sans Hebrew","Assistant","Segoe UI","Helvetica Neue",Arial,sans-serif;--gut:clamp(16px,4.2vw,28px);color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:radial-gradient(ellipse 90% 40% at 50% 0,#241a11,#120d09 60%,var(--bg) 100%) no-repeat,var(--bg);color:var(--ink);font:400 16px/1.5 var(--body);-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--yolk);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1120px;margin:0 auto;padding:calc(var(--gut) + env(safe-area-inset-top,0px)) var(--gut) calc(var(--gut) * 2)}
+header{display:grid;gap:10px;padding-bottom:28px}
+.home{display:inline-flex;align-items:center;gap:6px;min-height:44px;color:var(--ink-soft);text-decoration:none;font-size:.9rem;font-weight:500;justify-self:start}
+.home:hover{color:var(--ink)}
+.home svg{transform:scaleX(-1)}
+[dir="ltr"] .home svg{transform:none}
+h1{margin:0;font:400 clamp(2.2rem,8vw,3.6rem)/1.1 var(--display);text-wrap:balance}
+h1 small{display:block;font-size:.5em;color:var(--ink-soft);margin-top:4px;text-align:end}
+.lede{margin:0;max-width:60ch;color:var(--ink-soft);text-wrap:pretty}
+.lede b{font-weight:500;color:var(--ink)}
+.looks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:22px;padding:0;margin:0;list-style:none}
+.look{position:relative;display:grid;gap:12px;padding:14px 14px 16px;border:1px solid var(--edge);border-radius:22px;background:rgba(21,16,12,.74)}
+.still{position:relative;margin:0;border-radius:16px;overflow:hidden;background:#1f1914;aspect-ratio:390/844;border:1px solid var(--edge-2)}
+.still img{display:block;width:100%;height:100%;object-fit:cover}
+.cat{font:500 .72rem/1.4 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint)}
+.cat bdi{display:inline-block}
+.cat .en{color:var(--ink-faint)}
+.name{margin:0;display:grid;gap:2px}
+.name .he{font:500 1.5rem/1.15 var(--display)}
+.name .en{font:400 1.05rem/1.2 var(--display);color:var(--ink-soft);text-align:end}
+.place{margin:0;font-size:.9rem;color:var(--ink-soft);text-wrap:pretty}
+.try{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 18px;border:1px solid var(--edge-2);border-radius:999px;color:var(--ink);text-decoration:none;font-weight:500;justify-self:start}
+.try::after{content:"";position:absolute;inset:0;border-radius:22px}
+.look:hover .try,.try:focus-visible{border-color:var(--yolk);color:var(--yolk)}
+.ai{margin:28px 0 0;padding-top:18px;border-top:1px solid var(--edge);font-size:.82rem;color:var(--ink-faint);display:grid;gap:4px}
+.ai span{display:block;text-align:end}
+.note{margin:18px 0 0;max-width:62ch;font-size:.9rem;color:var(--ink-soft);text-wrap:pretty}
+@media (max-width:379px){.looks{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <a class="home" href="../?demo=olea"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.5 3.2L4.7 8l4.8 4.8M5 8h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>התפריט לדוגמה · the demo menu</span></a>
+    <h1>מראות <small lang="en" dir="ltr">Looks</small></h1>
+    <p class="lede">שישה מראות שתפריט <b>מנה</b> יכול ללבוש הלילה: אותו שולחן, אותן מנות, ואור אחר. <span lang="en" dir="ltr">Six looks a Mana menu can wear tonight: the same table, the same dishes, another light. Every dish is still a relief from one photo.</span></p>
+  </header>
+
+  <ol class="looks">
+    <li class="look" data-look="album-side">
+      <figure class="still"><img src="img/album-side.webp" width="390" height="844" alt="תפריט לדוגמה במראה צד א׳: שולחן בטון אפור, מנורה אחת, מנה ראשונה מסומנת A1 · the Olea demo in the Album Side look: a grey concrete table under one bulb, the first dish labelled A1" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>בית קפה · האזנה</bdi> · <bdi lang="en" dir="ltr" class="en">Café · Listening</bdi></p>
+      <h2 class="name"><span class="he">צד א׳</span><span class="en" lang="en" dir="ltr">Album Side</span></h2>
+      <p class="place">בית קפה של תקליטים: בטון, נורה חמה אחת, והמנות ממוספרות כמו רצועות. <span lang="en" dir="ltr">A listening café: concrete, one warm bulb, the dishes numbered like tracks.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=album-side">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+    <li class="look" data-look="casablanca-white">
+      <figure class="still"><img src="img/casablanca-white.webp" width="390" height="844" alt="תפריט לדוגמה במראה לבן קזבלנקה: שיש מסויד בהיר, כרטיס בהיר עם פס אריחים · the Olea demo in the Casablanca White look: whitewashed pale marble, a light card with a tile stripe" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>מטבח ישראלי · אור לבנטיני</bdi> · <bdi lang="en" dir="ltr" class="en">Israeli kitchen · Levantine light</bdi></p>
+      <h2 class="name"><span class="he">לבן קזבלנקה</span><span class="en" lang="en" dir="ltr">Casablanca White</span></h2>
+      <p class="place">סיד, שיש מט ואור יום רחב; כרטיס בהיר עם פס אריחים דק. <span lang="en" dir="ltr">Whitewash, matte marble and wide daylight; a light card with a thin tile stripe.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=casablanca-white">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+    <li class="look" data-look="counter-shout">
+      <figure class="still"><img src="img/counter-shout.webp" width="390" height="844" alt="תפריט לדוגמה במראה צעקה מהדלפק: דלפק נירוסטה מואר, שם המנה על פתק נייר · the Olea demo in the Counter Shout look: a bright steel counter, the dish's name on a paper ticket" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>מטבח ישראלי · דלפק פיתות</bdi> · <bdi lang="en" dir="ltr" class="en">Israeli kitchen · Pita counter</bdi></p>
+      <h2 class="name"><span class="he">צעקה מהדלפק</span><span class="en" lang="en" dir="ltr">Counter Shout</span></h2>
+      <p class="place">דלפק נירוסטה, אור בהיר, והשם של המנה על פתק מהמדפסת. <span lang="en" dir="ltr">A steel counter, bright light, and the dish's name on a ticket from the printer.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=counter-shout">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+    <li class="look" data-look="back-door">
+      <figure class="still"><img src="img/back-door.webp" width="390" height="844" alt="תפריט לדוגמה במראה הדלת האחורית: שולחן אגוז כהה, מנורה ענברית נמוכה, קו ענבר דק בראש הכרטיס · the Olea demo in the Back Door look: a dark walnut table, a very low amber lamp, a thin amber line at the top of the card" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>בר · בר מלון נסתר</bdi> · <bdi lang="en" dir="ltr" class="en">Bar · Hidden hotel bar</bdi></p>
+      <h2 class="name"><span class="he">הדלת האחורית</span><span class="en" lang="en" dir="ltr">Back Door</span></h2>
+      <p class="place">בר נסתר: אגוז כהה, מנורה ענברית נמוכה מאוד, וסדק אור בראש הכרטיס. <span lang="en" dir="ltr">A hidden bar: dark walnut, a very low amber lamp, a crack of light at the top of the card.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=back-door">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+    <li class="look" data-look="flea-living-room">
+      <figure class="still"><img src="img/flea-living-room.webp" width="390" height="844" alt="תפריט לדוגמה במראה סלון פשפשים: שולחן אלון חם באור אחר הצהריים, קצה שטיח אדום דהוי בראש הכרטיס · the Olea demo in the Flea Living Room look: warm oak in afternoon light, the edge of a faded red rug at the top of the card" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>בית קפה · סלון בוהו</bdi> · <bdi lang="en" dir="ltr" class="en">Café · Boho living room</bdi></p>
+      <h2 class="name"><span class="he">סלון פשפשים</span><span class="en" lang="en" dir="ltr">Flea Living Room</span></h2>
+      <p class="place">סלון של בית קפה בשוק: אלון שחוק, אור חלון של אחר הצהריים, וקצה של שטיח אדום דהוי. <span lang="en" dir="ltr">A flea-market café's living room: worn oak, afternoon window light, the edge of a faded red rug.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=flea-living-room">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+    <li class="look" data-look="leaf-shadow">
+      <figure class="still"><img src="img/leaf-shadow.webp" width="390" height="844" alt="תפריט לדוגמה במראה צל עלה: צפחה שחורה, צללי עלים אלכסוניים על הכרטיס · the Olea demo in the Leaf Shadow look: black slate, diagonal leaf shadows across the card" loading="lazy" decoding="async"></figure>
+      <p class="cat"><bdi>אסייתי · אסיה־תיכוני</bdi> · <bdi lang="en" dir="ltr" class="en">Asian · Asia-terranean</bdi></p>
+      <h2 class="name"><span class="he">צל עלה</span><span class="en" lang="en" dir="ltr">Leaf Shadow</span></h2>
+      <p class="place">צפחה שחורה, מנורות בצורת עלה, וצל של עלה שנופל על הכרטיס. <span lang="en" dir="ltr">Black slate, leaf-shaped lamps, and a leaf's shadow lying across the card.</span></p>
+      <a class="try" href="../?demo=olea&amp;template=leaf-shadow">לנסות · <bdi lang="en" dir="ltr">try it</bdi></a>
+    </li>
+  </ol>
+
+  <p class="note">המראות נקראים כך עד שלכל אחד תהיה טקסטורה וטיפוגרפיה משלו. <span lang="en" dir="ltr">They are called looks until each has its own texture and type.</span></p>
+  <p class="ai"><span>מנות לדוגמה · נוצרו בבינה מלאכותית</span><span lang="en" dir="ltr">Demo dishes · made with AI</span></p>
+</main>
+</body>
+</html>

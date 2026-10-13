@@ -37,7 +37,7 @@ test('1 · start: one screen, one "Continue" that makes the account and signs in
   await page.locator('input[name=email]').fill('not-an-email');
   await page.locator('input[name=password]').fill('short');
   await page.locator('form button[type=submit]').click();
-  await page.getByText('כתובת האימייל לא נראית תקינה').waitFor();
+  await page.getByText('בכתובת חסר @.').waitFor();                         // the one thing wrong with the address is named
   await page.locator('input[name=email]').fill(email);
   await page.locator('form button[type=submit]').click();
   await page.getByText('לחשבון חדש צריך סיסמה של 8 תווים לפחות').waitFor({ timeout: 15000 });
@@ -80,17 +80,21 @@ test('2 · the place: one field, kind chips, a suggested permanent address check
   assert.equal(await page.locator('.shell').getAttribute('data-mode'), 'path');
   assert.deepEqual(await page.locator('.pathbar li').evaluateAll((els) => els.map((e) => e.getAttribute('data-step') + ':' + e.getAttribute('data-step-state'))), ['menu:current', 'pictures:todo', 'publish:todo']);
   assert.equal(await page.locator('.nav').count(), 0);
-  assert.deepEqual(await page.locator('[data-way]').evaluateAll((els) => els.map((e) => e.getAttribute('data-way'))), ['scan', 'paste', 'type']);
+  assert.deepEqual(await page.locator('[data-way]').evaluateAll((els) => els.map((e) => e.getAttribute('data-way'))), ['scan', 'type'], 'two ways: paste left the first screen (13 Oct 2026)');
   assert.match(await page.locator('[data-way=scan]').innerText(), /הכי מהיר/);
   noProblems();
 });
 
 test('3 · scan a photographed menu: dishes appear while the page is read; rows are corrected in place; "Add" writes them', async () => {
   await stackConfig({ ai: { delayMs: 140 } });
-  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-way=scan]').click()]);
+  await page.locator('[data-way=scan]').click();
+  await page.locator('[data-scan=pick]').waitFor();                          // one screen: the photo is chosen on the scan screen itself, no sheet over the menu
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'no sheet');
+  const [fc] = await Promise.all([page.waitForEvent('filechooser'), page.locator('[data-scan-pick=gallery]').click()]);
   assert.equal(fc.isMultiple(), true, 'several pages may be chosen');
   await fc.setFiles(await menuPhoto());
   await page.locator('[data-scan=reading]').waitFor({ timeout: 20000 });
+  await page.locator('[data-scan-photo] .scan-photo-img').waitFor();            // the photographed page is on the same screen as its rows
   const seen = new Set();
   for (let i = 0; i < 200 && (await page.locator('[data-scan=reading]').count()); i++) { seen.add(await page.locator('[data-scan]').getAttribute('data-scan-count')); await page.waitForTimeout(60); }
   assert.ok(seen.size >= 5, 'the count moved while the page was being read: ' + [...seen].join(','));

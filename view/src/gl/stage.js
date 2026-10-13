@@ -460,7 +460,8 @@ export function createStage(opts) {
     const env = S.swayK, live = env > 0 || swayT > 0;
     const kf = ease(dt, 5);
     for (let k = 0; k < 2; k++) { S.tilt[k] += (S.tiltT[k] - S.tilt[k]) * kf; S.ptr[k] += (S.ptrT[k] - S.ptr[k]) * kf; if (Math.abs(S.tiltT[k] - S.tilt[k]) + Math.abs(S.ptrT[k] - S.ptr[k]) > .002) moving = true; }
-    const yaw = reduce ? 0 : Math.sin(t * .52) * .06 * env + S.tilt[0] * .13 + S.ptr[0] * -.075, pitch = reduce ? 0 : Math.sin(t * .37 + 1) * .7 * env + S.tilt[1] * 3 + S.ptr[1] * 1.6;
+    /* night:page */ const swayK = env * (opts.sway == null ? 1 : opts.sway);      /* hero mode asks for a smaller rest sway (≤ 2°); a guest's menu keeps its own */ /* /night:page */
+    const yaw = reduce ? 0 : Math.sin(t * .52) * .06 * swayK + S.tilt[0] * .13 + S.ptr[0] * -.075, pitch = reduce ? 0 : Math.sin(t * .37 + 1) * .7 * swayK + S.tilt[1] * 3 + S.ptr[1] * 1.6;
     if (live) moving = moving || 'slow';
     const L = S.lens; L.W = F.W; L.H = F.H; L.D = S.D.x; L.fov = S.fov.x;
     const look = [fx, S.lookY.x, fz], cam = cameraFor(L, look, S.E.x + pitch, S.zoom.x, yaw, F.cx, S.cy.x), base = cameraFor(L, look, S.E.x, S.zoom.x, 0, F.cx, S.cy.x);

@@ -11,7 +11,8 @@ export function ensureTestMedia() {
   mkdirSync(MEDIA, { recursive: true });
   const ff = (args) => execFileSync('/usr/bin/ffmpeg', ['-v', 'error', '-y', ...args]);
   const a = join(ROOT, 'tools', 'film', 'placeholders', 'guest-shakshuka.jpg'), b = join(ROOT, 'tools', 'film', 'placeholders', 'guest-margherita.jpg');
-  if (!existsSync(join(MEDIA, 'hero.webm'))) ff(['-loop', '1', '-t', '2', '-i', a, '-loop', '1', '-t', '2', '-i', b, '-filter_complex',
+  const stills = existsSync(a) && existsSync(b);      // the film's placeholder stills are not in git: without them two plain test pictures stand in
+  if (!existsSync(join(MEDIA, 'hero.webm'))) ff([...(stills ? ['-loop', '1', '-t', '2', '-i', a, '-loop', '1', '-t', '2', '-i', b] : ['-f', 'lavfi', '-i', 'testsrc2=size=390x844:rate=30:duration=2', '-f', 'lavfi', '-i', 'color=c=0x15110d:size=390x844:rate=30:duration=2']), '-filter_complex',
     '[0:v]scale=390:844,setsar=1[a];[1:v]scale=390:844,setsar=1[b];[a][b]xfade=transition=slideup:duration=1:offset=1,format=yuv420p[v]', '-map', '[v]', '-r', '30', '-c:v', 'libvpx', '-b:v', '600k', '-an', join(MEDIA, 'hero.webm')]);
   if (!existsSync(join(MEDIA, 'hero.mp4'))) ff(['-i', join(MEDIA, 'hero.webm'), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an', join(MEDIA, 'hero.mp4')]);
   for (const [f, size] of [['film-16x9.mp4', '640x360'], ['film-9x16.mp4', '360x640']]) if (!existsSync(join(MEDIA, f)))

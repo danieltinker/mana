@@ -1,17 +1,18 @@
 <!doctype html>
-<html lang="he" dir="rtl" data-title-he="מדריך הצילום של מנה · תמונה אחת לכל מנה" data-title-en="The Mana photo guide · one photo per dish" data-desc-he="איך לצלם מנה כדי שהתבליט התלת־ממדי ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה." data-desc-en="How to photograph a dish so the 3D relief comes out well: angle, background, light, and what to do when a photo does not work.">
+<html lang="he" dir="rtl" data-title-he="מדריך הצילום של מנה · תמונה אחת לכל מנה" data-title-en="The Mana photo guide · one photo per dish" data-desc-he="איך לצלם מנה כדי שהתבליט ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה." data-desc-en="How to photograph a dish so the relief comes out well: angle, background, light, and what to do when a photo does not work.">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>מדריך הצילום של מנה · תמונה אחת לכל מנה</title>
-<meta name="description" content="איך לצלם מנה כדי שהתבליט התלת־ממדי ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.">
+<meta name="description" content="איך לצלם מנה כדי שהתבליט ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.">
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#FCF8F6">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="מדריך הצילום של מנה · תמונה אחת לכל מנה">
-<meta property="og:description" content="איך לצלם מנה כדי שהתבליט התלת־ממדי ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.">
+<meta property="og:description" content="איך לצלם מנה כדי שהתבליט ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.">
 <meta property="og:url" content="https://halom.io/mana/guide/">
 <meta property="og:image" content="https://halom.io/mana/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -23,24 +24,27 @@
 <link rel="icon" href="../img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="../img/favicon-180.png">
 <link rel="preload" href="../fonts/frank-ruhl-libre-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../tokens.css">
 <link rel="stylesheet" href="../mana.css">
 <script>/* language before first paint: ?lang=, then the last choice, then Hebrew */
 (function(){try{var l=new URLSearchParams(location.search).get('lang')||localStorage.getItem('mana-lang');if(l==='en'){document.documentElement.lang='en';document.documentElement.dir='ltr';}}catch(e){}})();</script>
 </head>
 <body>
 <a class="skip" href="#main"><span class="he" lang="he">דילוג לתוכן</span><span class="en" lang="en">Skip to content</span></a>
-<header class="wrap top">
-  <a class="brand" href="../" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="40" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#0F0F0F" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
-  <div class="top-tools">
-    <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
-    <a class="btn btn-sm" href="../studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+<header class="top">
+  <div class="pill">
+    <a class="brand" href="../" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="36" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
+    <div class="top-tools">
+      <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
+      <a class="btn btn-sm" href="../studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+    </div>
   </div>
 </header>
 <main id="main" class="wrap doc-main">
   <article class="guide">
     <p class="back"><a href="../"><span class="he" lang="he">→ לעמוד של מנה</span><span class="en" lang="en">← Back to Mana</span></a></p>
     <h1><span class="he" lang="he">מדריך הצילום: תמונה אחת לכל מנה</span><span class="en" lang="en">The photo guide: one photo per dish</span></h1>
-    <p class="he lead" lang="he">מנה בונה תבליט תלת־ממדי מתמונה אחת של כל מנה. ככל שהתמונה ברורה יותר, התוצאה טובה יותר. חמש דקות עם הדף הזה חוסכות צילום חוזר.</p><p class="en lead" lang="en">Mana builds a 3D relief from one photo of each dish. The clearer the photo, the better the result. Five minutes with this page saves a reshoot.</p>
+    <p class="he lead" lang="he">מנה בונה תבליט מתמונה אחת של כל מנה. ככל שהתמונה ברורה יותר, התוצאה טובה יותר. חמש דקות עם הדף הזה חוסכות צילום חוזר.</p><p class="en lead" lang="en">Mana builds a relief from one photo of each dish. The clearer the photo, the better the result. Five minutes with this page saves a reshoot.</p>
     <p class="no-print" style="margin-top:18px"><button class="btn btn-sm" type="button" onclick="window.print()"><span class="he" lang="he">להדפיס את המדריך</span><span class="en" lang="en">Print this guide</span></button></p>
 
     <h2><span class="he" lang="he">שבעה כללים</span><span class="en" lang="en">Seven rules</span></h2>

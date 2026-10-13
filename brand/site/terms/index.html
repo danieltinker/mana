@@ -9,6 +9,7 @@
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#FCF8F6">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="תנאי שימוש · מנה מבית Halom">
@@ -24,17 +25,20 @@
 <link rel="icon" href="../img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="../img/favicon-180.png">
 <link rel="preload" href="../fonts/frank-ruhl-libre-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../tokens.css">
 <link rel="stylesheet" href="../mana.css">
 <script>/* language before first paint: ?lang=, then the last choice, then Hebrew */
 (function(){try{var l=new URLSearchParams(location.search).get('lang')||localStorage.getItem('mana-lang');if(l==='en'){document.documentElement.lang='en';document.documentElement.dir='ltr';}}catch(e){}})();</script>
 </head>
 <body>
 <a class="skip" href="#main"><span class="he" lang="he">דילוג לתוכן</span><span class="en" lang="en">Skip to content</span></a>
-<header class="wrap top">
-  <a class="brand" href="../" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="40" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#0F0F0F" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
-  <div class="top-tools">
-    <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
-    <a class="btn btn-sm" href="../studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+<header class="top">
+  <div class="pill">
+    <a class="brand" href="../" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="36" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
+    <div class="top-tools">
+      <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
+      <a class="btn btn-sm" href="../studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+    </div>
   </div>
 </header>
 <main id="main" class="wrap doc-main">

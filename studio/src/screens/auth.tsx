@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { PRODUCT } from '../product.ts';
 import { cfg, sb, signUp, toAppError, sibling, ownAddress } from '../lib/api.ts';
 import { t, errText } from '../lib/i18n.ts';
+import { cleanEmail, emailProblem } from '../lib/email.ts';
 import { Btn, Field, Note, Icon } from '../ui.tsx';
-import { Brand, LangToggle, Flow, ProviderMark } from '../brand.tsx';
+import { Brand, LangToggle, DishRise, ProviderMark } from '../brand.tsx';
 
-const SIGNUP_CODES = ['invalid_email', 'weak_password', 'rate_limited', 'spam'];
+const SIGNUP_CODES = ['invalid_email', 'email_rejected', 'weak_password', 'rate_limited', 'spam'];
 
 export function StartScreen({ notice }: { notice?: string }) {
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [hp, setHp] = useState('');
@@ -30,9 +31,12 @@ export function StartScreen({ notice }: { notice?: string }) {
   async function submit(e: Event) {
     e.preventDefault();
     if (busy) return;
-    const mail = email.trim();
+    // the address as the service will read it: no stray marks, no trailing full stop, lower case; the field shows the same
+    const mail = cleanEmail(email);
+    if (mail !== email) setEmail(mail);
     setForgot(false);
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) { setError(t('auth.e.invalid_email')); emailRef.current?.focus(); return; }
+    const problem = emailProblem(mail);
+    if (problem) { setError(t('auth.e.email.' + problem)); emailRef.current?.focus(); return; }
     if (!password) { setError(t('auth.e.no_password')); pwRef.current?.focus(); return; }
     setBusy('mail'); setError('');
     try {
@@ -61,7 +65,7 @@ export function StartScreen({ notice }: { notice?: string }) {
       <main class="start-main" id="main">
         <p class="start-brand"><Brand big /></p>
         <h1 class="start-line">{t('auth.title')}</h1>
-        <Flow />
+        <DishRise />
 
         {providers.length > 0 && <>
           <div class="providers">

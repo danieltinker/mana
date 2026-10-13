@@ -10,3 +10,14 @@ test-results/
 studio/test/stack/fake-gen/models/*.bin
 _site/
 ops/test/shots/
+# local test machinery and screenshots: never on a public branch
+studio/test/.stack/
+view/.shots/
+brand/.shots-raw/
+**/.shots*/
+*.pgdata/
+brand/.scratch/
+# the guest menu's build output: made by `cd view && npm run build` (CI builds it in tools/build-site.sh)
+view/app.js
+view/seat.js
+view/chunks/

@@ -22,12 +22,14 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ ok: false, code: "method" }, 405);
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ ok: false, code: "invalid_email" }); }
-  const email = String(body.email ?? "").trim().toLowerCase();
+  // the same cleaning as the app (studio/src/lib/email.ts): invisible marks from a phone keyboard, a full-width @, a trailing full stop
+  const email = String(body.email ?? "").replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, "").replace(/\uFF20/g, "@").replace(/[\uFF0E\u3002]/g, ".")
+    .trim().replace(/\.+$/, "").toLowerCase();
   const password = String(body.password ?? "");
   const hp = String(body.hp ?? "");
   const elapsed = Number(body.elapsed_ms ?? 0);
   if (hp !== "" || (elapsed > 0 && elapsed < 1500)) return json({ ok: false, code: "spam" });
-  if (email.length > 200 || !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) return json({ ok: false, code: "invalid_email" });
+  if (email.length > 200 || !/^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/.test(email)) return json({ ok: false, code: "invalid_email" });
   if (password.length < 8 || password.length > 72) return json({ ok: false, code: "weak_password" });
 
   const url = Deno.env.get("SUPABASE_URL")!;
@@ -49,6 +51,10 @@ Deno.serve(async (req: Request) => {
     const msg = String(error.message ?? "").toLowerCase();
     if (msg.includes("already") || msg.includes("registered") || msg.includes("exists")) return json({ ok: false, code: "exists" });
     if (msg.includes("password")) return json({ ok: false, code: "weak_password" });
+    // Auth refused the address itself: its domain (DNS / MX / a blocked list, "email_address_invalid") or its shape
+    // ("Unable to validate email address: invalid format"). The owner must hear which, not "failed".
+    if (String((error as { code?: string }).code ?? "") === "email_address_invalid" || /email address .* is invalid/.test(msg)) return json({ ok: false, code: "email_rejected" });
+    if (msg.includes("validate email")) return json({ ok: false, code: "invalid_email" });
     console.error("createUser failed", error.status, error.message);
     return json({ ok: false, code: "failed" });
   }
