@@ -246,7 +246,7 @@ export function startGateway({ port, restPort, authPort, dbUrl, jwtSecret, servi
     if (hits.length >= state.signupPerHour) return send(res, 200, { ok: false, code: 'rate_limited' });
     hits.push(now); signupHits.set(ip, hits);
     // the same cleaning as functions/menus-signup/index.ts
-    const email = String(b.email || '').replace(/[​-‏‪-‮⁠-⁤﻿­]/g, '').replace(/＠/g, '@').replace(/[．。]/g, '.').trim().replace(/\.+$/, '').toLowerCase();
+    const email = String(b.email || '').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, '').replace(/\uFF20/g, '@').replace(/[\uFF0E\u3002]/g, '.').trim().replace(/\.+$/, '').toLowerCase();
     const password = String(b.password || '');
     if (String(b.hp || '') !== '' || (typeof b.elapsed_ms === 'number' && b.elapsed_ms < state.signupMinElapsed)) return send(res, 200, { ok: false, code: 'spam' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/.test(email) || email.length > 200) return send(res, 200, { ok: false, code: 'invalid_email' });

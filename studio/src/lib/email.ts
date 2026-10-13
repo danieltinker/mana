@@ -2,13 +2,13 @@
 // The service (Supabase Auth) parses the address strictly: a trailing full stop, an invisible mark from a Hebrew keyboard
 // (U+200F) or a full-width @ all pass a loose regex and are then refused as "invalid format". So the app cleans first and
 // names the problem instead of saying "does not look right".
-const INVISIBLE = /[​-‏‪-‮⁠-⁤﻿­]/g;              // zero-width, bidi marks, joiners, BOM, soft hyphen
-const ODD_SPACE = /[   -   　]/g;                        // no-break and typographic spaces
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g;              // zero-width, bidi marks, joiners, BOM, soft hyphen
+const ODD_SPACE = /[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g;                        // no-break and typographic spaces
 
 export function cleanEmail(raw: string): string {
   return String(raw || '')
     .replace(INVISIBLE, '').replace(ODD_SPACE, ' ')
-    .replace(/＠/g, '@').replace(/[．。]/g, '.')                                // full-width @ and full stops
+    .replace(/\uFF20/g, '@').replace(/[\uFF0E\u3002]/g, '.')                                // full-width @ and full stops
     .trim().replace(/\.+$/, '')                                                               // "example.ai." (a phone's full stop)
     .toLowerCase();
 }

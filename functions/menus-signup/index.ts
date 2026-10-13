@@ -23,7 +23,7 @@ Deno.serve(async (req: Request) => {
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return json({ ok: false, code: "invalid_email" }); }
   // the same cleaning as the app (studio/src/lib/email.ts): invisible marks from a phone keyboard, a full-width @, a trailing full stop
-  const email = String(body.email ?? "").replace(/[​-‏‪-‮⁠-⁤﻿­]/g, "").replace(/＠/g, "@").replace(/[．。]/g, ".")
+  const email = String(body.email ?? "").replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u00AD]/g, "").replace(/\uFF20/g, "@").replace(/[\uFF0E\u3002]/g, ".")
     .trim().replace(/\.+$/, "").toLowerCase();
   const password = String(body.password ?? "");
   const hp = String(body.hp ?? "");
