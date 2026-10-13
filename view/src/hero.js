@@ -82,7 +82,7 @@ export function start(env) {
   }
 
   /* ---- the sequence ---- */
-  function fallback() { if (phase === 'poster') return; running = false; clearTimeout(timer); ring.style.opacity = '0'; lamp.style.opacity = '0'; app.style.setProperty('--hero-gl', '0'); poster.style.opacity = '1'; setPhase('poster'); }
+  function fallback() { if (phase === 'poster') return; running = false; mark('menu-hero-fallback'); clearTimeout(timer); ring.style.opacity = '0'; lamp.style.opacity = '0'; app.style.setProperty('--hero-gl', '0'); poster.style.opacity = '1'; setPhase('poster'); }
   function run() {
     mark('menu-hero-rise'); setPhase('rise'); const t0 = performance.now(); let lifted = false, rung = false;
     if (reduce) { app.style.setProperty('--hero-gl', '1'); poster.style.opacity = '0'; api.lift(true); setTimeout(() => { ringAt(hero()); ring.setAttribute('stroke-dasharray', 'none'); ring.style.opacity = String(RING_REST); ringOn = 1; mark('menu-hero-rest'); setPhase('rest'); }, 60); return; }
