@@ -148,7 +148,7 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   const r = await o.page.evaluate(() => ({ eyebrow: document.querySelector('.eyebrow').innerText.trim(), h1: document.querySelector('h1').innerText.trim(), lead: document.querySelector('.hero .lead').innerText.trim(),
     stills: [...document.querySelectorAll('.stills img')].map((i) => i.getAttribute('src')), first: (() => { const i = document.querySelector('.stills img'); return i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity > 0; })(),
     names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.lev .lv[data-depth] img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
-  assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.');
+  assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב: אתר, רילסים ומפת ישיבה.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
   assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 12); assert.deepEqual(r.host, ['relative', 0]);
   await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 25000 });
@@ -221,7 +221,7 @@ await check('one story: three chapters in reading order on glass, the menu marke
     assert.deepEqual(r.ch.map((c) => c.chip), he ? ['היום', 'בקרוב', 'בקרוב'] : ['Today', 'Coming', 'Coming']);
     const xs = r.ch.map((c) => c.x); assert.ok(he ? xs[0] > xs[1] && xs[1] > xs[2] : xs[0] < xs[1] && xs[1] < xs[2], lang + ' order: ' + xs);
     assert.equal(r.flag, scan ? '1' : null); assert.ok(!/סורקים את התפריט|scan your printed menu/i.test(r.all), 'the scanner is named');
-    assert.match(r.foot, he ? /^מתחילים היום בתפריט\./ : /^Start with the menu today\./);
+    assert.equal(r.foot, he ? 'מתחילים היום בתפריט. כל השאר מצטרף לחבילות כשהוא מוכן.' : 'Start with the menu today. Everything else joins the plans as it is ready.');
     if (!scan) await o.page.locator('#how').screenshot({ path: join(RAW, `story-1440-${lang}.png`) });
     await o.ctx.close(); s2.server.close();
   }
@@ -375,7 +375,11 @@ await check('plans: the early-access offer (no number, no deadline, no discount 
     assert.deepEqual(r.plans.map((p) => [p.name, p.n, p.btn, p.price, p.glass]), he ? [['תפריט', 'עד 50 מנות', 'בוחרים ב״תפריט״', false, true], ['מקום', 'עד 100 מנות', 'בוחרים ב״מקום״', false, true], ['חלום', 'מנות ללא הגבלה', 'בוחרים ב״חלום״', false, true]]
       : [['Menu', 'Up to 50 dishes', 'Choose Menu', false, true], ['Place', 'Up to 100 dishes', 'Choose Place', false, true], ['Dream', 'Unlimited dishes', 'Choose Dream', false, true]]);
     assert.ok(r.plans.every((p) => p.for && p.today >= 1 && p.soon >= 1 && p.soonH === (he ? 'בקרוב' : 'Coming')), 'a plan lacks its line, today or coming: ' + JSON.stringify(r.plans));
+    const lists = await o.page.evaluate(() => [...document.querySelectorAll('#plans .plan')].map((p) => ['.plan-group:not(.soon) li', '.plan-group.soon li'].map((q) => [...p.querySelectorAll(q)].map((l) => l.innerText.trim()))));
+    assert.ok(lists[0][0].includes(he ? 'חדרים למשקאות ולקינוחים: מרתף יין, ברזי בירה, בר קוקטיילים וויטרינה' : 'Rooms for drinks and desserts: a wine cellar, beer taps, a cocktail bar and a vitrine'), 'the rooms are not in Menu, included today');
+    assert.ok(!lists.flat(2).some((x) => /חדרי משקאות|Drink rooms/.test(x)), 'the drink rooms are still listed as coming');
     assert.equal(r.free, he ? 'בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.' : 'Every plan: the first 30 days free, no card.'); assert.ok(!/פיילוט|pilot|₪|\$|%/i.test(r.text), 'the plans say pilot or show a price');
+    assert.ok(!/באותה חבילה|לאותה חבילה|same package/i.test(await o.page.evaluate(() => document.body.innerText + document.querySelector('meta[name="description"]').content + document.documentElement.getAttribute('data-desc-he') + document.documentElement.getAttribute('data-desc-en'))), '"the same package" is still said somewhere');
     await o.page.locator('#plans').screenshot({ path: join(RAW, `plans-1440-${lang}.png`) }); await o.ctx.close();
   }
   /* the buttons and the form (the stub's leads function; the preview build's form stays off) */

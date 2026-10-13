@@ -272,7 +272,7 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
     <div class="hero-words">
       <p class="eyebrow">${t('מָנָה · כוח החיים שבאוכל', 'Mana · the life force in food')}</p>
       <h1 id="hero-h">${t('רואים את <em>המנה</em> לפני שמזמינים.', 'See <em>the dish</em> before you order.')}</h1>
-      ${p('תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.', 'A QR menu that shows your dishes on the table. Coming to the same package: a website, reels and a seat map.', 'lead')}
+      ${p('תפריט QR שמראה את המנות שלכם על השולחן. בקרוב: אתר, רילסים ומפת ישיבה.', 'A QR menu that shows your dishes on the table. Coming: a website, reels and a seat map.', 'lead')}
       <div class="cta">
         <a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
         <a class="btn btn-glass btn-lg" ${DEMO} data-demo-open>${ico.play}${t('לנסות את ההדגמה', 'Try the demo')}</a>
@@ -325,7 +325,7 @@ const how = () => `<section class="sec story" id="how" aria-labelledby="how-h" d
         ${p(ph, pe, 'ch-p')}
       </li>`).join('\n      ')}
     </ol>
-    ${p('מתחילים היום בתפריט. כל השאר מצטרף לאותה חבילה, כשהוא מוכן.', 'Start with the menu today. Everything else joins the same package as it is ready.', 'story-foot center')}
+    ${p('מתחילים היום בתפריט. כל השאר מצטרף לחבילות כשהוא מוכן.', 'Start with the menu today. Everything else joins the plans as it is ready.', 'story-foot center')}
     <p class="ai-tag center">${AI_DISHES()}</p>
   </div>
 </section>`;
@@ -423,11 +423,11 @@ const reels = () => `<section class="sec reels" id="reels" aria-labelledby="reel
    EARLY only (while null the words stay general). */
 const PLANS = [
   ['menu', 'pMenu', 'תפריט', 'Menu', 'התפריט החי, מוכן לשולחן.', 'The living menu, ready for the table.', 'עד 50 מנות', 'Up to 50 dishes',
-    [['תבליט מכל תמונה, ואיור עד שיש תמונה', 'A relief from every photo, an illustration until there is one'], ['עברית ואנגלית', 'Hebrew and English'], ['״אזל״ בנגיעה אחת', 'Sold out in one tap'], ['״השולחן שלי״ לסועדים', '“My table” for guests'], ['נתונים כל שבוע, בלי עוגיות', 'Insights every week, no cookies'], ['אפליקציה לבעלים', 'The owner app'], ['קוד QR להדפסה שלא משתנה', 'A printable QR that never changes'], ['אנחנו מקימים איתכם: מעבירים את התפריט ומכוונים לצילום', 'We set it up with you: we bring your menu in and guide your photos']],
+    [['תבליט מכל תמונה, ואיור עד שיש תמונה', 'A relief from every photo, an illustration until there is one'], ['עברית ואנגלית', 'Hebrew and English'], ['״אזל״ בנגיעה אחת', 'Sold out in one tap'], ['״השולחן שלי״ לסועדים', '“My table” for guests'], ['נתונים כל שבוע, בלי עוגיות', 'Insights every week, no cookies'], ['אפליקציה לבעלים', 'The owner app'], ['קוד QR להדפסה שלא משתנה', 'A printable QR that never changes'], ['חדרים למשקאות ולקינוחים: מרתף יין, ברזי בירה, בר קוקטיילים וויטרינה', 'Rooms for drinks and desserts: a wine cellar, beer taps, a cocktail bar and a vitrine'], ['אנחנו מקימים איתכם: מעבירים את התפריט ומכוונים לצילום', 'We set it up with you: we bring your menu in and guide your photos']],
     [['מראות לבחירה', 'Looks to choose from']]],
   ['place', 'pPlace', 'מקום', 'Place', 'כל המקום, לא רק התפריט.', 'The whole place, not just the menu.', 'עד 100 מנות', 'Up to 100 dishes',
     [['כל מה שב״תפריט״', 'Everything in Menu']],
-    [['המקום שלכם בתלת־ממד, מהתמונות שלכם', 'Your place in 3D, from your photos'], ['בקשות ישיבה מהסועדים', 'Seat requests from guests'], ['שעון לכל שולחן והתראות למנהל', 'A clock on every table, alerts for the manager'], ['צפצוף ״ההזמנה מוכנה״ לשירות עצמי', 'An “order ready” beep for self-service'], ['חדרי משקאות: יין, בירה, קוקטיילים', 'Drink rooms: wine, beer, cocktails']]],
+    [['המקום שלכם בתלת־ממד, מהתמונות שלכם', 'Your place in 3D, from your photos'], ['בקשות ישיבה מהסועדים', 'Seat requests from guests'], ['שעון לכל שולחן והתראות למנהל', 'A clock on every table, alerts for the manager'], ['צפצוף ״ההזמנה מוכנה״ לשירות עצמי', 'An “order ready” beep for self-service']]],
   ['dream', 'pDream', 'חלום', 'Dream', 'המסעדה כמותג, מהשולחן ועד הרשתות.', 'Your restaurant as a brand, from the table to the feeds.', 'מנות ללא הגבלה', 'Unlimited dishes',
     [['כל מה שב״מקום״', 'Everything in Place'], ['סטודיו שעונה לכם ראשונים', 'A studio that answers you first']],
     [['הצעות על שולחנות בשעות העומס', 'Peak-time bids for a table'], ['אתר משלכם מהסטודיו של Halom', 'Your own site by the Halom studio'], ['קריאטיב לרשתות: רילסים ודמות מארחת למותג', 'Social creative: reels and a host for your brand'], ['מראה שנבנה למותג שלכם', 'A look designed for your brand']]]
@@ -541,8 +541,8 @@ export function renderLand(media = mediaFound(), opts = {}) {
   const preview = opts.preview != null ? !!opts.preview : PREVIEW;
   return head({
     titleHe: 'מנה · רואים את המנה לפני שמזמינים', titleEn: 'Mana · See the dish before you order',
-    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית Halom.',
-    descEn: 'A QR menu that shows your dishes on the table, in relief. Coming to the same package: a website, reels and a seat map. The first 30 days free, no card. By Halom.',
+    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בקרוב: אתר, רילסים ומפת ישיבה. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית Halom.',
+    descEn: 'A QR menu that shows your dishes on the table, in relief. Coming: a website, reels and a seat map. The first 30 days free, no card. By Halom.',
     config: true, styles: ['land.css'], theme: '#F7F4EE'
   }) + `
 <body class="land">
