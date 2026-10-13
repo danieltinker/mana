@@ -423,13 +423,14 @@ test('on a phone (touch): a dish\'s picture offers the camera or the gallery wit
   await page.locator(`.tile2[data-item="${biz.items[3].id}"][data-status=review]`).waitFor({ timeout: 60000 });
   await page.keyboard.press('Escape');
 
-  // the scanner: one sheet with the camera, the gallery, and the line about several pages
+  // the scanner: one screen with the camera, the gallery, and the line about several pages (no sheet over the menu)
   await page.goto(app('menu')); await page.locator('section.sec').first().waitFor();
   await tool(page, 'import', 'tap');
   await page.locator('[data-sheet=import] [data-way=scan]').tap();
-  const choose = page.locator('[data-sheet=scan-choose]');
+  const choose = page.locator('[data-scan=pick] [data-scan-pick]');
   await choose.waitFor();
-  assert.deepEqual(await choose.locator('.btn-txt').allInnerTexts(), ['צילום התפריט', 'בחירת תמונות']);
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'no sheet');
+  assert.deepEqual(await choose.locator('.btn-txt').allInnerTexts(), ['צילום התפריט', 'בחירת תמונות'], 'on a phone the camera comes first');
   assert.match(await choose.innerText(), /כמה עמודים\? בוחרים את כולם/);
   assert.deepEqual(await layoutProblems(page), [], 'scan chooser on a phone');
   assert.equal(await page.locator('input[data-scan-input=camera]').getAttribute('capture'), 'environment');

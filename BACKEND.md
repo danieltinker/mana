@@ -7,7 +7,10 @@ the truth. This page is the short version for front-end work.
 ## Sign-up and sign-in (pilot rules)
 - New account: `POST {url}/functions/v1/menus-signup` with headers `apikey: {key}`, `Content-Type: application/json`
   and body `{ "email", "password" (8–72 chars), "hp": "" (honeypot, must be empty), "elapsed_ms": <ms the form was open> }`
-  → `{ "ok": true }` or `{ "ok": false, "code": "invalid_email"|"weak_password"|"exists"|"rate_limited"|"spam"|"failed" }`.
+  → `{ "ok": true }` or `{ "ok": false, "code": "invalid_email"|"email_rejected"|"weak_password"|"exists"|"rate_limited"|"spam"|"failed" }`.
+  `email_rejected` (13 Oct 2026): Auth itself refused the address (`email_address_invalid`: its domain failed Auth's own
+  e-mail validation); `invalid_email` also covers Auth's "Unable to validate email address: invalid format". The function
+  strips invisible marks, a full-width `@` and a trailing full stop before checking, as the app does (`studio/src/lib/email.ts`).
   The account is usable at once (no confirmation e-mail: the project has no mail service yet; say nothing about
   "check your inbox"). Then sign in with supabase-js `auth.signInWithPassword({ email, password })`.
 - Password reset by e-mail does NOT work yet. Show "Forgot it? Message us on WhatsApp" (https://wa.me/972542022269).

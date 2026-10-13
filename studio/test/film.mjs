@@ -117,7 +117,7 @@ im.save(r'${pagePhoto}', quality=88)`]);
     await press(c, '[data-way=scan]');                                   // "Scan a photo of the menu"
     await c.frames(16);                                                  // the sheet: photograph it, or choose photos
     const chooser = page.waitForEvent('filechooser');
-    await press(c, '[data-sheet=scan-choose] .btn-primary');             // "Photograph the menu" (the camera itself cannot be filmed)
+    await press(c, '[data-scan-pick=camera]');                           // "Photograph the menu" (the camera itself cannot be filmed)
     const fc = await chooser;
     await stackConfig({ ai: { released: 2 } });                          // "start" and the printed language go out at once
     await fc.setFiles(pagePhoto);
