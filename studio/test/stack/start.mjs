@@ -48,7 +48,9 @@ async function waitFor(fn, what, ms = 30000) {
   throw new Error('timed out waiting for ' + what + (last ? ': ' + last.message : ''));
 }
 
-export async function startStack({ quiet = true, fresh = true, gen = 'real', providers = [] } = {}) {
+// extraSql (or STACK_EXTRA_SQL=1 / a comma list of file names): after db/00*.sql, load db/proposed/*.sql too, so the proposed
+// migrations are tested against the real schema before Daniel applies them; the app's config then says features.bookUrl.
+export async function startStack({ quiet = true, fresh = true, gen = 'real', providers = [], extraSql = process.env.STACK_EXTRA_SQL || '' } = {}) {
   const children = [];
   const logDir = path.join(STACK, 'logs');
   const pgdata = path.join(STACK, 'pgdata');
@@ -100,6 +102,11 @@ export async function startStack({ quiet = true, fresh = true, gen = 'real', pro
     psql(['-f', path.join(HERE, 'after-auth.sql')]);
     // the live schema, unchanged: every migration in order (0001_core, 0002_mana_v2, …)
     for (const f of fs.readdirSync(path.join(MENUS, 'db')).filter((n) => /^00\d+.*\.sql$/.test(n)).sort()) psql(['-f', path.join(MENUS, 'db', f)]);
+    if (extraSql) {
+      const want = String(extraSql) === '1' || extraSql === true ? null : String(extraSql).split(',').map((x) => x.trim()).filter(Boolean);
+      const dir = path.join(MENUS, 'db/proposed');
+      for (const f of fs.readdirSync(dir).filter((n) => /\.sql$/.test(n) && (!want || want.includes(n))).sort()) psql(['-f', path.join(dir, f)]);
+    }
     // the only local difference: public files are served by the local gateway, not by the hosted project
     psql(['-c', `update public.app_config set value = to_jsonb('${API_URL}/storage/v1/object/public/menu-public/'::text) where key = 'public_base'`]);
   }
@@ -114,7 +121,7 @@ export async function startStack({ quiet = true, fresh = true, gen = 'real', pro
   const gw = await startGateway({ port: PORTS.api, restPort: PORTS.rest, authPort: PORTS.auth, jwtSecret: JWT_SECRET, serviceKey: SERVICE_KEY, anonKey: ANON_KEY,
     dbUrl: `postgres://supabase_storage_admin:local@127.0.0.1:${PORTS.pg}/postgres`, dataDir: path.join(STACK, 'storage'), log: (...a) => { if (!quiet) console.error('[gateway]', ...a); } });
   const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ supabaseUrl: API_URL, supabaseKey: ANON_KEY, shortBase: 'https://halom.io/m/', shortLive: true,
-    viewPath: '../view/', genPath: gen === 'fake' ? '../gen-fake/' : '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers }, features: { scan: true } }, null, 2)};\n`;
+    viewPath: '../view/', genPath: gen === 'fake' ? '../gen-fake/' : '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers }, features: { scan: true, bookUrl: !!extraSql } }, null, 2)};\n`;
   const dir = (env, fallback) => (process.env[env] ? path.resolve(process.env[env]) : fallback);
   const web = await startStatic({ port: PORTS.web, prefix: PREFIX, virtual: { 'config.js': config }, mounts: {
     studio: dir('STACK_STUDIO', path.join(STUDIO, 'dist')), gen: dir('STACK_GEN', path.join(MENUS, 'gen')), 'gen-fake': path.join(HERE, 'fake-gen'),
@@ -132,6 +139,7 @@ export async function startStack({ quiet = true, fresh = true, gen = 'real', pro
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const t0 = Date.now();
   const s = await startStack({ quiet: false, fresh: !process.argv.includes('--keep'), gen: process.argv.includes('--fake-gen') ? 'fake' : 'real' });
+  if (process.env.STACK_EXTRA_SQL) console.log('  + db/proposed/*.sql loaded (STACK_EXTRA_SQL)');
   console.log(`stack up in ${((Date.now() - t0) / 1000).toFixed(1)} s\n  app      ${WEB_URL}studio/\n  viewer   ${WEB_URL}view/?m=<slug>\n  api      ${API_URL}  (rest/v1, auth/v1, storage/v1, functions/v1/menus-signup, functions/v1/menus-ai)\n  postgres ${DB_URL}\n  anon key ${ANON_KEY}\n  host     ${os.hostname()}`);
   const bye = async () => { await s.stop(); process.exit(0); };
   process.on('SIGINT', bye); process.on('SIGTERM', bye);

@@ -385,21 +385,24 @@ const scan = async (p, files) => {
   await p.locator('[data-ways] [data-way=scan], [data-tool=more]').first().waitFor({ timeout: 20000 });           // the menu screen is back
   const trigger = (await p.locator('[data-ways] [data-way=scan]').count()) ? p.locator('[data-ways] [data-way=scan]') : null;
   if (!trigger) { await tool(p, 'import'); }
-  const [fc] = await Promise.all([p.waitForEvent('filechooser'), (trigger || p.locator('[data-sheet=import] [data-way=scan]')).click()]);
+  await (trigger || p.locator('[data-sheet=import] [data-way=scan]')).click();
+  await p.locator('[data-scan=pick]').waitFor({ timeout: 15000 });
+  const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.locator('[data-scan-pick=gallery]').click()]);
   await fc.setFiles(files);
 };
 
-test('the scanner is not switched on: a calm sheet, paste or type instead; no picture leaves the browser', async () => {
+test('the scanner is not switched on: a calm screen, type instead; no picture leaves the browser', async () => {
   await stackConfig({ ai: 'reset' }); await stackConfig({ ai: { configured: false } });
   const { p } = await freshOwner();
   let chooser = false; p.on('filechooser', () => { chooser = true; });
   await p.locator('[data-way=scan]').click();
   await p.locator('[data-scan-off]').waitFor({ timeout: 15000 });
-  assert.equal(await p.locator('[data-scan-off]').innerText(), 'הסורק עוד לא הופעל. בינתיים אפשר להדביק רשימה או להקליד.');
+  assert.equal(await p.locator('[data-scan-off]').innerText(), 'הסורק עוד לא הופעל. בינתיים אפשר להקליד את התפריט.');
+  assert.equal(await p.locator('dialog[open]').count(), 0, 'on the scan screen itself, not a sheet over the menu');
   assert.equal(chooser, false, 'no file is asked for');
   await shot(p, '29-scan-off-he-390', { fullPage: false });
-  await p.locator('[data-sheet=scan-off]').getByRole('button', { name: 'הדבקת רשימה' }).click();
-  await p.locator('[data-sheet=paste]').waitFor();
+  await p.locator('[data-action=scan-type]').click();
+  await p.locator('[data-sheet=section]').waitFor();                                     // "type it": back on the menu, the first section is being named
   assert.deepEqual((await aiCalls()).map((c) => c.action), ['status'], 'status was asked once, and nothing else was sent');
   await p.context().close();
   await stackConfig({ ai: 'reset' });
@@ -414,9 +417,9 @@ test('every way a scan can fail gets one short sentence and one action', async (
     empty: ['לא מצאנו מנות בצילום הזה.', 'scan-again'], busy: ['הסורק עמוס כרגע. נסו שוב בעוד דקה.', 'scan-again'], timeout: ['זה לקח יותר מדי זמן. נסו עמוד אחד בכל פעם.', 'scan-again'],
     too_big: ['התמונה גדולה מדי. צלמו עמוד אחד בכל תמונה.', 'scan-again'],
     // our key, billing or permissions, or the model's API refusing: the owner is told the fault is ours, not the photo's
-    bad_key: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], upstream: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'],
-    failed: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], bad_request: ['הסורק לא ענה. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'],
-    limit_ai: ['מספיק סריקות להיום.', 'scan-paste'], not_configured: ['הסורק עוד לא הופעל. בינתיים אפשר להדביק רשימה או להקליד.', 'scan-paste'],
+    bad_key: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להקליד את התפריט.', 'scan-type'], upstream: ['הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להקליד את התפריט.', 'scan-type'],
+    failed: ['הסורק לא ענה. בינתיים אפשר להקליד את התפריט.', 'scan-type'], bad_request: ['הסורק לא ענה. בינתיים אפשר להקליד את התפריט.', 'scan-type'],
+    limit_ai: ['מספיק סריקות להיום.', 'scan-type'], not_configured: ['הסורק עוד לא הופעל. בינתיים אפשר להקליד את התפריט.', 'scan-type'],
   };
   for (const [code, [sentence, action]] of Object.entries(want)) {
     await stackConfig({ ai: { error: code } });
@@ -434,8 +437,8 @@ test('every way a scan can fail gets one short sentence and one action', async (
   await stackConfig({ ai: { error: 'bad_image' } });
   await scan(p, photo);
   await p.locator('[data-scan-error=upstream]').waitFor({ timeout: 20000 });
-  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.');
-  assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), 'scan-paste');
+  assert.equal(await p.locator('[data-scan-error] .strong').innerText(), 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להקליד את התפריט.');
+  assert.equal(await p.locator('[data-scan-error] [data-action]').getAttribute('data-action'), 'scan-type');
   await p.getByRole('button', { name: 'סגירה' }).click();
   await p.locator('[data-ways]').waitFor();
   await stackConfig({ ai: 'reset' });
@@ -460,7 +463,7 @@ test('every way a scan can fail gets one short sentence and one action', async (
   // the service's address answers with an HTTP error instead of the function: each one has its own sentence and action
   for (const [status, code, sentence, action] of [
     [401, 'signed_out', 'החיבור לחשבון פג. היכנסו שוב.', 'scan-signin'], [413, 'too_big', 'התמונה גדולה מדי. צלמו עמוד אחד בכל תמונה.', 'scan-again'],
-    [500, 'upstream', 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להדביק את הרשימה.', 'scan-paste'], [504, 'timeout', 'זה לקח יותר מדי זמן. נסו עמוד אחד בכל פעם.', 'scan-again']]) {
+    [500, 'upstream', 'הסורק לא זמין כרגע. התקלה אצלנו, לא בתמונה שלכם. בינתיים אפשר להקליד את התפריט.', 'scan-type'], [504, 'timeout', 'זה לקח יותר מדי זמן. נסו עמוד אחד בכל פעם.', 'scan-again']]) {
     const answer = (route) => (route.request().postData() || '').includes('"scan_menu"') ? route.fulfill({ status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"message":"canned"}' }) : route.continue();
     await p.route('**/functions/v1/menus-ai', answer);
     await scan(p, photo);

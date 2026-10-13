@@ -7,7 +7,6 @@ import { lang, applyLang, setLang, t, errText } from './lib/i18n.ts';
 import { session, businesses, bizId, D, loadState, loadError, initAuth, loadBusinesses, openBusiness, signOut, saveState, saveProblem, retryFailed, hasUnsaved, refused, toast, everPublished, remember } from './lib/store.ts';
 import { hasChanges } from './lib/draft.ts';
 import { jobs } from './lib/pictures.ts';
-import { scan } from './lib/scan.ts';
 import { route, go, Icon, Btn, Toasts, Loading, ErrorNote, Sheet, Ltr, Note, SaveFailed } from './ui.tsx';
 import { Brand } from './brand.tsx';
 import { PhotoInputs } from './pic.tsx';
@@ -123,7 +122,7 @@ function Shell() {
   // the path: Home is not a place yet; go to where the owner was (or the start), and never to a step that needs dishes first
   useEffect(() => {
     if (a === 'look') return go('style', true);
-    if (a === 'preview' || a === 'scan') return go('menu', true);
+    if (a === 'preview') return go('menu', true);
     if (a === 'menu' && r[1] === 'item' && r[2]) return go('menu/i/' + r[2], true);
     if (!path) return;
     if (a === '' || !['menu', 'pictures', 'publish', 'style'].includes(a)) return go(has ? STEPS[Math.min(2, Number(remember(stepKey + ':at') || 0))].path : 'menu', true);
@@ -215,7 +214,7 @@ function App() {
   else if (businesses.value === null) body = <Centered><Loading /></Centered>;
   else if (businesses.value.length === 0 || route.value[0] === 'new') body = <SetupScreen first={businesses.value.length === 0} />;
   else if (!D.value) body = <Centered><Loading /></Centered>;
-  else if (route.value[0] === 'scan' && scan.value) body = <ScanScreen />;
+  else if (route.value[0] === 'scan') body = <ScanScreen />;                 // one screen: choose the photo there, then its rows
   else body = <Shell />;
   return <>{body}<Toasts /></>;
 }

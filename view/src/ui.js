@@ -6,6 +6,7 @@ import { select, tx, formatHash, isRtl, presentation } from './store.js';
 import { drinkSpec } from './drinks/spec.js';
 import { formatMoney } from './snapshot.js';
 import { makeT, PRODUCT } from './i18n.js';
+/* night:templates */ import { lookOf, trackOf } from './looks.js'; /* /night:templates */
 
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -37,6 +38,7 @@ export function createUI(store, env) {
   const rows = new Map(), chips = new Map();
   let builtLang = null, builtRev = null, notice = null, frame = null, liftL = 0, fitTo = 0, fitNow = 0, cardKey = null, cardPhase = 'idle', lastFocus = null, listOpen = false, trayOpen = false, standKey = '', hintOn = false, hintT = 0, edgeKey = '';
   const illusLabel = () => { const l = model().snapshot.stockLabel; return (l && tx(l, lang())) || t('illus'); };
+  /* night:templates */ const trackEl = () => $('dTrack') || (() => { const b = h('bdi', { class: 'track', id: 'dTrack', dir: 'ltr', hidden: true }); $('cardSwap').querySelector('.eyebrow').prepend(b); return b; })(); /* /night:templates */
 
   /* ---------- pieces ---------- */
   const rgb = (c) => 'rgb(' + c.map((v) => Math.round(v * 255)).join(',') + ')';
@@ -102,6 +104,7 @@ export function createUI(store, env) {
     $('home').hidden = !env.demo; $('demoNote').hidden = !env.demo; $('demoLine').hidden = !env.demo;
     if (env.demo) { $('home').href = env.sitePath; $('homeLbl').textContent = pn; $('home').setAttribute('aria-label', t('backTo', { name: pn })); $('demoNote').textContent = t('demoShort'); $('demoNote').title = t('demo'); $('demoLine').textContent = t('demo'); }
     else { $('homeLbl').textContent = ''; $('demoNote').textContent = ''; $('demoLine').textContent = ''; }
+    /* night:templates */ if (env.demo) $('demoLine').textContent = t('demo') + '\n' + t('demoAi'); /* /night:templates */      // a demo's dishes were made with AI, and the line says so (two lines: .demo-line keeps the break)
     let host = ''; if (b.orderUrl) { try { host = new URL(b.orderUrl).hostname.replace(/^www\./, ''); } catch (e) { /* not a link */ } }
     ['orderLink', 'orderLink2'].forEach((id) => {
       const el = $(id); el.hidden = !host; if (!host) return;
@@ -109,6 +112,7 @@ export function createUI(store, env) {
       else { el.href = b.orderUrl; el.textContent = t('orderOn', { host }); }
     });
     $('orderNote').hidden = true; $('orderNote2').hidden = true;
+    /* night:seating */ bookLinks(b); /* /night:seating */
     const nav = $('chips'); nav.textContent = ''; chips.clear();
     m.cats.forEach((c) => { const bt = h('button', { class: 'chip', type: 'button', 'data-id': c.id, text: tx(c.raw.name, s.lang) }); bt.addEventListener('click', () => env.onCategory(c.id)); nav.appendChild(bt); chips.set(c.id, bt); });
     buildList(s); builtLang = s.lang; builtRev = m;
@@ -123,6 +127,7 @@ export function createUI(store, env) {
     const L = s.lang, sold = item.available === false, pr = v.present, d = item.details || {}, a = item.asset;
     $('card').classList.toggle('sold', sold);
     $('dName').textContent = v.itemName; $('dIdx').textContent = (v.index + 1) + ' / ' + v.count; $('dIdx').setAttribute('aria-label', t('ofCount', { i: v.index + 1, n: v.count }));
+    /* night:templates */ { const lk = lookOf(model().snapshot.theme.template), on = !!lk && lk.detail === 'tracks', tr = trackEl(); tr.hidden = !on; tr.textContent = on ? trackOf(v.cat.index, v.index) : ''; } /* /night:templates */      // a listening café numbers its dishes like tracks: A1, A2 (left to right in both languages)
     $('dPrice').textContent = money(item.price); $('dNote').textContent = tx(item.price.note, L); $('dPriceRow').hidden = !$('dPrice').textContent && !$('dNote').textContent;
     $('dSold').hidden = !sold; $('dSold').textContent = t('soldOut');
     const il = $('dIllus'); il.hidden = !pr.illustration; il.textContent = ''; if (pr.illustration) { il.appendChild(svg(ILLUS_ICON, { size: 12 })); il.appendChild(h('span', { text: illusLabel() })); }
@@ -313,6 +318,21 @@ export function createUI(store, env) {
     el.hidden = false; $('edgeTxt').textContent = name; el.dataset.at = ahead ? 'far' : 'near'; el.classList.toggle('armed', !!armed); el.style.opacity = String(Math.min(1, amount * 1.4).toFixed(2)); el.style.transform = 'translate(-50%,0) scale(' + (.9 + .1 * Math.min(1, amount)).toFixed(3) + ')';
   }
   function finger(x, y, down) { const el = $('finger'); if (x == null) { el.hidden = true; return; } el.hidden = false; el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)'; el.classList.toggle('down', !!down); }
+
+  /* night:seating */
+  /* "Book a table": the business's own booking page (business.bookUrl, an https link) in a new tab; a demo's button opens
+     Mana's seat map for that demo instead (seat/?demo=<slug>). Never counted. The two links stand next to the ordering ones. */
+  const bookEls = ['orderLink', 'orderLink2'].map((id) => { const a = h('a', { class: 'ghost order book', hidden: true }); $(id).insertAdjacentElement('afterend', a); return a; });
+  function bookLinks(b) {
+    const demoHref = env.demo ? new URL('seat/?demo=' + encodeURIComponent(model().slug) + '&lang=' + lang(), document.baseURI).href : null;
+    const href = b.bookUrl ? (env.demo ? demoHref : b.bookUrl) : null;      // the button exists only when the business has a booking page
+    bookEls.forEach((a) => {
+      a.hidden = !href; if (!href) return;
+      a.href = href; a.textContent = t('bookTable');
+      if (env.demo) { a.removeAttribute('target'); a.removeAttribute('rel'); } else { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    });
+  }
+  /* /night:seating */
 
   /* ---------- wiring that belongs to the DOM ---------- */
   $('skip').addEventListener('click', (e) => { e.preventDefault(); if (!store.getState().simple) store.dispatch({ type: 'open', what: 'list' }, { via: 'key' }); focusQuiet(rows.get(store.getState().itemId) || $('list')); });

@@ -245,9 +245,11 @@ export function startGateway({ port, restPort, authPort, dbUrl, jwtSecret, servi
     const now = Date.now(), hits = (signupHits.get(ip) || []).filter((t) => now - t < 3600e3);
     if (hits.length >= state.signupPerHour) return send(res, 200, { ok: false, code: 'rate_limited' });
     hits.push(now); signupHits.set(ip, hits);
-    const email = String(b.email || '').trim().toLowerCase(), password = String(b.password || '');
+    // the same cleaning as functions/menus-signup/index.ts
+    const email = String(b.email || '').replace(/[​-‏‪-‮⁠-⁤﻿­]/g, '').replace(/＠/g, '@').replace(/[．。]/g, '.').trim().replace(/\.+$/, '').toLowerCase();
+    const password = String(b.password || '');
     if (String(b.hp || '') !== '' || (typeof b.elapsed_ms === 'number' && b.elapsed_ms < state.signupMinElapsed)) return send(res, 200, { ok: false, code: 'spam' });
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || email.length > 200) return send(res, 200, { ok: false, code: 'invalid_email' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s.]{2,}$/.test(email) || email.length > 200) return send(res, 200, { ok: false, code: 'invalid_email' });
     if (password.length < 8 || password.length > 72) return send(res, 200, { ok: false, code: 'weak_password' });
     try {
       const r = await fetch('http://127.0.0.1:' + authPort + '/admin/users', { method: 'POST', headers: { authorization: 'Bearer ' + serviceKey, 'content-type': 'application/json' },
@@ -255,6 +257,8 @@ export function startGateway({ port, restPort, authPort, dbUrl, jwtSecret, servi
       if (r.ok) return send(res, 200, { ok: true });
       const j = await r.json().catch(() => ({}));
       if (r.status === 422 || /already/i.test(j.msg || j.message || j.error_code || '')) return send(res, 200, { ok: false, code: 'exists' });
+      if (j.error_code === 'email_address_invalid' || /email address .* is invalid/i.test(j.msg || '')) return send(res, 200, { ok: false, code: 'email_rejected' });
+      if (/validate email/i.test(j.msg || '')) return send(res, 200, { ok: false, code: 'invalid_email' });
       log('signup upstream', r.status, j);
       return send(res, 200, { ok: false, code: 'failed' });
     } catch (e) { log('signup', e); return send(res, 200, { ok: false, code: 'failed' }); }

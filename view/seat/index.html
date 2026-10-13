@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>הזמנת שולחן</title>
+<meta name="theme-color" content="#0b0907">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="seat.css">
+</head>
+<body>
+<div class="page" id="page" data-mode="guest" data-step="1">
+  <header class="top">
+    <a class="home" id="home" href="../">
+      <svg class="flip" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M9.5 3.2L4.7 8l4.8 4.8M5 8h8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="homeLbl"></span>
+    </a>
+    <div class="ttl"><h1 id="title"></h1><p class="biz" id="bizName"></p></div>
+    <button class="tool" id="langBtn" type="button"></button>
+  </header>
+  <main class="body">
+    <section class="sheet" id="sheet" aria-live="polite"></section>
+    <section class="plan-wrap" id="planWrap">
+      <div class="plan-box" id="planBox">
+        <svg class="plan" id="plan" role="img"></svg>
+        <canvas class="room" id="room" aria-hidden="true" hidden></canvas>
+      </div>
+      <div class="seg" id="viewSeg" role="group" hidden><button type="button" id="view2d" aria-pressed="true">2D</button><button type="button" id="view3d" aria-pressed="false">3D</button></div>
+      <p class="demo-line" id="demoLine"></p>
+      <p class="credit"><a id="credit" target="_blank" rel="noopener"></a></p>
+    </section>
+  </main>
+</div>
+<noscript><p style="padding:24px;font:16px sans-serif;color:#fcf8f6;background:#0b0907">This page needs JavaScript. / הדף הזה צריך JavaScript.</p></noscript>
+<script type="module" src="../seat.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "mana-payments",
+  "private": true,
+  "type": "module",
+  "description": "Mana's payments port, ledger and local provider: no dependencies, no network.",
+  "scripts": { "test": "node --test test/*.test.mjs" }
+}
