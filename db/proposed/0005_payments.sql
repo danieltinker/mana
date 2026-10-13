@@ -106,6 +106,9 @@ create table public.payment_events (                             -- the journal:
 -- the state machine, as in payments/ledger.mjs TRANSITIONS
 create or replace function public.payment_intent_guard() returns trigger language plpgsql as $$
 begin
+  if new.captured > greatest(new.held, new.amount + new.tip) then raise exception 'over-capture on %', old.id; end if;
+  if new.refunded > new.captured then raise exception 'over-refund on %', old.id; end if;
+  if new.captured_share > new.amount then raise exception 'captured share over the share on %', old.id; end if;
   if old.state = new.state then new.updated_at := now(); return new; end if;
   if not (
        (old.state = 'created'          and new.state in ('pending', 'failed'))
@@ -114,8 +117,7 @@ begin
     or (old.state = 'captured'         and new.state in ('refunded_partial', 'refunded_full'))
     or (old.state = 'refunded_partial' and new.state in ('refunded_partial', 'refunded_full'))
   ) then raise exception 'payment_intent %: % -> % is not allowed', old.id, old.state, new.state; end if;
-  if new.state = 'captured' and new.captured > greatest(new.held, new.amount + new.tip) then raise exception 'over-capture on %', old.id; end if;
-  if new.refunded > new.captured then raise exception 'over-refund on %', old.id; end if;
+  if new.state = 'refunded_full' and new.refunded <> new.captured then raise exception 'refunded_full with % of % refunded on %', new.refunded, new.captured, old.id; end if;
   new.updated_at := now(); return new;
 end $$;
 create trigger payment_intents_guard before update on public.payment_intents for each row execute function public.payment_intent_guard();
@@ -145,8 +147,6 @@ create policy refunds_select on public.refunds for select to authenticated using
 create policy events_select on public.payment_events for select to authenticated using ((select public.is_member(business_id)));
 -- no insert/update/delete policies: clients cannot write; the service role bypasses RLS from the edge functions only.
 
--- Smoke test, after loading into the stack's Postgres (STACK_EXTRA_SQL):
---   insert into bills (business_id, total) values ('<a business>', 20600) returning id;
---   insert into payment_intents (bill_id, business_id, kind, amount, idempotency_key) values ('<bill>', '<biz>', 'charge', 20600, 'smoke-1');
---   update payment_intents set state = 'captured' where idempotency_key = 'smoke-1';   -- must fail: created -> captured
---   update payment_intents set state = 'pending' where idempotency_key = 'smoke-1';    -- ok
+-- Smoke test: payments/test/smoke.sql, self-checking (every rule above raises if it does not hold), run after this file
+-- is loaded into the stack's Postgres through STACK_EXTRA_SQL:
+--     psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -p <stack pg port> -U postgres -d postgres -f payments/test/smoke.sql
