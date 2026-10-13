@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "venue": "olea",
+  "note": "Olea is an invented demo restaurant. This room is invented too.",
+  "room": { "w": 14, "d": 10 },
+  "walls": [
+    { "from": [0, 0], "to": [14, 0], "kind": "wall" },
+    { "from": [14, 0], "to": [14, 10], "kind": "window" },
+    { "from": [14, 10], "to": [0, 10], "kind": "wall" },
+    { "from": [0, 10], "to": [0, 0], "kind": "door", "gap": [4, 6] }
+  ],
+  "zones": [
+    { "id": "window", "name": { "he": "ליד החלון", "en": "By the window" }, "rect": [10, 0, 14, 10] },
+    { "id": "hall", "name": { "he": "האולם", "en": "The hall" }, "rect": [3.5, 2.5, 10, 10] },
+    { "id": "bar", "name": { "he": "הבר", "en": "The bar" }, "rect": [3.5, 0, 10, 2.5] },
+    { "id": "corner", "name": { "he": "הפינה השקטה", "en": "The quiet corner" }, "rect": [0, 0, 3.5, 10] }
+  ],
+  "tables": [
+    { "id": "w1", "zone": "window", "x": 12.4, "z": 1.6, "rot": 0, "shape": "square", "seats": 2, "minParty": 1, "maxParty": 2, "bookable": true },
+    { "id": "w2", "zone": "window", "x": 12.4, "z": 4.0, "rot": 0, "shape": "square", "seats": 2, "minParty": 1, "maxParty": 2, "bookable": true },
+    { "id": "w3", "zone": "window", "x": 12.4, "z": 6.4, "rot": 0, "shape": "square", "seats": 4, "minParty": 2, "maxParty": 4, "bookable": true },
+    { "id": "w4", "zone": "window", "x": 12.4, "z": 8.6, "rot": 0, "shape": "round", "seats": 4, "minParty": 2, "maxParty": 4, "bookable": true },
+    { "id": "h1", "zone": "hall", "x": 5.2, "z": 4.2, "rot": 0, "shape": "round", "seats": 4, "minParty": 2, "maxParty": 4, "bookable": true },
+    { "id": "h2", "zone": "hall", "x": 8.0, "z": 4.2, "rot": 0, "shape": "round", "seats": 4, "minParty": 2, "maxParty": 4, "bookable": true },
+    { "id": "h3", "zone": "hall", "x": 5.2, "z": 6.8, "rot": 0, "shape": "square", "seats": 2, "minParty": 1, "maxParty": 2, "bookable": true },
+    { "id": "h4", "zone": "hall", "x": 8.0, "z": 6.8, "rot": 0, "shape": "square", "seats": 2, "minParty": 1, "maxParty": 2, "bookable": true },
+    { "id": "h5", "zone": "hall", "x": 6.6, "z": 9.0, "rot": 0, "shape": "long", "seats": 8, "minParty": 5, "maxParty": 8, "bookable": true },
+    { "id": "b1", "zone": "bar", "x": 6.75, "z": 1.0, "rot": 0, "shape": "bar", "seats": 6, "minParty": 1, "maxParty": 2, "bookable": false },
+    { "id": "c1", "zone": "corner", "x": 1.7, "z": 2.0, "rot": 0, "shape": "square", "seats": 2, "minParty": 1, "maxParty": 2, "bookable": true },
+    { "id": "c2", "zone": "corner", "x": 1.7, "z": 8.0, "rot": 0, "shape": "round", "seats": 3, "minParty": 2, "maxParty": 3, "bookable": true }
+  ]
+}

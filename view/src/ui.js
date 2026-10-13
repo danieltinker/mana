@@ -112,6 +112,7 @@ export function createUI(store, env) {
       else { el.href = b.orderUrl; el.textContent = t('orderOn', { host }); }
     });
     $('orderNote').hidden = true; $('orderNote2').hidden = true;
+    /* night:seating */ bookLinks(b); /* /night:seating */
     const nav = $('chips'); nav.textContent = ''; chips.clear();
     m.cats.forEach((c) => { const bt = h('button', { class: 'chip', type: 'button', 'data-id': c.id, text: tx(c.raw.name, s.lang) }); bt.addEventListener('click', () => env.onCategory(c.id)); nav.appendChild(bt); chips.set(c.id, bt); });
     buildList(s); builtLang = s.lang; builtRev = m;
@@ -317,6 +318,21 @@ export function createUI(store, env) {
     el.hidden = false; $('edgeTxt').textContent = name; el.dataset.at = ahead ? 'far' : 'near'; el.classList.toggle('armed', !!armed); el.style.opacity = String(Math.min(1, amount * 1.4).toFixed(2)); el.style.transform = 'translate(-50%,0) scale(' + (.9 + .1 * Math.min(1, amount)).toFixed(3) + ')';
   }
   function finger(x, y, down) { const el = $('finger'); if (x == null) { el.hidden = true; return; } el.hidden = false; el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)'; el.classList.toggle('down', !!down); }
+
+  /* night:seating */
+  /* "Book a table": the business's own booking page (business.bookUrl, an https link) in a new tab; a demo's button opens
+     Mana's seat map for that demo instead (seat/?demo=<slug>). Never counted. The two links stand next to the ordering ones. */
+  const bookEls = ['orderLink', 'orderLink2'].map((id) => { const a = h('a', { class: 'ghost order book', hidden: true }); $(id).insertAdjacentElement('afterend', a); return a; });
+  function bookLinks(b) {
+    const demoHref = env.demo ? new URL('seat/?demo=' + encodeURIComponent(model().slug) + '&lang=' + lang(), document.baseURI).href : null;
+    const href = b.bookUrl ? (env.demo ? demoHref : b.bookUrl) : null;      // the button exists only when the business has a booking page
+    bookEls.forEach((a) => {
+      a.hidden = !href; if (!href) return;
+      a.href = href; a.textContent = t('bookTable');
+      if (env.demo) { a.removeAttribute('target'); a.removeAttribute('rel'); } else { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    });
+  }
+  /* /night:seating */
 
   /* ---------- wiring that belongs to the DOM ---------- */
   $('skip').addEventListener('click', (e) => { e.preventDefault(); if (!store.getState().simple) store.dispatch({ type: 'open', what: 'list' }, { via: 'key' }); focusQuiet(rows.get(store.getState().itemId) || $('list')); });

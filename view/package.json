@@ -6,8 +6,8 @@
   "description": "Mana: what a guest sees. Sources in src/, built static output committed next to index.html.",
   "scripts": {
     "build": "node tools/build.mjs",
-    "test": "node --test test/physics.test.mjs test/glide.test.mjs test/store.test.mjs test/snapshot.test.mjs test/scenes.test.mjs test/drinks.test.mjs test/looks.test.mjs",
-    "test:browser": "node --test --test-concurrency=1 test/browser.test.mjs test/drinks.browser.test.mjs test/looks.browser.test.mjs",
+    "test": "node --test test/physics.test.mjs test/glide.test.mjs test/store.test.mjs test/snapshot.test.mjs test/scenes.test.mjs test/drinks.test.mjs test/looks.test.mjs test/seat.test.mjs",
+    "test:browser": "node --test --test-concurrency=1 test/browser.test.mjs test/drinks.browser.test.mjs test/looks.browser.test.mjs test/seat.browser.test.mjs",
     "film": "node tools/film.mjs",
     "serve": "node tools/serve.mjs"
   },

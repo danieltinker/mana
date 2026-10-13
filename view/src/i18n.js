@@ -22,7 +22,8 @@ export const STR = {
     beer: { brewery: 'Brewery', style: 'Style', abv: 'Alcohol', serving: 'Served', color: 'Colour' },
     beerServing: { bottle: 'Bottle', can: 'Can', tap: 'On tap' }, beerColor: { pale: 'Pale', amber: 'Amber', dark: 'Dark' },
     stageLabel: 'The dishes on a table. Every dish is also in the menu list.', credit: 'Menu by {name}', demo: 'Demo menu · invented restaurant', demoShort: 'Demo', backTo: 'Back to {name}',
-    /* night:templates */ demoAi: 'Demo dishes · made with AI' /* /night:templates */
+    /* night:templates */ demoAi: 'Demo dishes · made with AI' /* /night:templates */,
+    /* night:seating */ bookTable: 'Book a table' /* /night:seating */
   },
   he: {
     skip: 'דילוג לרשימת התפריט', categories: 'חלקי התפריט', lang: 'EN', langLabel: 'Switch to English',
@@ -42,7 +43,8 @@ export const STR = {
     beer: { brewery: 'מבשלה', style: 'סגנון', abv: 'אלכוהול', serving: 'הגשה', color: 'צבע' },
     beerServing: { bottle: 'בקבוק', can: 'פחית', tap: 'מהחבית' }, beerColor: { pale: 'בהירה', amber: 'ענברית', dark: 'כהה' },
     stageLabel: 'המנות על שולחן. כל המנות מופיעות גם ברשימת התפריט.', credit: 'תפריט של {name}', demo: 'תפריט הדגמה · מסעדה מומצאת', demoShort: 'הדגמה', backTo: 'חזרה אל {name}',
-    /* night:templates */ demoAi: 'מנות לדוגמה · נוצרו בבינה מלאכותית' /* /night:templates */
+    /* night:templates */ demoAi: 'מנות לדוגמה · נוצרו בבינה מלאכותית' /* /night:templates */,
+    /* night:seating */ bookTable: 'להזמנת שולחן' /* /night:seating */
   }
 };
 export function makeT(getLang) {
