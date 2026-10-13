@@ -131,6 +131,7 @@ export async function mountHero(host, opts = {}) {
       const mat = src.material;
       mat.metalness = 0; mat.metalnessMap = null; mat.roughness = 1; mat.envMapIntensity = 0.75;
       if (mat.normalMap) mat.normalScale.set(0.9, 0.9);
+      if (lowPower && mat.roughnessMap) { mat.roughnessMap.dispose(); mat.roughnessMap = null; mat.roughness = 0.72; } // a third less texture memory on phones
       d.u = { uCut: { value: -EDGE }, uH: { value: b.height }, uEdge: { value: EDGE }, uEdgeColor: { value: edgeColor } };
       dissolve(mat, d.u);
       d.mesh = new Mesh(g, mat); d.mesh.visible = false; d.mesh.renderOrder = 1; spin.add(d.mesh);
