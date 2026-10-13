@@ -44,7 +44,12 @@ Under `/m/<name>` the guest menu sets its own `<base href="/mana/view/">`, so it
 | `brand/` | The mark, print, social frames, and the film and poster tools (`brand/tools/`, including The Lift) | build-time only |
 | `gen/` | The relief generator that runs in the owner's browser (two Apache-2.0 models), with its models and runtime | `/mana/gen/` |
 | `stock/` | The placeholder picture library, its pictures and its tools | `/mana/stock/` |
-| `db/` | SQL migrations for the Supabase project | — |
+| `seating/` | The seat map's contracts (`layout.v1`, `booking_request.v1`), validators, the demo room and the Blender bake; the page itself is `view/seat/` | `/mana/view/seat/` |
+| `templates/` | The template contract, the six live looks (`templates.v1.json`), all 99 concepts as data (`matrix.json`); the gallery is `view/looks/` | `/mana/view/looks/` |
+| `design/` | `tokens.css`: the custom properties the product page, the owner app and the back office share | build-time |
+| `payments/` | The payments port, the ledger, a local mock and the Grow / PayPlus adapters (not wired to anything yet) | — |
+| `site-kit/` | A one-page restaurant site made from a menu snapshot (v1) | — |
+| `db/` | SQL migrations for the Supabase project; `db/proposed/` holds changes Daniel has not applied | — |
 | `functions/` | Supabase edge functions: `menus-ai` (the menu scanner) and `menus-signup` (an owner's sign-up) | — |
 | `base/`, `base-artifact/` | The first hologram-menu engine, kept for reference | — |
 
