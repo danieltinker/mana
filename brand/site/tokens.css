@@ -1,0 +1,36 @@
+/* Mana design tokens: the CSS custom properties the product page (brand/site), the owner app (studio) and the back office
+   (ops) share. Contract: custom properties only, under :root; no selectors, no components, no fonts. A build that uses
+   them copies or @imports this file; changing a value here changes all three. */
+:root {
+  /* colour: the table, the paper, the one warm light, and Halom's rose */
+  --m-table: #0b0907;        /* the guest view's own dark (.phone, the table's edge) */
+  --m-table-2: #15110d;
+  --m-ivory: #fcf8f6;
+  --m-ink: #0f0f0f;
+  --m-ink-2: #434343;
+  --m-yolk: #f5b120;         /* only where light would be */
+  --m-yolk-deep: #c4860a;
+  --m-rose: #9a5238;
+  --m-ok: #2f7d4f; --m-warn: #b7791f; --m-bad: #b23a3a;
+  --m-line: rgba(15, 15, 15, .14);
+  --m-line-dark: rgba(252, 248, 246, .16);
+  /* glass: chrome only (nav pill, language switch, cards, the preview's phone frame) */
+  --m-glass-tint: rgba(15, 11, 8, .74);        /* the guest view's card */
+  --m-glass-tint-light: rgba(252, 248, 246, .86);
+  --m-glass-blur: 18px;
+  --m-glass-edge: rgba(255, 255, 255, .14);   /* the 1 px top highlight */
+  /* space: an 8 px grid */
+  --m-s1: 4px; --m-s2: 8px; --m-s3: 12px; --m-s4: 16px; --m-s5: 24px; --m-s6: 32px; --m-s7: 48px; --m-s8: 64px; --m-s9: 96px;
+  /* radius */
+  --m-r-s: 6px; --m-r-m: 14px; --m-r-l: 28px; --m-r-pill: 999px;
+  /* touch */
+  --m-target: 44px;
+  /* type sizes (families stay with each build) */
+  --m-t-xs: .78rem; --m-t-s: .88rem; --m-t-m: 1rem; --m-t-l: 1.25rem; --m-t-xl: 1.7rem;
+  --m-t-display-he: clamp(2.75rem, 10.5vw, 7rem);
+  --m-t-display-en: clamp(2.5rem, 9.5vw, 6.25rem);
+  /* motion: one spring, three durations; everything arrives once and stops */
+  --m-ease: cubic-bezier(.2, .8, .2, 1);
+  --m-ease-spring: cubic-bezier(.34, 1.36, .64, 1);
+  --m-d1: 240ms; --m-d2: 600ms; --m-d3: 1600ms;
+}

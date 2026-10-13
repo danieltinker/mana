@@ -1,17 +1,18 @@
 <!doctype html>
-<html lang="he" dir="rtl" data-title-he="מנה · רואים את המנה לפני שמזמינים" data-title-en="Mana · See the dish before you order" data-desc-he="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט תלת־ממדי. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom." data-desc-en="A QR menu that shows your dishes on the table, in 3D relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.">
+<html lang="he" dir="rtl" data-title-he="מנה · רואים את המנה לפני שמזמינים" data-title-en="Mana · See the dish before you order" data-desc-he="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom." data-desc-en="A QR menu that shows your dishes on the table, in relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>מנה · רואים את המנה לפני שמזמינים</title>
-<meta name="description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט תלת־ממדי. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
+<meta name="description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#FCF8F6">
+<meta name="theme-color" content="#0B0907">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="מנה · רואים את המנה לפני שמזמינים">
-<meta property="og:description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט תלת־ממדי. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
+<meta property="og:description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
 <meta property="og:url" content="https://halom.io/mana/">
 <meta property="og:image" content="https://halom.io/mana/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -23,6 +24,7 @@
 <link rel="icon" href="./img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="./img/favicon-180.png">
 <link rel="preload" href="./fonts/frank-ruhl-libre-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="./tokens.css">
 <link rel="stylesheet" href="./mana.css">
 <script>/* language before first paint: ?lang=, then the last choice, then Hebrew */
 (function(){try{var l=new URLSearchParams(location.search).get('lang')||localStorage.getItem('mana-lang');if(l==='en'){document.documentElement.lang='en';document.documentElement.dir='ltr';}}catch(e){}})();</script>
@@ -32,37 +34,33 @@
 </head>
 <body>
 <a class="skip" href="#main"><span class="he" lang="he">דילוג לתוכן</span><span class="en" lang="en">Skip to content</span></a>
-<header class="wrap top">
-  <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="40" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#0F0F0F" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
-  <div class="top-tools">
-    <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
-    <a class="btn btn-sm" href="./studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+<header class="top">
+  <div class="pill">
+    <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="36" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
+    <div class="top-tools">
+      <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
+      <a class="btn btn-sm" href="./studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+    </div>
   </div>
 </header>
 <main id="main">
 
-<section class="hero">
-  <div class="wrap hero-grid">
+<section class="hero table" aria-labelledby="hero-h">
+  <div class="hero-grid">
     <div class="hero-words">
-      <h1><span class="he" lang="he">רואים את המנה לפני שמזמינים.</span><span class="en" lang="en">See the dish before you order.</span></h1>
+      <h1 id="hero-h"><span class="he" lang="he">רואים את המנה לפני שמזמינים.</span><span class="en" lang="en">See the dish before you order.</span></h1>
       <p class="he lead" lang="he">תפריט QR שמראה את המנות שלכם על השולחן.</p><p class="en lead" lang="en">A QR menu that shows your dishes on the table.</p>
+    </div>
+    <figure class="hero-stage" id="hero-stage" data-hero="still" data-src-he="./view/?demo=solo&amp;embed=hero&amp;lang=he" data-src-en="./view/?demo=solo&amp;embed=hero&amp;lang=en" data-title-he="המנה על השולחן: תבליט חי, אפשר לסובב" data-title-en="The dish on the table: a live relief you can turn">
+      <!-- The dish's flat photo paints first. mana.js places it where the live dish will stand (the same framing the guest view
+           uses), then, after the page has painted and never on Save-Data, adds the guest view in hero mode as an iframe here;
+           the live relief rises in the same place. Off screen the page tells the frame to stop its clock. -->
+      <img class="hero-poster" src="./img/hero-dish.webp" width="640" height="640" alt="" data-alt="1" fetchpriority="high" decoding="async">
       <div class="cta">
         <a class="btn btn-primary" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a>
-        <a class="btn" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en"><span class="he" lang="he">לנסות את ההדגמה</span><span class="en" lang="en">Try the demo</span></a>
+        <a class="btn" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-link><span class="he" lang="he">לנסות את ההדגמה</span><span class="en" lang="en">Try the demo</span></a>
       </div>
-    </div>
-    <figure class="hero-pic">
-      <div class="phone" id="hero-phone" data-video="idle">
-        <div class="phone-screen">
-          <img class="phone-poster" src="./img/hero-poster-480.jpg" srcset="./img/hero-poster-480.jpg 480w, ./img/hero-poster.jpg 720w" sizes="(min-width: 900px) 320px, 44vw" width="720" height="1560" alt="" data-alt="1" fetchpriority="high">
-          <!-- The guest's view on film. There is no source element here on purpose: mana.js adds the addresses below (and autoplay)
-               after the page has painted, and never on Save-Data or reduced motion, where the still stays with a play button.
-               No poster attribute either: the still is the picture under the video, and a poster would fetch it a second time. -->
-          <video class="hero-video" muted loop playsinline preload="metadata" tabindex="-1" aria-hidden="true" data-mp4="./img/hero.mp4" data-mp4-en="./img/hero-en.mp4"></video>
-          <button class="phone-play" type="button" data-hero-play hidden data-label-he="להפעיל את הסרטון" data-label-en="Play the video" aria-label="להפעיל את הסרטון"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
-        </div>
-      </div>
-      <figcaption class="demo-tag"><span class="he" lang="he">תפריט הדגמה · תמונות להמחשה</span><span class="en" lang="en">Demo menu · sample pictures</span></figcaption>
+      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b><span class="hero-hint" hidden> · <span class="he" lang="he">גוררים כדי לסובב</span><span class="en" lang="en">Drag to turn</span></span></figcaption>
     </figure>
   </div>
 </section>
@@ -187,10 +185,30 @@
   </div>
 </section>
 
-<section class="price" id="price" aria-labelledby="price-h">
-  <div class="wrap price-row">
-    <h2 class="big" id="price-h"><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">30 days free</span></h2>
-    <p class="he" lang="he">מהפרסום הראשון, בלי כרטיס אשראי. את ההמשך מסכמים איתנו ישירות, במהלך הפיילוט.</p><p class="en" lang="en">From your first publish, no card. What follows is agreed directly, during the pilot.</p>
+<section class="start table reveal" id="price" aria-labelledby="price-h">
+  <div class="wrap start-grid">
+    <div class="start-words">
+      <h2 class="big" id="price-h"><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">30 days free</span></h2>
+      <p class="he" lang="he">מהפרסום הראשון, בלי כרטיס אשראי. את ההמשך מסכמים איתנו ישירות, במהלך הפיילוט.</p><p class="en" lang="en">From your first publish, no card. What follows is agreed directly, during the pilot.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a>
+        <span class="soon"><i aria-hidden="true"></i><span class="he" lang="he">תשלום ליד השולחן · בקרוב</span><span class="en" lang="en">Pay at the table · coming</span></span>
+      </div>
+    </div>
+    <figure class="start-card" role="img" data-label-he="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור" data-label-en="An empty name card standing on the table, in a ring of light" aria-label="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור">
+      <svg viewBox="0 0 320 230" aria-hidden="true">
+  <defs><linearGradient id="cardFace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f1e7"/><stop offset="1" stop-color="#e3dccf"/></linearGradient>
+    <linearGradient id="cardBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfc8bb"/><stop offset="1" stop-color="#b9b2a5"/></linearGradient>
+    <radialGradient id="cardShadow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>
+  <ellipse cx="166" cy="176" rx="96" ry="22" fill="url(#cardShadow)"/>
+  <path d="M104 68 L216 68 L212 74 L108 74 Z" fill="url(#cardBack)"/>
+  <path d="M100 74 L220 74 L230 170 L90 170 Z" fill="url(#cardFace)"/>
+  <path d="M110 86 L210 86 L218 158 L102 158 Z" fill="none" stroke="rgba(60,44,28,.55)" stroke-width="1.6"/>
+  <path d="M114 91 L206 91 L213.5 153 L106.5 153 Z" fill="none" stroke="rgba(60,44,28,.35)" stroke-width=".8"/>
+  <path d="M90 170 L230 170 L229 172 L91 172 Z" fill="#a89f91"/>
+  <path class="card-ring" pathLength="1" d="M160 206 A132 38 0 1 1 160 130 A132 38 0 1 1 160 206"/>
+</svg>
+    </figure>
   </div>
 </section>
 
@@ -259,7 +277,7 @@
 </dialog>
 <script src="./mana.js"></script>
 <script>/* picture descriptions, per language */
-(function(){var A={he:{1:'מסך טלפון עם תפריט ההדגמה: שקשוקה במחבת על שולחן עץ, ופיצות רחוק יותר על השולחן',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A phone screen with the demo menu: shakshuka in its pan on a wooden table, pizzas further up the table',2:'The demo menu: seven dishes lying on a wooden table'}};
+(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table'}};
 function f(){var l=document.documentElement.lang==='en'?'en':'he';[].forEach.call(document.querySelectorAll('img[data-alt]'),function(i){i.alt=A[l][i.getAttribute('data-alt')];});}f();document.addEventListener('mana:lang',f);})();</script>
 </body>
 </html>

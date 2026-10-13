@@ -1,14 +1,35 @@
 # Mana by Halom: brand, product page, print and campaign
 
-Everything for the launch of Mana (מנה), Halom's self-service 3D-relief menu. First built 6 Oct 2026; **version 2 of
-the product page, the privacy and terms pages, the sales playbook and the film composer: 7 Oct 2026 (branch `v2`).**
+Everything for the launch of Mana (מנה), Halom's self-service relief menu. First built 6 Oct 2026; version 2 of
+the product page, the privacy and terms pages, the sales playbook and the film composer: 7 Oct 2026 (branch `v2`).
+**Version 3 of the product page, 13 Oct 2026 (branch `night/page`): the page opens on the guest view's own table.**
 Nothing here has been deployed, pushed, published or sent.
+
+## Version 3: the page is the table
+The first screen is the table: one Hebrew line on a scrim, the demo dish alone under the lamp, the two buttons on the
+wood. The dish is the real relief, live: `site/index.html` paints its flat photo first (`img/hero-dish.webp`, the Olea
+hummus cut out by its matte, placed where the guest view will stand the dish), and `mana.js` adds the guest view in
+**hero mode** (`view/?demo=solo&embed=hero&lang=he|en`, see `view/src/hero.js`) as an iframe after the page has painted,
+never on Save-Data. The frame reports `{type:'mana-hero', state}` as the lamp comes up, the dish rises and the ring is
+drawn; the page tells it `{run:false}` when it scrolls off screen; Enter inside it opens the full demo. A slow phone
+(quality tier 4) or a lost context shows the still, never the list. The last stop before the questions, "start free",
+is on the table too: the engine's empty name card in a ring of light. Everything between stays on ivory as it was.
+The header is one glass pill (the only blur on a phone; it goes solid when ten frames on the first scroll fall under
+30 a second, or under `prefers-reduced-transparency`). Type: Hebrew display Frank Ruhl Libre 400, English display
+Fraunces (`fonts/fraunces-latin-standard-normal.woff2`, OFL, from `@fontsource-variable/fraunces`; loaded only on the
+English page, at idle or when the language switch is hovered or focused). The shared custom properties in
+`../design/tokens.css` are copied to `site/tokens.css` at build time and linked by every page. The page carries a
+`<meta http-equiv="Content-Security-Policy">` limited to `connect-src 'self' <the Supabase origin from ../config.js>`
+and `frame-src 'self'`. **A preview build**, `MANA_PREVIEW=1 node tools/build-site.mjs`, renders the lead form switched
+off with a line saying so (a test build can never write to the live backend); the normal build is unchanged.
+Stops 2–4 of the plan (the looks, the seat map's sheet, the film on a phone) are not built: on this version only the
+hero and "start free" are on the table.
 
 | Path | What |
 |---|---|
 | Name study, brand kit, campaign kit, sales playbooks | Not in this public repository. They are in the Halom Project on claude.ai: `ventures/mana/name.md`, `brand.md`, `campaign.md`, `sales-playbook.md`, `sales-playbook.he.md` |
 | `assets/` | The mark, lockups, icons, avatar (SVG + PNG), `tokens.json`, `_sheet.png` |
-| `site/` | The product page: `index.html`, `guide/`, `privacy/`, `terms/`, `mana.css`, `mana.js`, `fonts/`, `img/` |
+| `site/` | The product page: `index.html`, `guide/`, `privacy/`, `terms/`, `mana.css`, `mana.js`, `tokens.css` (copied from `../design/`), `fonts/`, `img/` |
 | `print/` | A6 table card, 60 mm sticker, A5 leave-behind (SVG, PDF, previews), `cards/olea/` |
 | `social/` | 12-post calendar, three Reel scripts, eight ready frames |
 | `tools/` | The builders, a local server and the browser checks (build-time only) |
@@ -33,14 +54,12 @@ The page looks for these in `site/img/` **when it is built**, so a missing file 
 
 | File | Used for |
 |---|---|
-| `hero.mp4` (+ `hero.webm`) | The guest's view playing in the hero's phone frame, 390 : 844, muted, looping, 8–10 s. Optional English: `hero-en.mp4` / `.webm` |
+| `hero.mp4` (+ `hero.webm`) | Since version 3 the page's hero is the live relief, not a video: these stay for the owner app's sign-in screen and a later stop of the page (the guest's view, 390 : 844, muted, 8–10 s). Optional English: `hero-en.mp4` / `.webm` |
 | `film-16x9.mp4`, `film-9x16.mp4` | "Watch the film": the wide cut, and the tall cut on phones. Optional English: `film-16x9-en.mp4`, `film-9x16-en.mp4` |
 
 After adding or removing any of them run `node tools/build-site.mjs` (it prints what it found; `tools/test-site.mjs`
-fails if the page and the files disagree). `--poster-from-video` also takes the hero's still from the video's first
-frame (`=1.5` for another second). Without a video the hero shows the still (`img/hero-poster.jpg`, the real viewer
-drawing a demo dish); with one, the still paints first and the video is fetched after the page has loaded, never on
-Save-Data or reduced motion, where a play button is shown instead.
+fails if the page and the files disagree). `--poster-from-video` still takes `img/hero-poster.jpg` from the video's first
+frame (`=1.5` for another second).
 
 What is there since 7 Oct 2026 (nothing published; sizes and lengths in `review/v2/film/files.json`). The guest
 recordings were made a second time that evening, after the demo's ordering button changed to "להזמנה אונליין" / "Order
@@ -80,9 +99,10 @@ The checks for the hero video and the film make their own small test clips with 
 Playwright and sharp come from `/opt/npm-tools`; Chromium from `/opt/pw-browsers`; ffmpeg from `/usr/bin`.
 
 ## Third-party material
-- Fonts: Frank Ruhl Libre, IBM Plex Sans Hebrew, IBM Plex Sans, all SIL OFL 1.1 (licence texts in `site/fonts/`).
+- Fonts: Frank Ruhl Libre, IBM Plex Sans Hebrew, IBM Plex Sans, Fraunces, all SIL OFL 1.1 (licence texts in `site/fonts/`).
 - Two phone photos (`site/img/howto-photo.jpg`, `guide-cutoff.jpg`) from based.cooking, public domain (Unlicense),
   commit `9d4a31a`, as recorded in the generator's test manifest.
 - Table textures and the Olea demo pictures come from `../view` (Halom's own; the Olea pictures are computer-made
-  samples and are labelled so wherever they appear). The film's placeholder thumbnails are the eight starter pictures
+  samples and are labelled "Demo dishes · made with AI" wherever they appear). `site/img/hero-dish.webp` is the Olea
+  hummus cut out by its matte; `site/img/table-oak.jpg` is `../view/themes/oak.jpg`, darkened. The film's placeholder thumbnails are the eight starter pictures
   of `../stock` (Halom's own).

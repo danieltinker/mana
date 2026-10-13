@@ -1,9 +1,10 @@
-/* Browser checks for the product page (version 2), the photo guide and the privacy and terms pages, against tools/serve.mjs
+/* Browser checks for the product page (version 3: the table), the photo guide and the privacy and terms pages, against tools/serve.mjs
    (both path prefixes, a real viewer, a stubbed leads function).
    Which viewer the demo checks load: MANA_VIEW=<folder>, default ../view (see tools/serve.mjs).
    Numbers land in review/v2/metrics.json, full-page screenshots in .shots-raw/.      Run: node tools/test-site.mjs [filter] */
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -32,6 +33,7 @@ async function open(path, { w = 390, h = 844, touch = true, origin = srv.origin,
   page.on('requestfailed', (r) => { if (!/\.(mp4|webm)(\?|$)/.test(r.url())) errors.push('requestfailed: ' + r.url()); });      // a video the page stops on purpose is not a failure
   page.on('response', (r) => { if (r.status() >= 400) errors.push(r.status() + ' ' + r.url()); });
   page.on('request', (r) => { reqs.push(r.url()); try { hosts.add(new URL(r.url()).host); } catch (e) { /* data: */ } });
+  if (!/[?&]hero=/.test(path)) { const i = path.indexOf('#'), u = i < 0 ? path : path.slice(0, i), hash = i < 0 ? '' : path.slice(i); path = u + (u.includes('?') ? '&' : '?') + 'hero=off' + hash; }      // the live hero (the viewer in a frame) is opened only by the checks about it
   await page.goto(origin + path, { waitUntil: wait }); await page.evaluate(() => document.fonts.ready);
   return { page, ctx, errors, hosts, reqs, held };
 }
@@ -82,24 +84,26 @@ for (const prefix of ['/mana/', '/projects/menus/']) for (const [w, h, touch] of
   }
 }
 
-await check('phone: under 200 visible words and about a third of the old height, in both languages', async () => {
+await check('phone: under 210 visible words (the AI label and "pay at the table · coming" are the 12 new ones) and under 55% of the old height (the hero is the whole first screen now), in both languages', async () => {
   for (const lang of ['he', 'en']) for (const scan of [false, true]) {
     const s2 = scan ? await listen(0, { scan: true }) : srv;
     const o = await open('/mana/?lang=' + lang + '&demo=off&motion=off', { origin: s2.origin });
     const r = await o.page.evaluate((f) => ({ words: (0, eval)('(' + f + ')')(), height: document.documentElement.scrollHeight, sections: [...document.querySelectorAll('header.top,main>section,footer')].map((s) => [s.id || s.className.split(' ')[0], Math.round(s.getBoundingClientRect().height)]) }), visibleWords.toString());
     metrics.after[`390-${lang}${scan ? '-scan' : ''}`] = { words: r.words.length, height: r.height, sections: r.sections };
-    assert.ok(r.words.length < 200, `${lang}${scan ? ' (scanner on)' : ''}: ${r.words.length} words`);
-    assert.ok(r.height <= Math.round(BEFORE.height390 * 0.36), `${lang}: ${r.height} px is more than 36% of ${BEFORE.height390}`);
+    assert.ok(r.words.length < 210, `${lang}${scan ? ' (scanner on)' : ''}: ${r.words.length} words`);
+    assert.ok(r.height <= Math.round(BEFORE.height390 * 0.55), `${lang}: ${r.height} px is more than 55% of ${BEFORE.height390}`);
     await o.ctx.close(); if (scan) s2.server.close();
   }
 });
 
-await check('words: nothing sold as "AI", the relief is never a "3D model", no invented e-mail address', async () => {
+const AI_LABEL = { he: 'מנות לדוגמה · נוצרו בבינה מלאכותית', en: 'Demo dishes · made with AI' };      // the one place the words may appear: the label on generated demo food
+await check('words: "AI" only in the demo-food label (which is there), the relief is never "3D" or a "3D model", no invented e-mail address', async () => {
   for (const pg of PAGES) for (const lang of ['he', 'en']) {
     const o = await open('/mana/' + pg + '?lang=' + lang + '&demo=off&motion=off');
     await o.page.evaluate(() => document.querySelectorAll('details').forEach((d) => { d.open = true; }));
     const text = await o.page.evaluate(() => document.body.innerText);
-    if (!pg) assert.ok(!/\bAI\b|בינה מלאכותית/.test(text), 'the product page says AI (' + lang + ')');
+    if (!pg) { assert.ok(text.includes(AI_LABEL[lang]), 'the demo-food label is missing (' + lang + ')'); assert.ok(!/\bAI\b|בינה מלאכותית/.test(text.split(AI_LABEL[lang]).join('')), 'the product page says AI outside the label (' + lang + ')'); }
+    assert.ok(!/3D|תלת[־ -]?ממד/.test((await o.page.evaluate(() => [document.querySelector('meta[name="description"]').content, document.querySelector('meta[property="og:description"]').content, document.title].join(' '))) + (pg === 'guide/' ? text : '')), '"3D" in the meta or the guide: ' + pg + ' ' + lang);
     assert.ok(!/3D model|מודל תלת|digital twin|תאום דיגיטלי/i.test(text), 'calls the relief a 3D model: ' + pg + ' ' + lang);
     assert.ok(!/[\w.+-]+@[\w-]+\.[\w.]+/.test(text), 'an e-mail address appears on ' + pg);
     await o.ctx.close();
@@ -127,8 +131,8 @@ await check('links: Start free and Sign in → studio, Try the demo → viewer i
 await check('language toggle switches text, direction, title, links and remembers', async () => {
   const o = await open('/mana/?demo=off');
   await o.page.click('[data-lang-toggle]');
-  const r = await o.page.evaluate(() => ({ l: document.documentElement.lang, d: document.documentElement.dir, t: document.title, h: document.querySelector('.hero .cta a:nth-child(2)').getAttribute('href'), alt: document.querySelector('#hero-phone img').alt }));
-  assert.equal(r.l, 'en'); assert.equal(r.d, 'ltr'); assert.match(r.t, /^Mana/); assert.match(r.h, /lang=en/); assert.match(r.alt, /shakshuka/);
+  const r = await o.page.evaluate(() => ({ l: document.documentElement.lang, d: document.documentElement.dir, t: document.title, h: document.querySelector('.hero .cta a:nth-child(2)').getAttribute('href'), alt: document.querySelector('#hero-stage img').alt, title: document.getElementById('hero-stage').getAttribute('data-title-en') }));
+  assert.equal(r.l, 'en'); assert.equal(r.d, 'ltr'); assert.match(r.t, /^Mana/); assert.match(r.h, /lang=en/); assert.match(r.alt, /hummus/); assert.match(r.title, /live relief/);
   await o.page.reload(); assert.equal(await o.page.evaluate(() => document.documentElement.lang), 'en');
   await o.ctx.close();
 });
@@ -191,60 +195,97 @@ await check('numbers: the sample dashboard shows the owner app’s six numbers, 
 
 const builtWith = (m) => renderIndex(Object.assign(mediaFound(), m));
 const mediaFiles = (names) => Object.fromEntries(names.map((n) => ['img/' + n, join(SCRATCH, n)]));
-await check('hero without a video file: the still, no <video> in the phone, nothing requested', async () => {
-  const s2 = await listen(0, { pages: { 'index.html': builtWith({ heroMp4: false, heroWebm: false, heroEnMp4: false, heroEnWebm: false }) } });
-  const o = await open('/mana/?demo=off', { origin: s2.origin }); await o.page.waitForTimeout(700);
-  const r = await o.page.evaluate(() => ({ video: document.querySelectorAll('#hero-phone video').length, state: document.getElementById('hero-phone').getAttribute('data-video'), poster: (() => { const i = document.querySelector('#hero-phone img'); return i.complete && i.naturalWidth > 0 && i.checkVisibility(); })() }));
-  assert.equal(r.video, 0); assert.equal(r.state, 'none'); assert.equal(r.poster, true);
-  assert.ok(!o.reqs.some((u) => /\.(mp4|webm)/.test(u)), 'a video was requested'); assert.deepEqual(o.errors, []);
-  await o.ctx.close(); s2.server.close();
-});
-await check('hero with a video file: the still paints first, the video is fetched after load and plays muted in a loop', async () => {
-  const s2 = await listen(0, { pages: { 'index.html': builtWith({ heroMp4: true, heroWebm: true, heroEnMp4: false, heroEnWebm: false }) }, media: mediaFiles(['hero.webm', 'hero.mp4']) });
-  /* what the video element was doing at the moment the page finished loading: recorded by a listener added before the page's own */
-  const o = await open('/mana/?demo=off', { origin: s2.origin, init: () => { window.addEventListener('load', () => { const v = document.querySelector('#hero-phone video'); window.__atLoad = { net: v.networkState, sources: v.querySelectorAll('source').length, src: v.currentSrc, poster: document.querySelector('#hero-phone img').complete }; }); } });
-  const html = await (await o.page.request.get(s2.origin + '/mana/')).text();
-  assert.ok(!/<source|<video[^>]* src=|<video[^>]* autoplay/.test(html), 'the HTML itself starts the video download'); assert.match(html, /<video class="hero-video" muted loop playsinline preload="metadata" tabindex="-1"/); assert.ok(!/<video[^>]* poster=/.test(html), 'the video has a poster of its own: the still would be fetched twice');
-  assert.deepEqual(await o.page.evaluate(() => window.__atLoad), { net: 0, sources: 0, src: '', poster: true }, 'the video was already loading when the page finished loading');
-  await o.page.waitForFunction(() => document.getElementById('hero-phone').getAttribute('data-video') === 'on', null, { timeout: 15000 });
-  const r = await o.page.evaluate(() => { const v = document.querySelector('#hero-phone video'); return { muted: v.muted, loop: v.loop, inline: v.playsInline, auto: v.autoplay, paused: v.paused, t: v.currentTime, src: v.currentSrc, w: v.videoWidth, btn: document.querySelector('[data-hero-play]').hidden, order: [...v.querySelectorAll('source')].map((x) => x.type) }; });
-  assert.equal(r.muted, true); assert.equal(r.loop, true); assert.equal(r.inline, true); assert.equal(r.auto, true); assert.equal(r.paused, false); assert.deepEqual(r.order, ['video/webm', 'video/mp4']); assert.match(r.src, /img\/hero\.webm$/); assert.equal(r.w, 390); assert.equal(r.btn, true);
-  await o.page.waitForTimeout(700); assert.ok(await o.page.evaluate(() => document.querySelector('#hero-phone video').currentTime) > 0.2, 'the video does not advance');
-  await o.page.locator('#hero-phone').screenshot({ path: join(RAW, 'hero-video-390.png') });
-  await o.page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight)); await o.page.waitForFunction(() => document.querySelector('#hero-phone video').paused, null, { timeout: 4000 });      // off screen: it rests
-  await o.page.evaluate(() => window.scrollTo(0, 0)); await o.page.waitForFunction(() => !document.querySelector('#hero-phone video').paused, null, { timeout: 4000 });      // back in view: it goes on
-  assert.equal(await o.page.isVisible('[data-hero-play]'), false); assert.deepEqual(o.errors, []);
+/* the hero: the dish's flat photo first, then the guest view in hero mode (view/?demo=solo&embed=hero) in a frame, where the live
+   relief rises in the same place. The viewer is heavy under software GL: these are the only checks that load it. */
+const heroState = (page) => page.evaluate(() => document.getElementById('hero-stage').getAttribute('data-hero'));
+await check('hero: the still first and placed like the viewer places the dish; the frame only after load, titled; the relief rises and the still goes; off screen the frame is told to stop; Enter opens the demo', async () => {
+  const o = await open('/mana/?demo=off&hero=on&lang=he', { init: () => { window.__t = { atLoad: null, frameAt: null };
+    new MutationObserver((list) => { if (window.__t.frameAt == null && list.some((m) => [...m.addedNodes].some((n) => n.nodeName === 'IFRAME'))) window.__t.frameAt = performance.now(); }).observe(document, { childList: true, subtree: true });
+    window.addEventListener('load', () => { const i = document.querySelector('#hero-stage img'); if (!i) return; window.__t.atLoad = { at: performance.now(), frame: !!document.querySelector('#hero-stage iframe'), poster: i.complete && i.naturalWidth > 0 }; }); } });      // (the script runs in the viewer's frame too, where there is no still)
+  const html = await (await o.page.request.get(srv.origin + '/mana/')).text();
+  assert.ok(!/<iframe/.test(html) && !/<video/.test(html.split('<dialog')[0]), 'the HTML itself carries a frame or a video'); assert.match(html, /<img class="hero-poster" src="\.\/img\/hero-dish\.webp" width="640" height="640"/);
+  const pos = await o.page.evaluate(() => { const st = document.getElementById('hero-stage').getBoundingClientRect(), i = document.querySelector('#hero-stage img').getBoundingClientRect(); return { W: st.width, H: st.height, cx: i.left + i.width / 2 - st.left, cy: i.top + i.height / 2 - st.top, w: i.width }; });
+  const top = pos.H < 520 ? 88 : 100, cardH = Math.max(148, Math.min(190, Math.round(pos.H * .2))), freeH = pos.H - top - cardH, hero = Math.min(pos.W * .84, freeH * .74);      // view/src/scenes/walk.js frameOf, a frame that is not wide
+  assert.ok(Math.abs(pos.cx - pos.W / 2) < 2 && Math.abs(pos.cy - (top + freeH * .47)) < 2 && Math.abs(pos.w - hero / .94) < 2, 'the still is not where the viewer puts the dish: ' + JSON.stringify(pos));
+  await o.page.waitForFunction(() => window.__t.frameAt != null, null, { timeout: 15000 });
+  const t = await o.page.evaluate(() => window.__t); assert.deepEqual({ frame: t.atLoad.frame, poster: t.atLoad.poster }, { frame: false, poster: true }, 'at load the frame was already there, or the still not yet'); assert.ok(t.frameAt >= t.atLoad.at, 'the frame came before load');
+  const fr = await o.page.evaluate(() => { const f = document.querySelector('#hero-stage iframe'); return { title: f.title, src: f.getAttribute('src'), allow: f.getAttribute('allow') }; });
+  assert.match(fr.title, /תבליט חי/); assert.match(fr.src, /^\.\/view\/\?demo=solo&embed=hero&lang=he$/);
+  await o.page.waitForFunction(() => document.getElementById('hero-stage').getAttribute('data-hero') === 'rest', null, { timeout: 90000 });
+  const view = o.page.frames().find((f) => f.url().includes('/view/')); assert.ok(view, 'no viewer frame');
+  const r = await o.page.evaluate(() => ({ poster: +getComputedStyle(document.querySelector('#hero-stage img')).opacity, frame: +getComputedStyle(document.querySelector('#hero-stage iframe')).opacity, hint: document.querySelector('.hero-hint').hidden, label: document.querySelector('.hero .demo-tag').innerText.trim() }));
+  assert.equal(r.poster, 0); assert.equal(r.frame, 1); assert.equal(r.hint, false); assert.match(r.label, /^מנות לדוגמה · נוצרו בבינה מלאכותית/);
+  const inside = await view.evaluate(() => ({ phase: window.__manaHero.phase(), open: window.__mana.state().open, tier: window.__mana.info().tier, label: document.getElementById('scene').getAttribute('aria-label'), chrome: ['top', 'card', 'list'].map((id) => document.getElementById(id).checkVisibility()) }));
+  assert.equal(inside.phase, 'rest'); assert.equal(inside.open, 'dish'); assert.equal(inside.tier, 0); assert.equal(inside.label, 'חומוס חם'); assert.deepEqual(inside.chrome, [false, false, false]);
+  await o.page.screenshot({ path: join(RAW, 'hero-live-390-he.png') });
+  await o.page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+  await view.waitForFunction(() => window.__manaHero.paused() === true, null, { timeout: 8000 }).catch(() => { throw new Error('off screen the frame keeps running'); });      // (the frame's own drawing can hold the page's observer back for a moment under software GL)
+  await o.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await view.waitForFunction(() => window.__manaHero.paused() === false, null, { timeout: 8000 }).catch(() => { throw new Error('back in view it did not start again'); });
+  await view.evaluate(() => document.getElementById('scene').focus()); await o.page.keyboard.press('Enter');
+  await o.page.waitForURL(/\/mana\/view\/\?demo=olea&lang=he/, { timeout: 10000 }); assert.equal(o.ctx.pages().length, 1, 'a second tab opened');
+  assert.deepEqual(o.errors.filter((e) => !/ERR_ABORTED/.test(e)), []);
   await o.ctx.close();
-  /* a visitor who scrolls away before the video has started must not come back to a play button */
-  const q = await open('/mana/?demo=off', { origin: s2.origin, wait: 'domcontentloaded' });
-  await q.page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight)); await q.page.waitForLoadState('load'); await q.page.waitForTimeout(1500);
-  assert.equal(await q.page.evaluate(() => document.querySelector('#hero-phone video').paused), true, 'it plays off screen');
-  await q.page.evaluate(() => window.scrollTo(0, 0)); await q.page.waitForFunction(() => document.getElementById('hero-phone').getAttribute('data-video') === 'on' && !document.querySelector('#hero-phone video').paused, null, { timeout: 15000 });
-  assert.equal(await q.page.isVisible('[data-hero-play]'), false, 'the play button shows although autoplay was never refused');
-  await q.ctx.close(); s2.server.close();
 });
-await check('hero on Save-Data or reduced motion: no video bytes, the still with a play button; a tap plays it', async () => {
-  const s2 = await listen(0, { pages: { 'index.html': builtWith({ heroMp4: true, heroWebm: true, heroEnMp4: false, heroEnWebm: false }) }, media: mediaFiles(['hero.webm', 'hero.mp4']) });
-  for (const mode of ['save', 'reduced']) {
-    const o = await open('/mana/?demo=off' + (mode === 'save' ? '&save=1' : ''), { origin: s2.origin, reduced: mode === 'reduced' }); await o.page.waitForTimeout(900);
-    assert.ok(!o.reqs.some((u) => /\.(mp4|webm)/.test(u)), mode + ': a video was requested'); assert.equal(await o.page.isVisible('[data-hero-play]'), true);
-    await o.page.locator('#hero-phone').screenshot({ path: join(RAW, 'hero-play-button-' + mode + '.png') });
-    await o.page.click('[data-hero-play]'); await o.page.waitForFunction(() => document.getElementById('hero-phone').getAttribute('data-video') === 'on', null, { timeout: 15000 });
-    assert.equal(await o.page.isVisible('[data-hero-play]'), false); await o.ctx.close();
-  }
-  s2.server.close();
+await check('hero on Save-Data: the still stays, nothing from the viewer; with the viewer held back for ever the first screen is whole', async () => {
+  let o = await open('/mana/?demo=off&hero=on&save=1'); await o.page.waitForTimeout(1200);
+  assert.ok(!o.reqs.some((u) => u.includes('/view/')), 'the viewer was requested on Save-Data'); assert.equal(await heroState(o.page), 'still'); assert.equal(await o.page.locator('#hero-stage iframe').count(), 0);
+  await o.ctx.close();
+  o = await open('/mana/?demo=off&hero=on', { hold: /\/view\// });
+  for (const t0 = Date.now(); !o.held.length && Date.now() - t0 < 8000;) await o.page.waitForTimeout(50);
+  assert.ok(o.held.length >= 1, 'the viewer was never asked for'); await o.page.waitForTimeout(800);
+  const r = await o.page.evaluate(() => { const inFirst = (e) => { const b = e.getBoundingClientRect(); return e.checkVisibility() && b.width > 0 && b.top >= 0 && b.bottom <= innerHeight; }; const i = document.querySelector('#hero-stage img');
+    return { h1: inFirst(document.querySelector('h1')), cta: [...document.querySelectorAll('.hero .cta a')].every(inFirst), label: inFirst(document.querySelector('.hero .demo-tag')), poster: i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity === 1 && inFirst(i), state: document.getElementById('hero-stage').getAttribute('data-hero'), lines: Math.round(document.querySelector('h1').getBoundingClientRect().height / parseFloat(getComputedStyle(document.querySelector('h1')).lineHeight)) }; });
+  assert.equal(r.h1, true, 'headline'); assert.equal(r.cta, true, 'buttons'); assert.equal(r.label, true, 'the label'); assert.equal(r.poster, true, 'the still'); assert.equal(r.state, 'loading'); assert.ok(r.lines <= 3, 'the headline takes ' + r.lines + ' lines at 390 px');
+  await o.page.screenshot({ path: join(RAW, 'first-screen-viewer-held-390.png') }); assert.deepEqual(o.errors, []);
+  await o.ctx.close();
 });
-await check('hero per language: the English page plays hero-en when that file exists, the Hebrew page the plain one, and neither asks for the other', async () => {
-  const clip = join(SCRATCH, 'hero.webm');
-  const s2 = await listen(0, { pages: { 'index.html': builtWith({ heroMp4: false, heroWebm: true, heroEnMp4: false, heroEnWebm: true }) }, media: { 'img/hero.webm': clip, 'img/hero-en.webm': clip } });
-  for (const [lang, want, other] of [['he', /img\/hero\.webm$/, /hero-en\./], ['en', /img\/hero-en\.webm$/, /hero\.webm/]]) {
-    const o = await open('/mana/?demo=off&lang=' + lang, { origin: s2.origin });
-    await o.page.waitForFunction(() => document.getElementById('hero-phone').getAttribute('data-video') === 'on', null, { timeout: 15000 });
-    assert.match(await o.page.evaluate(() => document.querySelector('#hero-phone video').currentSrc), want, lang);
-    assert.ok(!o.reqs.some((u) => other.test(u)), lang + ': the other language\'s video was requested'); assert.deepEqual(o.errors, []);
+/* contrast of ivory text on the hero's scrim: the headline is hidden for a moment and the pixels behind it are read */
+const lum = (r, g, b) => { const f = (c) => { c /= 255; return c <= .03928 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }; return .2126 * f(r) + .7152 * f(g) + .0722 * f(b); };
+await check('hero text sits on a scrim: ivory on what is behind the headline and the lead measures at least 4.5:1, phone and wide, both languages', async () => {
+  for (const [w, h, touch, lang] of [[390, 844, true, 'he'], [390, 844, true, 'en'], [1440, 900, false, 'he'], [1440, 900, false, 'en']]) {
+    const o = await open('/mana/?demo=off&lang=' + lang, { w, h, touch }); await o.page.waitForTimeout(300);
+    const boxes = await o.page.evaluate(() => ['h1', '.hero .lead', '.hero .demo-tag'].map((q) => { const e = [...document.querySelectorAll(q)].find((el) => el.checkVisibility()), b = e.getBoundingClientRect(); e.style.visibility = 'hidden'; return { q, x: Math.round(b.left), y: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) }; }));
+    for (const b of boxes) {
+      const { data, info } = await sharp(await o.page.screenshot({ clip: b })).removeAlpha().raw().toBuffer({ resolveWithObject: true }); let worst = 0; const n = info.width * info.height;
+      for (let i = 0; i < data.length; i += info.channels) worst = Math.max(worst, lum(data[i], data[i + 1], data[i + 2]));
+      const fg = b.q === 'h1' ? lum(252, 248, 246) : b.q === '.hero .lead' ? lum(221, 212, 203) : lum(212, 203, 192), ratio = (fg + .05) / (worst + .05);
+      assert.ok(ratio >= 4.5, `${w} ${lang} ${b.q}: ${ratio.toFixed(2)}:1 against the brightest pixel behind it (${n} px)`);
+      if (!only) (metrics.after.heroContrast || (metrics.after.heroContrast = {}))[`${w}-${lang}-${b.q}`] = +ratio.toFixed(2);
+    }
     await o.ctx.close();
   }
-  s2.server.close();
+});
+await check('start free: on the table, the empty name card in a ring of light that is drawn once in view; "pay at the table" marked as coming; the blush band is gone', async () => {
+  for (const lang of ['he', 'en']) {
+    const o = await open('/mana/?demo=off&lang=' + lang, { h: 600 });
+    let r = await o.page.evaluate(() => ({ off: getComputedStyle(document.querySelector('.card-ring')).strokeDashoffset, inView: document.getElementById('price').classList.contains('in'), blush: !!document.querySelector('.price') }));
+    assert.equal(r.inView, false); assert.equal(r.blush, false); assert.match(r.off, /^1(px)?$/, 'the ring is drawn before the stop is on screen: ' + r.off);
+    await o.page.locator('.start-card').scrollIntoViewIfNeeded(); await o.page.waitForFunction(() => document.getElementById('price').classList.contains('in')); await o.page.waitForTimeout(1000);
+    r = await o.page.evaluate(() => ({ off: getComputedStyle(document.querySelector('.card-ring')).strokeDashoffset, title: document.querySelector('.start-card').getAttribute('aria-label'), soon: document.querySelector('.soon').innerText.trim(), big: document.querySelector('.start .big').innerText.trim(), cta: document.querySelector('.start .cta a').getAttribute('href') }));
+    assert.match(r.off, /^0(px)?$/, 'the ring did not finish: ' + r.off); assert.match(r.title, lang === 'he' ? /כרטיס שם/ : /name card/); assert.equal(r.soon, lang === 'he' ? 'תשלום ליד השולחן · בקרוב' : 'Pay at the table · coming'); assert.equal(r.big, lang === 'he' ? '30 יום חינם' : '30 days free'); assert.equal(r.cta, './studio/');
+    await o.page.locator('#price').screenshot({ path: join(RAW, `start-390-${lang}.png`) });
+    await o.ctx.close();
+  }
+});
+await check('head: a CSP that limits connections to the site and Supabase and frames to the site; the shared tokens are linked and in force; the English display face is self-hosted with its licence and loaded only in English, at idle', async () => {
+  const o = await open('/mana/?demo=off&lang=he');
+  const r = await o.page.evaluate(() => ({ csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content, tokens: !!document.querySelector('link[href$="tokens.css"]'), yolk: getComputedStyle(document.documentElement).getPropertyValue('--m-yolk').trim(), fr: document.fonts.check('16px Fraunces') }));
+  assert.equal(r.csp, "connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'"); assert.equal(r.tokens, true); assert.equal(r.yolk, '#f5b120');
+  assert.ok(!o.reqs.some((u) => /fraunces/.test(u)), 'the Hebrew page fetched the English display face'); await o.ctx.close();
+  const e = await open('/mana/?demo=off&lang=en'); await e.page.waitForFunction(() => document.fonts.check('16px Fraunces'), null, { timeout: 8000 });
+  assert.ok(e.reqs.some((u) => /fonts\/fraunces-latin-standard-normal\.woff2$/.test(u)), 'Fraunces was not fetched from the site'); assert.match(await e.page.evaluate(() => getComputedStyle(document.querySelector('h1')).fontFamily), /^Fraunces/);
+  assert.ok(existsSync(join(ROOT, 'site', 'fonts', 'OFL-fraunces.txt')) && /SIL Open Font License/.test(readFileSync(join(ROOT, 'site', 'fonts', 'OFL-fraunces.txt'), 'utf8')), 'no licence text for Fraunces'); await e.ctx.close();
+});
+await check('preview build (MANA_PREVIEW=1): the form is rendered switched off with a line saying so, and sends nothing; the normal build is unchanged', async () => {
+  assert.ok(!/data-off|preview-off/.test(renderIndex(mediaFound())), 'the normal build carries the preview switch');
+  const s2 = await listen(0, { pages: { 'index.html': renderIndex(mediaFound(), { preview: true }) } });
+  const o = await open('/mana/?demo=off&lang=he', { origin: s2.origin, w: 1440, h: 900, touch: false }); const n = s2.server.leads.length;
+  const r = await o.page.evaluate(() => ({ off: document.getElementById('talk').getAttribute('data-off'), line: document.querySelector('.preview-off').innerText.trim(), disabled: ['f-place', 'f-contact', 'f-msg', 'f-send'].map((id) => document.getElementById(id).disabled) }));
+  assert.equal(r.off, '1'); assert.match(r.line, /תצוגה מקדימה/); assert.deepEqual(r.disabled, [true, true, true, true]);
+  await o.page.evaluate(() => document.getElementById('talk').requestSubmit()); await o.page.waitForTimeout(500);
+  assert.equal(s2.server.leads.length, n); assert.ok(!o.reqs.some((u) => /submit_lead/.test(u)), 'the preview build posted a lead');
+  await o.ctx.close(); s2.server.close();
 });
 
 await check('demo on a phone: nothing from the viewer until asked; "Play with it" opens it full screen in the same tab, Back returns', async () => {
@@ -252,9 +293,9 @@ await check('demo on a phone: nothing from the viewer until asked; "Play with it
   await o.page.locator('#phone').scrollIntoViewIfNeeded(); await o.page.waitForTimeout(600);
   assert.equal(await o.page.getAttribute('#phone', 'data-state'), 'still'); assert.ok(!o.reqs.some((u) => u.includes('/view/')), 'the viewer was fetched before anyone asked');
   assert.equal(await o.page.locator('#phone iframe').count(), 0);
-  await Promise.all([o.page.waitForURL(/\/mana\/view\/\?demo=olea&lang=he/), o.page.click('[data-demo-start]')]);
-  assert.equal(o.ctx.pages().length, 1, 'a second tab opened');
-  await o.page.goBack(); await o.page.waitForURL(/\/mana\/$/); assert.equal(await o.page.locator('h1').count(), 1);
+  await Promise.all([o.page.waitForURL(/\/mana\/view\/\?demo=olea&lang=he/, { waitUntil: 'commit', timeout: 60000 }), o.page.click('[data-demo-start]')]);
+  assert.equal(o.ctx.pages().length, 1, 'a second tab opened'); await o.page.waitForLoadState('load', { timeout: 60000 });
+  await o.page.goBack(); await o.page.waitForURL(/\/mana\/\?hero=off$/); assert.equal(await o.page.locator('h1').count(), 1);
   await o.ctx.close();
 });
 await check('demo on a wide screen: starts by itself in view, the real viewer fits the frame; its "← Mana" link puts the still back instead of nesting the page', async () => {
@@ -307,7 +348,7 @@ await check('film per language: the English page opens the -en cuts when they ex
 
 await check('built page matches the media files in site/img (run tools/build-site.mjs after adding or removing a video)', async () => {
   const html = readFileSync(join(ROOT, 'site', 'index.html'), 'utf8'), m = mediaFound();
-  assert.equal(/<video class="hero-video"/.test(html), m.heroMp4 || m.heroWebm, 'hero video'); assert.equal(/data-film /.test(html) || /data-film>/.test(html), m.film169 || m.film916, 'film button');
+  assert.ok(!/<video class="hero-video"|#hero-phone/.test(html), 'the hero video phone is back'); assert.equal(/data-film /.test(html) || /data-film>/.test(html), m.film169 || m.film916, 'film button');
   assert.equal(html, renderIndex(m), 'site/index.html is not what tools/build-site.mjs writes today');
 });
 await check('media files on the page: hero loops and film cuts within their limits, H.264 that phones play, no sound, index first; the hero poster is the first frame of the hero video', async () => {
@@ -389,42 +430,16 @@ await check('keyboard: skip link first, visible focus, a question opens with Ent
   assert.equal(await o.page.locator('.faq details').count(), 5);
   await o.ctx.close();
 });
-await check('first paint needs no viewer and no video: HTML, CSS, config, one script, fonts and two pictures before load; the video is asked for only after load, and with every video byte held back for ever the first screen is whole', async () => {
-  /* 1. the page as it is built today: what it asks the server for until load */
-  const before = srv.server.requests.length; let o = await open('/mana/?demo=off');
+await check('first paint needs no viewer and no video: HTML, CSS, tokens, config, one script, fonts, the wood and the still before load (16 requests); the page\'s scripts before the hero stay under 60 kB gzipped', async () => {
+  const before = srv.server.requests.length; const o = await open('/mana/?demo=off');
   const reqs = srv.server.requests.slice(before).map((r) => r.path), video = /\.(mp4|webm)(\?|$)/;
-  assert.ok(!reqs.some((p) => p.includes('/view/')), 'the viewer was requested on load'); assert.ok(reqs.filter((p) => !video.test(p)).length <= 14, 'too many requests on load: ' + reqs.length + ' ' + reqs.join(' '));
-  assert.ok(!/<source|<video[^>]* src=|<video[^>]* autoplay/.test(readFileSync(join(ROOT, 'site', 'index.html'), 'utf8')), 'the HTML itself starts a video download');
-  metrics.after.requestsOnLoad390 = reqs.filter((p) => !video.test(p)).length;
+  assert.ok(!reqs.some((p) => p.includes('/view/')), 'the viewer was requested on load'); assert.ok(!reqs.some((p) => video.test(p)), 'a video was requested on load'); assert.ok(reqs.length <= 16, 'too many requests on load: ' + reqs.length + ' ' + reqs.join(' '));      // 16: version 2's 14, the shared tokens and the table's wood
+  assert.ok(!/<source|<video[^>]* src=|<video[^>]* autoplay|<iframe/.test(readFileSync(join(ROOT, 'site', 'index.html'), 'utf8')), 'the HTML itself starts a video or the viewer');
+  metrics.after.requestsOnLoad390 = reqs.length;
+  const gz = (f) => gzipSync(readFileSync(join(ROOT, 'site', f))).length, scripts = gz('mana.js') + gzipSync(readFileSync(join(ROOT, '..', 'config.js'))).length, css = gz('mana.css') + gz('tokens.css');
+  assert.ok(scripts <= 60 * 1024, 'scripts before the hero: ' + scripts + ' bytes gzipped'); metrics.after.bytesGzipBeforeHero = { scripts, css, html: gzipSync(readFileSync(join(ROOT, 'site', 'index.html'))).length };
+  console.log('      before the hero, gzipped: scripts ' + scripts + ' B, css ' + css + ' B, html ' + metrics.after.bytesGzipBeforeHero.html + ' B');
   await o.ctx.close();
-  /* 2. the same page with a hero video this browser can play (the real files are H.264, which the test browser lacks) on a network that never
-        delivers one byte of video: the page must be whole without it. Times are the page's own clock, in milliseconds. */
-  const s2 = await listen(0, { pages: { 'index.html': builtWith({ heroMp4: true, heroWebm: true, heroEnMp4: false, heroEnWebm: false }) }, media: mediaFiles(['hero.webm', 'hero.mp4']) });
-  o = await open('/mana/?demo=off', { origin: s2.origin, hold: video, init: () => {
-    window.__t = { asked: null, atLoad: null, lcp: null };
-    new MutationObserver((list) => { if (window.__t.asked == null && list.some((m) => [...m.addedNodes].some((n) => n.nodeName === 'SOURCE'))) window.__t.asked = performance.now(); }).observe(document, { childList: true, subtree: true });
-    try { new PerformanceObserver((l) => { const e = l.getEntries().pop(); window.__t.lcp = { at: e.startTime, what: e.element ? e.element.tagName.toLowerCase() + (e.element.className ? '.' + e.element.className : '') : '' }; }).observe({ type: 'largest-contentful-paint', buffered: true }); } catch (e) { /* not in this browser */ }
-    window.addEventListener('load', () => { const v = document.querySelector('#hero-phone video'), i = document.querySelector('#hero-phone img'); window.__t.atLoad = { at: performance.now(), net: v.networkState, sources: v.querySelectorAll('source').length, poster: i.complete && i.naturalWidth > 0 }; });
-  } });
-  await o.page.waitForFunction(() => window.__t.asked != null, null, { timeout: 10000 });                        // after load the page asks for the video ...
-  for (const t0 = Date.now(); !o.held.length && Date.now() - t0 < 5000;) await o.page.waitForTimeout(50);
-  assert.ok(o.held.length >= 1, 'the video was never asked for, so holding it back proved nothing');
-  await o.page.waitForTimeout(1500);                                                                              // ... and it never comes
-  const r = await o.page.evaluate(() => {
-    const fcp = performance.getEntriesByType('paint').find((e) => e.name === 'first-contentful-paint'), i = document.querySelector('#hero-phone img');
-    const inFirstScreen = (e) => { const b = e.getBoundingClientRect(); return e.checkVisibility() && b.width > 0 && b.top >= 0 && b.bottom <= innerHeight; };
-    return { t: window.__t, fcp: fcp ? fcp.startTime : null, h1: inFirstScreen(document.querySelector('h1')), cta: [...document.querySelectorAll('.hero .cta a')].every(inFirstScreen), poster: i.complete && i.naturalWidth > 0 && i.checkVisibility() && i.getBoundingClientRect().top < innerHeight,
-      state: document.getElementById('hero-phone').getAttribute('data-video'), videoOpacity: +getComputedStyle(document.querySelector('#hero-phone video')).opacity, playHidden: document.querySelector('[data-hero-play]').hidden, ready: document.readyState };
-  });
-  assert.deepEqual({ net: r.t.atLoad.net, sources: r.t.atLoad.sources, poster: r.t.atLoad.poster }, { net: 0, sources: 0, poster: true }, 'at load the video was already wanted, or the still was not there yet');
-  assert.ok(r.t.asked >= r.t.atLoad.at, 'the video was asked for before load: ' + r.t.asked + ' / ' + r.t.atLoad.at);
-  assert.ok(r.fcp != null && r.t.lcp, 'the browser reported no paint at all');      // when the paints came is printed and recorded, not asserted: on this machine load, first paint and the request fall within a few milliseconds of each other
-  assert.equal(r.h1, true, 'headline'); assert.equal(r.cta, true, 'buttons'); assert.equal(r.poster, true, 'still'); assert.equal(r.ready, 'complete');
-  assert.notEqual(r.state, 'on'); assert.equal(r.videoOpacity, 0); assert.equal(r.playHidden, true, 'a play button appeared although nothing failed');
-  await o.page.screenshot({ path: join(RAW, 'first-screen-video-held-390.png') }); assert.deepEqual(o.errors, []);
-  metrics.after.firstScreenWithVideoHeld390 = { firstPaintMs: Math.round(r.fcp), largestPaintMs: Math.round(r.t.lcp.at), largestPaint: r.t.lcp.what, loadMs: Math.round(r.t.atLoad.at), videoAskedMs: Math.round(r.t.asked), videoBytesDelivered: 0 };
-  console.log('      first paint ' + Math.round(r.fcp) + ' ms, largest paint ' + Math.round(r.t.lcp.at) + ' ms (' + r.t.lcp.what + '), load ' + Math.round(r.t.atLoad.at) + ' ms, video asked for at ' + Math.round(r.t.asked) + ' ms and never delivered');
-  await o.ctx.close(); s2.server.close();
 });
 
 await check('privacy and terms: stable addresses, the required statements, a data-deletion anchor, the not-reviewed note in the source', async () => {

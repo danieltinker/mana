@@ -1,7 +1,8 @@
-/* Mana by Halom — product page, version 2. Hebrew first (RTL), English second. No framework, no CDN; fonts are self-hosted (SIL OFL 1.1).
+/* Mana by Halom — product page, version 3 (the table). Hebrew first (RTL), English second. No framework, no CDN; fonts are self-hosted (SIL OFL 1.1).
    The page is short on purpose: one moving phone, one drawn flow, one sample dashboard; everything else is a line and an icon. */
 @font-face{font-family:"Frank Ruhl Libre";font-style:normal;font-display:swap;font-weight:300 900;src:url(fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
 @font-face{font-family:"Frank Ruhl Libre";font-style:normal;font-display:swap;font-weight:300 900;src:url(fonts/frank-ruhl-libre-latin-wght-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Fraunces";font-style:normal;font-display:swap;font-weight:100 900;src:url(fonts/fraunces-latin-standard-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:400;src:url(fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
 @font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:400;src:url(fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
 @font-face{font-family:"IBM Plex Sans Hebrew";font-style:normal;font-display:swap;font-weight:500;src:url(fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0307-0308,U+0590-05FF,U+200C-2010,U+20AA,U+25CC,U+FB1D-FB4F}
@@ -34,6 +35,8 @@ a{color:inherit;text-underline-offset:.18em;text-decoration-thickness:1px}
 a:hover{text-decoration-thickness:2px}
 :focus-visible{outline:2px solid var(--black);outline-offset:3px;border-radius:4px}
 .band-dark :focus-visible,.foot :focus-visible,.film :focus-visible{outline-color:var(--yolk)}
+.preview-off{font-size:.92rem;color:var(--charcoal);border:1px dashed rgba(15,15,15,.3);border-radius:var(--r-s);padding:10px 12px;margin-bottom:4px}
+.form[data-off] .field input,.form[data-off] .field textarea{background:#f3efec;color:var(--charcoal)}
 h1,h2,h3{font-family:var(--display);font-weight:500;margin:0;letter-spacing:-.012em;text-wrap:balance}
 html[lang="he"] h1,html[lang="he"] h2,html[lang="he"] h3{letter-spacing:0}
 h2{font-size:clamp(1.62rem,4.2vw,2.9rem);line-height:1.12}
@@ -66,45 +69,70 @@ bdi,.ltr{direction:ltr;unicode-bidi:isolate}
 .band-dark .btn-primary:hover{background:var(--ivory);border-color:var(--ivory);color:var(--black)}
 .btn[disabled]{opacity:.6;cursor:progress}
 
-/* header: mark, language, sign in */
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:8px}
-.brand{display:inline-flex;align-items:center;gap:9px;text-decoration:none;min-height:44px}
+/* header: one glass pill over the table (the only blur on a phone): mark, language, sign in */
+.top{position:absolute;z-index:6;top:max(10px,env(safe-area-inset-top));inset-inline:0;display:flex;justify-content:center;padding-block:0}
+.pill{display:inline-flex;align-items:center;gap:2px;padding:3px 4px 3px 14px;border-radius:var(--m-r-pill);background:var(--m-glass-tint);box-shadow:inset 0 1px 0 var(--m-glass-edge),0 14px 40px -18px rgba(0,0,0,.8);backdrop-filter:blur(var(--m-glass-blur)) saturate(1.15);-webkit-backdrop-filter:blur(var(--m-glass-blur)) saturate(1.15);color:var(--m-ivory)}
+html.solid .pill{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(15,11,8,.94)}
+@media (prefers-reduced-transparency:reduce){.pill{backdrop-filter:none;-webkit-backdrop-filter:none;background:rgba(15,11,8,.94)}}
+.brand{display:inline-flex;align-items:center;gap:8px;text-decoration:none;min-height:44px;color:inherit}
 .brand svg{height:auto;flex:none}
-.brand b{font:500 1.6rem/1 var(--display)}
-.top-tools{display:flex;align-items:center;gap:4px}
-.lang{min-height:44px;padding:0 .8em;border-radius:999px;border:0;background:transparent;font:500 .94rem/1 var(--text);color:var(--black);cursor:pointer;text-decoration:underline;text-underline-offset:.25em;text-decoration-thickness:1px}
+.brand b{font:400 1.5rem/1 var(--display)}
+.top-tools{display:flex;align-items:center;gap:0;margin-inline-start:8px}
+.lang{min-height:44px;min-width:44px;padding:0 .8em;border-radius:999px;border:0;background:transparent;font:500 .94rem/1 var(--text);color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:.25em;text-decoration-thickness:1px}
 .lang:hover{text-decoration-thickness:2px}
+.pill .btn-sm{border-color:rgba(252,248,246,.5);color:var(--m-ivory);min-height:44px}
+.pill .btn-sm:hover{background:var(--m-ivory);color:var(--m-ink)}
+.pill :focus-visible{outline-color:var(--m-yolk)}
 
-/* hero: the sentence and the two buttons beside the thing itself, a phone with the guest's view playing in it.
-   Side by side even on a phone, so the sentence, the buttons and the moving picture share the first screen. */
-.hero{padding-block:clamp(6px,2vw,28px) clamp(22px,5vw,64px)}
-.hero-grid{display:grid;grid-template-columns:minmax(0,1fr) clamp(146px,43vw,330px);gap:clamp(12px,3.4vw,40px);align-items:center}
-.hero h1{font-size:clamp(1.74rem,8.1vw,3.3rem);line-height:1.08}
-html[lang="he"] .hero h1{line-height:1.16}
-.hero .lead{margin-top:clamp(8px,1.6vw,22px)}
-.cta{display:grid;gap:8px;margin-top:clamp(14px,2.6vw,34px)}
-.cta .btn{padding-inline:.7em}
-.hero-pic{margin:0}
-.demo-tag{margin-top:8px;text-align:center;font-size:.72rem;line-height:1.3;color:var(--charcoal)}
-@media (max-width:339px){.hero-grid{grid-template-columns:1fr}.hero-pic{max-width:200px;margin-inline:auto}}
-@media (min-width:640px){.cta{display:flex;flex-wrap:wrap;gap:12px}.cta .btn{padding-inline:1.5em}}
+/* the table: the first screen (the hero) and the last stop (start free) are the guest view's own oak under one lamp,
+   darkened to the table's black at the edges. Text on the table sits on a soft scrim. */
+.table{position:relative;isolation:isolate;background:#0B0907 url(img/table-oak.jpg) 50% 0/640px auto repeat;color:var(--m-ivory)}
+.table::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(ellipse 62% 58% at var(--lamp-x,50%) var(--lamp-y,58%),rgba(255,206,140,.13) 0,rgba(255,206,140,.04) 28%,rgba(11,9,7,.1) 50%,rgba(11,9,7,.86) 100%),linear-gradient(rgba(11,9,7,.55),rgba(11,9,7,.55))}
+.table :focus-visible{outline-color:var(--m-yolk)}
+.table .btn{border-color:rgba(252,248,246,.72);color:var(--m-ivory)}
+.table .btn:hover{background:var(--m-ivory);border-color:var(--m-ivory);color:var(--m-ink)}
+.table .btn-primary{background:var(--m-yolk);border-color:var(--m-yolk);color:var(--m-ink)}
+.table .btn-primary:hover{background:var(--m-ivory);border-color:var(--m-ivory);color:var(--m-ink)}
+
+/* hero: the Hebrew line on the table, the dish alone under the lamp (the live relief in hero mode, its flat photo until then),
+   the two buttons on the table below the dish. On a phone it is the whole first screen. */
+.hero{--lamp-y:62%;overflow:hidden;min-height:100svh;padding-top:calc(max(10px,env(safe-area-inset-top)) + 64px);padding-bottom:12px;display:flex;flex-direction:column}
+.hero-grid{display:grid;grid-template-rows:auto minmax(0,1fr);gap:0;flex:1;width:100%;max-width:var(--wrap);margin-inline:auto;padding-inline:var(--gut)}
+.hero-words{position:relative;padding-block:clamp(10px,2.4vh,28px) 8px;max-width:30rem}
+.hero-words::before{content:"";position:absolute;inset:-40px -24px -24px;z-index:-1;pointer-events:none;background:radial-gradient(ellipse 70% 80% at 50% 40%,rgba(11,9,7,.74),rgba(11,9,7,.5) 50%,rgba(11,9,7,0) 100%)}
+.hero h1{font:400 var(--m-t-display-he)/1.1 var(--display);letter-spacing:0;text-wrap:balance;color:var(--m-ivory)}
+html[lang="en"] .hero h1{font-family:"Fraunces","Frank Ruhl Libre","Times New Roman",serif;font-size:var(--m-t-display-en);font-weight:380;font-variation-settings:"SOFT" 0,"WONK" 0;line-height:1.04;letter-spacing:-.012em}
+.hero .lead{margin-top:clamp(8px,1.6vh,18px);color:#ddd4cb;max-width:24em}
+.hero-stage{position:relative;height:min(560px,64svh);min-height:380px;margin-inline:calc(-1 * var(--gut));overflow:hidden}
+.hero-stage::before{content:"";position:absolute;z-index:1;inset:0 0 auto;height:clamp(90px,22%,160px);pointer-events:none;background:linear-gradient(#0B0907,rgba(11,9,7,.6) 45%,rgba(11,9,7,0))}      /* the far end of the table falls into the dark: the page's wood and the live table meet in shadow */
+.hero-stage .hero-frame,.hero-stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent}
+@media (min-width:900px){.hero-stage iframe{-webkit-mask-image:linear-gradient(to right,transparent,#000 18%,#000 82%,transparent),linear-gradient(to bottom,transparent,#000 22%,#000 100%);-webkit-mask-composite:source-in;mask-image:linear-gradient(to right,transparent,#000 18%,#000 82%,transparent),linear-gradient(to bottom,transparent,#000 22%,#000 100%);mask-composite:intersect}}      /* beside the live table the page's own wood: the frame's edges dissolve into it */
+.hero-stage iframe{opacity:0;transition:opacity .4s ease}
+.hero-stage[data-hero="ready"] iframe,.hero-stage[data-hero="rise"] iframe,.hero-stage[data-hero="rest"] iframe,.hero-stage[data-hero="poster"] iframe{opacity:1}
+.hero-poster{position:absolute;left:0;top:0;width:280px;height:280px;object-fit:contain;transform:translate(-50%,-50%);pointer-events:none;transition:opacity .4s ease;filter:drop-shadow(0 18px 24px rgba(0,0,0,.55))}
+.hero-stage[data-hero="ready"] .hero-poster,.hero-stage[data-hero="rise"] .hero-poster,.hero-stage[data-hero="rest"] .hero-poster{opacity:0}
+.hero-stage[data-hero="rest"] .hero-frame{cursor:grab}
+.hero .cta{position:absolute;z-index:2;inset-inline:var(--gut);bottom:clamp(44px,8vh,72px);display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:0}
+.hero .cta .btn{padding-inline:1.3em;min-width:9.5em;box-shadow:0 16px 36px -14px rgba(0,0,0,.8)}
+.hero .demo-tag{position:absolute;z-index:2;inset-inline:var(--gut);bottom:14px;margin:0;text-align:center;font-size:.74rem;line-height:1.3;color:#b9b0a6}
+.hero .demo-tag b{font-weight:500;color:#d4cbc0}
 @media (min-width:900px){
-  .hero-grid{grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:clamp(40px,6vw,88px)}
-  .hero h1{font-size:clamp(3.3rem,5.9vw,5rem);line-height:1.04}
-  html[lang="he"] .hero h1{line-height:1.12}
-  .hero-pic{width:min(320px,100%);margin-inline:auto}
-  .demo-tag{font-size:.8rem;margin-top:12px}
+  .hero{--lamp-x:30%;--lamp-y:54%;min-height:min(100svh,880px);padding-top:calc(max(10px,env(safe-area-inset-top)) + 84px)}
+  html[lang="en"] .hero{--lamp-x:70%}
+  .hero-grid{grid-template-rows:none;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:clamp(24px,4vw,64px);align-items:center}
+  .hero-words{max-width:none;padding-block:0 120px;align-self:center}
+  .hero .lead{font-size:1.2rem;margin-top:22px}
+  .hero-stage{height:min(720px,78vh);margin-inline:0}
+  .hero .cta{inset-inline:auto;left:0;right:0}
+  .hero .cta .btn{min-width:10.5em}
 }
+@media (max-width:899px){.hero .cta{bottom:clamp(48px,9svh,80px)}}
 
-/* a phone: the frame the guest's view lives in (hero video, live demo) */
+/* a phone: the frame the guest's view lives in (the live demo on a wide screen) */
 .phone{--bez:clamp(6px,1.9vw,11px);position:relative;padding:var(--bez);border-radius:calc(var(--bez)*3.4 + 8px);background:#1b1917;box-shadow:0 0 0 1px rgba(15,15,15,.55),0 34px 60px -34px rgba(15,15,15,.6)}
 .phone-screen{position:relative;border-radius:calc(var(--bez)*2.4 + 6px);overflow:hidden;background:#0b0907;aspect-ratio:390/844}
-.phone-poster,.hero-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.hero-video{opacity:0;transition:opacity .5s ease}
-.phone[data-video="on"] .hero-video{opacity:1}
-.phone-play{position:absolute;inset:0;margin:auto;width:64px;height:64px;border-radius:50%;border:0;background:var(--yolk);color:var(--black);display:grid;place-items:center;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.5)}
-.phone-play svg{width:28px;height:28px;margin-inline-start:3px}
-html[dir="rtl"] .phone-play svg{margin-inline-start:0;margin-left:3px}
+.phone-poster{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 
 /* three steps: three small scenes on plates, joined by a line that draws itself */
 .flow{padding-block:clamp(18px,4.4vw,56px) var(--sec)}
@@ -222,12 +250,24 @@ html[dir="rtl"] .share{background:linear-gradient(to left,var(--black) var(--w),
 .perks svg{width:clamp(28px,3.4vw,36px);height:clamp(28px,3.4vw,36px)}
 @media (min-width:900px){.perks ul{grid-template-columns:repeat(6,minmax(0,1fr))}}
 
-/* the price of trying: one line */
-.price{background:var(--blush);padding-block:clamp(24px,4.6vw,64px)}
-.price-row{display:grid;gap:6px 56px;align-items:center}
-.price .big{font:500 clamp(2.5rem,7vw,4.8rem)/1.05 var(--display);white-space:nowrap}
-.price p{max-width:28em;font-size:clamp(.96rem,1.5vw,1.14rem);line-height:1.45}
-@media (min-width:760px){.price-row{grid-template-columns:auto minmax(0,1fr)}}
+/* start free: back on the table. The engine's own empty name card stands in the ring of light; the ring is drawn once in view. */
+.start{--lamp-y:46%;padding-block:clamp(40px,7vw,96px) clamp(44px,7vw,100px);overflow:hidden}
+.start-grid{display:grid;gap:clamp(8px,2vw,24px);align-items:center}
+.start-words{position:relative;z-index:1}
+.start .big{font:400 clamp(2.5rem,7vw,5rem)/1.05 var(--display);letter-spacing:0;color:var(--m-ivory)}
+html[lang="en"] .start .big{font-family:"Fraunces","Frank Ruhl Libre","Times New Roman",serif;font-weight:380;font-variation-settings:"SOFT" 0,"WONK" 0;letter-spacing:-.012em}
+.start p{max-width:26em;margin-top:12px;color:#ddd4cb;font-size:clamp(.98rem,1.5vw,1.14rem);line-height:1.45}
+.start .cta{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-top:clamp(16px,2.6vw,28px)}
+.soon{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border-radius:999px;border:1px dashed rgba(252,248,246,.42);color:#d4cbc0;font-size:.9rem}
+.soon i{width:7px;height:7px;border-radius:50%;background:var(--m-yolk);box-shadow:0 0 0 3px rgba(245,177,32,.22)}
+.start-card{margin:0;display:grid;justify-items:center}
+.start-card svg{width:min(360px,86%);height:auto;overflow:visible}
+.card-ring{fill:none;stroke:var(--m-yolk);stroke-width:1.4;stroke-linecap:round;stroke-dasharray:1 1;stroke-dashoffset:1;opacity:.5;filter:drop-shadow(0 0 2px rgba(245,177,32,.5))}
+.start.in .card-ring{stroke-dashoffset:0;opacity:.72;transition:stroke-dashoffset var(--m-d2) var(--m-ease) .1s,opacity var(--m-d2) var(--m-ease) .1s}
+html:not(.anim) .card-ring{stroke-dashoffset:0;opacity:.72}
+html[dir="rtl"] .card-ring{transform:scaleX(-1);transform-origin:50% 50%;transform-box:fill-box}
+.start-card figcaption{margin-top:6px;font-size:.78rem;color:#b9b0a6;text-align:center}
+@media (min-width:760px){.start-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(24px,5vw,80px)}.start-card svg{width:min(420px,100%)}}
 
 /* five questions */
 .qa{padding-block:var(--sec) clamp(20px,4vw,56px)}
@@ -293,7 +333,7 @@ html[dir="rtl"] .share{background:linear-gradient(to left,var(--black) var(--w),
 .film-x svg{width:22px;height:22px}
 
 /* the photo guide, privacy and terms (guide/, privacy/, terms/) and print */
-.doc-main{padding-block:clamp(10px,3vw,40px) var(--sec)}
+.doc-main{padding-block:clamp(76px,9vw,110px) var(--sec)}
 .guide{max-width:46rem}
 .back a{display:inline-flex;align-items:center;min-height:44px;font-size:.94rem;color:var(--rose);font-weight:500}
 .guide h1{font-size:clamp(2.1rem,5vw,3.2rem);line-height:1.12}

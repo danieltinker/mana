@@ -10,12 +10,16 @@
      node tools/build-site.mjs --poster-from-video[=s] also take the hero poster from hero.mp4 (frame at s seconds, default 0)
      node tools/build-site.mjs --demo-still-from-clip[=s] also take the still behind "Play with it" (img/demo-poster.jpg) from
                                          tools/film/clips/guest-glide.mp4 (frame at s seconds, default 1.7: the second dish in focus)  */
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), '..', 'site');
+const ROOT = join(SITE, '..', '..');
+/* the page's CSP names the one host the lead form talks to: Supabase's origin, read from the repository's config.js (its publishable key is public) */
+export function supabaseOrigin() { try { const m = /supabaseUrl:\s*'(https:\/\/[^']+)'/.exec(readFileSync(join(ROOT, 'config.js'), 'utf8')); return m ? new URL(m[1]).origin : ''; } catch (e) { return ''; } }
+export const PREVIEW = process.env.MANA_PREVIEW === '1';      // a preview build: the lead form is rendered switched off (nothing a test build can write to the live backend)
 const LIVE = 'https://halom.io/mana/';                       // the address after the next halom.io release (og:url, og:image)
 const WA = 'https://wa.me/972542022269';
 const UPDATED = { he: '7 באוקטובר 2026', en: '7 October 2026' };
@@ -44,7 +48,8 @@ ${note ? `<!-- ${note} -->\n` : ''}<html lang="he" dir="rtl" data-title-he="${es
 <meta name="description" content="${esc(descHe)}">
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#FCF8F6">
+<meta name="theme-color" content="${config ? '#0B0907' : '#FCF8F6'}">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self'${supabaseOrigin() ? ' ' + supabaseOrigin() : ''}; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="${esc(titleHe)}">
@@ -60,6 +65,7 @@ ${note ? `<!-- ${note} -->\n` : ''}<html lang="he" dir="rtl" data-title-he="${es
 <link rel="icon" href="${base}img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="${base}img/favicon-180.png">
 <link rel="preload" href="${base}fonts/frank-ruhl-libre-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="${base}tokens.css">
 <link rel="stylesheet" href="${base}mana.css">
 <script>/* language before first paint: ?lang=, then the last choice, then Hebrew */
 (function(){try{var l=new URLSearchParams(location.search).get('lang')||localStorage.getItem('mana-lang');if(l==='en'){document.documentElement.lang='en';document.documentElement.dir='ltr';}}catch(e){}})();</script>${config ? `
@@ -68,11 +74,13 @@ ${note ? `<!-- ${note} -->\n` : ''}<html lang="he" dir="rtl" data-title-he="${es
 (function(){var c=window.HALOM_MENUS_CONFIG;if(c&&c.features&&c.features.scan===true)document.documentElement.setAttribute('data-scan','1');})();</script>` : ''}
 </head>`;
 
-const header = (base = './') => `<header class="wrap top">
-  <a class="brand" href="${base}" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark('#0F0F0F', 40)}<b>${t('מנה', 'Mana')}</b></a>
-  <div class="top-tools">
-    <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
-    <a class="btn btn-sm" href="${base}studio/">${t('כניסה', 'Sign in')}</a>
+const header = (base = './') => `<header class="top">
+  <div class="pill">
+    <a class="brand" href="${base}" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark('#FCF8F6', 36)}<b>${t('מנה', 'Mana')}</b></a>
+    <div class="top-tools">
+      <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
+      <a class="btn btn-sm" href="${base}studio/">${t('כניסה', 'Sign in')}</a>
+    </div>
   </div>
 </header>`;
 
@@ -117,6 +125,20 @@ const stepCard = `<svg viewBox="0 0 96 96" aria-hidden="true">
     <g fill="#0F0F0F"><path fill-rule="evenodd" d="M34 21h10v10H34zm2.6 2.6v4.8h4.8v-4.8zM52 21h10v10H52zm2.6 2.6v4.8h4.8v-4.8zM34 39h10v10H34zm2.6 2.6v4.8h4.8v-4.8z"/>
       <path d="M38 25h2v2h-2zM56 25h2v2h-2zM38 43h2v2h-2zM46.5 21h3v3h-3zM46.5 27h3v3h-3zM34 33.5h3v3h-3zM40 33.5h3v3h-3zM46.5 33.5h3v3h-3zM53 33.5h3v3h-3zM59 33.5h3v3h-3zM46.5 40h3v3h-3zM53 40h3v3h-3zM59 46h3v3h-3zM46.5 46h3v3h-3zM53 46h3v3h-3zM59 40h3v3h-3z"/></g>
     <ellipse cx="48" cy="63" rx="9.5" ry="5" fill="none" stroke="#0F0F0F" stroke-width="1.4"/><ellipse cx="48" cy="61.8" rx="5" ry="2.7" fill="#F5B120"/></g>
+</svg>`;
+/* stop 5: the engine's own folded name card (paintCard in view/src/gl/stage.js: cream, a double rule), empty, standing in the
+   ring of light on the table. The ring is one stroke (pathLength 1), drawn once when the stop comes into view. */
+const nameCard = `<svg viewBox="0 0 320 230" aria-hidden="true">
+  <defs><linearGradient id="cardFace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f1e7"/><stop offset="1" stop-color="#e3dccf"/></linearGradient>
+    <linearGradient id="cardBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfc8bb"/><stop offset="1" stop-color="#b9b2a5"/></linearGradient>
+    <radialGradient id="cardShadow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>
+  <ellipse cx="166" cy="176" rx="96" ry="22" fill="url(#cardShadow)"/>
+  <path d="M104 68 L216 68 L212 74 L108 74 Z" fill="url(#cardBack)"/>
+  <path d="M100 74 L220 74 L230 170 L90 170 Z" fill="url(#cardFace)"/>
+  <path d="M110 86 L210 86 L218 158 L102 158 Z" fill="none" stroke="rgba(60,44,28,.55)" stroke-width="1.6"/>
+  <path d="M114 91 L206 91 L213.5 153 L106.5 153 Z" fill="none" stroke="rgba(60,44,28,.35)" stroke-width=".8"/>
+  <path d="M90 170 L230 170 L229 172 L91 172 Z" fill="#a89f91"/>
+  <path class="card-ring" pathLength="1" d="M160 206 A132 38 0 1 1 160 130 A132 38 0 1 1 160 206"/>
 </svg>`;
 /* six plain benefits and four "what you learn" lines: 24 × 24 line icons */
 const ico = {
@@ -208,7 +230,8 @@ const faq = [
     '<a href="https://halom.io">Halom</a>, a creative studio in Tel Aviv. Mana is in pilot, and we look after the first restaurants ourselves.']
 ];
 
-export function renderIndex(media = mediaFound()) {
+export function renderIndex(media = mediaFound(), opts = {}) {
+  const preview = opts.preview != null ? !!opts.preview : PREVIEW;
   const heroVideo = media.heroMp4 || media.heroWebm;
   const film = media.film169 || media.film916;
   const filmWide = media.film169 ? 'film-16x9' : 'film-9x16', filmTall = media.film916 ? 'film-9x16' : 'film-16x9';
@@ -216,8 +239,8 @@ export function renderIndex(media = mediaFound()) {
     ((media.film169en || media.film916en) ? ` data-film-wide-en="./img/${media.film169en ? 'film-16x9-en' : media.film916en ? 'film-9x16-en' : filmWide}.mp4" data-film-tall-en="./img/${media.film916en ? 'film-9x16-en' : media.film169en ? 'film-16x9-en' : filmTall}.mp4"` : '') : '';
   return head({
     titleHe: 'מנה · רואים את המנה לפני שמזמינים', titleEn: 'Mana · See the dish before you order',
-    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט תלת־ממדי. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.',
-    descEn: 'A QR menu that shows your dishes on the table, in 3D relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.',
+    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.',
+    descEn: 'A QR menu that shows your dishes on the table, in relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.',
     config: true
   }) + `
 <body>
@@ -225,28 +248,22 @@ export function renderIndex(media = mediaFound()) {
 ${header()}
 <main id="main">
 
-<section class="hero">
-  <div class="wrap hero-grid">
+<section class="hero table" aria-labelledby="hero-h">
+  <div class="hero-grid">
     <div class="hero-words">
-      <h1>${t('רואים את המנה לפני שמזמינים.', 'See the dish before you order.')}</h1>
+      <h1 id="hero-h">${t('רואים את המנה לפני שמזמינים.', 'See the dish before you order.')}</h1>
       ${p('תפריט QR שמראה את המנות שלכם על השולחן.', 'A QR menu that shows your dishes on the table.', 'lead')}
+    </div>
+    <figure class="hero-stage" id="hero-stage" data-hero="still" data-src-he="./view/?demo=solo&amp;embed=hero&amp;lang=he" data-src-en="./view/?demo=solo&amp;embed=hero&amp;lang=en" data-title-he="המנה על השולחן: תבליט חי, אפשר לסובב" data-title-en="The dish on the table: a live relief you can turn">
+      <!-- The dish's flat photo paints first. mana.js places it where the live dish will stand (the same framing the guest view
+           uses), then, after the page has painted and never on Save-Data, adds the guest view in hero mode as an iframe here;
+           the live relief rises in the same place. Off screen the page tells the frame to stop its clock. -->
+      <img class="hero-poster" src="./img/hero-dish.webp" width="640" height="640" alt="" data-alt="1" fetchpriority="high" decoding="async">
       <div class="cta">
         <a class="btn btn-primary" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
-        <a class="btn" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en">${t('לנסות את ההדגמה', 'Try the demo')}</a>
+        <a class="btn" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-link>${t('לנסות את ההדגמה', 'Try the demo')}</a>
       </div>
-    </div>
-    <figure class="hero-pic">
-      <div class="phone" id="hero-phone" data-video="${heroVideo ? 'idle' : 'none'}">
-        <div class="phone-screen">
-          <img class="phone-poster" src="./img/hero-poster-480.jpg" srcset="./img/hero-poster-480.jpg 480w, ./img/hero-poster.jpg 720w" sizes="(min-width: 900px) 320px, 44vw" width="720" height="1560" alt="" data-alt="1" fetchpriority="high">${heroVideo ? `
-          <!-- The guest's view on film. There is no source element here on purpose: mana.js adds the addresses below (and autoplay)
-               after the page has painted, and never on Save-Data or reduced motion, where the still stays with a play button.
-               No poster attribute either: the still is the picture under the video, and a poster would fetch it a second time. -->
-          <video class="hero-video" muted loop playsinline preload="metadata" tabindex="-1" aria-hidden="true"${media.heroWebm ? ` data-webm="./img/hero.webm"` : ''}${media.heroMp4 ? ` data-mp4="./img/hero.mp4"` : ''}${media.heroEnWebm ? ` data-webm-en="./img/hero-en.webm"` : ''}${media.heroEnMp4 ? ` data-mp4-en="./img/hero-en.mp4"` : ''}></video>
-          <button class="phone-play" type="button" data-hero-play hidden data-label-he="להפעיל את הסרטון" data-label-en="Play the video" aria-label="להפעיל את הסרטון">${ico.play}</button>` : ''}
-        </div>
-      </div>
-      <figcaption class="demo-tag">${t('תפריט הדגמה · תמונות להמחשה', 'Demo menu · sample pictures')}</figcaption>
+      <figcaption class="demo-tag"><b>${t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI')}</b><span class="hero-hint" hidden> · ${t('גוררים כדי לסובב', 'Drag to turn')}</span></figcaption>
     </figure>
   </div>
 </section>
@@ -321,10 +338,19 @@ ${header()}
   </div>
 </section>
 
-<section class="price" id="price" aria-labelledby="price-h">
-  <div class="wrap price-row">
-    <h2 class="big" id="price-h">${t('30 יום חינם', '30 days free')}</h2>
-    ${p('מהפרסום הראשון, בלי כרטיס אשראי. את ההמשך מסכמים איתנו ישירות, במהלך הפיילוט.', 'From your first publish, no card. What follows is agreed directly, during the pilot.')}
+<section class="start table reveal" id="price" aria-labelledby="price-h">
+  <div class="wrap start-grid">
+    <div class="start-words">
+      <h2 class="big" id="price-h">${t('30 יום חינם', '30 days free')}</h2>
+      ${p('מהפרסום הראשון, בלי כרטיס אשראי. את ההמשך מסכמים איתנו ישירות, במהלך הפיילוט.', 'From your first publish, no card. What follows is agreed directly, during the pilot.')}
+      <div class="cta">
+        <a class="btn btn-primary" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
+        <span class="soon"><i aria-hidden="true"></i>${t('תשלום ליד השולחן · בקרוב', 'Pay at the table · coming')}</span>
+      </div>
+    </div>
+    <figure class="start-card" role="img" data-label-he="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור" data-label-en="An empty name card standing on the table, in a ring of light" aria-label="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור">
+      ${nameCard}
+    </figure>
   </div>
 </section>
 
@@ -345,15 +371,16 @@ ${header()}
     </div>
     <details class="talk-form" id="talk-more">
       <summary>${t('או להשאיר פרטים', 'Or leave details')}</summary>
-      <form class="form" id="talk" novalidate>
-        <div class="field"><label for="f-place">${t('שם המסעדה', 'Restaurant name')}</label><input id="f-place" name="place" type="text" autocomplete="organization" maxlength="120" required aria-describedby="e-place"><p class="err" id="e-place">${t('כתבו את שם המסעדה.', 'Please write the restaurant’s name.')}</p></div>
-        <div class="field"><label for="f-contact">${t('טלפון או אימייל', 'Phone or e-mail')}</label><input id="f-contact" name="contact" type="text" inputmode="email" autocomplete="email" maxlength="200" dir="ltr" required aria-describedby="e-contact"><p class="err" id="e-contact">${t('צריך מספר טלפון או כתובת אימייל כדי שנוכל לחזור אליכם.', 'We need a phone number or an e-mail address to get back to you.')}</p></div>
-        <div class="field"><label for="f-msg">${t('שאלה <span class="opt">(לא חובה)</span>', 'Question <span class="opt">(optional)</span>')}</label><textarea id="f-msg" name="msg" maxlength="3500" rows="2"></textarea></div>
+      <form class="form" id="talk" novalidate${preview ? ' data-off="1"' : ''}>${preview ? `
+        <p class="preview-off">${t('זאת תצוגה מקדימה: הטופס כבוי ולא שולח דבר. אפשר לכתוב לנו בוואטסאפ.', 'This is a preview: the form is off and sends nothing. You can write to us on WhatsApp.')}</p>` : ''}
+        <div class="field"><label for="f-place">${t('שם המסעדה', 'Restaurant name')}</label><input id="f-place" name="place" type="text" autocomplete="organization" maxlength="120" required aria-describedby="e-place"${preview ? ' disabled' : ''}><p class="err" id="e-place">${t('כתבו את שם המסעדה.', 'Please write the restaurant’s name.')}</p></div>
+        <div class="field"><label for="f-contact">${t('טלפון או אימייל', 'Phone or e-mail')}</label><input id="f-contact" name="contact" type="text" inputmode="email" autocomplete="email" maxlength="200" dir="ltr" required aria-describedby="e-contact"${preview ? ' disabled' : ''}><p class="err" id="e-contact">${t('צריך מספר טלפון או כתובת אימייל כדי שנוכל לחזור אליכם.', 'We need a phone number or an e-mail address to get back to you.')}</p></div>
+        <div class="field"><label for="f-msg">${t('שאלה <span class="opt">(לא חובה)</span>', 'Question <span class="opt">(optional)</span>')}</label><textarea id="f-msg" name="msg" maxlength="3500" rows="2"${preview ? ' disabled' : ''}></textarea></div>
         <div class="hp" aria-hidden="true"><label for="f-site">Website</label><input id="f-site" name="website" type="text" tabindex="-1" autocomplete="off"></div>
         <label class="check"><input id="f-news" type="checkbox">${t('אפשר לשלוח לי עדכונים על מנה בוואטסאפ או באימייל. אפשר לבטל בכל רגע.', 'You may send me updates about Mana by WhatsApp or e-mail. I can stop them at any time.')}</label>
         <div class="notice notice-bad" id="talk-bad" role="alert" tabindex="-1" hidden><p id="talk-bad-text"></p><p><a class="wa" id="talk-wa" href="${WA}">${waIcon}${t('לשלוח בוואטסאפ', 'Send on WhatsApp')}</a></p></div>
         <div class="form-foot">
-          <button class="btn btn-primary" id="f-send" type="submit"><span class="lbl">${t('לשלוח', 'Send')}</span><span class="busy" hidden></span></button>
+          <button class="btn btn-primary" id="f-send" type="submit"${preview ? ' disabled' : ''}><span class="lbl">${t('לשלוח', 'Send')}</span><span class="busy" hidden></span></button>
           <a class="small" href="./privacy/">${t('מה נשמר: דף הפרטיות', 'What we keep: the privacy page')}</a>
         </div>
         <noscript><p class="small">${t('הטופס צריך JavaScript. אפשר לכתוב לנו בוואטסאפ.', 'The form needs JavaScript. You can write to us on WhatsApp.')}</p></noscript>
@@ -377,7 +404,7 @@ ${film ? `<dialog class="film" id="film" aria-labelledby="film-t">
 </dialog>
 ` : ''}<script src="./mana.js"></script>
 <script>/* picture descriptions, per language */
-(function(){var A={he:{1:'מסך טלפון עם תפריט ההדגמה: שקשוקה במחבת על שולחן עץ, ופיצות רחוק יותר על השולחן',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A phone screen with the demo menu: shakshuka in its pan on a wooden table, pizzas further up the table',2:'The demo menu: seven dishes lying on a wooden table'}};
+(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table'}};
 function f(){var l=document.documentElement.lang==='en'?'en':'he';[].forEach.call(document.querySelectorAll('img[data-alt]'),function(i){i.alt=A[l][i.getAttribute('data-alt')];});}f();document.addEventListener('mana:lang',f);})();</script>
 </body>
 </html>
@@ -418,8 +445,8 @@ const li = (rows) => rows.map(([a, b]) => `<li>${t(a, b)}</li>`).join('\n       
 export function renderGuide() {
   return head({
     titleHe: 'מדריך הצילום של מנה · תמונה אחת לכל מנה', titleEn: 'The Mana photo guide · one photo per dish',
-    descHe: 'איך לצלם מנה כדי שהתבליט התלת־ממדי ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.',
-    descEn: 'How to photograph a dish so the 3D relief comes out well: angle, background, light, and what to do when a photo does not work.', base: '../', path: 'guide/'
+    descHe: 'איך לצלם מנה כדי שהתבליט ייצא טוב: זווית, רקע, אור, ומה עושים כשתמונה לא מצליחה.',
+    descEn: 'How to photograph a dish so the relief comes out well: angle, background, light, and what to do when a photo does not work.', base: '../', path: 'guide/'
   }) + `
 <body>
 <a class="skip" href="#main">${t('דילוג לתוכן', 'Skip to content')}</a>
@@ -428,7 +455,7 @@ ${header('../')}
   <article class="guide">
     <p class="back"><a href="../">${t('→ לעמוד של מנה', '← Back to Mana')}</a></p>
     <h1>${t('מדריך הצילום: תמונה אחת לכל מנה', 'The photo guide: one photo per dish')}</h1>
-    ${p('מנה בונה תבליט תלת־ממדי מתמונה אחת של כל מנה. ככל שהתמונה ברורה יותר, התוצאה טובה יותר. חמש דקות עם הדף הזה חוסכות צילום חוזר.', 'Mana builds a 3D relief from one photo of each dish. The clearer the photo, the better the result. Five minutes with this page saves a reshoot.', 'lead')}
+    ${p('מנה בונה תבליט מתמונה אחת של כל מנה. ככל שהתמונה ברורה יותר, התוצאה טובה יותר. חמש דקות עם הדף הזה חוסכות צילום חוזר.', 'Mana builds a relief from one photo of each dish. The clearer the photo, the better the result. Five minutes with this page saves a reshoot.', 'lead')}
     <p class="no-print" style="margin-top:18px"><button class="btn btn-sm" type="button" onclick="window.print()">${t('להדפיס את המדריך', 'Print this guide')}</button></p>
 
     <h2>${t('שבעה כללים', 'Seven rules')}</h2>
@@ -626,6 +653,8 @@ function main() {
     else { execFileSync('/usr/bin/ffmpeg', ['-v', 'error', '-y', '-ss', at, '-i', v, '-frames:v', '1', '-vf', 'scale=720:1560:flags=lanczos', '-q:v', '4', join(SITE, 'img', 'demo-poster.jpg')]); console.log('demo still from the guest recording at ' + at + ' s → demo-poster.jpg'); }
   }
   for (const d of ['guide', 'privacy', 'terms']) mkdirSync(join(SITE, d), { recursive: true });
+  copyFileSync(join(ROOT, 'design', 'tokens.css'), join(SITE, 'tokens.css'));      // the shared custom properties (design/tokens.css): one copy, linked by every page
+  if (PREVIEW) console.log('MANA_PREVIEW=1: the lead form is rendered switched off');
   const media = mediaFound(), pages = { 'index.html': renderIndex(media), 'guide/index.html': renderGuide(), 'privacy/index.html': renderPrivacy(), 'terms/index.html': renderTerms() };
   for (const [f, html] of Object.entries(pages)) { writeFileSync(join(SITE, f), html); console.log(f, html.length); }
   console.log('media found in site/img:', Object.entries(media).filter(([, v]) => v).map(([k]) => k).join(', ') || 'none (hero shows the still; "Watch the film" is hidden)');
