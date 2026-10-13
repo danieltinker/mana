@@ -23,8 +23,22 @@ export const PRESETS = {
   table: { id: 'table', holo: false, kind: 'table', E: 45, D: 9.6, S: 2 * SIZE * .47 + RIM, rim: RIM, width: 1e4, stagger: 0, wander: .045, pool: 2.4, open: .85, liftE: 45, liftZoom: 1.07, liftY: .82, far: [1.9, 7],
     surface: (theme) => tableDef(theme, 'oak') },
   /* drinks, wine, beer: the bar counter, the eye lower, the back-bar glowing at the far end */
-  bar: { id: 'bar', holo: false, kind: 'bar', E: 31, D: 10.5, S: 3.7, width: 1e4, stagger: .3, pool: 7.5, liftE: 11, liftEStand: 24, liftZoom: 1.02, liftY: 0, far: [6, 14], wall: 12.5,
+  bar: { id: 'bar', holo: false, kind: 'bar', standing: true, E: 31, D: 10.5, S: 3.7, width: 1e4, stagger: .3, pool: 7.5, liftE: 11, liftEStand: 24, liftZoom: 1.02, liftY: 0, far: [6, 14], wall: 12.5,
     surface: () => ({ id: 'bar-stone', kind: 'bar', size: 7.5, spec: .5, shin: 64, bump: 1.1, refl: .27, gloss: 1.0, tint: [1, .9, .76] }) },
+  /* The rooms of the place (scenes/rooms.js): each has its own eye, light and pace, so the walk from one to the next is a change
+     of place, not more of the same table. wall = where the room's counter ends and its backdrop begins, behind the focus ·
+     yaw = the eye stands a little to one side (a row of taps, the cocktail bar are seen three-quarter on) · heroK, cyK = how
+     large the thing in focus is drawn and where (a smaller dish leaves room for the case around it) · tiers: the vitrine's
+     dishes stand on risers of three heights. look: what gl/rooms.js draws around it (props, backdrop, light). */
+  vitrine: { id: 'vitrine', holo: false, kind: 'vitrine', E: 36, D: 9.4, S: 2 * SIZE * .47 + RIM + .2, rim: RIM + .2, width: 3.24, stagger: 0, wander: .03, pool: 4.2, open: .5, liftE: 40, liftZoom: 1.08, liftY: .62, far: [4, 10], wall: 7.6,
+    heroK: .74, cyK: .58, tiers: [0, .17, .32], look: 'vitrine',
+    surface: () => ({ id: 'marble', kind: 'vitrine', size: 9, spec: .5, shin: 90, bump: 0, refl: .16, gloss: .7, tint: [1, .97, .93], amb: [.34, .33, .32], plate: 'patisserie' }) },
+  cellar: { id: 'cellar', holo: false, kind: 'cellar', standing: true, E: 29, D: 10.5, S: 3.5, width: 1e4, stagger: .26, pool: 6.5, liftE: 13, liftEStand: 24, liftZoom: 1.02, liftY: 0, far: [5, 12], wall: 9.2, look: 'cellar',
+    surface: () => ({ id: 'walnut', kind: 'cellar', size: 5.6, spec: .3, shin: 40, bump: 2.5, refl: .14, gloss: .55, tint: [1, .78, .52], amb: [.07, .05, .035], plate: 'cellar' }) },
+  taps: { id: 'taps', holo: false, kind: 'taps', standing: true, E: 22, D: 11, S: 2.6, width: 1e4, stagger: 0, pool: 6, liftE: 12, liftEStand: 20, liftZoom: 1.02, liftY: 0, far: [5, 12], wall: 9, yaw: -.44, look: 'taps',
+    surface: () => ({ id: 'walnut', kind: 'taps', size: 5.6, spec: .55, shin: 70, bump: 1.4, refl: .22, gloss: .9, tint: [1, .86, .64], amb: [.06, .05, .04], plate: 'taps' }) },
+  cocktail: { id: 'cocktail', holo: false, kind: 'cocktail', standing: true, E: 43, D: 10.5, S: 3.6, width: 1e4, stagger: .2, pool: 7, liftE: 30, liftEStand: 34, liftZoom: 1.02, liftY: 0, far: [5, 12], wall: 7.4, yaw: .36, look: 'cocktail',
+    surface: () => ({ id: 'bar-stone', kind: 'cocktail', size: 7.5, spec: .55, shin: 70, bump: 1.1, refl: .3, gloss: 1.0, tint: [.86, .92, 1], amb: [.035, .038, .045], plate: 'cocktail' }) },
   /* theme.surface = 'holo': everything is a projection over a dark floor */
   holo: { id: 'holo', holo: true, kind: 'holo', E: 42, D: 10, S: 3.0, width: 60, stagger: .22, pool: 9, liftE: 40, liftZoom: 1.05, liftY: .3, far: [7, 16],
     surface: () => ({ id: 'holo' }) }
@@ -36,23 +50,23 @@ export const presetById = (id) => PRESETS[id] || PRESETS.table;
 export function frameOf(preset, W, H, rtl, kind) {
   const wide = W >= 700 && W / H >= 1.15, top = H < 520 ? 88 : 100;
   const cardW = wide ? Math.round(clamp(W * .3, 300, 400)) : 0, cardH = wide ? Math.round(clamp(H * .3, 180, 250)) : Math.round(clamp(H * .2, 148, 190));
-  const freeW = W - cardW, freeH = H - top - (wide ? 0 : cardH), standing = preset.kind === 'bar';
+  const freeW = W - cardW, freeH = H - top - (wide ? 0 : cardH), standing = !!preset.standing, yaw = preset.yaw || 0;
   let ppu, cy;
   if (standing) {                                   // sized by what stands: a bottle and its glass
     const boxW = 2.0, boxH = 2.3 * Math.cos(preset.E * RAD) + .9 * Math.sin(preset.E * RAD);
     ppu = Math.min((wide ? freeW * .4 : W * .8) / boxW, (wide ? freeH * .56 : freeH * .56) / boxH);
     cy = top + freeH * (wide ? .8 : .8);            // the foot of the glass; the drink rises above it
   } else {
-    const hero = wide ? Math.min(freeW * .46, freeH * .56) : Math.min(W * .84, freeH * .74);
-    ppu = hero / PLATE; cy = top + freeH * (wide ? .56 : .47);
+    const hero = (wide ? Math.min(freeW * .46, freeH * .56) : Math.min(W * .84, freeH * .74)) * (preset.heroK || 1);
+    ppu = hero / PLATE; cy = top + freeH * (preset.cyK ? preset.cyK + (wide ? .04 : 0) : wide ? .56 : .47);
   }
   const cx = wide ? (rtl ? freeW / 2 : cardW + freeW / 2) : W / 2;
   const fov = 2 * Math.atan(H / 2 / (ppu * preset.D)) / RAD;
   /* lifted: the sheet covers the lower part of a phone (or stands at the side), the dish comes up into what is left */
   const sheetH = wide ? H - top - 16 : Math.round(clamp(H * .56, 320, H - 150));
   const liftCy = wide ? cy - freeH * .03 : liftCyFor(H, sheetH, standing);
-  return { W, H, wide, top, cardW, cardH, sheetH, cx, cy, ppu, fov, D: preset.D, E: preset.E, S: preset.S, hero: ppu * PLATE, standing,
-    pxPerDish: preset.S * ppu * Math.sin(preset.E * RAD), liftCy, liftZoom: wide ? Math.max(preset.liftZoom, 1.1) : preset.liftZoom };
+  return { W, H, wide, top, cardW, cardH, sheetH, cx, cy, ppu, fov, D: preset.D, E: preset.E, S: preset.S, hero: ppu * PLATE, standing, yaw,
+    pxPerDish: preset.S * ppu * Math.sin(preset.E * RAD) * Math.cos(yaw), liftCy, liftZoom: wide ? Math.max(preset.liftZoom, 1.1) : preset.liftZoom };
 }
 
 /* A lifted dish on a phone sits in the middle of what the sheet leaves free (a standing drink: near the sheet, it rises above it). */
@@ -77,14 +91,23 @@ export function placesOf(preset, items, kind, rtl) {
     const id = String(items[i].id), j = hash01(id, 1) - .5, k = hash01(id, 2) - .5, spin = (hash01(id, 4) - .5) * .16;
     if (set) {
       const r = reachOf(shapeOf(items[i], kind)); if (i) z += reach + preset.rim + r; reach = r;
-      out.push({ z, m: S, cx: 0, dx: flip * j * 2 * preset.wander, dz: k * .08, spin });
+      out.push({ z, m: S, cx: 0, dx: flip * j * 2 * preset.wander, dz: k * .08, spin, y: preset.tiers ? tierOf(preset.tiers, shapeOf(items[i], kind)) : 0 });
     } else {
       const side = (i % 2 ? 1 : -1) * flip, dx = side * preset.stagger * (.8 + .4 * hash01(id, 3)) + j * .1;
-      out.push({ z: i * S, m: S, cx: dx, dx, dz: k * .16, spin });
+      out.push({ z: i * S, m: S, cx: dx, dx, dz: k * .16, spin, y: 0 });
     }
   }
   for (let i = 1; i < out.length - 1; i++) out[i].m = (out[i + 1].z - out[i - 1].z) / 2;      // the pace through a dish: the mean of the room before and after it
   return out;
+}
+/* The vitrine's risers: a tall dessert stands low, a flat one is raised to be seen, the rest in between (as a pâtissier sets a
+   case). Read from the thing itself, so it is the same every time and needs no field in the menu. */
+export const tierOf = (tiers, shape) => (shape.type !== 'relief' && shape.type !== 'stand' ? tiers[1] : shape.top > .45 ? tiers[0] : shape.top > .2 ? tiers[1] : tiers[2]);
+/* how high the focus is at p (the vitrine's risers; 0 elsewhere): one smooth curve, so the eye rises and settles with the dishes */
+export function heightAt(places, p) {
+  const n = places.length; if (!n) return 0;
+  const q = clamp(p, 0, n - 1), a = Math.floor(q), b = Math.min(n - 1, a + 1), t = q - a, s = t * t * (3 - 2 * t);
+  return (places[a].y || 0) + ((places[b].y || 0) - (places[a].y || 0)) * s;
 }
 /* the sideways position of the focus line at p (between two drinks it leans from one to the other; on a set table it is straight) */
 export function centreAt(places, p) {

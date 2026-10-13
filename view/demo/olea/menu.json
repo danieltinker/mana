@@ -1389,6 +1389,15 @@
          "he": "ארטישוק, פיצה ביאנקה",
          "en": "Artichoke, pizza bianca"
         }
+       },
+       "taste": {
+        "sweet": 0,
+        "body": 2,
+        "acid": 2,
+        "notes": [
+         "stonefruit",
+         "earthy"
+        ]
        }
       }
      },
@@ -1440,6 +1449,15 @@
         "fruit": "",
         "minerality": "",
         "pairings": ""
+       },
+       "taste": {
+        "sweet": 0,
+        "body": 1,
+        "acid": 3,
+        "notes": [
+         "citrus",
+         "mineral"
+        ]
        }
       }
      },
@@ -1486,7 +1504,13 @@
        "style": "Helles lager",
        "abv": "4.8%",
        "serving": "tap",
-       "color": "pale"
+       "color": "pale",
+       "taste": {
+        "bitter": 1,
+        "notes": [
+         "malt"
+        ]
+       }
       }
      },
      "asset": null
@@ -1521,7 +1545,14 @@
        "style": "West Coast IPA",
        "abv": "6.2%",
        "serving": "tap",
-       "color": "amber"
+       "color": "amber",
+       "taste": {
+        "bitter": 3,
+        "notes": [
+         "citrus",
+         "hop"
+        ]
+       }
       }
      },
      "asset": null
@@ -1556,7 +1587,14 @@
        "style": "Hefeweizen",
        "abv": "5.1%",
        "serving": "bottle",
-       "color": "pale"
+       "color": "pale",
+       "taste": {
+        "bitter": 1,
+        "notes": [
+         "fruit",
+         "spice"
+        ]
+       }
       }
      },
      "asset": null

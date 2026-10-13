@@ -258,3 +258,29 @@ ol,ul{padding:0;list-style:none}
 .look-rug-edge .card::before{content:"";position:absolute;z-index:1;top:-1px;inset-inline:22px;height:5px;border-radius:0 0 3px 3px;background:repeating-linear-gradient(90deg,#b23a48 0 10px,#f2e8d5 10px 13px,#8b5e3c 13px 19px,#f2e8d5 19px 22px);opacity:.82;pointer-events:none}
 /* leaf-shadow: the shadow of a leaf lamp lying across the top of the card, a few soft diagonal veins that fade out */
 .look-leaf-vein .card::before{content:"";position:absolute;z-index:0;inset:0;border-radius:22px 22px 0 0;background:repeating-linear-gradient(118deg,transparent 0 22px,rgba(0,0,0,.24) 22px 26px);-webkit-mask-image:linear-gradient(to bottom,#000,transparent 72%);mask-image:linear-gradient(to bottom,#000,transparent 72%);pointer-events:none}
+
+/* ---------- r2: the taste of a wine or a beer (src/tags.js) · the backdrop's label · my table, set ---------- */
+.taste{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.taste-card{flex-wrap:nowrap;overflow:hidden;mask-image:linear-gradient(to var(--fade-end,right),#000 86%,transparent);-webkit-mask-image:linear-gradient(to var(--fade-end,right),#000 86%,transparent)}
+[dir="rtl"] .taste-card{--fade-end:left}
+.tt{--tc:var(--ink-soft);display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px 0 7px;border-radius:999px;border:1px solid rgba(244,237,226,.18);background:linear-gradient(135deg,rgba(255,255,255,.07),rgba(255,255,255,.02));color:var(--ink);font-size:.76rem;line-height:1;white-space:nowrap;letter-spacing:.01em}
+.tt .ti{flex:none;color:var(--ink-soft)}
+.tt.style{border-color:color-mix(in srgb,var(--tc) 55%,transparent);background:linear-gradient(135deg,color-mix(in srgb,var(--tc) 24%,transparent),color-mix(in srgb,var(--tc) 7%,transparent))}
+.tt.style .ti{color:color-mix(in srgb,var(--tc) 70%,#fff)}
+.tt.s-stout .ti{color:#d9b48f}
+.tt.k-sweet .ti{color:#f0d79a}.tt.k-body .ti{color:#e3b9a4}.tt.k-acid .ti{color:#d8e39a}.tt.k-bitter .ti{color:#b9d58c}.tt.abv .ti{color:#e9c48a}
+.tt.note .ti{color:#c9c0b2}
+.tt.n-mineral .ti{color:#b9cbd6}.tt.n-citrus .ti{color:#ecd36a}.tt.n-redfruit .ti{color:#e48a8a}.tt.n-stonefruit .ti{color:#f0b07a}.tt.n-floral .ti{color:#e3a7c8}.tt.n-oak .ti{color:#c9a27a}.tt.n-spice .ti{color:#e09a6a}.tt.n-earthy .ti{color:#b8a58c}.tt.n-malt .ti{color:#e2c07e}.tt.n-roast .ti{color:#c49a7c}.tt.n-hop .ti{color:#b6d68a}.tt.n-sour .ti{color:#eec76c}.tt.n-fruit .ti{color:#f2c46e}
+.tt.sugg{border-style:dashed;background:none}
+.tt .pips{display:inline-flex;gap:3px;margin-inline-start:3px}
+.tt .pips i{width:6px;height:6px;border-radius:50%;background:rgba(244,237,226,.2)}
+.tt .pips i.on{background:var(--accent)}
+.taste-sheet{gap:7px;margin:2px 0 4px}
+.taste-sheet .tt{height:30px;padding:0 11px 0 8px;font-size:.82rem}
+.taste-row{gap:4px}
+.taste-row .tt{height:22px;width:22px;padding:0;justify-content:center;gap:0}
+.taste-row .tt.style{width:auto;padding:0 6px}
+.tt-foot{flex-basis:100%;display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-faint)}
+.app.lifted .card-head .taste-slot{display:none}
+.room-ai{font-size:.62rem;letter-spacing:.04em;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tray-set{display:block;width:100%;height:auto;aspect-ratio:2.2/1;border-radius:20px;margin:2px 0 10px;background:#15100c}

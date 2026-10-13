@@ -9,7 +9,9 @@ import { launch, listen, open, tableUp, settle, swipe, drag, VIEW } from './brow
 let srv, browser;
 before(async () => { srv = await listen(0); browser = await launch(['--disable-ipc-flooding-protection']); });
 after(async () => { await browser.close(); srv.server.close(); });
-const demo = (q = '', hash = '', name = 'olea') => srv.origin + VIEW + '?demo=' + name + q + hash;
+/* these tests are about the table and the one bar of before (the walk, courses, crossing between two rooms): ?rooms=off keeps them on
+   those two rooms. The rooms of the place (vitrine, cellar, taps, cocktail bar) have their own tests: rooms.browser.test.mjs */
+const demo = (q = '', hash = '', name = 'olea') => srv.origin + VIEW + '?demo=' + name + '&rooms=off' + q + hash;
 const st = (page) => page.evaluate(() => window.__mana.state());
 const info = (page) => page.evaluate(() => window.__mana.info());
 const d = (page, a, meta) => page.evaluate(([x, m]) => window.__mana.dispatch(x, m), [a, meta || null]);
@@ -145,14 +147,14 @@ test('categories: a sideways swipe or a chip walks on along the SAME table, past
   /* chips */
   await page.click('.chip[data-id="starters"]'); assert.equal((await st(page)).itemId, 'labaneh'); await settle(page, 80);
   /* the walk: at the last dish, a flick onwards is the next category; before the first dish of that, a flick back is the last dish again */
-  await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); assert.equal((await info(page)).p, 8);
+  await d(page, { type: 'focus', id: 'fish-soup' }); await settle(page, 80); assert.equal((await info(page)).p, 8);
   await drag(page, [x, 300], [x, 300 + 170], { steps: 12, release: false }); await tick(page, 1, 0, true);
   i = await info(page); assert.ok(i.p > 8.22 && i.p < 8.85, 'past the last dish the table stretches: ' + i.p); assert.equal(await text(page, '#edgeTxt'), 'Mains', 'and says where the walk goes on');
   await page.evaluate(([px_, y]) => { window.__mana.tick(8, .016, false); window.__mana.pointer('up', px_, y); }, [x, 470]);
   s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle'); assert.equal((await info(page)).p, 0); assert.equal(await page.isVisible('#edge'), true);
   await settle(page, 60); await tick(page, 1, .03, true); assert.equal(await page.isVisible('#edge'), false);
   await drag(page, [x, 500], [x, 500 - 70], { steps: 4, ms: 16 });                           // push the table away at its first dish
-  s = await st(page); assert.equal(s.categoryId, 'starters'); assert.equal(s.itemId, 'bread', 'backwards you arrive at the last dish'); assert.equal((await info(page)).p, 8);
+  s = await st(page); assert.equal(s.categoryId, 'starters'); assert.equal(s.itemId, 'fish-soup', 'backwards you arrive at the last dish'); assert.equal((await info(page)).p, 8);
   /* from the food table to the bar: another room, reached in the same kind of move (its own test is below) */
   await settle(page, 60); await page.click('.chip[data-id="wine"]'); await tick(page, 4, .03); i = await info(page); assert.equal(i.lampK, 1, 'the lamp stays up on the way to the bar too'); assert.ok(i.edge && i.edge.to === 'bar' && Math.abs(i.walkOn) > 1, 'the camera travels there: ' + i.walkOn); assert.deepEqual(i.titles, []); await settle(page, 160); i = await info(page); assert.equal(i.scene, 'bar'); assert.equal(i.lampK, 1); assert.ok(i.fade > .95); assert.deepEqual(i.actors.map((a) => a.type), ['drink', 'drink', 'drink', 'drink']); assert.equal(i.edge, null);
   await d(page, { type: 'end' }); await d(page, { type: 'end' }); await settle(page, 120); s = await st(page); assert.equal(s.itemId, 'mojito');
@@ -327,7 +329,7 @@ test('demo and preview are never counted; the demo says so and leads back to the
   assert.equal(await frame.textContent('#dName'), 'Hummus, edited', 'the dish in focus survives a live update'); assert.equal((await frame.evaluate(() => window.__mana.state())).itemId, 'hummus'); assert.equal((await frame.evaluate(() => window.__mana.state())).open, 'dish');
   assert.equal(await frame.isVisible('#dSold'), true, 'sold out arrives live'); assert.equal(await frame.locator('#list .l-cat:first-child .row').count(), 8);
   await frame.evaluate(() => window.__mana.dispatch({ type: 'close' })); await frame.evaluate(() => window.__mana.settle());
-  const i2 = await frame.evaluate(() => window.__mana.info()); assert.deepEqual(i2.actors.map((a) => a.id), ['hummus', 'chopped-salad', 'artichoke', 'filo']); assert.ok(i2.actors.every((a) => a.ready && a.vis > .9 && !a.leaving)); assert.equal(i2.p, 0); assert.ok(i2.actors[0].sat < .2);
+  const i2 = await frame.evaluate(() => window.__mana.info()), own = i2.actors.filter((a) => !a.guest); assert.deepEqual(own.map((a) => a.id), ['caesar', 'croquettes', 'bread', 'hummus', 'fish-soup'], 'sold out now, the hummus has gone to the end of its section, and the guest is still on it'); assert.ok(own.every((a) => a.ready && a.vis > .9 && !a.leaving)); assert.equal(i2.p, 6); assert.ok(own[3].sat < .2);
   await ctx.close();
   assert.equal(srv.server.calls.length, before0, 'no open_menu and no track_item from a demo or a preview, whatever the guest did');
 });
@@ -359,7 +361,7 @@ test('keys: arrows, Page Up/Down, Home/End glide; Enter lifts; Tab reaches every
   await page.keyboard.press('ArrowDown'); assert.equal((await st(page)).itemId, 'hummus'); let i = await info(page); assert.equal(i.mode, 'settle'); assert.ok(i.p < .2, 'the state changes at once, the table travels there');
   await tick(page, 5, .03); i = await info(page); assert.ok(i.p > .2 && i.p < 1); await settle(page, 60); assert.equal((await info(page)).p, 1);
   await page.keyboard.press('PageDown'); assert.equal((await st(page)).itemId, 'filo'); await page.keyboard.press('PageUp'); assert.equal((await st(page)).itemId, 'hummus'); await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp'); assert.equal((await st(page)).itemId, 'labaneh'); assert.equal((await st(page)).nav.kind, 'edge');
-  await page.keyboard.press('End'); assert.equal((await st(page)).itemId, 'bread'); await page.keyboard.press('ArrowDown'); assert.equal((await st(page)).itemId, 'pappardelle', 'the walk goes on into the next category'); await page.keyboard.press('ArrowUp'); assert.equal((await st(page)).itemId, 'bread'); await settle(page, 60);
+  await page.keyboard.press('End'); assert.equal((await st(page)).itemId, 'fish-soup'); await page.keyboard.press('ArrowDown'); assert.equal((await st(page)).itemId, 'pappardelle', 'the walk goes on into the next category'); await page.keyboard.press('ArrowUp'); assert.equal((await st(page)).itemId, 'fish-soup'); await settle(page, 60);
   /* a mouse wheel: a notch is one dish in one glide; past the last dish it walks on; a trackpad's stream is followed exactly */
   await page.evaluate(() => window.__mana.wheel(120)); assert.equal((await st(page)).itemId, 'pappardelle', 'a wheel notch past the last dish also walks on'); await settle(page, 60); await tick(page, 14, .03);
   await page.evaluate(() => window.__mana.wheel(100)); i = await info(page); assert.equal(i.mode, 'settle'); assert.equal(i.p, 0, 'the table does not jump'); await tick(page, 4, .03); i = await info(page); assert.ok(i.p > .15 && i.p < .9, 'it glides: ' + i.p); await settle(page, 60); assert.equal((await st(page)).itemId, 'tortellini');
@@ -400,19 +402,19 @@ test('one long table laid in courses: near the end of a section the next one is 
   const { page, errors, ctx } = await open(browser, demo(T + '&lang=en', '#c=starters&i=caesar'));
   await tableUp(page); let i = await info(page); const f = i.frame, x = f.cx, own = (j) => j.actors.filter((a) => !a.guest && !a.leaving), beside = (j) => j.actors.filter((a) => a.guest && !a.leaving);
   assert.deepEqual(beside(i).map((a) => a.id), [], 'in the middle of a section only its own dishes'); assert.deepEqual(i.titles, []); assert.equal(i.actors.length, 7);
-  await d(page, { type: 'focus', id: 'fish-soup' }); await settle(page, 80); i = await info(page);
+  await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); i = await info(page);
   assert.deepEqual(beside(i).map((a) => [a.id, a.cat]), [['pappardelle', 'mains'], ['tortellini', 'mains']], 'two places from the end: the first two mains are on the table'); assert.equal(i.actors.filter((a) => !a.leaving).length, 7, 'never more dishes than in the middle of a section'); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']);
-  const bread = i.actors.find((a) => a.id === 'bread'), first = i.actors.find((a) => a.id === 'pappardelle'), gap = first.z - bread.z, title = i.titles[0].z;
+  const bread = i.actors.find((a) => a.id === 'fish-soup'), first = i.actors.find((a) => a.id === 'pappardelle'), gap = first.z - bread.z, title = i.titles[0].z;
   assert.ok(gap > f.S * 1.3 && gap < f.S * 1.8, 'a course begins a wider gap further on: ' + gap); assert.ok(title > bread.z + .5 && title < first.z - .5, 'and its name is lettered in that gap');
   const far = i.actors.find((a) => a.id === 'tortellini'); assert.ok(Math.abs(far.z - first.z - f.S) < .1, 'set like any other row');
   /* walk on with the finger: the same plates, the same places; the camera only goes on */
-  await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); const z0 = (await info(page)).cam.pos[2];
+  await d(page, { type: 'focus', id: 'fish-soup' }); await settle(page, 80); const z0 = (await info(page)).cam.pos[2];
   await drag(page, [x, 520], [x, 520 - 70], { steps: 4, ms: 16 }); let s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle'); i = await info(page);
   const now = i.actors.find((a) => a.id === 'pappardelle'); assert.ok(!now.guest && !now.leaving && Math.abs(now.z - first.z) < 1e-6 && now.vis > .99, 'the first main is the plate that was standing there: it did not blink'); assert.ok(Math.abs(i.cam.pos[2] - z0) < 1.2, 'the camera did not jump: ' + (i.cam.pos[2] - z0)); assert.ok(Math.abs(i.walkOn) > 2.5 && Math.abs(i.walkOn) < 4.6);
   await settle(page, 120); i = await info(page); assert.equal(i.walkOn, 0); assert.equal(i.p, 0);
-  assert.deepEqual(beside(i).map((a) => a.id).sort(), ['bread', 'croquettes', 'fish-soup'], 'what was left behind is the course before now: the same three plates'); assert.ok(Math.abs(i.actors.find((a) => a.id === 'bread').z - bread.z) < 1e-6); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']);
+  assert.deepEqual(beside(i).map((a) => a.id).sort(), ['bread', 'croquettes', 'fish-soup'], 'what was left behind is the course before now: the same three plates'); assert.ok(Math.abs(i.actors.find((a) => a.id === 'fish-soup').z - bread.z) < 1e-6); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']);
   /* and back: the last starter again, where it stood */
-  await drag(page, [x, 300], [x, 300 + 70], { steps: 4, ms: 16 }); s = await st(page); assert.equal(s.itemId, 'bread'); await settle(page, 120); i = await info(page); assert.ok(Math.abs(i.actors.find((a) => a.id === 'bread').z - bread.z) < 1e-6 && i.walkOn === 0 && i.p === 8);
+  await drag(page, [x, 300], [x, 300 + 70], { steps: 4, ms: 16 }); s = await st(page); assert.equal(s.itemId, 'fish-soup'); await settle(page, 120); i = await info(page); assert.ok(Math.abs(i.actors.find((a) => a.id === 'fish-soup').z - bread.z) < 1e-6 && i.walkOn === 0 && i.p === 8);
   /* a tap on a dish of the next course walks on to it */
   const hot = i.hot.find((h) => h.id === 'pappardelle'); assert.ok(hot, 'the first main can be seen and tapped from the last starter');
   /* the bar is another room: nothing of it stands on the food table, and the drinks do go on along their own counter */
@@ -621,7 +623,7 @@ test('the default direction is the feed: a swipe up is the next dish, also on th
   await page.keyboard.press(' '); assert.equal((await st(page)).itemId, 'hummus', 'the space bar is next'); await page.keyboard.press('PageDown'); assert.equal((await st(page)).itemId, 'filo'); await page.keyboard.press('ArrowUp'); assert.equal((await st(page)).itemId, 'artichoke'); await settle(page, 80);
   await page.evaluate(() => window.__mana.wheel(100)); await settle(page, 80); assert.equal((await st(page)).itemId, 'filo', 'a wheel notch down is next');
   /* past the last dish of a section, by a swipe up: on along the same table */
-  await d(page, { type: 'focus', id: 'bread' }); await settle(page, 80); await drag(page, [x, 500], [x, 500 - 70], { steps: 4, ms: 16 }); const s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle');
+  await d(page, { type: 'focus', id: 'fish-soup' }); await settle(page, 80); await drag(page, [x, 500], [x, 500 - 70], { steps: 4, ms: 16 }); const s = await st(page); assert.equal(s.categoryId, 'mains'); assert.equal(s.itemId, 'pappardelle');
   i = await info(page); assert.equal(i.lampK, 1); assert.deepEqual(i.titles.map((t) => t.text), ['Mains']); await settle(page, 120); assert.equal((await info(page)).walkOn, 0);
   assert.deepEqual(errors, []); await ctx.close();
   const o = await open(browser, demo(T + PULL + '&lang=en&hint=1')); await tableUp(o.page);

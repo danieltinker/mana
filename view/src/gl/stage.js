@@ -19,7 +19,8 @@ import {
 } from 'three';
 import * as SH from './shaders.js';
 import { SIZE, RAD, clamp, shapeOf } from '../scenes/common.js';
-import { presetById, frameOf, placesOf, centreAt, alongAt, dishAt, cameraFor, liftCyFor, LANE } from '../scenes/walk.js';
+import { presetById, frameOf, placesOf, centreAt, alongAt, dishAt, cameraFor, liftCyFor, heightAt, LANE } from '../scenes/walk.js';
+import { createRoomSet, makeRiser } from './rooms.js';
 import { springStep, turnStep } from '../physics.js';
 import { createDrinkKit } from './drinks.js';
 import { pourAt, REST, LEAD } from '../drinks/pour.js';
@@ -32,7 +33,7 @@ const BEHIND = 3, AHEAD = 3, KEEP = 3.6;        // dishes that exist around the 
 const TEX_KEEP = 10;                            // pictures kept ready after their dish has left (most recent first)
 const GAP = .62;                                // between two sections on the same table: this much more than a dish's place, for the section's name
 const IDLE_AFTER = 45;                          // seconds without a touch before the gentle sway comes to rest and the loop sleeps
-const ROOMS = ['table', 'bar'];
+const ROOMS = ['table', 'bar', 'vitrine', 'cellar', 'taps', 'cocktail'], SETS = ['vitrine', 'cellar', 'taps', 'cocktail'];      // the rooms of the place (scenes/rooms.js); bar = the one bar of before (?rooms=off)
 const LEAVE = 1.3, DARK = 1.5, ARRIVE = 1.45, FAR = 16;   // from one room to the other, along the walk: past what stands where we are · the dark between the two (each side of the line) · up to the first thing of the next room · where a room's far end is, for the line
 const CARD = [1.5, .95], LEAN = 28 * RAD;       // a folded name card: width, slant height, how far its faces lean
 const RISE = .075, CALM = [.5, 2.6];             // the dish the table settles on comes up this far (a tap lifts it the rest of the way) · it waits until the glide is slower than this (dishes a second: fully calm, not calm at all)
@@ -73,7 +74,8 @@ export function createStage(opts) {
   const tableM = new Mesh(groundG, new ShaderMaterial({ uniforms: tU, vertexShader: SH.WORLD_VS, fragmentShader: SH.TABLE_FS })); tableM.frustumCulled = false; tableM.scale.set(260, 1, 260); scene.add(tableM);
   const actorsG = new Group(); scene.add(actorsG);
   const kit = createDrinkKit({ U, cam: camera.position, lampPos: lit.uLampPos, maxAniso, blank: flatTex, motion: !reduce });
-  const rooms = { table: { u: tU, far: presetById('table').far, s: null, want: null, live: false, fade: 0 }, bar: { u: null, far: null, s: null, want: null, live: false, fade: 0 } };      // s: the surface in use · want: one on its way · live: its numbers are in the shader
+  const rooms = { table: { u: tU, far: presetById('table').far, s: null, want: null, live: false, fade: 0 } };      // s: the surface in use · want: one on its way · live: its numbers are in the shader
+  ROOMS.slice(1).forEach((k) => { rooms[k] = { u: null, far: null, s: null, want: null, live: false, fade: 0, set: null }; });
 
   /* ---- the bar: the same long slab in stone, and the back-bar far ahead ---- */
   let BAR = null;
@@ -83,6 +85,15 @@ export function createStage(opts) {
     const counter = new Mesh(groundG, new ShaderMaterial({ uniforms: cu, vertexShader: SH.WORLD_VS, fragmentShader: SH.COUNTER_FS })); counter.frustumCulled = false; counter.scale.set(260, 1, 260); g.add(counter);
     const wall = new Mesh(new PlaneGeometry(160, 30), new ShaderMaterial({ uniforms: { uFade: cu.uFade, uGlow: U.glow }, vertexShader: SH.WORLD_VS, fragmentShader: SH.WALL_FS })); wall.frustumCulled = false; g.add(wall);
     g.visible = false; scene.add(g); BAR = { g, counter, wall, cu }; rooms.bar.u = cu; rooms.bar.far = BARP.far; return BAR;
+  }
+  /* ---- the other rooms of the place: a counter, a backdrop far behind, a few props (gl/rooms.js). Built when the guest comes near ---- */
+  function buildRoom(kind) {
+    const R = rooms[kind]; if (!R || R.set) return R && R.set;
+    const P = presetById(kind), u = surfaceU(), set = createRoomSet(kind, P, { u, U, ground: groundG, blank: darkTex, rtl: () => !!(S.view && S.view.rtl) });
+    scene.add(set.g); R.set = set; R.u = u; R.far = P.far;
+    const def = set.def; busy(1);
+    loader.load(themes + 'rooms/' + def.plate + '.jpg', (t) => { t.generateMipmaps = true; t.minFilter = LinearMipmapLinearFilter; t.needsUpdate = true; if (R.set === set) set.setPlate(t); else t.dispose(); busy(-1); wake(); }, undefined, () => { busy(-1); wake(); });
+    return set;
   }
 
   /* ---- the projector look: a puck on the table, a cone of light, the picture floating over it (placeholders, and surface 'holo') ---- */
@@ -119,7 +130,7 @@ export function createStage(opts) {
   const spring = (x) => ({ x, v: 0 });
   const S = { w: 0, h: 0, frame: null, view: null, preset: null, walk: opts.walk === -1 ? -1 : 1, first: true, clock: 0,
     lane: { x: 0, z: 0, places: [], n: 0, cat: null, kind: 'food' }, guests: { prev: null, next: null }, mounts: 0, actors: new Map(),
-    dev: spring(0), E: spring(45), zoom: spring(1), cy: spring(300), lookY: spring(0), offX: spring(0), lift: spring(0), pool: spring(8.5),
+    dev: spring(0), yawR: spring(0), E: spring(45), zoom: spring(1), cy: spring(300), lookY: spring(0), offX: spring(0), lift: spring(0), pool: spring(8.5),
     lampK: 1, room: 'table', edge: null, fov: spring(30), D: spring(10), lens: { W: 0, H: 0, D: 10, fov: 30 }, devZ: { x: 0, v: 0 }, titles: [], dragX: { dx: 0, active: false }, touchAt: 0, sway: 0, tilt: [0, 0], tiltT: [0, 0], ptr: [0, 0], ptrT: [0, 0],
     turning: false, bump: 0, swayK: 0, hot: [], bloom: opts.bloom !== false, tier: 0, slow: 0, lost: false, auto: opts.auto !== false, moving: true, frames: 0, disposed: false, pours: 0, hush: false,
     heroReady: null, stats: { calls: 0, triangles: 0 }, base: new Vector3(), focus: new Vector3(), intro: 0 };
@@ -155,11 +166,11 @@ export function createStage(opts) {
     return s;
   }
   const roomOf = (preset) => (preset.holo ? null : rooms[preset.kind] || rooms.table);
-  const inUse = (s) => rooms.table.s === s || rooms.table.want === s || rooms.bar.s === s || rooms.bar.want === s;
+  const inUse = (s) => ROOMS.some((k) => rooms[k].s === s || rooms[k].want === s);
   function wantSurface(def) {
     if (def.id === 'holo') { S.room = 'holo'; U.refl.value = 0; buildHolo(); bloomM.uniforms.k.value = 1; return; }
     bloomM.uniforms.k.value = .75;
-    const kind = def.kind || 'table'; if (kind === 'bar') buildBar();
+    const kind = def.kind || 'table'; if (kind === 'bar') buildBar(); else if (kind !== 'table') buildRoom(kind);
     const R = rooms[kind], s = loadSurface(def); S.room = kind;
     if (R.s === s) R.want = null; else if (!R.s) { R.s = s; R.live = false; } else R.want = s;      // another table for the same room (the theme changed): swapped in the dark
     if (surf.texs.size > 3) surf.texs.forEach((v, k) => { if (!inUse(v)) { if (v.map && v.map !== darkTex) v.map.dispose(); if (v.h) v.h.dispose(); surf.texs.delete(k); } });
@@ -185,6 +196,7 @@ export function createStage(opts) {
       const e = S.edge; if (e) R.u.uEdge.value.set(e.z, kind === e.to ? e.s : -e.s, e.w); else R.u.uEdge.value.set(0, 0, 1);
     }
     tableM.visible = rooms.table.fade > .002; if (BAR) BAR.g.visible = rooms.bar.fade > .002; if (H) H.g.visible = S.room === 'holo';
+    SETS.forEach((k) => { const R = rooms[k]; if (R.set) R.set.g.visible = R.fade > .002; });
     const R = rooms[S.room]; U.refl.value = R && R.live ? R.s.def.refl * R.fade : 0;
     return moving;
   }
@@ -211,7 +223,7 @@ export function createStage(opts) {
   function makeActor(item, i, L) {
     const view = S.view, P = S.preset, kind = L.kind, shape = shapeOf(item, kind), as = item.asset, g = new Group(), place = L.places[i];
     const a = { id: item.id, item, i, cat: L.cat, kind, shape, type: shape.type, g, x: L.x + place.dx, z: zOf(L, i) + place.dz, spin: place.spin, guest: L !== S.lane, seen: 0,
-      room: roomOf(P), vis: 0, visT: 1, light: 1, turn: { x: 0, v: 0 }, lift: 0, near: 0, ready: false, leaving: false, tex: [], sat: 1, pour: null, pose: null, holo: !!(P.holo || shape.holo), stock: !!shape.holo };
+      room: roomOf(P), base: place.y || 0, vis: 0, visT: 1, light: 1, turn: { x: 0, v: 0 }, lift: 0, near: 0, ready: false, leaving: false, tex: [], sat: 1, pour: null, pose: null, holo: !!(P.holo || shape.holo), stock: !!shape.holo };
     if (shape.type === 'relief' || shape.type === 'stand') {
       const um = a.um = { map: { value: darkTex }, aux: { value: flatTex }, uH: { value: as.h }, uE: { value: as.e * RAD }, uFocus: { value: 0 }, uReveal: { value: 0 }, uTime: U.time, uScan: { value: -9 }, uGlitch: { value: 0 }, uGlow: U.glow,
         uMirror: { value: 0 }, uAccent: U.accent, uCenter: { value: g.position }, uHolo: { value: a.holo ? 1 : 0 }, uLight: { value: 1 }, uRefl: U.refl, uMask: U.mask, uSat: { value: 1 }, uO: { value: new Vector2(as.o ? as.o[0] : 0, as.o ? as.o[1] : 0) } };
@@ -260,6 +272,7 @@ export function createStage(opts) {
         a.kit = [ring]; a.float = shape.type === 'stand' ? .03 : .15;
       }
     }
+    if (a.base > 0 && P.tiers && (buildRoom(P.kind), rooms[P.kind].u)) g.add(a.riser = makeRiser(a.base, rooms[P.kind].u, U));      // the vitrine: it stands on a riser
     if (a.room === rooms.table) g.traverse(onTable);
     g.position.set(a.x, 0, a.z); actorsG.add(g);
     return a;
@@ -322,7 +335,7 @@ export function createStage(opts) {
     };
     S.guests.next = side(view.next, 1); S.guests.prev = side(view.prev, -1);
     /* a neighbour in the other room (the bar after the desserts): its counter is fetched now, so the walk there does not arrive in the dark */
-    for (let k = 0; k < 2; k++) { const o = k ? view.next : view.prev, Q = o ? presetById(o.scene) : null; if (Q && Q.id !== P.id && !Q.holo && !P.holo) loadSurface(Q.surface(theme)); }
+    for (let k = 0; k < 2; k++) { const o = k ? view.next : view.prev, Q = o ? presetById(o.scene) : null; if (Q && Q.id !== P.id && !Q.holo && !P.holo) { loadSurface(Q.surface(theme)); if (rooms[Q.kind] && SETS.includes(Q.kind)) buildRoom(Q.kind); } }      // and its backdrop and props
   }
 
   /* ---- what the navigation state asks for ---- */
@@ -420,9 +433,9 @@ export function createStage(opts) {
     if (lifted) {
       const drink = hero && hero.type === 'drink', stand = hero && hero.type === 'stand';
       const sheet = F.wide ? F.sheetH : clamp((opts.sheet && opts.sheet()) || F.sheetH, F.cardH, F.sheetH);      // how much of the phone the open sheet takes: as much as it has to say
-      E = P.kind === 'bar' ? (drink ? P.liftE : stand ? P.liftEStand : 38) : P.liftE; zoom = F.liftZoom; cy = F.wide ? F.liftCy : liftCyFor(F.H, sheet, F.standing);
+      E = P.standing ? (drink ? P.liftE : stand ? P.liftEStand : 38) : P.liftE; zoom = F.liftZoom; cy = F.wide ? F.liftCy : liftCyFor(F.H, sheet, F.standing);
       lookY = P.liftY + (hero ? (hero.float || 0) + Math.min(.5, hero.shape.top * .4) : 0);
-      if (P.kind === 'bar' && hero) {                        // a standing drink: the eye comes down to the counter; while it pours, far enough back to hold the bottle's swing
+      if (P.standing && hero) {                        // a standing drink: the eye comes down to the counter; while it pours, far enough back to hold the bottle's swing
         const sh = hero.shape, w = hero.pose && hero.pour ? hero.pose.cam : 0, box = sh.drink ? { r: sh.drink.rest.r + (sh.drink.pour.r - sh.drink.rest.r) * w, cx: sh.drink.rest.cx + (sh.drink.pour.cx - sh.drink.rest.cx) * w, top: sh.drink.rest.top + (sh.drink.pour.top - sh.drink.rest.top) * w } : { r: sh.r, cx: 0, top: sh.top };
         const roomW = (F.wide ? (F.W - F.cardW) * .56 : F.W * .86), roomH = (F.wide ? F.H - F.top - 40 : F.H - sheet - 64), e = E * RAD;
         const ppu = Math.min(roomW / (2 * box.r + .1), roomH / (box.top * Math.cos(e) + box.r * 1.2 * Math.sin(e) + .1));
@@ -431,7 +444,7 @@ export function createStage(opts) {
     }
     return { E, zoom, cy, lookY, offX };
   }
-  function snapCamera() { const t = camTargets(); S.fov.x = S.frame.fov; S.D.x = S.frame.D; S.fov.v = S.D.v = 0; S.E.x = t.E; S.zoom.x = t.zoom; S.cy.x = t.cy; S.lookY.x = t.lookY; S.offX.x = t.offX; S.E.v = S.zoom.v = S.cy.v = S.lookY.v = S.offX.v = 0; S.lift.x = S.view && S.view.lifted ? 1 : 0; S.lift.v = 0; S.pool.x = S.preset.pool; }
+  function snapCamera() { const t = camTargets(); S.yawR.x = (S.preset.yaw || 0) * (S.view && S.view.lifted ? .55 : 1); S.yawR.v = 0; S.fov.x = S.frame.fov; S.D.x = S.frame.D; S.fov.v = S.D.v = 0; S.E.x = t.E; S.zoom.x = t.zoom; S.cy.x = t.cy; S.lookY.x = t.lookY; S.offX.x = t.offX; S.E.v = S.zoom.v = S.cy.v = S.lookY.v = S.offX.v = 0; S.lift.x = S.view && S.view.lifted ? 1 : 0; S.lift.v = 0; S.pool.x = S.preset.pool; }
   function touch() { S.touchAt = S.clock; }
 
   /* ---- one step of motion ---- */
@@ -440,14 +453,14 @@ export function createStage(opts) {
     S.clock += dt; const t = S.clock; U.time.value = t; U.pulse.value += dt;
     const view = S.view; if (!view || !S.frame || S.lost) return false;
     let moving = stepRooms(dt);
-    const P = S.preset, F = S.frame, G = glide.state, p = G.p, lifted = !!view.lifted, holoScene = !!P.holo, isBar = P.kind === 'bar';
+    const P = S.preset, F = S.frame, G = glide.state, p = G.p, lifted = !!view.lifted, holoScene = !!P.holo, isBar = !!P.standing;
     S.lastP = p; mount();
     const hero = S.actors.get(view.itemId) || null;
     const go = (s, target, w) => { if (reduce) { s.x = target; s.v = 0; return; } springStep(s, target, w, dt); if (Math.abs(s.x - target) > 1e-3 || Math.abs(s.v) > 1e-2) moving = true; else { s.x = target; s.v = 0; } };
     /* camera */
     const tg = camTargets();
     go(S.E, tg.E, S.edge ? 6.5 : 9); go(S.fov, F.fov, 6.5); go(S.D, F.D, 6.5); go(S.zoom, tg.zoom, 10); go(S.cy, tg.cy, S.edge && !lifted ? 6.5 : 11);      // into another room the eye comes down (or up) as slowly as the camera travels
-    go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * (P.open ? .8 : .46) : P.pool * (1 + (reduce ? 0 : P.open || 0) * (G.mode === 'drag' || G.mode === 'wheel' ? 1 : 1 - calmOf(G))), lifted ? 7 : 4.2);      // on a set table the lamp opens while the guest is moving along it, and closes on the dish they stop at
+    go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.yawR, (P.yaw || 0) * (lifted ? .55 : 1), S.edge ? 4.5 : 7); /* a room seen from one side: the eye swings round as it walks in */ go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * (P.open ? .8 : .46) : P.pool * (1 + (reduce ? 0 : P.open || 0) * (G.mode === 'drag' || G.mode === 'wheel' ? 1 : 1 - calmOf(G))), lifted ? 7 : 4.2);      // on a set table the lamp opens while the guest is moving along it, and closes on the dish they stop at
     if (opts.onLift) opts.onLift(clamp(S.lift.x, 0, 1.2));
     if (S.dragX.active) { S.dev.x = -S.dragX.dx / F.ppu * .3; S.dev.v = 0; moving = true; } else go(S.dev, 0, 12);      // a sideways push: the table gives a little; let go and the walk goes on to the next section
     go(S.devZ, 0, 5.6);                                      // on to the next section: a longer glide along the same table
@@ -464,7 +477,8 @@ export function createStage(opts) {
     const yaw = reduce ? 0 : Math.sin(t * .52) * .06 * swayK + S.tilt[0] * .13 + S.ptr[0] * -.075, pitch = reduce ? 0 : Math.sin(t * .37 + 1) * .7 * swayK + S.tilt[1] * 3 + S.ptr[1] * 1.6;
     if (live) moving = moving || 'slow';
     const L = S.lens; L.W = F.W; L.H = F.H; L.D = S.D.x; L.fov = S.fov.x;
-    const look = [fx, S.lookY.x, fz], cam = cameraFor(L, look, S.E.x + pitch, S.zoom.x, yaw, F.cx, S.cy.x), base = cameraFor(L, look, S.E.x, S.zoom.x, 0, F.cx, S.cy.x);
+    const tierY = P.tiers ? heightAt(S.lane.places, p) : 0;      // the vitrine's risers: the eye rises and settles with the dishes
+    const look = [fx, S.lookY.x + tierY, fz], cam = cameraFor(L, look, S.E.x + pitch, S.zoom.x, yaw + S.yawR.x, F.cx, S.cy.x), base = cameraFor(L, look, S.E.x, S.zoom.x, S.yawR.x, F.cx, S.cy.x);
     camera.position.fromArray(cam.pos); V.fromArray(look); camera.lookAt(V);
     if (Math.abs(camera.fov - cam.fov) > 1e-4 || camera.aspect !== S.w / S.h) { camera.fov = cam.fov; camera.aspect = S.w / S.h; }
     camera.setViewOffset(S.w, S.h, cam.offset[0], cam.offset[1], S.w, S.h); camera.updateMatrixWorld();
@@ -477,6 +491,7 @@ export function createStage(opts) {
     /* the line between two rooms stays where it is while the guest crosses it; once they are over it, it draws away behind them, fast enough for the new room to be lit to its far end by the time they arrive */
     const here = roomOf(P), E_ = S.edge;
     if (E_) { moving = true; if (!E_.away) E_.z += (E_.zTo - E_.z) * ease(dt, 9); if (E_.away || (fz - E_.zTo) * E_.s > 0) { E_.away += dt; E_.z -= E_.s * dt * (4 + 90 * E_.away); if (Math.abs(E_.z - fz) > 34) S.edge = null; } }
+    SETS.forEach((k) => { const R = rooms[k]; if (R.set && R.set.g.visible) R.set.place(fx, fz, camera, S.w, S.h, t); });
     tableM.position.set(fx, 0, fz); if (BAR) { BAR.counter.position.set(fx, 0, fz); BAR.cu.uBack.value = fz - BARP.wall; BAR.wall.position.set(fx, 9, BAR.cu.uBack.value); }
     U.hub.value.set(S.lane.x, fz); U.at.value.set(lampX, lampZ);
     /* things on the table */
@@ -491,7 +506,7 @@ export function createStage(opts) {
     });
     S.actors.forEach((a) => {
       const isHero = a === hero && !a.leaving, P_ = a.g.position;
-      const hide = lifted && isBar && !isHero && hero && (hero.type === 'drink' || hero.type === 'stand');      // an open drink has the counter to itself
+      const hide = (lifted && isBar && !isHero && hero && (hero.type === 'drink' || hero.type === 'stand')) || (P.wall && a.room === here && fz - a.z > P.wall - .5 && !isHero);      // an open drink has the counter to itself · past the room's far end there is only the backdrop
       if (a.leaving && a.visT > 0 && a.room && a.room !== here && a.room.fade < .2) a.visT = 0;      // left behind in the other room: gone with its light
       const visT = a.ready ? (hide ? 0 : a.visT) : 0; a.vis += (visT - a.vis) * (a.leaving && !reduce ? ease(dt, 11) : kv);
       if (Math.abs(visT - a.vis) > .004 || (!a.ready && !a.leaving)) moving = true;
@@ -517,7 +532,8 @@ export function createStage(opts) {
       if (reduce && !(isHero && lifted)) { a.turn.x = 0; a.turn.v = 0; }
       if (Math.abs(a.turn.x) > .0015 || Math.abs(a.turn.v) > .01) moving = true;
       const pres = a.near * (1 - a.lift), yaw_ = a.turn.x, up = a.lift * P.liftY + pres * RISE;
-      P_.set(wx, 0, wz);
+      const pick = a.room === rooms.cellar && a.type === 'drink' ? smooth(a.lift) : 0;      // the cellar: the bottle in focus comes off the rack towards the guest, and turns once
+      P_.set(wx, (a.base || 0) + Math.sin(pick * PI) * .3, wz + pick * .55);
       const ry = Math.atan2(B.x - wx, B.z - wz) * .85 + (a.holo ? 0 : a.spin * (1 - .6 * a.near)) + yaw_;
       a.um.uReveal.value = rev; a.um.uLight.value = a.light; a.um.uSat.value = a.sat;
       if (a.drink) {
@@ -529,7 +545,7 @@ export function createStage(opts) {
           q.head = 0; q.tail = 1; if (far < .004) a.pose = r; else moving = true;
         }
         if (a.type !== 'drink') { const u = a.drink.shared; u.uReveal.value = rev; u.uLight.value = a.light; u.uSat.value = a.sat; }
-        a.drink.update(a.pose, { cx: B.x, cz: B.z, wx: wx + a.shape.drinkX, wz: wz + a.shape.drinkZ, baseY: a.holo && a.type === 'drink' ? PUCK : 0, yaw: a.type === 'drink' ? yaw_ : 0, refl: U.refl.value, holo: a.holo });
+        a.drink.update(a.pose, { cx: B.x, cz: B.z, wx: wx + a.shape.drinkX, wz: wz + a.shape.drinkZ + pick * .55, baseY: a.holo && a.type === 'drink' ? PUCK : 0, yaw: a.type === 'drink' ? yaw_ + pick * TAU : 0, refl: U.refl.value, holo: a.holo });
       }
       if (a.type === 'relief' || a.type === 'stand') {
         const geo = isHero ? geoHi : geoLo; if (a.mesh.geometry !== geo) a.mesh.geometry = geo;
@@ -575,7 +591,7 @@ export function createStage(opts) {
   }
   function draw() {
     if (S.lost || !S.w || !S.view) return;
-    const bloom = S.bloom && (S.glowing || S.room === 'holo' || rooms.bar.fade > .01); renderer.info.reset();      // the bar glows for as long as any of it is in the picture
+    const bloom = S.bloom && (S.glowing || S.room === 'holo' || ROOMS.some((k) => k !== 'table' && rooms[k].fade > .01)); renderer.info.reset();      // the bar glows for as long as any of it is in the picture
     if (bloom) {
       /* the light-only pass. If nothing on the food table gives off light (no projected placeholder there), its dishes sit this
          pass out: the only light is the bar's, far behind anything flat on a table. On the walk between the two rooms that
@@ -595,7 +611,7 @@ export function createStage(opts) {
     const out = [];
     S.actors.forEach((a) => {
       if (a.leaving || !a.ready || a.vis < .5) return;
-      const up = a.type === 'stand' || a.type === 'drink' || a.type === 'text', x = a.x, z = a.z, r = a.type === 'text' ? CARD[0] / 2 : a.shape.r, y0 = a.lift * S.preset.liftY + (a.holo ? (a.float || 0) * .8 : 0), top = a.type === 'text' ? CARD[1] * .9 : up ? a.shape.top : a.shape.top * .5;
+      const up = a.type === 'stand' || a.type === 'drink' || a.type === 'text', x = a.x, z = a.z, r = a.type === 'text' ? CARD[0] / 2 : a.shape.r, y0 = (a.base || 0) + a.lift * S.preset.liftY + (a.holo ? (a.float || 0) * .8 : 0), top = a.type === 'text' ? CARD[1] * .9 : up ? a.shape.top : a.shape.top * .5;
       const l = pj(x - r, y0, z), rr = pj(x + r, y0, z), f = pj(x, y0, z + (up ? r * .5 : r)), bk = pj(x, y0 + top, up ? z : z - r);
       out.push({ id: a.id, i: a.i, cx: (l[0] + rr[0]) / 2, cy: (f[1] + bk[1]) / 2, rx: Math.abs(rr[0] - l[0]) / 2, ry: Math.abs(f[1] - bk[1]) / 2, z: a.z });
     });
@@ -658,7 +674,7 @@ export function createStage(opts) {
     along: (p) => (S.preset && S.lane.n ? alongAt(S.lane.places, p, S.preset.S) / S.preset.S : p), dish: (u) => (S.preset && S.lane.n ? dishAt(S.lane.places, u * S.preset.S, S.preset.S) : u),
     pending: () => pending,
     loaded: (ms = 8000) => (pending === 0 ? Promise.resolve() : new Promise((res) => { waiters.push(res); setTimeout(res, ms); })),
-    info: () => ({ moving: S.moving, tier: S.tier, bloom: S.bloom, pixelRatio: pr, frames: S.frames, p: +glide.state.p.toFixed(4), mode: glide.state.mode, lampK: +S.lampK.toFixed(3), lift: +S.lift.x.toFixed(3), fade: +(S.room === 'holo' ? 1 : rooms[S.room].fade).toFixed(3), rooms: { table: +rooms.table.fade.toFixed(3), bar: +rooms.bar.fade.toFixed(3) }, edge: S.edge ? { z: +S.edge.z.toFixed(2), at: +S.edge.zTo.toFixed(3), to: S.edge.to, s: S.edge.s, away: +S.edge.away.toFixed(2) } : null, heroReady: !!S.heroReady,
+    info: () => ({ moving: S.moving, tier: S.tier, bloom: S.bloom, pixelRatio: pr, frames: S.frames, p: +glide.state.p.toFixed(4), mode: glide.state.mode, lampK: +S.lampK.toFixed(3), lift: +S.lift.x.toFixed(3), fade: +(S.room === 'holo' ? 1 : rooms[S.room].fade).toFixed(3), rooms: ROOMS.reduce((o, k) => { if (k === 'table' || k === 'bar' || rooms[k].set) o[k] = +rooms[k].fade.toFixed(3); return o; }, {}), edge: S.edge ? { z: +S.edge.z.toFixed(2), at: +S.edge.zTo.toFixed(3), to: S.edge.to, s: S.edge.s, away: +S.edge.away.toFixed(2) } : null, heroReady: !!S.heroReady,
       actors: [...S.actors.values()].map((a) => ({ id: a.id, i: a.i, type: a.type, holo: a.holo, ready: a.ready, leaving: a.leaving, left: a.leaving && a.visT > 0, guest: a.guest, cat: a.cat, vis: +a.vis.toFixed(3), yaw: +a.turn.x.toFixed(3), lift: +a.lift.toFixed(3), near: +a.near.toFixed(3), light: +a.light.toFixed(3), sat: +a.sat.toFixed(2), x: +a.x.toFixed(2), z: +a.z.toFixed(2), pouring: !!a.pour, pose: a.pose ? { tilt: +a.pose.tilt.toFixed(3), level: +a.pose.level.toFixed(3), foam: +a.pose.foam.toFixed(3), fade: +a.pose.fade.toFixed(3), t: a.pour ? +a.pour.t.toFixed(2) : null } : null, tris: a.drink ? a.drink.tris : undefined })),
       hot: S.hot.map((h) => ({ id: h.id, cx: Math.round(h.cx), cy: Math.round(h.cy), rx: Math.round(h.rx), ry: Math.round(h.ry) })),
       pours: S.pours, drinks: kit.stats(), stats: { calls: S.stats.calls, triangles: S.stats.triangles }, memory: memory(), lane: { x: +S.lane.x.toFixed(2), z: +S.lane.z.toFixed(2) }, walkOn: +S.devZ.x.toFixed(3), titles: S.titles.map((t) => ({ text: t.text, z: +t.z.toFixed(2), k: +t.k.toFixed(2) })),
@@ -672,7 +688,7 @@ export function createStage(opts) {
     setWalk(w) { S.walk = w === -1 ? -1 : 1; },
     setTheme(th) { if (!th) return; theme = th; if (th.accent) U.accent.value.set(th.accent); S.preset = null; },
     resetPerf() { S.tier = 0; S.slow = 0; S.bloom = true; pr = opts.pixelRatio || Math.min(window.devicePixelRatio || 1, 2); renderer.setPixelRatio(pr); U.px.value = pr; S.w = 0; },
-    dispose() { S.disposed = true; dropTitles(); canvas.removeEventListener('webglcontextlost', onLost); canvas.removeEventListener('webglcontextrestored', onRestored);
+    dispose() { S.disposed = true; dropTitles(); SETS.forEach((k) => { const R = rooms[k]; if (R.set) { R.set.dispose(); if (R.set.plateTex) R.set.plateTex.dispose(); } }); canvas.removeEventListener('webglcontextlost', onLost); canvas.removeEventListener('webglcontextrestored', onRestored);
       [...S.actors.values()].forEach(dropActor); texCache.forEach((e) => e.tex && e.tex.dispose()); texCache.clear(); surf.texs.forEach((v) => { if (v.map) v.map.dispose(); if (v.h) v.h.dispose(); }); renderer.dispose(); }
   };
 }

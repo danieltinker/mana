@@ -6,6 +6,9 @@ import { select, tx, formatHash, isRtl, presentation } from './store.js';
 import { drinkSpec } from './drinks/spec.js';
 import { formatMoney } from './snapshot.js';
 import { makeT, PRODUCT } from './i18n.js';
+import { tasteTags } from './tags.js';
+import { paint as paintSet, durationOf } from './trayset.js';
+const BACKDROP = { vitrine: 1, cellar: 1, taps: 1, cocktail: 1 };      // rooms with a backdrop made with AI (gl/rooms.js); the card says so
 /* night:templates */ import { lookOf, trackOf } from './looks.js'; /* /night:templates */
 
 const $ = (id) => document.getElementById(id);
@@ -75,7 +78,8 @@ export function createUI(store, env) {
           h('span', { class: 'row-txt' }, [
             h('span', { class: 'row-name', text: tx(item.name, s.lang) }),
             desc ? h('span', { class: 'row-desc', text: desc }) : null,
-            h('span', { class: 'row-meta' }, [pr.illustration ? illusTag() : null, sold ? h('span', { class: 'badge sold', text: t('soldOut') }) : null, h('span', { class: 'badge mine', hidden: true })].concat(tagIcons(item, false).map((li) => { const sp = h('span', { class: li.className, title: li.title }); while (li.firstChild) sp.appendChild(li.firstChild); return sp; })))
+            h('span', { class: 'row-meta' }, [pr.illustration ? illusTag() : null, sold ? h('span', { class: 'badge sold', text: t('soldOut') }) : null, h('span', { class: 'badge mine', hidden: true })].concat(tagIcons(item, false).map((li) => { const sp = h('span', { class: li.className, title: li.title }); while (li.firstChild) sp.appendChild(li.firstChild); return sp; }))),
+            tasteTags(item, c.raw.kind, t, 'row')
           ]),
           h('span', { class: 'row-price' }, [h('span', { dir: 'ltr', text: money(item.price) }), note ? h('small', { text: note }) : null])
         ]);
@@ -134,6 +138,8 @@ export function createUI(store, env) {
     const desc = tx(item.desc, L); $('dDesc').textContent = desc; $('dDesc').hidden = !desc; $('dDescFull').textContent = desc; $('dDescFull').hidden = !desc;
     const ul = $('dTags'); ul.textContent = ''; tagIcons(item, false).forEach((li) => ul.appendChild(li)); ul.hidden = !ul.children.length;
     const ul2 = $('dTagsFull'); ul2.textContent = ''; tagIcons(item, true).forEach((li) => ul2.appendChild(li)); ul2.hidden = !ul2.children.length;
+    [['dTaste', 'card'], ['dTasteFull', 'sheet']].forEach(([id, mode]) => { const box = $(id), tg = tasteTags(item, v.kind, t, mode); box.textContent = ''; if (tg) box.appendChild(tg); box.hidden = !tg; });      // a wine's or a beer's taste, from the merchant's own fields and words
+    const ra = $('dRoomAi'); ra.hidden = !(BACKDROP[v.scene] && !s.simple); ra.textContent = ra.hidden ? '' : t('roomAi');
     const line = $('dIllusLine'); line.hidden = !pr.illustration; if (pr.illustration) line.textContent = pr.type === 'drink' ? t(pr.vessel === 'can' ? 'illusCan' : pr.vessel === 'tap' || pr.vessel === 'none' ? 'illus' : 'illusBottle') : illusLabel() + ' · ' + t('illusDish');
     const al = tx(item.allergens, L); $('dAllergens').hidden = !al; $('dAllergensTxt').textContent = al;
     /* what the merchant entered about a wine or a beer: present fields only, in a fixed order; nothing is filled in for them */
@@ -268,7 +274,7 @@ export function createUI(store, env) {
     }
     if (wantTray !== trayOpen) {
       trayOpen = wantTray;
-      if (wantTray) { lastFocus = document.activeElement; renderTray(); $('backdrop').hidden = false; $('traySheet').hidden = false; slide($('traySheet'), 'tray', true); focusQuiet($('trayClose')); }
+      if (wantTray) { lastFocus = document.activeElement; renderTray(); $('backdrop').hidden = false; $('traySheet').hidden = false; slide($('traySheet'), 'tray', true); focusQuiet($('trayClose')); setTable(true); }
       else { slide($('traySheet'), 'tray', false, () => { if (!trayOpen) $('traySheet').hidden = true; if (!listOpen && !trayOpen && !(store.getState().simple && store.getState().open === 'dish')) $('backdrop').hidden = true; }); if (lastFocus && lastFocus.focus && document.contains(lastFocus)) focusQuiet(lastFocus); lastFocus = null; }
     }
     const modal = listOpen || trayOpen; $('top').inert = modal; $('card').inert = modal; void prev;
@@ -283,6 +289,23 @@ export function createUI(store, env) {
     });
     $('trayEmpty').hidden = n > 0; $('trayTotalRow').hidden = n === 0 || mixed || !cur; $('trayNote').hidden = n === 0; $('trayClear').hidden = n === 0;
     $('trayTotal').textContent = cur && !mixed ? formatMoney(sum, cur, s.lang) : ''; $('trayTotal').dir = 'ltr';
+    if (trayOpen) setTable(false);
+  }
+  /* "my table" sets itself (trayset.js): played when the sheet opens; a change while it is open is shown set */
+  const imgs = new Map(); let setKey = '', setAt = 0;
+  const imgOf = (url) => { if (!url) return null; let im = imgs.get(url); if (!im) { im = new Image(); im.decoding = 'async'; im.onload = () => { if (trayOpen && !tweens.active('trayset')) setTable(false); }; im.src = url; imgs.set(url, im); } return im.complete && im.naturalWidth ? im : null; };
+  function setTable(play) {
+    const cv = $('traySet'), s = store.getState(), L = s.lang, ids = Object.keys(s.tray).filter((id) => model().itemById.get(id));
+    cv.hidden = !ids.length; if (!ids.length) { tweens.cancel('trayset'); setKey = ''; return; }
+    const entries = ids.slice(0, 8).map((id) => { const e = model().itemById.get(id), k = e.cat.raw.kind, sp = drinkSpec(e.item, k), a = e.item.asset; return { id, drink: k === 'wine' || k === 'beer' || k === 'drinks', url: a && a.thumb && !a.stock ? a.thumb : null, colour: sp && sp.liquid ? 'rgb(' + sp.liquid.edge.map((v, i) => Math.round((v * .6 + sp.liquid.deep[i] * .4) * 255)).join(',') + ')' : null, initial: (tx(e.item.name, L).trim()[0] || '·') }; });
+    const names = ids.map((id) => tx(model().itemById.get(id).item.name, L)).join(', ');
+    cv.setAttribute('aria-label', t('trayScene') + ': ' + names);
+    const w = Math.max(200, Math.round((cv.clientWidth || 340) * Math.min(2, window.devicePixelRatio || 1))); if (cv.width !== w) { cv.width = w; cv.height = Math.round(w / 2.2); }
+    const items = () => entries.map((e) => ({ drink: e.drink, img: imgOf(e.url), colour: e.colour, initial: e.initial })), rtl = isRtl(L), key = ids.join('|') + L, end = durationOf(entries.length);
+    entries.forEach((e) => imgOf(e.url));
+    if (!play || reduce || env.instant()) { if (play || key !== setKey || !tweens.active('trayset')) { tweens.cancel('trayset'); paintSet(cv, end, items(), rtl); } setKey = key; return; }
+    setKey = key; setAt = 0;
+    tweens.run('trayset', end * 1000, (k) => { setAt = k * end; paintSet(cv, setAt, items(), rtl); }, () => paintSet(cv, end, items(), rtl), true);
   }
 
   /* ---------- small things ---------- */

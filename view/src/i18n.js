@@ -23,7 +23,16 @@ export const STR = {
     beerServing: { bottle: 'Bottle', can: 'Can', tap: 'On tap' }, beerColor: { pale: 'Pale', amber: 'Amber', dark: 'Dark' },
     stageLabel: 'The dishes on a table. Every dish is also in the menu list.', credit: 'Menu by {name}', demo: 'Demo menu · invented restaurant', demoShort: 'Demo', backTo: 'Back to {name}',
     /* night:templates */ demoAi: 'Demo dishes · made with AI' /* /night:templates */,
-    /* night:seating */ bookTable: 'Book a table' /* /night:seating */
+    /* night:seating */ bookTable: 'Book a table' /* /night:seating */,
+    /* r2:menu */
+    roomAi: 'Backdrop: made with AI', tasteTitle: 'Taste', tasteSuggested: 'read from the description',
+    taste: { sweet: 'Sweetness', body: 'Body', acid: 'Acidity', bitter: 'Bitterness', abv: 'Alcohol' },
+    tasteStyle: { red: 'Red', white: 'White', rose: 'Rosé', orange: 'Orange', sparkling: 'Sparkling', lager: 'Lager', wheat: 'Wheat beer', pale: 'Pale ale', ipa: 'IPA', amber: 'Amber', stout: 'Stout', sour: 'Sour beer' },
+    sweetScale: ['Dry', 'Off-dry', 'Medium sweet', 'Sweet'], bodyScale: ['Light', 'Medium', 'Full'], acidScale: ['Soft', 'Fresh', 'Crisp'], bitterScale: ['Mild', 'Balanced', 'Bitter'],
+    wineNote: { mineral: 'Mineral', citrus: 'Citrus', redfruit: 'Red fruit', stonefruit: 'Stone fruit', floral: 'Floral', oak: 'Oak', spice: 'Spice', earthy: 'Earthy' },
+    beerNote: { citrus: 'Citrus', malt: 'Malt', roast: 'Roast', hop: 'Hops', sour: 'Tart', fruit: 'Fruity', spice: 'Spice' },
+    trayScene: 'Your table, set with what you chose'
+    /* /r2:menu */
   },
   he: {
     skip: 'דילוג לרשימת התפריט', categories: 'חלקי התפריט', lang: 'EN', langLabel: 'Switch to English',
@@ -44,7 +53,16 @@ export const STR = {
     beerServing: { bottle: 'בקבוק', can: 'פחית', tap: 'מהחבית' }, beerColor: { pale: 'בהירה', amber: 'ענברית', dark: 'כהה' },
     stageLabel: 'המנות על שולחן. כל המנות מופיעות גם ברשימת התפריט.', credit: 'תפריט של {name}', demo: 'תפריט הדגמה · מסעדה מומצאת', demoShort: 'הדגמה', backTo: 'חזרה אל {name}',
     /* night:templates */ demoAi: 'מנות לדוגמה · נוצרו בבינה מלאכותית' /* /night:templates */,
-    /* night:seating */ bookTable: 'להזמנת שולחן' /* /night:seating */
+    /* night:seating */ bookTable: 'להזמנת שולחן' /* /night:seating */,
+    /* r2:menu */
+    roomAi: 'רקע: נוצר בבינה מלאכותית', tasteTitle: 'טעם', tasteSuggested: 'לפי התיאור בתפריט',
+    taste: { sweet: 'מתיקות', body: 'גוף', acid: 'חומציות', bitter: 'מרירות', abv: 'אלכוהול' },
+    tasteStyle: { red: 'אדום', white: 'לבן', rose: 'רוזה', orange: 'כתום', sparkling: 'מבעבע', lager: 'לאגר', wheat: 'בירת חיטה', pale: 'פייל אייל', ipa: 'IPA', amber: 'ענברית', stout: 'סטאוט', sour: 'בירה חמוצה' },
+    sweetScale: ['יבש', 'חצי יבש', 'חצי מתוק', 'מתוק'], bodyScale: ['קל', 'בינוני', 'מלא'], acidScale: ['רכה', 'רעננה', 'חדה'], bitterScale: ['עדינה', 'מאוזנת', 'מרירה'],
+    wineNote: { mineral: 'מינרלי', citrus: 'הדרים', redfruit: 'פרי אדום', stonefruit: 'פרי גלעין', floral: 'פרחוני', oak: 'עץ אלון', spice: 'תבלינים', earthy: 'אדמתי' },
+    beerNote: { citrus: 'הדרים', malt: 'לתת', roast: 'קלוי', hop: 'כשות', sour: 'חמצמץ', fruit: 'פירותי', spice: 'תבלינים' },
+    trayScene: 'השולחן שלכם, ערוך במה שבחרתם'
+    /* /r2:menu */
   }
 };
 export function makeT(getLang) {
