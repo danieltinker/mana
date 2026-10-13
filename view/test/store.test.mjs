@@ -29,10 +29,14 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 test('scene presets follow the category', () => {
   assert.equal(sceneFor({ kind: 'food', scene: 'auto' }, { surface: 'oak' }), 'table');
-  assert.equal(sceneFor({ kind: 'wine', scene: 'auto' }, { surface: 'oak' }), 'bar');
+  assert.equal(sceneFor({ kind: 'wine', scene: 'auto' }, { surface: 'oak' }), 'cellar');
   assert.equal(sceneFor({ kind: 'drinks', scene: 'table' }, { surface: 'oak' }), 'table');
   assert.equal(sceneFor({ kind: 'food', scene: 'auto' }, { surface: 'holo' }), 'holo');
-  assert.deepEqual(model.cats.map((c) => c.scene), ['table', 'table', 'table', 'table', 'bar', 'bar', 'bar']);
+  assert.deepEqual(model.cats.map((c) => c.scene), ['table', 'table', 'table', 'vitrine', 'cellar', 'taps', 'cocktail']);
+  /* ?rooms=off: the two rooms of before */
+  assert.equal(sceneFor({ kind: 'wine', scene: 'auto' }, { surface: 'oak' }, { rooms: false }), 'bar');
+  assert.equal(sceneFor({ kind: 'dessert', scene: 'auto' }, { surface: 'oak' }, { rooms: false }), 'table');
+  assert.deepEqual(buildModel(normalise(raw, 'http://x.test/view/demo/olea/menu.json'), { rooms: false }).cats.map((c) => c.scene), ['table', 'table', 'table', 'table', 'bar', 'bar', 'bar']);
 });
 
 test('a dish is always in focus: the first one to begin with, Hebrew by default', () => {
@@ -49,10 +53,10 @@ test('the whole menu is one walk: past the last dish of a category comes the fir
   assert.equal(kinds.filter((k) => k === 'category1').length, 6, 'six tables are crossed'); assert.equal(kinds.filter((k) => k === 'glide1').length, 36);
   st.dispatch({ type: 'step', dir: 1 }); assert.equal(st.getState().itemId, 'mojito'); assert.equal(st.getState().nav.kind, 'edge'); assert.equal(select(st.getState(), model).last, true);
   st.dispatch({ type: 'focus', id: 'pappardelle' }); st.dispatch({ type: 'step', dir: -1 });
-  let s = st.getState(); assert.equal(s.itemId, 'bread', 'backwards you arrive at the LAST dish of the table before'); assert.equal(s.categoryId, 'starters'); assert.deepEqual([s.nav.kind, s.nav.dir, s.nav.axis], ['category', -1, 'x']);
+  let s = st.getState(); assert.equal(s.itemId, 'fish-soup', 'backwards you arrive at the LAST dish of the table before (the sold-out soup waits at its end)'); assert.equal(s.categoryId, 'starters'); assert.deepEqual([s.nav.kind, s.nav.dir, s.nav.axis], ['category', -1, 'x']);
   st.dispatch({ type: 'step', dir: 1, by: 3 }); assert.equal(st.getState().itemId, 'gnocchi', 'Page Down: three dishes on, across the table edge');
   st.dispatch({ type: 'home' }); assert.equal(st.getState().itemId, 'pappardelle'); st.dispatch({ type: 'home' }); assert.equal(st.getState().itemId, 'labaneh', 'Home again: the start of the menu'); st.dispatch({ type: 'home' }); assert.equal(st.getState().nav.kind, 'edge');
-  st.dispatch({ type: 'end' }); assert.equal(st.getState().itemId, 'bread'); st.dispatch({ type: 'end' }); assert.equal(st.getState().itemId, 'mojito');
+  st.dispatch({ type: 'end' }); assert.equal(st.getState().itemId, 'fish-soup'); st.dispatch({ type: 'end' }); assert.equal(st.getState().itemId, 'mojito');
 });
 
 test('a sideways swipe, an arrow or a chip changes category; you arrive at its first dish; the ends are edges', () => {

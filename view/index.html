@@ -59,13 +59,14 @@
     <div class="card-head" id="cardHead">
       <i class="grip" aria-hidden="true"></i>
       <div class="card-swap" id="cardSwap">
-        <p class="eyebrow"><span class="illus-tag" id="dIllus" hidden></span><span class="badge sold" id="dSold" hidden></span><span class="idx" id="dIdx" dir="ltr"></span></p>
+        <p class="eyebrow"><span class="illus-tag" id="dIllus" hidden></span><span class="badge sold" id="dSold" hidden></span><span class="room-ai" id="dRoomAi" hidden></span><span class="idx" id="dIdx" dir="ltr"></span></p>
         <div class="title-row">
           <h1 id="dName" tabindex="-1"></h1>
           <p class="price" id="dPriceRow"><span id="dPrice" dir="ltr"></span><small id="dNote"></small></p>
         </div>
         <p class="desc" id="dDesc"></p>
         <ul class="tags" id="dTags"></ul>
+        <div class="taste-slot" id="dTaste"></div>
       </div>
       <button class="add" id="addBtn" type="button">
         <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><b id="addCount" hidden></b>
@@ -77,6 +78,7 @@
       <img class="detail-photo" id="dPhoto" alt="" hidden>
       <p class="illus-line" id="dIllusLine" hidden></p>
       <p class="desc full" id="dDescFull"></p>
+      <div class="taste-slot" id="dTasteFull"></div>
       <ul class="tags labelled" id="dTagsFull"></ul>
       <p class="allergens" id="dAllergens" hidden><b id="dAllergensLbl"></b> <span id="dAllergensTxt"></span></p>
       <dl class="facts" id="dFacts" hidden></dl>
@@ -104,6 +106,7 @@
 
   <aside class="sheet tray" id="traySheet" role="dialog" aria-modal="true" aria-labelledby="trayTitle" hidden>
     <div class="sheet-head"><h2 id="trayTitle"></h2><button class="round" id="trayClose" type="button"><svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <canvas class="tray-set" id="traySet" role="img" hidden></canvas>
     <ul class="lines" id="trayList"></ul>
     <p class="note" id="trayEmpty"></p>
     <div class="total" id="trayTotalRow"><span id="trayTotalLbl"></span><span id="trayTotal"></span></div>

@@ -103,7 +103,7 @@ test('the bar and the projector stage: every drink has the same room and stands 
     assert.equal(centreAt(pl, 0), pl[0].dx); assert.equal(centreAt(pl, 3), pl[3].dx); const mid = centreAt(pl, 2.5); assert.ok(mid > Math.min(pl[2].dx, pl[3].dx) && mid < Math.max(pl[2].dx, pl[3].dx)); assert.equal(centreAt(pl, 99), pl[7].dx);
     for (let p = -1; p <= 8; p += .21) { assert.ok(Math.abs(alongAt(pl, p, P.S) - p * P.S) < 1e-9); assert.ok(Math.abs(dishAt(pl, p * P.S, P.S) - p) < 1e-6); }
   }
-  for (const P of Object.values(PRESETS)) assert.ok(P.width > 1000 || P.holo, P.id + ': the table has no sides: one surface to every edge of any screen (there was a dark gap between two tables)');
+  for (const P of Object.values(PRESETS)) assert.ok(P.width > 1000 || P.holo || P.id === 'vitrine', P.id + ': the table has no sides: one surface to every edge of any screen (there was a dark gap between two tables)');      // the vitrine is a glass case of its own width; around it the room is quieter, never black
 });
 
 test('the bar: a bottle and its glass fit above the card, the eye is lower, and the next drink stands clear behind', () => {

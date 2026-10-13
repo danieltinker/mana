@@ -9,6 +9,7 @@
    The whole menu is one walk: past the last dish of a category comes the first dish of the next. */
 
 import { drinkSpec } from './drinks/spec.js';
+import { roomFor } from './scenes/rooms.js';
 
 const RTL = { he: true, ar: true };
 export const isRtl = (lang) => !!RTL[lang];
@@ -30,18 +31,21 @@ export function presentation(item, kind) {
 }
 
 /* ---- model: the snapshot, indexed ---- */
-export function sceneFor(cat, theme) {
-  if (theme && theme.surface === 'holo') return 'holo';
-  if (cat.scene === 'table' || cat.scene === 'bar' || cat.scene === 'holo') return cat.scene;
-  return cat.kind === 'drinks' || cat.kind === 'wine' || cat.kind === 'beer' ? 'bar' : 'table';
+/* the room a category is shown in (scenes/rooms.js); opts.rooms === false gives the two rooms of before (table and bar) */
+export const sceneFor = (cat, theme, opts) => roomFor(cat, theme, opts);
+/* Sold out goes to the end of its section, in the merchant's order, and is never the first thing a guest sees there; with
+   business.soldOut = 'hide' it is not shown at all (an empty section then has nothing to show). */
+export function servedOrder(items, mode) {
+  const ok = items.filter((it) => it.available !== false);
+  return mode === 'hide' ? ok : ok.concat(items.filter((it) => it.available === false));
 }
-export function buildModel(snapshot) {
-  const cats = [], catById = new Map(), itemById = new Map(), order = [];
+export function buildModel(snapshot, opts = {}) {
+  const cats = [], catById = new Map(), itemById = new Map(), order = [], soldOut = snapshot.business && snapshot.business.soldOut === 'hide' ? 'hide' : 'bottom';
   (snapshot.categories || []).forEach((c) => {
     if (!c || !c.items || !c.items.length || catById.has(c.id)) return;      // an empty category has nothing to show
-    const items = c.items.filter((it) => it && it.id != null && !itemById.has(it.id));
+    const items = servedOrder(c.items.filter((it, k, all) => it && it.id != null && !itemById.has(it.id) && all.findIndex((x) => x && x.id === it.id) === k), soldOut);
     if (!items.length) return;
-    const cat = { id: c.id, raw: c, items, ids: items.map((it) => it.id), scene: sceneFor(c, snapshot.theme), index: cats.length, first: order.length };
+    const cat = { id: c.id, raw: c, items, ids: items.map((it) => it.id), scene: sceneFor(c, snapshot.theme, opts), index: cats.length, first: order.length };
     items.forEach((it, i) => { itemById.set(it.id, { item: it, cat, i, g: order.length }); order.push(it.id); });
     cats.push(cat); catById.set(c.id, cat);
   });
