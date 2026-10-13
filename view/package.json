@@ -7,7 +7,7 @@
   "scripts": {
     "build": "node tools/build.mjs",
     "test": "node --test test/physics.test.mjs test/glide.test.mjs test/store.test.mjs test/snapshot.test.mjs test/scenes.test.mjs test/drinks.test.mjs test/looks.test.mjs test/seat.test.mjs ../seating/timers.test.mjs ../seating/floor.test.mjs",
-    "test:browser": "node --test --test-concurrency=1 test/browser.test.mjs test/drinks.browser.test.mjs test/looks.browser.test.mjs test/seat.browser.test.mjs test/hero.browser.test.mjs test/host.browser.test.mjs",
+    "test:browser": "node --test --test-concurrency=1 test/browser.test.mjs test/drinks.browser.test.mjs test/looks.browser.test.mjs test/seat.browser.test.mjs test/hero.browser.test.mjs test/host.browser.test.mjs test/floor.browser.test.mjs",
     "film": "node tools/film.mjs",
     "serve": "node tools/serve.mjs",
     "pretest:browser": "node tools/build.mjs",

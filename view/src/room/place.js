@@ -291,6 +291,8 @@ export function createPlace(host, layout, opts = {}) {
     },
     /* where a table's label is on screen (for tests and for the page's own overlays) */
     screenOf(id) { const o = T.get(id); if (!o) return null; v.set(o.liveX != null ? o.liveX : o.t.x, o.top, wz(o.liveZ != null ? o.liveZ : o.t.z)).project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height }; },
+    /* a film or a contact sheet: put every running table setting at `ms` after its start */
+    seek(ms) { const n = performance.now(); T.forEach((o) => { if (o.anim) o.anim.t0 = n - ms; else if (setOn.has(o.t.id) && ms < 2400) { showSetting(o, false); o.anim.t0 = n - ms; } }); wake(); },
     info: () => ({ frames, firstMs, preset: presetName, cur: Object.assign({}, cur), flying: !!flight, setting: [...T.values()].some((o) => !!o.anim), set: [...setOn] }),
     wake, size,
     dispose() { dead = true; if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); renderer.dispose(); scene.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); canvas.remove(); layer.remove(); }
