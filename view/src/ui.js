@@ -301,11 +301,11 @@ export function createUI(store, env) {
     const names = ids.map((id) => tx(model().itemById.get(id).item.name, L)).join(', ');
     cv.setAttribute('aria-label', t('trayScene') + ': ' + names);
     const w = Math.max(200, Math.round((cv.clientWidth || 340) * Math.min(2, window.devicePixelRatio || 1))); if (cv.width !== w) { cv.width = w; cv.height = Math.round(w / 2.2); }
-    const items = () => entries.map((e) => ({ drink: e.drink, img: imgOf(e.url), colour: e.colour, initial: e.initial })), rtl = isRtl(L), key = ids.join('|') + L, end = durationOf(entries.length);
+    const items = () => entries.map((e) => ({ drink: e.drink, img: imgOf(e.url), colour: e.colour, initial: e.initial })), key = ids.join('|') + L, end = durationOf(entries.length);      // the table is set the same way in every language
     entries.forEach((e) => imgOf(e.url));
-    if (!play || reduce || env.instant()) { if (play || key !== setKey || !tweens.active('trayset')) { tweens.cancel('trayset'); paintSet(cv, end, items(), rtl); } setKey = key; return; }
+    if (!play || reduce || env.instant()) { if (play || key !== setKey || !tweens.active('trayset')) { tweens.cancel('trayset'); paintSet(cv, end, items()); } setKey = key; return; }
     setKey = key; setAt = 0;
-    tweens.run('trayset', end * 1000, (k) => { setAt = k * end; paintSet(cv, setAt, items(), rtl); }, () => paintSet(cv, end, items(), rtl), true);
+    tweens.run('trayset', end * 1000, (k) => { setAt = k * end; paintSet(cv, setAt, items()); }, () => paintSet(cv, end, items()), true);
   }
 
   /* ---------- small things ---------- */

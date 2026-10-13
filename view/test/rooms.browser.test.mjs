@@ -130,3 +130,31 @@ test('reduced motion in the rooms: no travel between rooms, a cross-fade; and th
   await page.evaluate(() => window.__mana.frame(400)); await loaded(page); await page.evaluate(() => window.__mana.frame(100)); i = await info(page); assert.equal(i.rooms.vitrine, 1);
   assert.deepEqual(errors, []); await ctx.close();
 });
+
+test('the backdrop\'s AI label is never cut short: a 320 px phone, an illustrated drink that is sold out, both languages', async () => {
+  const { page, errors, ctx } = await open(browser, srv.origin + VIEW + '?preview=1&test=1&pr=0.3&hint=0&lang=en', { width: 320, height: 640 });
+  await page.evaluate(async () => { const r = await fetch('demo/olea/menu.json'), snap = await r.json(); snap.categories.forEach((c) => c.items.forEach((it) => { if (it.id === 'wine-orange') it.available = false; if (it.asset) for (const k of ['color', 'aux', 'thumb']) if (it.asset[k]) it.asset[k] = new URL('demo/olea/' + it.asset[k], location.href).href; })); window.postMessage({ type: 'halom-menu-preview', snapshot: snap }, location.origin); });
+  await page.waitForFunction(() => window.__mana && window.__mana.state && window.__mana.state());
+  await page.evaluate(() => window.__mana.dispatch({ type: 'focus', id: 'wine-orange' })); await loaded(page); await tableUp(page); await settle(page, 200);
+  for (const lang of ['en', 'he']) {
+    await page.evaluate((l) => window.__mana.setLang(l), lang); await settle(page, 30);
+    const r = await page.evaluate(() => { const el = document.getElementById('dRoomAi'), card = document.getElementById('card').getBoundingClientRect(), b = el.getBoundingClientRect(), cs = getComputedStyle(el), vis = (id) => !document.getElementById(id).closest('[hidden]');
+      return { text: el.textContent, shown: vis('dRoomAi'), illus: vis('dIllus'), sold: vis('dSold'), clipped: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1, ellipsis: cs.textOverflow, inside: b.left >= card.left - 1 && b.right <= card.right + 1, w: b.width }; });
+    assert.ok(r.shown && r.illus && r.sold, lang + ': an illustrated, sold-out drink in the cellar: ' + JSON.stringify(r));
+    assert.equal(r.text, lang === 'en' ? 'Backdrop: made with AI' : 'רקע: נוצר בבינה מלאכותית');
+    assert.ok(!r.clipped && r.ellipsis !== 'ellipsis' && r.inside, lang + ': the whole label shows: ' + JSON.stringify(r));
+  }
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
+test('my table is set the same way in Hebrew and English: fork on the left, knife on the right', async () => {
+  const sum = (page) => page.evaluate(() => { const c = document.getElementById('traySet'), x = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let k = 0; k < x.length; k += 53) h = (h * 31 + x[k]) % 1000003; return h; });
+  const sums = [];
+  for (const lang of ['en', 'he']) {
+    const o = await open(browser, demo('&capture=1&pr=0.3&lang=' + lang), { reducedMotion: 'reduce' }); await o.page.evaluate(() => window.__mana.settle());
+    await o.page.evaluate(() => { const M = window.__mana; M.dispatch({ type: 'trayAdd', id: 'kebab' }); M.dispatch({ type: 'trayAdd', id: 'hummus' }); M.dispatch({ type: 'open', what: 'tray' }); });      // dishes with their own pictures: nothing on the cloth is in words
+    let a = -1, b = -2; for (let k = 0; k < 40 && a !== b; k++) { await o.page.waitForTimeout(100); await o.page.evaluate(() => window.__mana.frame(16)); a = b; b = await sum(o.page); }      // until the pictures have arrived and it is still
+    sums.push(b); assert.deepEqual(o.errors, []); await o.ctx.close();
+  }
+  assert.equal(sums[0], sums[1], 'the same picture in both languages: nothing is mirrored');
+});

@@ -8,7 +8,7 @@ import { shapeOf } from '../src/scenes/common.js';
 import { buildModel, initialState, reduce, servedOrder } from '../src/store.js';
 import { normalise } from '../src/snapshot.js';
 import { tasteOf, cleanTaste, hasWord } from '../src/drinks/taste.js';
-import { layoutSet, poseAt, clothAt, durationOf, CLOTH_T } from '../src/trayset.js';
+import { layoutSet, poseAt, clothAt, durationOf, CLOTH_T, cutleryAt, paint } from '../src/trayset.js';
 
 const raw = JSON.parse(readFileSync(new URL('../demo/olea/menu.json', import.meta.url), 'utf8'));
 const olea = () => normalise(JSON.parse(JSON.stringify(raw)), 'http://x.test/view/demo/olea/menu.json');
@@ -114,4 +114,26 @@ test('my table sets itself: the cloth first, then each place in turn, landing wi
   const L = layoutSet(5, 440, 200); assert.equal(L.places.length, 5); assert.ok(L.places.every((p) => p.x > 0 && p.x < 440 && p.y > 0 && p.y < 200));
   for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) assert.ok(Math.hypot(L.places[i].x - L.places[j].x, L.places[i].y - L.places[j].y) > L.places[i].r * 2, 'places do not overlap');
   assert.equal(layoutSet(12, 440, 200).places.length, 8, 'at most eight places');
+  /* the fork on the left, the knife on the right, whatever the language: a table setting is not a reading direction */
+  const c = cutleryAt(100, 20); assert.ok(c.fork < 100 && c.knife > 100);
+  assert.equal(paint.length, 3, 'painting the table takes no language or direction');
+});
+
+test('taste: a negation turns a word round: "not dry" is not dry, "לא מתוק" is not sweet, "no oak" is no oak note', () => {
+  const sc = (desc) => (tasteOf({ desc }, 'wine') || { scales: [] }).scales.map((x) => [x.id, x.v]);
+  const nt = (desc, kind = 'wine') => (tasteOf({ desc }, kind) || { notes: [] }).notes.map((x) => x.id);
+  assert.deepEqual(sc('Not too sweet, not dry'), [], 'the review\'s example: neither sweet nor dry is suggested');
+  assert.deepEqual(sc({ he: 'לא מתוק', en: '' }), []); assert.deepEqual(sc({ he: 'יין לא יבש', en: '' }), []); assert.deepEqual(sc({ he: 'ולא מתוק מדי', en: '' }), [], 'one prefix letter on the negation');
+  assert.deepEqual(sc({ he: 'בלי מתיקות, יבש', en: '' }), [['sweet', 0]], 'a comma ends the negation');
+  assert.deepEqual(sc('never sweet'), []); assert.deepEqual(sc("isn't sweet"), []); assert.deepEqual(sc('not semi-sweet'), []);
+  assert.deepEqual(sc('Dry and fresh'), [['sweet', 0]], 'and without one the word stands');
+  assert.deepEqual(sc('A sweet finish, not oaky'), [['sweet', 3]], 'a negation after the word does not touch it');
+  assert.deepEqual(nt('no oak, citrus and flint'), ['mineral', 'citrus']); assert.deepEqual(nt('without any oak'), []);
+  assert.deepEqual(nt({ he: 'ללא עץ, מינרלי', en: '' }), ['mineral']); assert.deepEqual(nt({ he: 'אין בה מרירות, לתתית', en: '' }, 'beer'), ['malt']);
+  assert.ok(hasWord('dry', 'dry') && !hasWord('not dry', 'dry') && !hasWord('לא יבש', 'יבש') && hasWord('יבש, לא חמוץ', 'יבש'));
+  /* the same question from the card, the sheet and the list is answered once, and fast */
+  const it = { desc: 'Dry, citrus', details: {} }; assert.equal(tasteOf(it, 'wine'), tasteOf(it, 'wine'));
+  const many = []; for (let k = 0; k < 300; k++) many.push({ desc: { he: 'יין יבש ומינרלי עם ניחוח הדרים, לא מתוק', en: 'Dry and mineral, citrus, not sweet ' + k }, details: { wine: { color: 'white', notes: { sweetness: 'Dry', fruit: 'Citrus' } } } });
+  const t0 = performance.now(); many.forEach((x) => tasteOf(x, 'wine')); const per = (performance.now() - t0) / many.length;
+  assert.ok(per < .5, 'well under a millisecond a drink: ' + per.toFixed(3) + ' ms');
 });
