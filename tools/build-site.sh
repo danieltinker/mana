@@ -27,6 +27,7 @@ cp config.js "$OUT/config.js"
 mkdir -p "$OUT/view"
 for f in index.html app.css app.js; do cp "view/$f" "$OUT/view/$f"; done
 for d in chunks demo fonts themes; do cp -R "view/$d" "$OUT/view/$d"; done
+cp "view/seat.js" "$OUT/view/seat.js"; cp -R "view/seat" "$OUT/view/seat"      # night:seating  the seat map page (view/seat/) and its entry
 cp -R studio/dist "$OUT/studio"
 cp -R ops/dist "$OUT/ops"
 mkdir -p "$OUT/gen"
