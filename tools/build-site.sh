@@ -34,6 +34,7 @@ for d in chunks demo fonts themes; do cp -R "view/$d" "$OUT/view/$d"; done
 cp -R view/looks "$OUT/view/looks"      # night:templates: the looks gallery and its stills (/mana/view/looks/)
 cp "view/seat.js" "$OUT/view/seat.js"; cp -R "view/seat" "$OUT/view/seat"      # night:seating  the seat map page (view/seat/) and its entry
 cp "view/host.js" "$OUT/view/host.js"; cp -R "view/host" "$OUT/view/host"      # timers  the host board (view/host/: table clocks) and its entry
+for f in floor.js floor-guest.js; do cp "view/$f" "$OUT/view/$f"; done; cp -R "view/floor" "$OUT/view/floor"      # lima  Café Lima's board and the guest's phone (view/floor/)
 cp -R studio/dist "$OUT/studio"
 cp -R ops/dist "$OUT/ops"
 mkdir -p "$OUT/gen"

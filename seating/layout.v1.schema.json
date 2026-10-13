@@ -16,14 +16,23 @@
       "gap": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 2, "maxItems": 2, "description": "a door: where along the wall it opens, [start, end] in metres from `from`" } } } },
     "zones": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "name", "rect"], "additionalProperties": false, "properties": {
       "id": { "$ref": "#/definitions/id" }, "name": { "$ref": "#/definitions/text" },
-      "rect": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 4, "maxItems": 4, "description": "[x1, z1, x2, z2] inside the room" } } } },
+      "rect": { "type": "array", "items": { "type": "number", "minimum": 0 }, "minItems": 4, "maxItems": 4, "description": "[x1, z1, x2, z2] inside the room" },
+      "outdoor": { "type": "boolean", "description": "optional: the zone is outside (a terrace, the pavement line)" } } } },
     "tables": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["id", "zone", "x", "z", "shape", "seats", "minParty", "maxParty", "bookable"], "additionalProperties": false, "properties": {
       "id": { "$ref": "#/definitions/id" }, "zone": { "$ref": "#/definitions/id" }, "name": { "type": "string", "maxLength": 40 },
       "x": { "type": "number" }, "z": { "type": "number" }, "rot": { "type": "number", "minimum": -360, "maximum": 360, "default": 0 },
       "shape": { "enum": ["round", "square", "long", "bar"] },
       "seats": { "type": "integer", "minimum": 1, "maximum": 40 }, "minParty": { "type": "integer", "minimum": 1, "maximum": 40 }, "maxParty": { "type": "integer", "minimum": 1, "maximum": 40, "description": "minParty <= maxParty <= seats" },
-      "bookable": { "type": "boolean", "description": "false draws a table nobody books (the bar counter)" } } } },
-    "tableChoice": { "type": "boolean", "default": true, "description": "the owner's switch: false lets guests pick an area only" }
+      "bookable": { "type": "boolean", "description": "false draws a table nobody books (the bar counter)" },
+      "look": { "type": "object", "required": ["top", "seat", "w"], "additionalProperties": false, "description": "optional: how the table looks in the 3D place and its size in metres (round: w is the diameter)", "properties": {
+        "top": { "enum": ["marble", "wood", "iron", "glass"] }, "seat": { "enum": ["chairs", "bench", "stools", "velvet", "sofa"] },
+        "w": { "type": "number", "minimum": 0.3, "maximum": 4 }, "d": { "type": "number", "minimum": 0.3, "maximum": 4 } } } } } },
+    "tableChoice": { "type": "boolean", "default": true, "description": "the owner's switch: false lets guests pick an area only" },
+    "fixtures": { "type": "array", "description": "optional: the room's fixed things, drawn by the 3D place and the plan; none is booked", "items": { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": {
+      "kind": { "enum": ["walkway", "closed", "kitchen", "hatch", "counter", "vitrine", "espresso", "fridge", "shelf", "bench", "banquette", "post", "planter", "tree", "awning", "lamp"], "description": "walkway: kept clear (the pavement); closed: not the venue; kitchen: staff only; hatch: the street-side window" },
+      "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4, "description": "[x1, z1, x2, z2], up to 2 m past the room" },
+      "at": { "$ref": "#/definitions/point" }, "name": { "$ref": "#/definitions/text" } },
+      "anyOf": [{ "required": ["rect"] }, { "required": ["at"] }] } }
   },
   "definitions": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$" },

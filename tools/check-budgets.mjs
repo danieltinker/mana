@@ -22,7 +22,7 @@ import { resolve, dirname, join, relative, extname, basename } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const SITE = resolve(process.argv[2] || '_site');
-const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB, /* timers */ host: 175 * KB /* /timers */ };
+const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB, /* timers */ host: 175 * KB /* /timers */, /* lima */ floor: 200 * KB, floor3d: 800 * KB /* /lima */ };
 const TEXT = /\.(html?|css|m?js|json|svg|txt|md|xml|webmanifest)$/i;
 if (!existsSync(SITE)) { console.error('✗ no built site at ' + SITE + ' (run tools/build-site.sh first)'); process.exit(2); }
 
@@ -162,6 +162,25 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
   }
 }
 /* /timers */
+
+/* lima */
+/* (f) Café Lima's board and the guest's phone, when present (view/floor/index.html, view/floor/guest.html): each page,
+   its scripts and their own chunks, its stylesheets and the fonts they declare, ≤ 200 kB each; the 3D place (three.js and
+   the room, loaded on demand when the stage goes 3D; ?gl=off never loads it) ≤ 800 kB sent */
+for (const [name, file] of [['board', 'view/floor/index.html'], ['phone', 'view/floor/guest.html']]) {
+  const page = join(SITE, file), rows = [];
+  if (!existsSync(page)) { notes.push('(f) no ' + file + ': nothing to measure'); continue; }
+  rows.push(row(page, 'the page'));
+  const html = read(page).toString(), later = new Set();
+  for (const { tag } of tags(html, 'script')) { const p = local(attr(tag, 'src'), page); if (!p || !existsSync(p)) continue; rows.push(row(p, 'script'));
+    for (const c of staticImports(p)) if (existsSync(c)) rows.push(row(c, 'its own chunk'));
+    for (const c of dynamicImports(p)) if (existsSync(c)) later.add(c); }
+  for (const { tag } of tags(html, 'link')) if (/stylesheet/i.test(attr(tag, 'rel') || '')) { const p = local(attr(tag, 'href'), page); if (!p || !existsSync(p)) continue; rows.push(row(p, 'style'));
+    for (const u of cssUrls(p).filter((x) => /\.woff2?$/i.test(x))) { const q = local(u, p); if (q && existsSync(q) && !rows.some((r) => r && r.file === rel(q))) rows.push(row(q, 'font the stylesheet declares')); } }
+  section('(f) Café Lima, the ' + name + ' page', rows, BUDGET.floor);
+  if (name === 'board' && later.size) section('(f) Café Lima, the 3D place (on demand)', [...later].map((c) => row(c, 'on-demand chunk')), BUDGET.floor3d);
+}
+/* /lima */
 
 /* (d) media */
 {

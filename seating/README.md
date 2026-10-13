@@ -28,6 +28,13 @@ the plan. `validateLayout(raw) → { ok, layout | errors }` returns a normalised
 | `zones[]` | `{ id, name: { he, en }, rect: [x1, z1, x2, z2] }` | the areas a guest picks first; ids `^[a-z0-9][a-z0-9_-]{0,39}$`, unique; rects inside the room |
 | `tables[]` | `{ id, zone, x, z, rot, shape: "round" \| "square" \| "long" \| "bar", seats 1–40, minParty, maxParty, bookable, name? }` | `x, z` is the centre; `minParty ≤ maxParty ≤ seats`; `bookable: false` draws a table nobody books (the bar counter); `name` (≤ 40) is what the table is called, else "Table n" by its position in its zone |
 | `tableChoice` | boolean, default `true` | the owner's switch: `false` lets guests pick an area only (step 3 disappears) |
+| `zones[].outdoor` | boolean, optional | the zone is outside (a terrace line); kept only when the file has it |
+| `tables[].look` | `{ top: "marble" \| "wood" \| "iron" \| "glass", seat: "chairs" \| "bench" \| "stools" \| "velvet" \| "sofa", w, d? }`, optional | how the table looks in the 3D place and its top's size in metres (0.3–4; round: `w` is the diameter); kept only when the file has it |
+| `fixtures[]` | `{ kind, rect?: [x1, z1, x2, z2], at?: [x, z], name?: { he, en } }`, optional (always `[]` in the normalised copy) | the room's fixed things, a rect or a point, up to 2 m past the room (a tree on the pavement). Kinds: `walkway` (kept clear), `closed` (not the venue), `kitchen`, `hatch` (a street-side window), `counter`, `vitrine`, `espresso`, `fridge`, `shelf`, `bench`, `banquette`, `post`, `planter`, `tree`, `awning`, `lamp`. An unknown kind is refused with a reason. None is booked. |
+
+The three optional fields arrived with Café Lima (round two); Olea's layout and every page that reads layouts work as
+before. Lima's convention, used by its 3D place and plan: `x` runs along the façade from the left as seen from the street,
+`z` from the kerb inwards; the plan draws the street at the bottom.
 
 Who fits: `fits(table, party)` = bookable and `minParty ≤ party ≤ maxParty`. `tablesFor(layout, party, zone?)`,
 `zonesFor(layout, party)` (zones with at least one fitting table) are what the page dims by.
@@ -148,6 +155,111 @@ host/?demo=olea            the manager's board (Hebrew; &lang=en, &view=list, &s
 The board is a demo: Olea's room from `fixtures/olea.layout.json`, the floor in `localStorage` (`mana-host:v1:olea`),
 four tables seated on first load (one ending soon), nothing sent anywhere. A party is a number; no names. When it goes
 live: `db/proposed/0006_table_clock.sql` (not applied).
+
+## Café Lima: the place system's proof of concept (`view/floor/`)
+
+```
+floor/?demo=lima                       the counter's board (Hebrew; &lang=en, &speed=30 for a pitch, &gl=off for the 2D plan)
+floor/guest.html?demo=lima&table=t3    the guest's phone, opened from the QR on table 3 (also inside the board: "Guest's phone")
+```
+
+Café Lima is Rami's café. Its floor, `fixtures/lima.layout.json`, is **a first draft drawn from six photos**: every measure
+is an estimate (about ±0.5 m), no people and no photos are in it. Outside, two messy lines (by the street, along the
+wall) under three awnings; inside, the banquette row with four marble tables, one table by the door, the sofa corner; the
+counter with its vitrine behind a glass partition on the left as you come in. 16 tables, 44 seats. What changed from
+Claude's first sketch: the counter faces the room from behind the partition (the sketch had it against the façade, with
+no room for the barista); a table moved from the street line in front of the street window (the photos show that space
+empty) to the left line, with saddle stools; the entrance is wider (about 2.1 m) and the glazing beside it is drawn; the
+arched doorway at the back sits left of the banquette; the table by the door is closer to it; the glass-top table stands
+across the line (its long side faces the street). Open for Rami: where exactly the counter is and which way it faces,
+and how many seats each outdoor table really has.
+
+**The 3D place** (`view/src/room/`: `build.js` builds it, `place.js` runs it, `plan2d.js` is the plan) is built from the
+layout with three.js r128 (the guest menu's copy, one chunk loaded only when the stage goes 3D). Walls with their openings,
+glazing, shutters, two arched doorways, the awnings, posts, the ficus and the potted fig, terrace tiles, pavers, the
+red-and-white kerb, terrazzo inside; furniture by `look`; table states as a ring and glow on the floor with the minutes
+floating above; violet when a bid holds a table. The camera orbits, pans and zooms (mouse, touch, keys: arrows,
+shift+arrows, +/−, 1/2/3 for the presets), flies to a table, drifts gently when untouched; walls between the camera and
+what it looks at fade. "The table sets itself": a cloth floats down, then plates, cutlery, glasses and a candle drop in
+with a small bounce, and the table glows once (about two seconds; reduced motion: set at once). No WebGL, a lost context
+or a first frame over 4 s and the stage is the 2D plan.
+
+**Time frames** use `timers.mjs` as it is: the board asks `peaks.mjs frameFor()` and passes the minutes to `seat()`. First
+match wins: the table's own frame → at peak, the zone's peak frame → at peak, the venue's peak frame → the zone's frame →
+the default. The example: the sofa corner 120, and at peak the tables along the wall 60 (laptop tables), the rest 75.
+
+**Peak windows** (`peaks.mjs`): days (0 = Sunday) and hours in the venue's time zone. The example is every day 10:00–13:00
+and says "Example" wherever it shows; the demo clock starts at 09:35.
+
+**Orders** (`orders.mjs`): the counter adds an order (a number 1–99, optionally a table); New → Preparing → Ready → Picked
+up; Ready is one big tap and may come straight from New; Undo steps back once. The guest's phone follows the receipt's
+number, or the order the counter attached to its table. Items are plain names from a small sample list; there are no
+prices anywhere (we have none to show).
+
+### Bidding on tables at peak (`bids.mjs`)
+
+It should feel like reserving the best seat, not paying for a chair.
+
+1. The owner chooses which tables can be bid for (the example: the sofa corner and the long wooden table), a minimum bid
+   and a step (the example: ₪10 and ₪5, sample values), and whether the winning amount is credited to the guest's order
+   (default yes).
+2. Bidding is per table and per slot of a peak window (slots are back to back from the window's start, 90 minutes in the
+   example). It opens 120 minutes before the slot and closes 10 minutes before it (the owner's settings).
+3. A bid is a whole amount ≥ the minimum; when someone leads, ≥ the leader's amount + the step. The party must fit the
+   table. The leader cannot outbid himself. A guest leads at most one table per slot.
+4. When bidding closes the highest bid wins: the table is held for that slot (violet on the board and the phone), the
+   other bids are released, the board seats the winner when they arrive. The owner may accept the leading bid early,
+   decline an auction with a reason the guests read (every bid is released), or release a held table.
+5. Nothing is charged: in the demo the amounts are samples and every screen says so. In production a won bid becomes a
+   credit or a charge only through `db/proposed/0005_payments.sql`'s rules, which Daniel and Rami decide.
+
+```
+open ──bid──▶ open (the new bid leads; the previous leader is outbid)
+open ──close at closesAt──▶ won (highest) | unsold (no bids)        open ──accept (owner)──▶ won
+open ──decline (owner, a reason)──▶ declined                        won ──release (owner)──▶ released     won ──slot ends──▶ done
+```
+
+### How the board and the phone talk, and what production needs
+
+In the demo they share this browser's `localStorage` (one versioned key per part: `mana-floor:v1:lima:timers`, `:orders`,
+`:bids`, `:rules`, `:clock`, `:layout`, `:ui`) and a `BroadcastChannel('mana-floor:lima')` that says which part changed:
+two tabs, or the phone frame inside the board. Every part passes its validator on the way in. Nothing leaves the browser.
+
+A real deployment needs: a realtime channel (Supabase Realtime on the venue's orders and auctions); the tables behind RLS
+(`db/proposed/0007_floor.sql`, a proposal, never applied: the owner reads and writes his venue; a guest is an anonymous
+session that bids and follows its own order through security-definer functions and never sees who else bid); a clock on
+the server (`close_due_auctions()` every minute); and, for a **locked phone, Web Push**: a service worker, a push
+subscription per guest and a sender function. Until then the beep works while the page is open (and the notification when
+the guest allowed it). That piece is Daniel's.
+
+### Edit mode
+
+"Edit the floor" on the board: drag a table on the 3D floor or on the top view (snaps to 5 cm), arrow keys move it (shift:
+50 cm), R rotates 15° (shift+R back); add from a small palette (round for 2, round for 3, square for 2, long for 4, a
+lounge), duplicate, delete, change seats and party sizes and the zone, undo / redo (also Ctrl+Z / Ctrl+Shift+Z). Warnings
+say when two tables (with their chairs) are in each other's way or a table stands outside the café (on the pavement, in
+the kitchen, behind the counter, or in no zone). Save passes `validateLayout` and keeps the floor in `localStorage`
+(`mana-floor:v1:lima:layout`); Reset goes back to Lima's draft; Export downloads the layout as JSON. The rules are
+`edit.mjs` (pure, tested).
+
+### From photos to a 3D place: the onboarding (later; not built)
+
+Daniel: "if this good we put this feature inside the onboarding process where we will ask the user to take pictures and
+explain the spaces inside his restaurant."
+
+- **The photos the owner takes** (the owner app walks him through them, one screen per photo, with an example): from the
+  door looking in; from each corner of each room; each outdoor line from both ends; the counter (from the guest's side);
+  the façade from across the street. Phone held level, at chest height, in daylight, no people where possible.
+- **The questions** (one per screen, with the photo above it): the areas and their names (as guests say them), inside or
+  outside, how many seats each table has and the smallest party it takes, which tables can be bid for at peak, the peak
+  hours, the default time frame and any shorter one at peak.
+- **What Halom does with them today**: this draft, by hand. Claude traces the plan from the photos into `layout.v1`
+  (walls, openings, zones, tables with their looks, fixtures), checks it with `validateLayout`, and the owner corrects it
+  in edit mode. About an hour per venue; the measures are estimates.
+- **A better pipeline later**: a phone LiDAR scan (Polycam or Scaniverse on an iPhone Pro) gives the room's true measures
+  and a textured mesh; photogrammetry from a short video does the same without LiDAR; Gaussian splats give a
+  photo-real place to look at. Either way the tables stay `layout.v1` (the scan is the backdrop, the layout is what is
+  booked, timed and bid for), placed on the scan in edit mode, so everything here keeps working.
 
 ## Hebrew for the read
 

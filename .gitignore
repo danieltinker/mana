@@ -22,6 +22,9 @@ view/app.js
 view/seat.js
 # timers: the host board's build
 view/host.js
+# Café Lima's place system: the board's and the guest phone's builds (view/floor/)
+view/floor.js
+view/floor-guest.js
 view/chunks/
 # the product page's bundled scripts: made by node brand/tools/build-land.mjs (CI builds them in tools/build-site.sh)
 brand/site/land/
