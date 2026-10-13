@@ -344,6 +344,7 @@ const reels = () => `<section class="sec reels" id="reels" aria-labelledby="reel
         <div class="site-hero"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><div class="site-words"><b class="site-name">${t('אוליאה', 'Olea')}</b><span class="site-l"></span><span class="site-l short"></span><span class="site-book">${t('להזמין שולחן', 'Book a table')}</span></div></div>
         <div class="site-row">${['pizza', 'ramen', 'gelato'].map((d) => `<img src="./img/dishes/${d}.webp" width="640" height="640" alt="" loading="lazy" decoding="async">`).join('')}</div>
       </div>
+      <p class="ai-tag site-tag">${AI_DISHES()}</p>
       <figure class="reel">
         <div class="phone"><div class="phone-screen">
           <img class="reel-still" src="./img/host/host-orbit.jpg" width="720" height="1280" alt="" loading="lazy" decoding="async">
@@ -352,7 +353,6 @@ const reels = () => `<section class="sec reels" id="reels" aria-labelledby="reel
         </div></div>
         <figcaption class="ai-tag">${t('דמות שנוצרה בבינה מלאכותית', 'A person made with AI')}</figcaption>
       </figure>
-      <p class="ai-tag site-tag">${AI_DISHES()}</p>
     </div>
   </div>
 </section>`;

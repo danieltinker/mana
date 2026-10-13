@@ -239,7 +239,8 @@ await check('what you learn: the four lines; the sample label beside the numbers
     await o.page.evaluate(() => document.querySelector('.dash').scrollIntoView({ block: 'start', behavior: 'instant' }));
     await o.page.waitForFunction(() => document.querySelector('.dash').classList.contains('in'));
     const mid = await o.page.evaluate(() => new Promise((res) => setTimeout(() => res(+document.querySelector('.dash-big [data-count]').textContent), 600)));
-    assert.ok(mid > 0 && mid < 212, 'the views did not count up: ' + mid); await o.page.waitForTimeout(2600);
+    assert.ok(mid > 0 && mid < 212, 'the views did not count up: ' + mid); await o.page.waitForTimeout(2000);
+    await o.page.waitForFunction(() => [...document.querySelectorAll('.hfield .b')].every((b) => getComputedStyle(b).transform === 'none'), null, { timeout: 10000 }).catch(() => {});
     r = await o.page.evaluate(() => { const d = document.querySelector('.dash'), lab = d.querySelector('.dash-sample'), big = d.querySelector('.dash-big'), lb = lab.getBoundingClientRect(), bb = big.getBoundingClientRect();
       return { label: lab.innerText.trim(), labVis: lab.checkVisibility(), gap: Math.round(bb.top - lb.bottom), big: big.innerText.replace(/\s+/g, ' ').trim(), dishes: [...d.querySelectorAll('.tops li')].map((l) => [l.querySelector('.tn').innerText.trim(), l.querySelector('b').innerText.trim()]),
         rings: [...d.querySelectorAll('.t-ring .dash-mid')].map((e) => e.innerText.trim()), adds: d.querySelector('.t-adds .dash-mid').innerText.trim(), bars: d.querySelectorAll('.hfield .b').length, faces: d.querySelectorAll('.hfield .b > b').length,
@@ -270,7 +271,7 @@ await check('plans: three glass plans by number of dishes, each with "Get an off
   for (const lang of ['he', 'en']) {
     const o = await open('/mana/?lang=' + lang + '&motion=off', { w: 1440, h: 900, touch: false });
     const r = await o.page.evaluate(() => { const s = document.getElementById('plans'); return { h2: s.querySelector('h2').innerText.trim(), sub: [...s.querySelectorAll('.sec-p')].find((e) => e.checkVisibility()).innerText.trim(), plans: [...s.querySelectorAll('.plan')].map((p) => [p.querySelector('h3').innerText.trim(), p.querySelector('.btn').innerText.trim(), p.classList.contains('glass'), !!p.querySelector('.plan-price')]),
-      groups: [...s.querySelectorAll('.plan-group')].map((g) => [g.querySelector('h3').innerText.trim(), [...g.querySelectorAll('li')].map((l) => l.innerText.trim())]), free: s.querySelector('.plan-free p').innerText.trim(), text: s.innerText }; });
+      groups: [...s.querySelectorAll('.plan-group')].map((g) => [g.querySelector('h3').innerText.trim(), [...g.querySelectorAll('li')].map((l) => l.innerText.trim())]), free: [...s.querySelectorAll('.plan-free p')].find((e) => e.checkVisibility()).innerText.trim(), text: s.innerText }; });
     const he = lang === 'he';
     assert.equal(r.h2, he ? 'חבילות' : 'Plans'); assert.equal(r.sub, he ? 'כל חבילה כוללת הכול. ההבדל הוא מספר המנות.' : 'Every plan includes everything. The difference is the number of dishes.');
     assert.deepEqual(r.plans, (he ? ['עד 50 מנות', 'עד 100 מנות', 'מנות ללא הגבלה'] : ['Up to 50 dishes', 'Up to 100 dishes', 'Unlimited dishes']).map((n) => [n, he ? 'לקבל הצעה' : 'Get an offer', true, false]));

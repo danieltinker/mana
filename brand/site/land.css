@@ -523,10 +523,10 @@ html[lang="en"] .site-name{font-family:var(--display-en);font-weight:440}
 .site-row img{width:100%;aspect-ratio:1.2;object-fit:cover;border-radius:12px;background:#fff;padding:4px;box-shadow:0 8px 16px -12px rgba(70,45,20,.4)}
 .site-tag{position:absolute;bottom:-26px;inset-inline-start:0}
 @media (max-width:640px){
-  .reels-art{grid-template-columns:1fr;min-height:0;padding-bottom:28px}
-  .site-card{margin:0 0 -90px;width:92%;justify-self:start}
-  .reel{justify-self:end;margin-inline-end:4%}
-  .site-tag{position:static;margin-top:10px}
+  .reels-art{grid-template-columns:1fr;min-height:0}
+  .site-card{width:92%;justify-self:start}
+  .site-tag{position:static;margin-top:10px;max-width:42%;padding-inline-start:6px}
+  .reel{justify-self:end;margin-inline-end:4%;margin-top:-118px}
 }
 @keyframes reel-float{0%,100%{transform:translateY(-5px)}50%{transform:translateY(5px)}}
 .anim .reels.live .reel .phone{animation:reel-float 6s ease-in-out infinite}
@@ -554,8 +554,7 @@ html[lang="en"] .plan h3{font-family:var(--display-en);font-weight:450}
   .plan .btn{grid-column:auto;justify-self:center;align-self:end;min-width:11em}
 }
 .plan-all{display:grid;gap:22px;padding:clamp(20px,3vw,36px)}
-.plan-group h3{font:600 .82rem/1.2 var(--text);letter-spacing:.04em;color:var(--ink-2);text-transform:uppercase;margin-bottom:12px}
-html[lang="he"] .plan-group h3{letter-spacing:0;font-size:.9rem}
+.plan-group h3{font:600 .9rem/1.2 var(--text);letter-spacing:.01em;color:var(--ink-2);margin-bottom:12px}
 .plan-group ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .plan-group li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;font-size:.98rem;line-height:1.4}
 .plan-group svg{width:22px;height:22px;padding:3px;border-radius:50%;color:#fff;background:var(--sage);flex:none}
