@@ -154,6 +154,56 @@
     ]
    ]
   },
+  "390-en-scan": {
+   "words": 260,
+   "height": 5414,
+   "sections": [
+    [
+     "top",
+     50
+    ],
+    [
+     "hero",
+     844
+    ],
+    [
+     "how",
+     251
+    ],
+    [
+     "looks",
+     522
+    ],
+    [
+     "demo",
+     402
+    ],
+    [
+     "seat",
+     524
+    ],
+    [
+     "numbers",
+     614
+    ],
+    [
+     "reels",
+     750
+    ],
+    [
+     "perks",
+     240
+    ],
+    [
+     "price",
+     476
+    ],
+    [
+     "foot",
+     130
+    ]
+   ]
+  },
   "heroContrast": {
    "390-he-h1": 17.15,
    "390-he-.hero .lead": 11.93,
@@ -163,7 +213,7 @@
    "390-en-.hero .demo-tag": 9.78,
    "1440-he-h1": 14.52,
    "1440-he-.hero .lead": 10.61,
-   "1440-he-.hero .demo-tag": 9.42,
+   "1440-he-.hero .demo-tag": 9.43,
    "1440-en-h1": 14.84,
    "1440-en-.hero .lead": 10.62,
    "1440-en-.hero .demo-tag": 9.42
@@ -200,7 +250,7 @@
     "size": "1080×1920"
    }
   },
-  "requestsOnLoad390": 19,
+  "requestsOnLoad390": 18,
   "bytesGzipBeforeHero": {
    "scripts": 8494,
    "css": 11094,

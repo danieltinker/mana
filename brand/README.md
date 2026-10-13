@@ -6,35 +6,36 @@ the product page, the privacy and terms pages, the sales playbook and the film c
 Nothing here has been deployed, pushed, published or sent.
 
 ## Version 3: the page is the table
-The first screen is the table: one Hebrew line on a scrim, the demo dish alone under the lamp, the two buttons on the
-wood. The dish is the real relief, live: `site/index.html` paints its flat photo first (`img/hero-dish.webp`, the Olea
-hummus cut out by its matte, placed where the guest view will stand the dish), and `mana.js` adds the guest view in
-**hero mode** (`view/?demo=solo&embed=hero&lang=he|en`, see `view/src/hero.js`) as an iframe after the page has painted,
-never on Save-Data. The frame reports `{type:'mana-hero', state}` as the lamp comes up, the dish rises and the ring is
-drawn; the page tells it `{run:false}` when it scrolls off screen; Enter inside it opens the full demo. A slow phone
-(quality tier 4) or a lost context shows the still, never the list. The last stop before the questions, "start free",
-is on the table too: the engine's empty name card in a ring of light. Everything between stays on ivory as it was.
-The header is one glass pill (the only blur on a phone; it goes solid when ten frames on the first scroll fall under
-30 a second, or under `prefers-reduced-transparency`). Type: Hebrew display Frank Ruhl Libre 400, English display
-Fraunces (`fonts/fraunces-latin-standard-normal.woff2`, OFL, from `@fontsource-variable/fraunces`; loaded only on the
-English page, at idle or when the language switch is hovered or focused). The shared custom properties in
+The page is the guest view's own table from the first word to "start free": one fixed layer of oak (`img/table-oak.jpg`,
+`../view/themes/oak.jpg` darkened to the table's black at the edges) and one lamp, a radial pool painted once into its
+own fixed layer and moved with `translate3d` as the reader scrolls (`mana.js`; its anchors are the stops' objects, it dims
+to 80% at the reels and goes out as the ivory tail comes up). The questions, the form and the footer sit on ivory.
+Five stops, each with its words in the guest view's dark glass card (tint only on a phone, blur on wide screens) and its
+object on the wood:
+1. **The hero**: the Hebrew line on a scrim, the demo dish alone under the lamp. The dish is the real relief, live:
+   `index.html` paints its flat photo first (`img/hero-dish.webp`, the Olea hummus cut out by its matte, placed where the
+   guest view will stand the dish), and `mana.js` adds the guest view in **hero mode** (`view/?demo=solo&embed=hero&lang=he|en`,
+   see `view/src/hero.js`) as an iframe after the page has painted, never on Save-Data. The frame reports
+   `{type:'mana-hero', state}` as the lamp comes up, the dish rises and the ring is drawn; the page tells it `{run:false}`
+   when it scrolls off screen; Enter inside it opens the full demo; `?debug=1` on the page reaches the frame. A slow phone
+   (quality tier 4) or a lost context shows the still, never the list.
+2. **Your menu, your look**: three of the looks' stills (`img/looks/`, copied from `../view/looks/img/`) as cards that
+   slide apart once; each opens `view/?demo=olea&template=<id>`.
+3. **Your seat**: a cream sheet in the table's perspective with the Olea room's plan (`../seating/fixtures/olea.layout.json`,
+   drawn at build time); its far half unfolds once, one table lights; a link to `view/seat/?demo=olea`.
+4. **Your site, your reels**: a phone standing on the table with its reflection, playing `img/hero.mp4` once when it is on
+   screen (set from script: no source, no poster, no autoplay in the HTML; `preload="none"`).
+5. **Start free**: the engine's empty name card in a ring of light.
+Generated demo food carries the label "Demo dishes · made with AI" wherever it appears. Between the stops: three steps,
+try it, the numbers and the benefits, in glass cards. The header is one glass pill (it goes solid when ten frames on the
+first scroll fall under 30 a second, or under `prefers-reduced-transparency`). Type: Hebrew display Frank Ruhl Libre 400,
+English display Fraunces (`fonts/fraunces-latin-standard-normal.woff2`, OFL, from `@fontsource-variable/fraunces`; loaded
+only on the English page, at idle or when the language switch is hovered or focused). The shared custom properties in
 `../design/tokens.css` are copied to `site/tokens.css` at build time and linked by every page. The page carries a
 `<meta http-equiv="Content-Security-Policy">` limited to `connect-src 'self' <the Supabase origin from ../config.js>`
 and `frame-src 'self'`. **A preview build**, `MANA_PREVIEW=1 node tools/build-site.mjs`, renders the lead form switched
 off with a line saying so (a test build can never write to the live backend); the normal build is unchanged.
-Stops 2–4 of the plan (the looks, the seat map's sheet, the film on a phone) are not built: on this version only the
-hero and "start free" are on the table.
-
-| Path | What |
-|---|---|
-| Name study, brand kit, campaign kit, sales playbooks | Not in this public repository. They are in the Halom Project on claude.ai: `ventures/mana/name.md`, `brand.md`, `campaign.md`, `sales-playbook.md`, `sales-playbook.he.md` |
-| `assets/` | The mark, lockups, icons, avatar (SVG + PNG), `tokens.json`, `_sheet.png` |
-| `site/` | The product page: `index.html`, `guide/`, `privacy/`, `terms/`, `mana.css`, `mana.js`, `tokens.css` (copied from `../design/`), `fonts/`, `img/` |
-| `print/` | A6 table card, 60 mm sticker, A5 leave-behind (SVG, PDF, previews), `cards/olea/` |
-| `social/` | 12-post calendar, three Reel scripts, eight ready frames |
-| `tools/` | The builders, a local server and the browser checks (build-time only) |
-| `tools/film/` | The film: `compose.mjs`, `film.html`, `timeline.json`, `SCRIPT.md`, `stills.mjs` + `stills.html`, `to-site.mjs`, `proof.mjs`, `clips/` (the real clips), `placeholders/`, `out/` (masters, not in git) |
-| `review/v2/` | Contact sheets and numbers for version 2 |
+`node tools/measure-hero.mjs` times the hero (first paint → the rise) plain and with the CPU slowed four times.
 
 ## Publishing the page
 `tools/build-site.sh` (at the top of the repository) copies the contents of `site/` to the top of the published site,
