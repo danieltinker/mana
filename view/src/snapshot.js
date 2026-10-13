@@ -111,7 +111,8 @@ export function normalise(raw, baseUrl) {
     v: 1, slug: str(raw.slug), revision: num(raw.revision, 0), publishedAt: str(raw.publishedAt),
     business: { name: text(b.name), area: text(b.area), cuisine: text(b.cuisine), kind: str(b.kind), logo: assetUrl(b.logo, baseUrl), orderUrl: httpsUrl(b.orderUrl), phone: b.phone ? str(b.phone) : null },
     locale: { default: langs.includes(loc.default) ? loc.default : (langs[0] || 'he'), langs: langs.length ? langs : ['he', 'en'], currency },
-    theme: { accent: /^#[0-9a-f]{6}$/i.test(str(th.accent)) ? th.accent : '#ff8a5c', surface: str(th.surface) || 'oak', tableImg: th.surface === 'custom' ? assetUrl(th.tableImg, baseUrl) : null },
+    theme: { accent: /^#[0-9a-f]{6}$/i.test(str(th.accent)) ? th.accent : '#ff8a5c', surface: str(th.surface) || 'oak', tableImg: th.surface === 'custom' ? assetUrl(th.tableImg, baseUrl) : null,
+      /* night:templates */ template: typeof th.template === 'string' && /^[a-z0-9-]{1,40}$/.test(th.template) ? th.template : null /* /night:templates */ },      // a look's id (templates/templates.v1.json); unknown → today's theme; the snapshot stays v:1
     categories
   };
 }
