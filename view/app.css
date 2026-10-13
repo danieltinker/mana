@@ -282,5 +282,7 @@ ol,ul{padding:0;list-style:none}
 .taste-row .tt.style{width:auto;padding:0 6px}
 .tt-foot{flex-basis:100%;display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-faint)}
 .app.lifted .card-head .taste-slot{display:none}
-.room-ai{font-size:.62rem;letter-spacing:.04em;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* the backdrop's AI label is never cut short: when the row is full it goes to a line of its own, and if even that is too narrow its words wrap */
+.eyebrow{flex-wrap:wrap;row-gap:2px}
+.room-ai{flex:0 1 auto;font-size:.62rem;line-height:1.35;letter-spacing:.04em;color:var(--ink-faint);white-space:normal;overflow:visible;text-overflow:clip;min-width:0}
 .tray-set{display:block;width:100%;height:auto;aspect-ratio:2.2/1;border-radius:20px;margin:2px 0 10px;background:#15100c}

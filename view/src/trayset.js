@@ -27,10 +27,13 @@ export function poseAt(t, i) {
   const k = clamp((t - CLOTH_T - i * STEP) / LAND); if (k <= 0) return { on: 0, drop: 1, scale: 1.3 };
   const e = springEase(k); return { on: clamp(k * 3), drop: 1 - e, scale: 1 + .3 * (1 - e) };
 }
+/* where the cutlery lies beside a plate: the fork on the left, the knife on the right, in Hebrew as in English (a table is set the
+   same way whatever the menu's language; it is not a reading direction) */
+export const cutleryAt = (x, r) => ({ fork: x - r * 1.22, knife: x + r * 1.22 });
 export function clothAt(t) { const k = clamp(t / CLOTH_T), e = springEase(k); return { on: clamp(k * 2.2), drop: 1 - e, scale: 1 + .12 * (1 - e) }; }
 
 /* items: [{ drink, img (a loaded <img> or null), colour, initial }] */
-export function paint(cv, t, items, rtl) {
+export function paint(cv, t, items) {
   const x = cv.getContext('2d'), W = cv.width, H = cv.height, L = layoutSet(items.length, W, H);
   x.clearRect(0, 0, W, H);
   const wood = x.createLinearGradient(0, 0, W, H); wood.addColorStop(0, '#2c1f15'); wood.addColorStop(1, '#1b130d'); x.fillStyle = wood; x.fillRect(0, 0, W, H);
@@ -64,8 +67,8 @@ export function paint(cv, t, items, rtl) {
       x.save(); x.beginPath(); x.arc(p.x, py, r * .74, 0, 7); x.clip();
       if (it.img) x.drawImage(it.img, p.x - r * .74, py - r * .74, r * 1.48, r * 1.48); else { x.fillStyle = '#efe8dc'; x.fillRect(p.x - r, py - r, 2 * r, 2 * r); x.fillStyle = '#6b5a45'; x.font = '700 ' + Math.round(r * .7) + 'px "Frank Ruhl Libre",serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(it.initial || '·', p.x, py + r * .04); }
       x.restore();
-      /* the cutlery, beside the plate as it is set: fork on the left, knife on the right (mirrored in Hebrew) */
-      const s = rtl ? -1 : 1, fx = p.x - s * r * 1.22, kx = p.x + s * r * 1.22, top = py - r * .8, bot = py + r * .8;
+      /* the cutlery, beside the plate as it is set: fork on the left, knife on the right, in every language */
+      const cut = cutleryAt(p.x, r), fx = cut.fork, kx = cut.knife, top = py - r * .8, bot = py + r * .8;
       x.strokeStyle = 'rgba(214,214,220,.92)'; x.lineCap = 'round'; x.lineWidth = Math.max(1.4, r * .08);
       x.beginPath(); x.moveTo(fx, top + r * .45); x.lineTo(fx, bot); x.stroke();
       x.lineWidth = Math.max(.8, r * .035); for (let k = -1.5; k <= 1.5; k++) { x.beginPath(); x.moveTo(fx + k * r * .07, top); x.lineTo(fx + k * r * .07, top + r * .42); x.stroke(); }

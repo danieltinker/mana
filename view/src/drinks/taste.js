@@ -56,60 +56,84 @@ const W = {
 const str = (v) => (typeof v === 'string' ? v : '');
 const both = (v) => (v && typeof v === 'object' ? [str(v.he), str(v.en)] : [str(v)]);
 export const norm = (s) => String(s || '').toLowerCase().replace(/[֑-ׇ]/g, '').replace(/[״"׳'`’]/g, '').replace(/[^\p{L}\p{N}%.\- ]+/gu, ' ').replace(/\s+/g, ' ').trim();
-/* does the text contain the key as a word (or a word's start, after an optional Hebrew prefix letter)? */
-export function hasWord(text, key) {
-  const t = ' ' + norm(text) + ' ', k = norm(key); if (!k) return false;
+/* a text, made ready once: lower case, no niqqud, no punctuation that is not part of a word (a clause's end kept as "."), a space at each end */
+const prep = (text) => ' ' + norm(String(text || '').replace(/[,;:!?()\/]+/g, ' . ')) + ' ';      // a comma ends a clause: "no oak, citrus" is citrus
+/* a word that turns the next one round: "not sweet", "no oak", "לא מתוק", "ללא עץ" (apostrophes are gone by now: isn't → isnt) */
+const NEG = new Set(['not', 'no', 'never', 'without', 'isnt', 'arent', 'nor', 'לא', 'ללא', 'בלי', 'אין']);
+const isNeg = (w) => NEG.has(w) || (w.length > 2 && /^[והשכ]/.test(w) && NEG.has(w.slice(1)));      // "ולא", "שאין": one prefix letter in front
+const HEB = /[א-ת]/;
+/* is the match at `at` turned round by a negation within the two words before it? */
+function negated(t, at) {
+  const before = t.slice(0, at).split(/[\s-]+/).filter(Boolean);
+  for (let k = before.length - 1; k >= Math.max(0, before.length - 2); k--) { const w = before[k]; if (w === '.' || w.endsWith('.')) break; if (isNeg(w)) return true; }      // never across the end of a clause
+  return false;
+}
+/* does the prepared text t hold the prepared key k as a whole word (one Hebrew prefix letter allowed), not negated? */
+function holds(t, k) {
+  if (!k) return false;
+  const heb = HEB.test(k[0]);
   let at = t.indexOf(k);
   while (at >= 0) {
-    const before = t[at - 1], after = t[at + k.length], heb = /[א-ת]/.test(k[0]);
+    const before = t[at - 1], after = t[at + k.length];
     const startOk = before === ' ' || before === '-' || (heb && /[והבמלש]/.test(before) && (t[at - 2] === ' ' || t[at - 2] === '-'));
     const endOk = after === ' ' || after === '-' || after === '.' || after === undefined || (!heb && /[a-z]/.test(after || '') === false);
-    if (startOk && endOk) return true;
+    if (startOk && endOk && !negated(t, startOk && before !== ' ' && before !== '-' ? at - 1 : at)) return true;
     at = t.indexOf(k, at + 1);
   }
   return false;
 }
-/* the first meaning whose words appear in the texts; longer keys first */
-function firstOf(table, texts) {
-  const rows = []; table.forEach(([v, keys]) => keys.forEach((k) => rows.push([v, k]))); rows.sort((a, b) => b[1].length - a[1].length);
-  for (const [v, k] of rows) if (texts.some((t) => hasWord(t, k))) return v;
+export const hasWord = (text, key) => holds(prep(text), norm(key));
+/* the word lists, made ready once when the module loads: keys normalised, a scale's keys longest first */
+const scaleRows = (table) => table.flatMap(([v, keys]) => keys.map((k) => [v, norm(k)])).sort((a, b) => b[1].length - a[1].length);
+const noteRows = (dict) => Object.keys(dict).map((id) => [id, dict[id].map(norm)]);
+const K = { sweet: scaleRows(W.sweet), body: scaleRows(W.body), acid: scaleRows(W.acid), bitter: scaleRows(W.bitter), beerStyle: scaleRows(W.beerStyle), wineStyle: scaleRows(W.wineStyle), wine: noteRows(W.wine), beer: noteRows(W.beer) };
+/* the first meaning whose words appear in the (prepared) texts; longer keys first */
+function firstOf(rows, texts) {
+  for (const [v, k] of rows) if (texts.some((t) => holds(t, k))) return v;
   return null;
 }
+const notesIn = (rows, texts) => rows.filter(([, keys]) => keys.some((k) => texts.some((t) => holds(t, k)))).map(([id]) => id);
 const clampInt = (v, [a, b]) => (Number.isInteger(v) && v >= a && v <= b ? v : null);
+const ready = (v) => both(v).filter(Boolean).map(prep);
+/* the same item asks the same question from the card, the sheet and its row in the list: answered once */
+const memo = new WeakMap();
 
 export function tasteOf(item, kind) {
   if (!item || (kind !== 'wine' && kind !== 'beer')) return null;
-  const d = item.details || {}, words = both(item.desc);
+  const was = memo.get(item); if (was && was.kind === kind) return was.out;
+  const out = tasteNow(item, kind); memo.set(item, { kind, out }); return out;
+}
+function tasteNow(item, kind) {
+  const d = item.details || {}, words = ready(item.desc);
   if (kind === 'wine') {
-    const w = d.wine; if (!w && !words.join('')) return null;
+    const w = d.wine; if (!w && !words.length) return null;
     const ww = w || {}, n = ww.notes || {}, t = ww.taste || {}, out = { kind, style: null, scales: [], notes: [], abv: null };
     if (WINE_STYLES.includes(ww.color)) out.style = { id: ww.color, src: 'field' };
-    else { const s = firstOf(W.wineStyle, words); if (s) out.style = { id: s, src: 'words' }; }
+    else { const s = firstOf(K.wineStyle, words); if (s) out.style = { id: s, src: 'words' }; }
     const scale = (id, field, free) => {
       const f = clampInt(t[id], SCALES[id]); if (f != null) return out.scales.push({ id, v: f, of: SCALES[id], src: 'field' });
-      const v = firstOf(W[id], both(free)); if (v != null) return out.scales.push({ id, v, of: SCALES[id], src: 'field' });      // the merchant's own notes field ("Dry")
-      const s = firstOf(W[id], words); if (s != null && field) out.scales.push({ id, v: s, of: SCALES[id], src: 'words' });
+      const v = firstOf(K[id], ready(free)); if (v != null) return out.scales.push({ id, v, of: SCALES[id], src: 'field' });      // the merchant's own notes field ("Dry")
+      const s = firstOf(K[id], words); if (s != null && field) out.scales.push({ id, v: s, of: SCALES[id], src: 'words' });
     };
     scale('sweet', true, n.sweetness); scale('body', true, n.body); scale('acid', false, n.acidity);
     const seen = new Set(), note = (id, src) => { if (!seen.has(id) && WINE_NOTES.includes(id)) { seen.add(id); out.notes.push({ id, src }); } };
     (Array.isArray(t.notes) ? t.notes : []).forEach((id) => note(id, 'field'));
-    const fieldText = [n.fruit, n.minerality].flatMap(both);
     if (both(n.minerality).some((x) => x && !/^(low|none|no|נמוכה|נמוך|אין|ללא)$/.test(norm(x)))) note('mineral', 'field');      // the merchant gave it a minerality worth naming
-    Object.keys(W.wine).forEach((id) => { if (W.wine[id].some((k) => fieldText.some((x) => hasWord(x, k)))) note(id, 'field'); });
-    Object.keys(W.wine).forEach((id) => { if (W.wine[id].some((k) => words.some((x) => hasWord(x, k)))) note(id, 'words'); });
+    notesIn(K.wine, [n.fruit, n.minerality].flatMap(ready)).forEach((id) => note(id, 'field'));
+    notesIn(K.wine, words).forEach((id) => note(id, 'words'));
     out.notes = out.notes.slice(0, 4);
     return out.style || out.scales.length || out.notes.length ? out : null;
   }
-  const b = d.beer; if (!b && !words.join('')) return null;
+  const b = d.beer; if (!b && !words.length) return null;
   const bb = b || {}, t = bb.taste || {}, out = { kind, style: null, scales: [], notes: [], abv: null };
   if (BEER_STYLES.includes(t.style)) out.style = { id: t.style, src: 'field' };
-  else { const s = firstOf(W.beerStyle, both(bb.style)); if (s) out.style = { id: s, src: 'field' }; else { const w2 = firstOf(W.beerStyle, words); if (w2) out.style = { id: w2, src: 'words' }; } }
+  else { const s = firstOf(K.beerStyle, ready(bb.style)); if (s) out.style = { id: s, src: 'field' }; else { const w2 = firstOf(K.beerStyle, words); if (w2) out.style = { id: w2, src: 'words' }; } }
   const f = clampInt(t.bitter, SCALES.bitter); if (f != null) out.scales.push({ id: 'bitter', v: f, of: SCALES.bitter, src: 'field' });
-  else { const s = firstOf(W.bitter, words); if (s != null) out.scales.push({ id: 'bitter', v: s, of: SCALES.bitter, src: 'words' }); }
+  else { const s = firstOf(K.bitter, words); if (s != null) out.scales.push({ id: 'bitter', v: s, of: SCALES.bitter, src: 'words' }); }
   const abv = both(bb.abv).find((x) => x && /\d/.test(x)); if (abv) out.abv = { text: abv.trim(), src: 'field' };
   const seen = new Set(), note = (id, src) => { if (!seen.has(id) && BEER_NOTES.includes(id)) { seen.add(id); out.notes.push({ id, src }); } };
   (Array.isArray(t.notes) ? t.notes : []).forEach((id) => note(id, 'field'));
-  Object.keys(W.beer).forEach((id) => { if (W.beer[id].some((k) => words.some((x) => hasWord(x, k)))) note(id, 'words'); });
+  notesIn(K.beer, words).forEach((id) => note(id, 'words'));
   out.notes = out.notes.slice(0, 4);
   return out.style || out.scales.length || out.notes.length || out.abv ? out : null;
 }
