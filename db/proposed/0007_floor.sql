@@ -102,27 +102,66 @@ create or replace function public.follow_order(p_follow uuid) returns table (no 
 language sql stable security definer set search_path = '' as
 $$ select o.no, o.phase, o.ready_at from public.counter_orders o where o.follow = p_follow $$;
 
--- A guest bids (bids.mjs placeBid is the reference). The checks that need the clock and the venue's peaks run here, in one
--- transaction with the auction row locked, so two bids at once cannot both lead.
+-- Is p_slot_start the start of one of the venue's peak slots (peaks.mjs slotAt)? Windows are local HH:MM on days 0..6
+-- (0 = Sunday) in the venue's time zone (p_tz: proposed as a businesses column; 'Asia/Jerusalem' until it exists); slots
+-- run back to back from a window's start, slot_min each; the last one ends with the window and must be at least 15 minutes.
+-- → the slot's end, or null.
+create or replace function public.peak_slot_end(p_business uuid, p_slot_start timestamptz, p_tz text default 'Asia/Jerusalem') returns timestamptz
+language plpgsql stable security definer set search_path = '' as
+$$
+declare
+  v public.venue_peaks; w jsonb; v_local timestamp := p_slot_start at time zone p_tz; v_dow integer := extract(dow from v_local)::integer;
+  v_from timestamp; v_to timestamp; v_start timestamp;
+begin
+  select * into v from public.venue_peaks where business_id = p_business; if v is null then return null; end if;
+  for w in select * from jsonb_array_elements(v.windows) loop
+    if not (w->'days') @> to_jsonb(v_dow) then continue; end if;
+    v_from := date_trunc('day', v_local) + (w->>'from')::time; v_to := date_trunc('day', v_local) + (w->>'to')::time;
+    v_start := v_from;
+    while v_start < v_to loop
+      if v_start = v_local and least(v_to, v_start + make_interval(mins => v.slot_min)) - v_start >= interval '15 minutes' then
+        return (least(v_to, v_start + make_interval(mins => v.slot_min))) at time zone p_tz;
+      end if;
+      v_start := v_start + make_interval(mins => v.slot_min);
+    end loop;
+  end loop;
+  return null;
+end
+$$;
+
+-- A guest bids (bids.mjs placeBid is the reference). Every check runs here, in one transaction with the auction row
+-- locked, so two bids at once cannot both lead: the table is biddable; the slot is one of the venue's peak slots and
+-- bidding for it is open now; the party fits the table (the floor's minParty..maxParty, and it is bookable); the amount
+-- clears the minimum or the leader + the step; the leader cannot outbid himself; one leading table per guest per slot.
 create or replace function public.place_bid(p_business uuid, p_table text, p_slot_start timestamptz, p_party integer, p_amount integer)
 returns table (auction_id bigint, bid_id bigint, leading_amount integer)
 language plpgsql security definer set search_path = '' as
 $$
 declare
   v_guest uuid := (select auth.uid()); v_rules public.venue_peaks; v_auction public.table_auctions; v_lead public.table_bids;
+  v_end timestamptz; v_table jsonb;
 begin
   if v_guest is null then raise exception 'a bid needs a session'; end if;
   select * into v_rules from public.venue_peaks where business_id = p_business;
   if v_rules is null or not (p_table = any (v_rules.bid_tables)) then raise exception 'this table cannot be bid for'; end if;
-  -- the slot must be one of the venue's peak slots and bidding must be open now (peaks.mjs slotAt / opensAt / closesAt):
-  -- left to the implementation, mirrored from seating/peaks.mjs and tested against its fixtures.
+  v_end := public.peak_slot_end(p_business, p_slot_start);
+  if v_end is null then raise exception 'there is no peak slot at that time'; end if;
+  if now() < p_slot_start - make_interval(mins => v_rules.opens_before) then raise exception 'bidding for this slot has not opened yet'; end if;
+  if now() >= p_slot_start - make_interval(mins => v_rules.close_before) then raise exception 'bidding for this slot has closed'; end if;
+  select t into v_table from public.venue_floors f, jsonb_array_elements(f.layout->'tables') t where f.business_id = p_business and t->>'id' = p_table;
+  if v_table is null or (v_table->>'bookable')::boolean is not true then raise exception 'unknown table'; end if;
+  if p_party is null or p_party < (v_table->>'minParty')::integer or p_party > (v_table->>'maxParty')::integer then raise exception 'this table does not fit the party'; end if;
+  if p_amount is null or p_amount < 1 then raise exception 'the amount must be a whole number'; end if;
   insert into public.table_auctions (business_id, table_id, slot_start, slot_end, closes_at)
-    values (p_business, p_table, p_slot_start, p_slot_start + make_interval(mins => v_rules.slot_min), p_slot_start - make_interval(mins => v_rules.close_before))
+    values (p_business, p_table, p_slot_start, v_end, p_slot_start - make_interval(mins => v_rules.close_before))
     on conflict (business_id, table_id, slot_start) do nothing;
   select * into v_auction from public.table_auctions where business_id = p_business and table_id = p_table and slot_start = p_slot_start for update;
   if v_auction.phase <> 'open' or now() >= v_auction.closes_at then raise exception 'bidding for this slot has closed'; end if;
   select * into v_lead from public.table_bids where auction_id = v_auction.id and status = 'leading';
   if v_lead.guest = v_guest then raise exception 'you are already leading'; end if;
+  if exists (select 1 from public.table_bids b join public.table_auctions a on a.id = b.auction_id
+             where a.business_id = p_business and a.slot_start = p_slot_start and a.id <> v_auction.id and a.phase = 'open' and b.status = 'leading' and b.guest = v_guest)
+    then raise exception 'you are leading at another table for this time; one table per guest'; end if;
   if p_amount < coalesce(v_lead.amount + v_rules.bid_step, v_rules.bid_min) then raise exception 'the bid is too low'; end if;
   update public.table_bids set status = 'outbid' where auction_id = v_auction.id and status = 'leading';
   return query insert into public.table_bids (auction_id, guest, party, amount) values (v_auction.id, v_guest, p_party, p_amount)
@@ -155,6 +194,11 @@ begin
 end
 $$;
 
-revoke all on function public.follow_order(uuid), public.place_bid(uuid, text, timestamptz, integer, integer), public.auction_view(bigint), public.close_due_auctions() from public;
-grant execute on function public.follow_order(uuid), public.auction_view(bigint) to anon, authenticated;
-grant execute on function public.place_bid(uuid, text, timestamptz, integer, integer) to authenticated;
+-- Grants, as in 0001/0002: nothing for anyone by default; then only what each function needs.
+revoke all on public.venue_floors, public.venue_peaks, public.counter_orders, public.table_auctions, public.table_bids from anon;
+revoke all on function public.peak_slot_end(uuid, timestamptz, text), public.follow_order(uuid), public.place_bid(uuid, text, timestamptz, integer, integer),
+  public.auction_view(bigint), public.close_due_auctions() from public, anon, authenticated;
+grant execute on function public.follow_order(uuid) to anon, authenticated;              -- a guest's phone, signed in or not, with the receipt's token
+grant execute on function public.auction_view(bigint) to anon, authenticated;           -- the leading amount and the count, never who
+grant execute on function public.place_bid(uuid, text, timestamptz, integer, integer) to authenticated;   -- an anonymous session is `authenticated`
+-- peak_slot_end and close_due_auctions: no grant; place_bid calls the first as its owner, pg_cron runs the second as the owner.

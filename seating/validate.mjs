@@ -20,6 +20,8 @@ export const STATUS = ['pending', 'approved', 'declined'];
 export const TOPS = ['marble', 'wood', 'iron', 'glass'];
 export const SEATS = ['chairs', 'bench', 'stools', 'velvet', 'sofa'];
 export const FIXTURES = ['walkway', 'closed', 'kitchen', 'hatch', 'counter', 'vitrine', 'espresso', 'fridge', 'shelf', 'bench', 'banquette', 'post', 'planter', 'tree', 'awning', 'lamp'];
+/* a point kind stands at one spot (`at`); every other kind covers an area (`rect`) */
+export const POINT_FIXTURES = ['espresso', 'post', 'planter', 'tree', 'lamp'];
 const rectOk = (r) => Array.isArray(r) && r.length === 4 && r.every((n) => isNum(n, -1000, 1000)) && r[2] > r[0] && r[3] > r[1];
 
 /* ---------- layout.v1 ---------- */
@@ -97,7 +99,8 @@ export function validateLayout(raw) {
     const o = { kind: f.kind };
     if (f.rect != null) { if (!rectOk(f.rect) || !near(f.rect[0], f.rect[1]) || !near(f.rect[2], f.rect[3])) err('fixtures[' + i + '].rect must be [x1, z1, x2, z2] at the room'); else o.rect = f.rect.map(Number); }
     if (f.at != null) { if (!pt(f.at) || !near(f.at[0], f.at[1])) err('fixtures[' + i + '].at must be [x, z] at the room'); else o.at = [f.at[0], f.at[1]]; }
-    if (f.rect == null && f.at == null) err('fixtures[' + i + '] needs a rect or an at');
+    if (POINT_FIXTURES.includes(f.kind)) { if (f.at == null) err('fixtures[' + i + '] (' + f.kind + ') needs at: [x, z]'); }
+    else if (f.rect == null) err('fixtures[' + i + '] (' + f.kind + ') needs rect: [x1, z1, x2, z2]');
     if (f.name != null) { if (!text(f.name)) err('fixtures[' + i + '].name needs he and en'); else o.name = { he: String(f.name.he), en: String(f.name.en) }; }
     return o;
   }).filter(Boolean);

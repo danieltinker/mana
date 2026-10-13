@@ -20,7 +20,10 @@ const r2 = (v) => Math.round(v * 1000) / 1000;
 export const snap = (v, step = SNAP) => r2(Math.round(v / step) * step);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const copy = (layout) => JSON.parse(JSON.stringify(layout));
-const find = (layout, id) => { const t = layout.tables.find((x) => x.id === id); if (!t) throw new Error('unknown table ' + JSON.stringify(id)); return t; };
+/* a refusal: a plain reason and a code the screens translate (floor/i18n.js err_*) */
+export class EditError extends Error { constructor(m, code) { super(m); this.name = 'EditError'; this.code = code; } }
+const refuse = (m, code) => { throw new EditError(m, code); };
+const find = (layout, id) => { const t = layout.tables.find((x) => x.id === id); if (!t) refuse('unknown table ' + JSON.stringify(id), 'no-table'); return t; };
 const inRect = (r, x, z) => x >= r[0] && x <= r[2] && z >= r[1] && z <= r[3];
 
 /* a table's top in metres: { round, w, d } (round: w = d = the diameter). From `look` when the layout has it, else from
@@ -64,12 +67,13 @@ export function warnings(layout) {
 
 /* ---------- the operations: each returns a new layout ---------- */
 export function moveTable(layout, id, x, z) {
+  if (!Number.isFinite(x) || !Number.isFinite(z)) refuse('a move needs a point on the floor', 'no-point');
   const L = copy(layout), t = find(L, id);
   t.x = clamp(snap(x), 0, L.room.w); t.z = clamp(snap(z), 0, L.room.d);
   const zn = zoneAt(L, t.x, t.z); if (zn) t.zone = zn;                                   // the zone follows the table
   return L;
 }
-export function rotateTable(layout, id, by = TURN) { const L = copy(layout), t = find(L, id); t.rot = ((Math.round(((t.rot || 0) + by) / TURN) * TURN) % 360 + 360) % 360; return L; }
+export function rotateTable(layout, id, by = TURN) { if (!Number.isFinite(by)) refuse('a turn needs degrees', 'no-point'); const L = copy(layout), t = find(L, id); t.rot = ((Math.round(((t.rot || 0) + by) / TURN) * TURN) % 360 + 360) % 360; return L; }
 const freshId = (layout) => { let n = 1; const have = new Set(layout.tables.map((t) => t.id)); while (have.has('n' + n)) n++; return 'n' + n; };
 /* a free spot near (x, z): the point itself, else rings of 0.6 m around it */
 function freeSpot(L, probe, x, z) {
@@ -82,7 +86,7 @@ function freeSpot(L, probe, x, z) {
 }
 /* addTable(layout, 'round2', { x, z }) → { layout, id }: placed at the nearest free spot, in the zone under it */
 export function addTable(layout, kind, at = {}) {
-  const P = PALETTE[kind]; if (!P) throw new Error('unknown kind ' + JSON.stringify(kind));
+  const P = PALETTE[kind]; if (!P) refuse('unknown kind ' + JSON.stringify(kind), 'bad-kind');
   const L = copy(layout), id = freshId(L), z0 = L.zones[0], cx = at.x == null ? (z0.rect[0] + z0.rect[2]) / 2 : at.x, cz = at.z == null ? (z0.rect[1] + z0.rect[3]) / 2 : at.z;
   const t = Object.assign({ id, zone: z0.id, x: cx, z: cz, rot: 0, bookable: true, name: null }, JSON.parse(JSON.stringify(P)));
   const [x, z] = freeSpot(L, t, cx, cz); t.x = x; t.z = z; t.zone = zoneAt(L, x, z) || z0.id;
@@ -93,7 +97,7 @@ export function duplicateTable(layout, id) {
   const [x, z] = freeSpot(L, t, src.x + 1.2, src.z); t.x = x; t.z = z; t.zone = zoneAt(L, x, z) || src.zone;
   L.tables.push(t); return { layout: L, id: nid };
 }
-export function removeTable(layout, id) { find(layout, id); if (layout.tables.length <= 1) throw new Error('a floor keeps at least one table'); const L = copy(layout); L.tables = L.tables.filter((t) => t.id !== id); return L; }
+export function removeTable(layout, id) { find(layout, id); if (layout.tables.length <= 1) refuse('a floor keeps at least one table', 'last-table'); const L = copy(layout); L.tables = L.tables.filter((t) => t.id !== id); return L; }
 /* seats 1–40; the party sizes follow so that minParty ≤ maxParty ≤ seats always holds */
 export function setSeats(layout, id, { seats, minParty, maxParty } = {}) {
   const L = copy(layout), t = find(L, id);
@@ -103,7 +107,7 @@ export function setSeats(layout, id, { seats, minParty, maxParty } = {}) {
   t.maxParty = clamp(t.maxParty, 1, t.seats); t.minParty = clamp(t.minParty, 1, t.maxParty);
   return L;
 }
-export function setZone(layout, id, zone) { if (!layout.zones.some((z) => z.id === zone)) throw new Error('unknown zone ' + JSON.stringify(zone)); const L = copy(layout); find(L, id).zone = zone; return L; }
+export function setZone(layout, id, zone) { if (!layout.zones.some((z) => z.id === zone)) refuse('unknown zone ' + JSON.stringify(zone), 'no-zone'); const L = copy(layout); find(L, id).zone = zone; return L; }
 
 /* ---------- undo / redo ---------- */
 export const createHistory = (layout) => ({ past: [], present: layout, future: [] });
