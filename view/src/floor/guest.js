@@ -70,7 +70,7 @@ function renderOrder() {
   const go = () => { const n = Math.round(Number(inp.value)); if (n >= 1 && n <= 99) { watching = n; sset('mana-floor:watch:' + venue + ':' + tableId, String(n)); arm(); renderOrder(); checkReady(); if (!byNumber(O, n)) flash(t('notFound')); } };
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   box.append(h('div', { class: 'gnum' }, [inp, h('button', { class: 'pill lead', type: 'button', id: 'followBtn', text: t('follow'), onclick: go })]),
-    h('button', { class: 'pill soundchip', type: 'button', id: 'soundBtn', 'aria-pressed': String(alerts.armed), text: alerts.armed ? t('soundOn') : t('sound'), onclick: async () => { await arm(); renderOrder(); } }));
+    h('button', { class: 'pill soundchip', type: 'button', id: 'soundBtn', 'aria-pressed': String(alerts.armed), text: alerts.armed ? t('soundOn') : t('sound'), onclick: () => { arm(); setTimeout(() => { renderOrder(); const b = $('soundBtn'); if (b) b.focus(); }, 60); } }));      /* the permission prompt may stay open: the button answers at once */
 }
 async function arm() { if (!alerts.armed) await alerts.arm(); }
 function checkReady() {
@@ -82,7 +82,7 @@ function checkReady() {
   try { if (!reduce && navigator.vibrate) navigator.vibrate([180, 90, 180, 90, 260]); } catch (e) { /* no motor */ }
   alerts.notify(t('notifTitle', { no: o.no }), t('notifBody'), 'mana-ready-' + o.id);
   const card = h('div', { class: 'ready', id: 'readyCard', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'readyT', 'aria-describedby': 'readyB' }, [
-    h('div', { class: 'card glass' }, [h('div', { class: 'ring', 'aria-hidden': 'true', html: '' }), h('h2', { id: 'readyT', text: t('readyTitle') }), h('p', { class: 'big', text: '#' + o.no }), h('p', { id: 'readyB', text: t('readyBody', { no: o.no }) }),
+    h('div', { class: 'rcard glass' }, [h('div', { class: 'ring', 'aria-hidden': 'true', html: '' }), h('h2', { id: 'readyT', text: t('readyTitle') }), h('p', { class: 'big', text: '#' + o.no }), h('p', { id: 'readyB', text: t('readyBody', { no: o.no }) }),
       h('button', { class: 'pill lead wide', type: 'button', id: 'gotIt', text: t('gotIt'), onclick: () => { card.remove(); $('followBtn') && $('followBtn').focus(); } })])]);
   card.querySelector('.ring').innerHTML = '<svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 16.5v-5a5.5 5.5 0 0 1 11 0v5l1.6 1.8H4.9z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>';
   const old = $('readyCard'); if (old) old.remove(); document.body.appendChild(card); $('gotIt').focus();

@@ -224,6 +224,8 @@ export function createPlace(host, layout, opts = {}) {
       if (Math.abs(w.k - want) > .01) live = true;
       w.mats.forEach((m) => { m.opacity = (m.userData.base == null ? 1 : m.userData.base) * w.k; m.depthWrite = w.k > .98 && m.userData.base === 1; });
     });
+    /* from above the awnings would hide the terrace: they thin out as the camera rises */
+    const aw = clamp((1.05 - cur.pitch) / .3, .18, 1); M.awning.opacity = .9 * aw; M.awningEdge.opacity = aw; M.awningEdge.transparent = true; M.awning.depthWrite = aw > .95;
     return live;
   }
 

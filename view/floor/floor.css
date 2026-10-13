@@ -108,7 +108,6 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .editbar .warns{font-size:.8rem;color:var(--rose-ink)}
 .editbar .warns.ok{color:var(--sage-ink)}
 .editbar select{min-height:44px;border-radius:999px;border:1px solid rgba(22,18,14,.12);background:#fff;padding:0 12px}
-.editbar .stepper{transform:scale(.92)}
 .editing .views{top:12px}
 /* the phone frame inside the board */
 .phone{position:fixed;z-index:30;bottom:16px;inset-inline-end:16px;width:300px;height:620px;border-radius:44px;padding:10px;box-shadow:inset 0 1px 0 #fff,0 40px 80px -30px rgba(70,45,20,.45)}
@@ -140,7 +139,7 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .guest .gcard h2{font:500 1.2rem/1.2 var(--display)}
 .guest .gcard p{font-size:.86rem;color:var(--ink-2)}
 .guest .gnum{display:flex;gap:8px}
-.guest .gnum input{flex:1;min-width:0;min-height:52px;border-radius:18px;border:1px solid rgba(22,18,14,.14);background:#fff;padding:0 16px;font:500 1.4rem/1 var(--num);font-variant-numeric:tabular-nums;direction:ltr;text-align:center}
+.guest .gnum input{flex:1;min-width:0;width:1px;min-height:52px;border-radius:18px;border:1px solid rgba(22,18,14,.14);background:#fff;padding:0 16px;font:500 1.4rem/1 var(--num);font-variant-numeric:tabular-nums;direction:ltr;text-align:center}
 .guest .gstate{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,.7)}
 .guest .gstate .no{font:500 1.8rem/1 var(--num);direction:ltr}
 .guest .gstate[data-phase="ready"]{background:linear-gradient(135deg,#fff,rgba(226,244,234,.9));box-shadow:0 0 0 1px rgba(111,174,142,.4)}
@@ -150,10 +149,13 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .guest .gbid .st{font-size:.84rem;font-weight:500}
 .guest .gbid[data-st="leading"] .st{color:var(--sage-ink)}.guest .gbid[data-st="outbid"] .st{color:var(--rose-ink)}.guest .gbid[data-st="won"]{box-shadow:0 0 0 2px var(--violet);background:linear-gradient(135deg,#fff,rgba(238,232,252,.9))}.guest .gbid[data-st="won"] .st{color:var(--violet-ink)}
 .guest .gbid .acts{display:flex;gap:6px;align-items:center}
-.guest .soundchip{justify-self:start}
+.guest .soundchip{justify-self:start;white-space:normal;text-align:start;max-width:100%;padding-block:8px}
+.guest .gcards{grid-template-columns:minmax(0,1fr)}
+.guest .gcard{min-width:0;grid-template-columns:minmax(0,1fr)}
+.guest .gbid .acts .pill{white-space:normal}
 .guest .soundchip[aria-pressed="true"]{background:var(--sage);color:#fff;border-color:var(--sage)}
 .ready{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:24px;background:rgba(247,244,238,.5);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
-.ready .card{width:min(360px,100%);border-radius:36px;padding:28px 24px;display:grid;gap:12px;text-align:center;animation:rise .7s var(--spring) both}
+.ready .rcard{width:min(360px,100%);border-radius:36px;padding:28px 24px;display:grid;gap:12px;text-align:center;animation:rise .7s var(--spring) both}
 .ready .ring{justify-self:center;width:84px;height:84px;border-radius:50%;display:grid;place-items:center;background:var(--sage);color:#fff;box-shadow:0 0 0 10px rgba(111,174,142,.18),0 24px 50px -20px rgba(63,122,94,.8);animation:beat 1.2s var(--ease) infinite}
 .ready h2{font:500 1.7rem/1.15 var(--display)}
 .ready .big{font:500 3rem/1 var(--num);direction:ltr}
@@ -163,8 +165,8 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .embed .ghead .lang{display:none}
 @media (max-width:1100px){.grid{grid-template-columns:minmax(0,1fr)!important}.stage{min-height:60vh;order:-1}.col{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}.phone{width:260px;height:540px}}
 @media (max-width:720px){.bar{flex-wrap:wrap}.tools{flex-wrap:wrap}.stage{min-height:56vh}.panel .scroll{max-height:none}}
-@media (prefers-reduced-motion:reduce){.pl-lab,.pp-set{transition:none!important}.pl-plan .pp-t[data-phase="over"] .pp-ring,.ready .card,.ready .ring{animation:none!important}}
+@media (prefers-reduced-motion:reduce){.pl-lab,.pp-set{transition:none!important}.pl-plan .pp-t[data-phase="over"] .pp-ring,.ready .rcard,.ready .ring{animation:none!important}}
 html.reduce .pl-lab,html.reduce .pp-set{transition:none!important}
-html.reduce .pl-plan .pp-t[data-phase="over"] .pp-ring,html.reduce .ready .card,html.reduce .ready .ring,html.reduce .sky i{animation:none!important}
+html.reduce .pl-plan .pp-t[data-phase="over"] .pp-ring,html.reduce .ready .rcard,html.reduce .ready .ring,html.reduce .sky i{animation:none!important}
 html.test .page{opacity:1!important;transform:none!important;transition:none!important}
 html.test .sky i{animation:none!important}

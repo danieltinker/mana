@@ -81,7 +81,7 @@ export function createPlan(host, layout, opts = {}) {
     setRows(list) { list.forEach((r) => rows.set(r.id, r)); paint(); },
     select(id) { selected = id; paint(); },
     edit(on) { editing = !!on; svg.classList.toggle('pp-edit', editing); },
-    setLayout(next) { L = next; draw(); },
+    setLayout(next) { const a = document.activeElement, id = a && a.closest && a.closest('.pp-t') ? a.closest('.pp-t').getAttribute('data-id') : null; L = next; draw(); if (id && T.has(id)) T.get(id).g.focus(); },
     setTable(id, on = true) { if (on) set.add(id); else set.delete(id); paint(); return Promise.resolve(); },
     isSet: (id) => set.has(id),
     flyTo() { return Promise.resolve(); }, view() { return Promise.resolve(); },
