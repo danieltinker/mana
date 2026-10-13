@@ -53,7 +53,7 @@ export function mountLevitate(hero, opts = {}) {
   /* one ingredient now and then drifts close past the camera: big, fast, deeply out of focus, across the dish's side */
   const pass = low ? null : document.createElement('span');
   let passT = -1, passNext = 7 + rand() * 6, passFrom = null;
-  if (pass) { pass.className = 'lv lv-pass'; pass.setAttribute('aria-hidden', 'true'); pass.appendChild(document.createElement('img')); pass.firstChild.alt = ''; pass.firstChild.decoding = 'async'; layer.appendChild(pass); }
+  if (pass) { pass.className = 'lv lv-pass'; pass.setAttribute('aria-hidden', 'true'); pass.appendChild(document.createElement('img')); pass.firstChild.alt = ''; pass.firstChild.decoding = 'async'; pass.firstChild.src = items[0].img.getAttribute('src'); layer.appendChild(pass); }
   function startPass() {
     const src = items[Math.floor(rand() * items.length)].img; if (!src || !src.complete) { passNext = t + 4; return; }
     pass.firstChild.src = src.currentSrc || src.src;

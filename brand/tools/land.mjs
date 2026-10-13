@@ -28,7 +28,7 @@ const DISHES = [['pizza', 'מרגריטה', 'Margherita'], ['burger', 'המבו�
 /* the twelve ingredients that levitate through the hero (levitate.js moves them; this is their still composition, also the
    reduced-motion picture): [file, inline-start %, top %, depth 0 (far) .. 3 (near), phone: null (wide screens only) or [x %, y %]] */
 const LEV = [
-  ['coffee', 47, 9, 0, [90, 52]], ['garlic', 60, 88, 0, null], ['rosemary', 97, 64, 0, null],
+  ['coffee', 47, 9, 0, [88, 62]], ['garlic', 60, 88, 0, null], ['rosemary', 97, 64, 0, null],
   ['olive', 3, 91, 1, [8, 98]], ['chili', 95, 19, 1, null], ['parmesan', 50, 60, 1, null],
   ['basil', 63, 10, 2, [10, 60]], ['lemon', 87, 87, 2, [14, 93]], ['raspberry', 41, 92, 2, [88, 95]], ['strawberry', 76, 6, 2, null],
   ['tomato', 101, 44, 3, [92, 70]], ['mint', 54, 101, 3, [6, 82]]

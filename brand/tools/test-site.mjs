@@ -24,7 +24,7 @@ const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromi
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--no-sandbox', '--autoplay-policy=no-user-gesture-required'] });
 const VPS = [[390, 844, true], [360, 640, true], [1440, 900, false]];
 let passed = 0; const fails = [], metrics = { after: {} };
-async function check(name, fn) { if (only && !name.includes(only)) return; try { await fn(); passed++; console.log('ok  ', name); } catch (e) { fails.push(name); console.log('FAIL', name, '\n     ', String(e.message).split("\n").slice(0, 12).join(" | ")); } }
+async function check(name, fn) { if (only && !only.split('|').some((x) => name.includes(x))) return;      /* a filter: one or more parts of names, joined by | */ try { await fn(); passed++; console.log('ok  ', name); } catch (e) { fails.push(name); console.log('FAIL', name, '\n     ', String(e.message).split("\n").slice(0, 12).join(" | ")); } }
 async function open(path, { w = 390, h = 844, touch = true, origin = srv.origin, reduced = false, wait = 'load', init = null, hold = null } = {}) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, hasTouch: touch, isMobile: touch, reducedMotion: reduced ? 'reduce' : 'no-preference' });
   const page = await ctx.newPage(); const errors = [], hosts = new Set(), reqs = [], held = []; if (init) await page.addInitScript(init);
@@ -147,7 +147,7 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   const o = await open('/mana/?lang=he&hero=on', { w: 1440, h: 900, touch: false, init: () => { window.__t = { loadAt: null }; window.addEventListener('load', () => { window.__t.loadAt = performance.now(); }); } });
   const r = await o.page.evaluate(() => ({ eyebrow: document.querySelector('.eyebrow').innerText.trim(), h1: document.querySelector('h1').innerText.trim(), lead: document.querySelector('.hero .lead').innerText.trim(),
     stills: [...document.querySelectorAll('.stills img')].map((i) => i.getAttribute('src')), first: (() => { const i = document.querySelector('.stills img'); return i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity > 0; })(),
-    names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.lev .lv img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
+    names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.lev .lv[data-depth] img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
   assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
   assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 12); assert.deepEqual(r.host, ['relative', 0]);
@@ -173,7 +173,7 @@ await check('phone fold: the headline, both buttons and the dish are on the firs
       const dish = b(document.querySelector('.stills img'));
       return { h1: inFirst(document.querySelector('h1')), cta: [...document.querySelectorAll('.hero .cta .btn')].every(inFirst), dish: dish.top + dish.height * .5 < vh, floats: fl.length, hit: hit.length }; });
     assert.equal(r.h1, true, `${w} ${lang}: headline`); assert.equal(r.cta, true, `${w} ${lang}: buttons`); assert.equal(r.dish, true, `${w} ${lang}: the dish is below the fold`);
-    assert.equal(r.floats, 8, `${w}: ${r.floats} ingredients on a phone`); assert.equal(r.hit, 0, `${w} ${lang}: an ingredient covers the words`);
+    assert.equal(r.floats, 7, `${w}: ${r.floats} ingredients on a phone`); assert.equal(r.hit, 0, `${w} ${lang}: an ingredient covers the words`);
     await o.page.screenshot({ path: join(RAW, `fold-${w}x${h}-${lang}.png`) }); await o.ctx.close();
   }
   const o = await open('/mana/?lang=he&motion=off', { w: 1440, h: 900, touch: false });
@@ -293,6 +293,7 @@ await check('the insights scene: it goes live (a canvas, the still fades), the r
   await o.page.waitForFunction(() => document.getElementById('ins').getAttribute('data-ins') === 'live', null, { timeout: 45000 });      // software GL: seconds
   assert.equal(await o.page.evaluate(() => document.querySelectorAll('#ins-gl canvas').length), 1, 'the scene has no canvas');
   await o.page.waitForFunction((f) => window.__orders.length >= 3 && window.__orders[window.__orders.length - 1] === f, FINAL, { timeout: 60000 });
+  await o.page.waitForFunction(() => [...document.querySelectorAll('#ins .ip .ip-w b')].map((b) => b.textContent).join() === '96,81,64,52,41', null, { timeout: 30000 });      // the end of the week: the sample
   const r = await o.page.evaluate(() => ({ orders: window.__orders, counts: [...document.querySelectorAll('#ins .ip')].map((p) => [p.getAttribute('data-id'), p.querySelector('.ip-w b').textContent, p.querySelector('.ip-r').textContent]), day: document.querySelector('#ins .ins-day').textContent }));
   assert.ok(new Set(r.orders).size >= 3, 'the dishes never swapped places: ' + JSON.stringify(r.orders)); assert.ok(r.day.length > 0, 'no day shown');
   await o.page.waitForTimeout(400); await o.page.locator('#ins').screenshot({ path: join(RAW, 'ins-live-1440-he.png') });
@@ -355,7 +356,8 @@ await check('plans: the early-access offer (no number, no deadline, no discount 
   /* the buttons and the form (the stub's leads function; the preview build's form stays off) */
   const o = await open('/mana/?lang=he&demo=off', { w: 390, h: 844 }); await o.page.waitForTimeout(1600);
   assert.equal(await o.page.evaluate(() => document.getElementById('talk-more').open), false);
-  await o.page.click('.plan-place .btn'); await o.page.waitForTimeout(1300);
+  await o.page.click('.plan-place .btn'); await o.page.waitForTimeout(700);
+  await o.page.waitForFunction(() => Math.abs(document.getElementById('talk-sec').getBoundingClientRect().top) < 140, null, { timeout: 5000 }).catch(() => {});      // a smooth scroll
   let r = await o.page.evaluate(() => ({ open: document.getElementById('talk-more').open, plan: document.querySelector('#talk input[name="plan"]:checked').value, early: document.getElementById('f-early').value, focus: document.activeElement.id, top: Math.round(document.getElementById('talk-sec').getBoundingClientRect().top) }));
   assert.deepEqual([r.open, r.plan, r.early, r.focus], [true, 'place', '1', 'f-place']); assert.ok(Math.abs(r.top) < 140, 'the talk section did not come into view: ' + r.top);
   await o.page.click('.early .btn'); await o.page.waitForTimeout(300); assert.equal(await o.page.evaluate(() => document.querySelector('#talk input[name="plan"]:checked').value), 'any');
