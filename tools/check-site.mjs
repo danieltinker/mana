@@ -32,6 +32,7 @@ const files = walk(SITE), text = files.filter((f) => TEXT.test(f));
 const attr = (tag, name) => { const m = tag.match(new RegExp('\\s' + name + '\\s*=\\s*("([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i')); return m ? (m[2] ?? m[3] ?? m[4]) : null; };
 const tags = (html, name) => [...html.matchAll(new RegExp('<' + name + '\\b[^>]*>', 'gi'))].map((m) => m[0]);
 const lineOf = (s, i) => s.slice(0, i).split('\n').length;
+const blank = (c) => c.replace(/[^\n]/g, ' ');   // keeps line numbers
 
 /* the Supabase origin, from the site's own config.js */
 let supabase = null;
@@ -43,24 +44,32 @@ let supabase = null;
   const src = join(ROOT, 'templates/sources.md'), names = [];
   if (!existsSync(src)) notes.push('(a) templates/sources.md is not there yet: only "inspiredBy" is checked');
   else {
-    const md = readFileSync(src).toString(); let fenced = false;
+    const md = readFileSync(src).toString(); let fenced = false, col = null;
     for (let line of md.split('\n')) {
       if (/^\s*```/.test(line)) { fenced = !fenced; continue; }
       line = line.trim(); if (!line) continue;
       if (fenced) names.push(line.replace(/^[-*+]\s+|^\d+[.)]\s+/, ''));
-      else if (/^\|/.test(line)) { const cells = line.split('|').slice(1, -1).map((c) => c.trim()); if (cells[0] && !/^:?-+:?$/.test(cells[0]) && !/^(name|venue|source|place|שם)$/i.test(cells[0])) names.push(cells[0]); }
+      else if (/^\|/.test(line)) {
+        const cells = line.split('|').slice(1, -1).map((c) => c.trim());
+        if (cells.every((c) => /^:?-+:?$/.test(c))) continue;                                   // the rule under the header
+        if (col === null) { col = Math.max(0, cells.findIndex((c) => /venue|source|inspired|place|מקום|מקור|השראה/i.test(c))); if (cells.some((c) => /venue|source|inspired|place|name|look|שם|מקום|מקור|השראה/i.test(c))) continue; }   // the header names the column
+        if (cells[col]) names.push(cells[col]);
+      }
     }
   }
-  const clean = [...new Set(names.map((n) => n.replace(/[*_`]/g, '').trim()).filter((n) => n.length >= 3))];
+  /* our own looks (templates/templates.v1.json) are never "sources" */
+  const ours = new Set(); const tv = join(ROOT, 'templates/templates.v1.json');
+  if (existsSync(tv)) try { for (const l of JSON.parse(readFileSync(tv).toString()).looks || []) { ours.add(String(l.id || '').toLowerCase()); for (const v of Object.values(l.name || {})) ours.add(String(v).toLowerCase()); } } catch (e) { notes.push('(a) templates/templates.v1.json did not parse: ' + e.message); }
+  const clean = [...new Set(names.map((n) => n.replace(/[*_`]/g, '').replace(/\s*\(.*\)$/, '').trim()).filter((n) => n.length >= 3 && !ours.has(n.toLowerCase())))];
   const find = (needle) => { const re = new RegExp((/^[\w .'-]+$/.test(needle) ? '\\b' : '') + needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/^[\w .'-]+$/.test(needle) ? '\\b' : ''), 'i'); const hits = []; for (const f of text) { const s = readFileSync(f).toString(), m = s.match(re); if (m) hits.push(rel(f) + ':' + lineOf(s, m.index)); } return hits; };
   for (const n of clean) { const h = find(n); if (h.length) breaches.push('(a) a source venue\'s name, "' + n + '", is in ' + h.slice(0, 5).join(', ') + (h.length > 5 ? ' …' : '')); }
   const h = find('inspiredBy'); if (h.length) breaches.push('(a) "inspiredBy" is in ' + h.slice(0, 5).join(', ') + (h.length > 5 ? ' …' : ''));
-  notes.push('(a) ' + clean.length + ' venue name' + (clean.length === 1 ? '' : 's') + ' from templates/sources.md checked in ' + text.length + ' text files');
+  notes.push('(a) ' + clean.length + ' venue name' + (clean.length === 1 ? '' : 's') + ' from templates/sources.md checked in ' + text.length + ' text files' + (clean.length ? ': ' + clean.join(', ') : ''));
 }
 
 /* (b) loads and links */
 const isSite = (u) => !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(u) || /^https:\/\/halom\.io\/(mana|m)(\/|$)/i.test(u) || /^(data|blob|about):/i.test(u);
-const isSupabase = (u) => supabase && u.toLowerCase().startsWith(supabase.toLowerCase() + '/');
+const isSupabase = (u) => supabase && (u.toLowerCase() === supabase.toLowerCase() || u.toLowerCase().startsWith(supabase.toLowerCase() + '/'));
 const linkOk = (u) => { if (/^(mailto|tel):/i.test(u)) return true; let h; try { h = new URL(u); } catch (e) { return false; } const host = h.hostname.replace(/^www\./, '');
   return LINK_HOSTS.some((d) => host === d) || LINK_PATHS.some((p) => (host + h.pathname).startsWith(p)); };
 let loads = 0, links = 0;
@@ -68,7 +77,7 @@ const load = (f, u, what, at) => { if (u == null) return; u = u.trim(); if (!u) 
 const link = (f, u, at) => { if (u == null) return; u = u.trim(); if (!u) return; links++; if (isSite(u) || linkOk(u)) return; breaches.push('(b) ' + rel(f) + ':' + at + ' links to a host not on the allow-list: ' + u.slice(0, 120)); };
 const srcset = (v) => (v || '').split(',').map((s) => s.trim().split(/\s+/)[0]).filter(Boolean);
 for (const f of text.filter((f) => /\.html?$/i.test(f))) {
-  const s = readFileSync(f).toString(), body = s.replace(/<!--[\s\S]*?-->/g, (c) => c.replace(/[^\n]/g, ' '));
+  const s = readFileSync(f).toString(), body = s.replace(/<!--[\s\S]*?-->/g, blank).replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (m, a, b, c) => a + blank(b) + c);
   for (const m of body.matchAll(/<(script|img|iframe|source|video|audio|embed|track|frame)\b[^>]*>/gi)) { const t = m[0], at = lineOf(body, m.index);
     load(f, attr(t, 'src'), '<' + m[1].toLowerCase() + ' src>', at); load(f, attr(t, 'poster'), 'a poster', at); for (const u of srcset(attr(t, 'srcset'))) load(f, u, 'a srcset', at); }
   for (const m of body.matchAll(/<object\b[^>]*>/gi)) load(f, attr(m[0], 'data'), '<object data>', lineOf(body, m.index));

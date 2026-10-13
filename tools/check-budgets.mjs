@@ -53,7 +53,7 @@ const srcset = (v) => (v || '').split(',').map((s) => s.trim().split(/\s+/)[0]).
 
 /** Every file an HTML page fetches at first paint, with the reason, each file once. */
 function firstPaint(htmlPath) {
-  const html = read(htmlPath).toString(), out = new Map(), base = (() => { const b = tags(html, 'base')[0]; return b ? attr(b.tag, 'href') : null; })();
+  const html = read(htmlPath).toString().replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (m, a, b, c) => a + b.replace(/[^\n]/g, ' ') + c), out = new Map(), base = (() => { const b = tags(html, 'base')[0]; return b ? attr(b.tag, 'href') : null; })();
   const from = base ? join(SITE, base.replace(/^\/mana\//, '')) + '/x' : htmlPath;
   const add = (url, why) => { const p = local(url, from); if (p && existsSync(p) && statSync(p).isFile() && !out.has(p)) out.set(p, why); };
   for (const { tag } of tags(html, 'script')) add(attr(tag, 'src'), 'script');
