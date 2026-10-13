@@ -34,7 +34,7 @@ async function open(path, { w = 390, h = 844, touch = true, origin = srv.origin,
   page.on('requestfailed', (r) => { if (!/\.(mp4|webm)(\?|$)/.test(r.url())) errors.push('requestfailed: ' + r.url()); });      // a video the page stops on purpose is not a failure
   page.on('response', (r) => { if (r.status() >= 400) errors.push(r.status() + ' ' + r.url()); });
   page.on('request', (r) => { reqs.push(r.url()); try { hosts.add(new URL(r.url()).host); } catch (e) { /* data: */ } });
-  for (const k of ['hero', 'floor']) if (!new RegExp('[?&]' + k + '=').test(path)) { const i = path.indexOf('#'), u = i < 0 ? path : path.slice(0, i), hash = i < 0 ? '' : path.slice(i); path = u + (u.includes('?') ? '&' : '?') + k + '=off' + hash; }      // the two 3D modules (software GL here: slow) run only in the checks about them      // the live hero (the viewer in a frame) is opened only by the checks about it
+  for (const k of ['hero', 'floor', 'ins']) if (!new RegExp('[?&]' + k + '=').test(path)) { const i = path.indexOf('#'), u = i < 0 ? path : path.slice(0, i), hash = i < 0 ? '' : path.slice(i); path = u + (u.includes('?') ? '&' : '?') + k + '=off' + hash; }      // the two 3D modules (software GL here: slow) run only in the checks about them      // the live hero (the viewer in a frame) is opened only by the checks about it
   await page.goto(origin + path, { waitUntil: wait }); await page.evaluate(() => document.fonts.ready);
   return { page, ctx, errors, hosts, reqs, held };
 }
@@ -147,10 +147,10 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   const o = await open('/mana/?lang=he&hero=on', { w: 1440, h: 900, touch: false, init: () => { window.__t = { loadAt: null }; window.addEventListener('load', () => { window.__t.loadAt = performance.now(); }); } });
   const r = await o.page.evaluate(() => ({ eyebrow: document.querySelector('.eyebrow').innerText.trim(), h1: document.querySelector('h1').innerText.trim(), lead: document.querySelector('.hero .lead').innerText.trim(),
     stills: [...document.querySelectorAll('.stills img')].map((i) => i.getAttribute('src')), first: (() => { const i = document.querySelector('.stills img'); return i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity > 0; })(),
-    names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.floaters img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
+    names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.lev .lv img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
   assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
-  assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 6); assert.deepEqual(r.host, ['relative', 0]);
+  assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 12); assert.deepEqual(r.host, ['relative', 0]);
   await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 25000 });
   const at = await o.page.evaluate(() => ({ chunk: performance.getEntriesByType('resource').find((e) => /hero-morph/.test(e.name)).startTime, load: window.__t.loadAt }));
   assert.ok(at.chunk >= at.load, 'the hero module was asked for before load');
@@ -164,35 +164,65 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   }
 });
 
-await check('phone fold: the headline, both buttons and the dish are on the first screen at 390 × 844 and 360 × 640; the ingredients never cover the words', async () => {
+await check('phone fold: the headline, both buttons and the dish are on the first screen at 390 × 844 and 360 × 640; in the still the ingredients never cover the words', async () => {
   for (const [w, h] of [[390, 844], [360, 640]]) for (const lang of ['he', 'en']) {
-    const o = await open('/mana/?lang=' + lang, { w, h });
+    const o = await open('/mana/?motion=off&lang=' + lang, { w, h });
     const r = await o.page.evaluate(() => { const vh = innerHeight, b = (e) => e.getBoundingClientRect(), inFirst = (e) => { const x = b(e); return x.top >= 0 && x.bottom <= vh; };
       const words = [document.querySelector('h1'), document.querySelector('.hero .lead:not([hidden])'), ...document.querySelectorAll('.hero .cta .btn')].filter((e) => e.checkVisibility()).map(b);
-      const fl = [...document.querySelectorAll('.fl')].filter((e) => e.checkVisibility()).map(b), hit = fl.filter((f) => words.some((t) => f.left < t.right && f.right > t.left && f.top < t.bottom && f.bottom > t.top));
+      const fl = [...document.querySelectorAll('.lv')].filter((e) => e.checkVisibility()).map(b), hit = fl.filter((f) => words.some((t) => f.left < t.right && f.right > t.left && f.top < t.bottom && f.bottom > t.top));
       const dish = b(document.querySelector('.stills img'));
       return { h1: inFirst(document.querySelector('h1')), cta: [...document.querySelectorAll('.hero .cta .btn')].every(inFirst), dish: dish.top + dish.height * .5 < vh, floats: fl.length, hit: hit.length }; });
     assert.equal(r.h1, true, `${w} ${lang}: headline`); assert.equal(r.cta, true, `${w} ${lang}: buttons`); assert.equal(r.dish, true, `${w} ${lang}: the dish is below the fold`);
-    assert.ok(r.floats <= 3, `${w}: ${r.floats} ingredients on a phone`); assert.equal(r.hit, 0, `${w} ${lang}: an ingredient covers the words`);
+    assert.equal(r.floats, 8, `${w}: ${r.floats} ingredients on a phone`); assert.equal(r.hit, 0, `${w} ${lang}: an ingredient covers the words`);
     await o.page.screenshot({ path: join(RAW, `fold-${w}x${h}-${lang}.png`) }); await o.ctx.close();
   }
-  const o = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false });
+  const o = await open('/mana/?lang=he&motion=off', { w: 1440, h: 900, touch: false });
   const hit = await o.page.evaluate(() => { const b = (e) => e.getBoundingClientRect(), words = [...document.querySelectorAll('.hero-words > *')].filter((e) => e.checkVisibility()).map(b);
-    return [...document.querySelectorAll('.fl')].map(b).filter((f) => words.some((t) => f.left < t.right && f.right > t.left && f.top < t.bottom && f.bottom > t.top)).length; });
+    return [...document.querySelectorAll('.lv')].map(b).filter((f) => words.some((t) => f.left < t.right && f.right > t.left && f.top < t.bottom && f.bottom > t.top)).length; });
   assert.equal(hit, 0, '1440: an ingredient covers the words'); await o.ctx.close();
 });
 
-await check('three steps in reading order, as glass cards; the scanner is named only when config.features.scan is true', async () => {
-  for (const [scan, lang] of [[false, 'he'], [false, 'en'], [true, 'he'], [true, 'en']]) {
+await check('levitation: twelve ingredients in four depths drift on their own paths (transforms only), behind the words they fade to a whisper, a pointer stroke stirs them without an error; they stop while the demo dialog is open or the hero is off screen; reduced motion leaves the still', async () => {
+  const o = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false }); await stubViewer(o.page);
+  const snap = () => o.page.evaluate(() => { const wr = document.querySelector('.hero-words').getBoundingClientRect();
+    return { on: document.querySelector('.lev').classList.contains('on'), run: document.querySelector('.lev').getAttribute('data-run'), depths: [...new Set([...document.querySelectorAll('.lev .lv[data-depth]')].map((e) => e.getAttribute('data-depth')))].sort().join(''),
+      items: [...document.querySelectorAll('.lev .lv[data-depth]')].map((e) => { const r = e.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; return { t: e.style.transform, o: +getComputedStyle(e).opacity, behind: cx > wr.left && cx < wr.right && cy > wr.top && cy < wr.bottom }; }) }; });
+  await o.page.waitForFunction(() => [...document.querySelectorAll('.lev .lv[data-depth]')].every((e) => /^translate3d\(/.test(e.style.transform)), null, { timeout: 10000 }).catch(() => {});      // the first frames (a busy machine is late)
+  const a = await snap(); await o.page.waitForTimeout(1500); const b = await snap();
+  assert.equal(a.on, true, 'the levitation did not start'); assert.equal(a.run, '1'); assert.equal(a.depths, '0123'); assert.equal(a.items.length, 12);
+  assert.ok(a.items.every((x) => /^translate3d\(/.test(x.t)), 'an ingredient is not moved by a transform');
+  assert.ok(b.items.filter((x, i) => x.t !== a.items[i].t).length >= 11, 'the ingredients do not move');
+  for (const s of [a, b]) for (const x of s.items) if (x.behind) assert.ok(x.o <= .5, 'an ingredient behind the words is not faded: ' + x.o);
+  /* the pointer: a fast stroke through the stage side pushes what is near it */
+  const before = await o.page.evaluate(() => [...document.querySelectorAll('.lev .lv[data-depth]')].map((e) => e.style.transform));
+  for (let i = 0; i <= 12; i++) await o.page.mouse.move(120 + i * 45, 300 + i * 12);
+  await o.page.waitForTimeout(400); assert.ok(await o.page.evaluate(() => document.querySelector('.lev').classList.contains('on')));
+  await o.page.click('.top [data-demo-open]'); await o.page.waitForTimeout(400);
+  const c1 = await snap(); await o.page.waitForTimeout(600); const c2 = await snap();
+  assert.equal(c1.run, null, 'the levitation runs under the dialog'); assert.deepEqual(c2.items.map((x) => x.t), c1.items.map((x) => x.t), 'the ingredients move under the dialog');
+  await o.page.keyboard.press('Escape'); await o.page.waitForFunction(() => !document.getElementById('demo').open && document.querySelector('.lev').getAttribute('data-run') === '1', null, { timeout: 4000 }).catch(() => {});
+  assert.equal((await snap()).run, '1', 'the levitation did not come back after the dialog');
+  await o.page.evaluate(() => document.getElementById('plans').scrollIntoView({ behavior: 'instant' })); await o.page.waitForFunction(() => document.querySelector('.lev').getAttribute('data-run') === null, null, { timeout: 4000 }).catch(() => {}); assert.equal((await snap()).run, null, 'the levitation runs off screen');
+  await o.page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' })); await o.page.waitForTimeout(300);
+  await o.page.screenshot({ path: join(RAW, 'lev-1440-he.png') }); assert.deepEqual(o.errors, []); await o.ctx.close();
+  const rm = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false, reduced: true }); await rm.page.waitForTimeout(800);
+  assert.deepEqual(await rm.page.evaluate(() => [document.querySelector('.lev').classList.contains('on'), [...document.querySelectorAll('.lev .lv')].every((e) => !e.style.transform)]), [false, true], 'reduced motion: the ingredients moved'); await rm.ctx.close();
+});
+
+await check('one story: three chapters in reading order on glass, the menu marked today and the place and the creative marked coming; the scanner is never named; the platform line', async () => {
+  for (const [scan, lang] of [[false, 'he'], [false, 'en'], [true, 'he']]) {
     const s2 = await listen(0, { scan });
     const o = await open('/mana/?motion=off&lang=' + lang, { origin: s2.origin, w: 1440, h: 900, touch: false });
-    const r = await o.page.evaluate(() => ({ steps: [...document.querySelectorAll('.step')].map((s) => ({ x: Math.round(s.getBoundingClientRect().left), text: s.querySelector('p').innerText.trim(), drawn: [...s.querySelectorAll('.step-art svg')].filter((v) => v.checkVisibility()).length, glass: s.classList.contains('glass') })),
-      all: document.body.innerText, flag: document.documentElement.getAttribute('data-scan') }));
-    assert.equal(r.steps.length, 3); assert.ok(r.steps.every((s) => s.drawn === 1 && s.glass), 'each step: one drawing on glass');
-    const xs = r.steps.map((s) => s.x); assert.ok(lang === 'he' ? xs[0] > xs[1] && xs[1] > xs[2] : xs[0] < xs[1] && xs[1] < xs[2], lang + ' order: ' + xs);
-    assert.equal(r.flag, scan ? '1' : null); assert.equal(/סורקים|scan your/i.test(r.all), scan, 'the scanner is named with features.scan ' + scan);
-    assert.match(r.steps[0].text, scan ? /סורקים את התפריט המודפס|Scan your printed menu/ : /מדביקים או מקלידים תפריט|Paste or type your menu/);
-    assert.match(r.steps[1].text, /מוסיפים תמונות או איורים|Add photos or illustrations/); assert.match(r.steps[2].text, /מדפיסים קוד QR|Print the QR/);
+    const r = await o.page.evaluate(() => ({ h2: document.querySelector('#how h2').innerText.trim(), ch: [...document.querySelectorAll('#how .chapter')].map((s) => ({ x: Math.round(s.getBoundingClientRect().left), h: s.querySelector('h3').innerText.trim(), chip: s.querySelector('.chip').innerText.trim(), art: s.querySelector('.ch-art').getAttribute('aria-hidden'), glass: s.classList.contains('glass') })),
+      all: document.body.innerText, flag: document.documentElement.getAttribute('data-scan'), foot: [...document.querySelectorAll('#how .story-foot')].find((e) => e.checkVisibility()).innerText.trim() }));
+    const he = lang === 'he';
+    assert.equal(r.h2, he ? 'מנה היא יותר מתפריט.' : 'Mana is more than a menu.'); assert.equal(r.ch.length, 3); assert.ok(r.ch.every((c) => c.glass && c.art === 'true'));
+    assert.deepEqual(r.ch.map((c) => c.h), he ? ['התפריט שלכם מתעורר.', 'המקום שלכם על המפה.', 'הקריאטיב שלכם נוצר.'] : ['Your menu comes alive.', 'Your place on the map.', 'Your creative, made.']);
+    assert.deepEqual(r.ch.map((c) => c.chip), he ? ['היום', 'בקרוב', 'בקרוב'] : ['Today', 'Coming', 'Coming']);
+    const xs = r.ch.map((c) => c.x); assert.ok(he ? xs[0] > xs[1] && xs[1] > xs[2] : xs[0] < xs[1] && xs[1] < xs[2], lang + ' order: ' + xs);
+    assert.equal(r.flag, scan ? '1' : null); assert.ok(!/סורקים את התפריט|scan your printed menu/i.test(r.all), 'the scanner is named');
+    assert.match(r.foot, he ? /^מתחילים היום בתפריט\./ : /^Start with the menu today\./);
+    if (!scan) await o.page.locator('#how').screenshot({ path: join(RAW, `story-1440-${lang}.png`) });
     await o.ctx.close(); s2.server.close();
   }
 });
@@ -207,7 +237,7 @@ await check('simple for guests: six tiles with their words; copying the section 
       return { copied, want, textInViz, tiles: ul.querySelectorAll('.tile-b').length, titles: [...ul.querySelectorAll('h3')].map((h) => h.innerText.trim()), hidden: [...ul.querySelectorAll('.viz')].every((v) => v.getAttribute('aria-hidden') === 'true') }; });
     assert.equal(r.tiles, 6); assert.equal(r.textInViz, '', 'a drawing carries text nodes: ' + r.textInViz); assert.equal(r.hidden, true, 'a drawing is not aria-hidden');
     assert.equal(r.copied, r.want, 'the copied text is not just the tiles\' words'); assert.ok(!/אA|3030|\bEN\b|עב\b/.test(r.copied.replace(/עברית/g, '')), 'glitch letters in the copy: ' + r.copied);
-    assert.deepEqual(r.titles, lang === 'he' ? ['בלי אפליקציה לסועדים', 'עברית ואנגלית', '״אזל״ בנגיעה אחת', 'קוד QR שלא משתנה', 'איורים עד שיש תמונות', 'המראה של המקום שלכם'] : ['No app for guests', 'Hebrew and English', 'Sold out in one tap', 'Your QR never changes', 'Illustrations until you have photos', 'Your place’s look']);
+    assert.deepEqual(r.titles, lang === 'he' ? ['בלי אפליקציה לסועדים', 'עברית ואנגלית', '״אזל״ בנגיעה אחת', 'קוד אחד. תפריט חי.', 'איורים עד שיש תמונות', 'המראה של המקום שלכם'] : ['No app for guests', 'Hebrew and English', 'Sold out in one tap', 'One code. A living menu.', 'Illustrations until you have photos', 'Your place’s look']);
     const count = () => o.page.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.bento')).length);
     assert.equal(await count(), 0, 'the tiles move while off screen');
     await o.page.evaluate(() => document.getElementById('simple').scrollIntoView({ block: 'center', behavior: 'instant' }));
@@ -221,10 +251,10 @@ await check('your place: the words as written, the "new · in demo" chip, the st
   const o = await open('/mana/?lang=he&floor=on', { w: 1440, h: 900, touch: false });
   await o.page.waitForTimeout(1500); assert.ok(!o.reqs.some((u) => /floor3d/.test(u)), 'the floor module was fetched at the top of the page');
   const r = await o.page.evaluate(() => ({ chip: document.querySelector('#place .chip-new').innerText.trim(), p: [...document.querySelectorAll('#place .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), lines: [...document.querySelectorAll('#place .marks li')].map((l) => l.innerText.trim()), tables: document.querySelectorAll('.fl-t').length,
-    states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
+    slot: (() => { const m = document.getElementById('floor-more'); return m && m.hidden && !m.checkVisibility(); })(), states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
   assert.equal(r.chip, 'בקרוב · אפשר לנסות בהדגמה'); assert.equal(r.p, 'מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.');
   assert.deepEqual(r.lines, ['זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.', 'כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.']); assert.equal(r.tables, 12);
-  assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.equal(r.host, 'relative');
+  assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.equal(r.slot, true, 'the slot under the floor is missing or shown'); assert.equal(r.host, 'relative');
   await o.page.evaluate(() => document.getElementById('place').scrollIntoView({ block: 'center', behavior: 'instant' }));
   for (const t0 = Date.now(); !o.reqs.some((u) => /floor3d/.test(u)) && Date.now() - t0 < 6000;) await o.page.waitForTimeout(100);
   assert.ok(o.reqs.some((u) => /\/land\/chunks\/floor3d-/.test(u)), 'the floor module was never asked for');
@@ -233,64 +263,117 @@ await check('your place: the words as written, the "new · in demo" chip, the st
   await o.page.locator('#place').screenshot({ path: join(RAW, 'place-1440-he.png') }); assert.deepEqual(o.errors, []); await o.ctx.close();
 });
 
-await check('what you learn: the four lines; the sample label beside the numbers; the numbers count up once in view and end on the sample (212, +18%, the five dishes, 31%, 78%, 64); the busy hours are 24 three-faced bars (the owner app’s hours)', async () => {
+const FINAL = 'shakshuka,pizza,ramen,burger,croissant';
+await check('what you learn: the four lines; one scene, labelled a sample: the still shows the sample (212, +18%, the five dishes in order, 78%, 31%, 64, the two busiest hours) and a text equivalent; insights3d.js is asked for only when the section comes near', async () => {
   for (const lang of ['he', 'en']) {
-    const o = await open('/mana/?lang=' + lang, { w: 1440, h: 900, touch: false });
-    let r = await o.page.evaluate(() => ({ in: document.querySelector('.dash').classList.contains('in'), lines: [...document.querySelectorAll('.learn li')].map((l) => l.innerText.trim()) }));
-    assert.equal(r.in, false, 'the numbers were drawn before they were on screen');
-    assert.deepEqual(r.lines, lang === 'he' ? ['יודעים אילו מנות הסועדים פותחים.', 'רואים מתי הכי עמוס.', 'רואים כמה קוראים באנגלית.', 'בלי עוגיות, בלי לשמור דבר על הסועדים.'] : ['Know which dishes guests open.', 'See your busy hours.', 'See how many read in English.', 'No cookies, nothing stored about guests.']);
-    await o.page.evaluate(() => document.querySelector('.dash').scrollIntoView({ block: 'start', behavior: 'instant' }));
-    await o.page.waitForFunction(() => document.querySelector('.dash').classList.contains('in'));
-    const mid = await o.page.evaluate(() => new Promise((res) => setTimeout(() => res(+document.querySelector('.dash-big [data-count]').textContent), 600)));
-    assert.ok(mid > 0 && mid < 212, 'the views did not count up: ' + mid); await o.page.waitForTimeout(2000);
-    await o.page.waitForFunction(() => [...document.querySelectorAll('.hfield .b')].every((b) => getComputedStyle(b).transform === 'none'), null, { timeout: 10000 }).catch(() => {});
-    r = await o.page.evaluate(() => { const d = document.querySelector('.dash'), lab = d.querySelector('.dash-sample'), big = d.querySelector('.dash-big'), lb = lab.getBoundingClientRect(), bb = big.getBoundingClientRect();
-      return { label: lab.innerText.trim(), labVis: lab.checkVisibility(), gap: Math.round(bb.top - lb.bottom), big: big.innerText.replace(/\s+/g, ' ').trim(), dishes: [...d.querySelectorAll('.tops li')].map((l) => [l.querySelector('.tn').innerText.trim(), l.querySelector('b').innerText.trim()]),
-        rings: [...d.querySelectorAll('.t-ring .dash-mid')].map((e) => e.innerText.trim()), adds: d.querySelector('.t-adds .dash-mid').innerText.trim(), bars: d.querySelectorAll('.hfield .b').length, faces: d.querySelectorAll('.hfield .b > b').length,
-        peak: d.querySelectorAll('.hfield .b.pk').length, preserve: getComputedStyle(d.querySelector('.hfield')).transformStyle, grown: [...d.querySelectorAll('.hfield .b')].every((b) => getComputedStyle(b).transform === 'none'), tabular: getComputedStyle(big).fontVariantNumeric }; });
-    assert.equal(r.label, lang === 'he' ? 'דוגמה · מספרים להמחשה' : 'Example · sample numbers'); assert.equal(r.labVis, true); assert.ok(r.gap >= 0 && r.gap < 160, 'the sample label is not beside the numbers: ' + r.gap);
-    assert.match(r.big, /^212 ?\+18%$/); assert.deepEqual(r.dishes.map((x) => x[1]), ['96', '81', '64', '52', '41']);
-    assert.deepEqual(r.dishes.map((x) => x[0]), lang === 'he' ? ['שקשוקה', 'מרגריטה', 'ראמן', 'המבורגר', 'קרואסון'] : ['Shakshuka', 'Margherita', 'Ramen', 'Burger', 'Croissant']);
-    assert.deepEqual(r.rings, ['31%', '78%']); assert.equal(r.adds, '64'); assert.equal(r.bars, 24); assert.equal(r.faces, 72); assert.equal(r.peak, 1); assert.equal(r.preserve, 'preserve-3d'); assert.equal(r.grown, true, 'a bar did not finish rising'); assert.match(r.tabular, /tabular-nums/);
-    await o.page.locator('.dash').screenshot({ path: join(RAW, `dash-1440-${lang}.png`) }); assert.deepEqual(o.errors, []); await o.ctx.close();
+    const o = await open('/mana/?lang=' + lang + '&ins=on', { w: 1440, h: 900, touch: false });
+    await o.page.waitForTimeout(1200); assert.ok(!o.reqs.some((u) => /insights3d/.test(u)), 'the insights module was fetched at the top of the page');
+    const r = await o.page.evaluate(() => { const d = document.getElementById('ins'), lab = d.querySelector('.dash-sample'), vis = (e) => e.checkVisibility();
+      return { lines: [...document.querySelectorAll('.learn li')].map((l) => l.innerText.trim()), label: lab.innerText.trim(), labVis: vis(lab), state: d.getAttribute('data-ins'), svg: !!d.querySelector('.ins-still svg'),
+        views: d.querySelector('[data-v="views"]').textContent, plates: [...d.querySelectorAll('.ip')].map((p) => [p.getAttribute('data-id'), [...p.querySelectorAll('.ip-w .he, .ip-w .en')].find(vis).innerText.trim(), p.querySelector('.ip-w b').textContent]),
+        chips: ['qr', 'en', 'adds', 'peak'].map((c) => d.querySelector('.ic-' + c + ' b').innerText.trim()), up: d.querySelector('.ic-views .up').innerText.trim(), sr: [...d.querySelectorAll('.vh li')].map((l) => [...l.querySelectorAll('.he,.en')].filter(vis).map((x) => x.innerText).join('')).join(' '), hidden: d.querySelector('.ins-layer').getAttribute('aria-hidden') }; });
+    const he = lang === 'he';
+    assert.deepEqual(r.lines, he ? ['יודעים אילו מנות הסועדים פותחים.', 'רואים מתי הכי עמוס.', 'רואים כמה קוראים באנגלית.', 'בלי עוגיות, בלי לשמור דבר על הסועדים.'] : ['Know which dishes guests open.', 'See your busy hours.', 'See how many read in English.', 'No cookies, nothing stored about guests.']);
+    assert.equal(r.label, he ? 'דוגמה · מספרים להמחשה' : 'Example · sample numbers'); assert.equal(r.labVis, true); assert.equal(r.state, 'still'); assert.equal(r.svg, true); assert.equal(r.hidden, 'true');
+    assert.equal(r.views, '212'); assert.equal(r.up, '+18%'); assert.deepEqual(r.plates.map((x) => x[0]).join(','), FINAL); assert.deepEqual(r.plates.map((x) => x[2]), ['96', '81', '64', '52', '41']);
+    assert.deepEqual(r.plates.map((x) => x[1]), he ? ['שקשוקה', 'מרגריטה', 'ראמן', 'המבורגר', 'קרואסון'] : ['Shakshuka', 'Margherita', 'Ramen', 'Burger', 'Croissant']);
+    assert.deepEqual(r.chips, ['78%', '31%', '64', '13:00 · 20:00']);
+    assert.match(r.sr, he ? /צפיות השבוע: 212, 18% יותר[\s\S]*13:00 ו־20:00[\s\S]*שקשוקה 96[\s\S]*קרואסון 41[\s\S]*78%[\s\S]*31%[\s\S]*64/ : /Views this week: 212, 18% more[\s\S]*13:00 and 20:00[\s\S]*Shakshuka 96[\s\S]*Croissant 41[\s\S]*78%[\s\S]*31%[\s\S]*64/);
+    await o.page.locator('#ins').screenshot({ path: join(RAW, `ins-still-1440-${lang}.png`) });
+    await o.page.evaluate(() => document.getElementById('numbers').scrollIntoView({ block: 'start', behavior: 'instant' }));
+    for (const t0 = Date.now(); !o.reqs.some((u) => /insights3d/.test(u)) && Date.now() - t0 < 6000;) await o.page.waitForTimeout(100);
+    assert.ok(o.reqs.some((u) => /\/land\/chunks\/insights3d-/.test(u)), 'the insights module was never asked for'); assert.deepEqual(o.errors, []); await o.ctx.close();
   }
 });
 
-await check('your site, your reels: the words, the "coming" chip, the host film only while on screen (no source in the HTML, never with reduced motion or Save-Data), its AI label; the invented site for Olea with a decorative "Book a table"', async () => {
+await check('the insights scene: it goes live (a canvas, the still fades), the race reorders through the week and ends on the sample order with the sample counts; it pauses while the dialog is open; reduced motion draws the end of the week once', async () => {
+  const o = await open('/mana/?lang=he&ins=on&ins-speed=6', { w: 1440, h: 900, touch: false }); await stubViewer(o.page);
+  await o.page.evaluate(() => { window.__orders = []; new MutationObserver(() => { const v = document.getElementById('ins').getAttribute('data-order'); if (v && window.__orders[window.__orders.length - 1] !== v) window.__orders.push(v); }).observe(document.getElementById('ins'), { attributes: true, attributeFilter: ['data-order'] }); });
+  await o.page.evaluate(() => document.getElementById('ins').scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await o.page.waitForFunction(() => document.getElementById('ins').getAttribute('data-ins') === 'live', null, { timeout: 45000 });      // software GL: seconds
+  assert.equal(await o.page.evaluate(() => document.querySelectorAll('#ins-gl canvas').length), 1, 'the scene has no canvas');
+  await o.page.waitForFunction((f) => window.__orders.length >= 3 && window.__orders[window.__orders.length - 1] === f, FINAL, { timeout: 60000 });
+  const r = await o.page.evaluate(() => ({ orders: window.__orders, counts: [...document.querySelectorAll('#ins .ip')].map((p) => [p.getAttribute('data-id'), p.querySelector('.ip-w b').textContent, p.querySelector('.ip-r').textContent]), day: document.querySelector('#ins .ins-day').textContent }));
+  assert.ok(new Set(r.orders).size >= 3, 'the dishes never swapped places: ' + JSON.stringify(r.orders)); assert.ok(r.day.length > 0, 'no day shown');
+  await o.page.waitForTimeout(400); await o.page.locator('#ins').screenshot({ path: join(RAW, 'ins-live-1440-he.png') });
+  await o.page.click('.top [data-demo-open]'); await o.page.waitForTimeout(500);
+  const p1 = await o.page.evaluate(() => document.querySelector('#ins .ip').style.transform); await o.page.waitForTimeout(900);
+  assert.equal(await o.page.evaluate(() => document.querySelector('#ins .ip').style.transform), p1, 'the scene runs under the dialog');
+  await o.page.keyboard.press('Escape'); assert.deepEqual(o.errors, []); await o.ctx.close();
+  console.log('      race orders seen: ' + r.orders.length + '; at the end: ' + JSON.stringify(r.counts));
+  const rm = await open('/mana/?lang=en&ins=on', { w: 1440, h: 900, touch: false, reduced: true });
+  await rm.page.evaluate(() => document.getElementById('ins').scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await rm.page.waitForFunction(() => document.getElementById('ins').getAttribute('data-ins') === 'live', null, { timeout: 45000 });
+  const q = await rm.page.evaluate(() => ({ order: document.getElementById('ins').getAttribute('data-order'), views: document.querySelector('#ins [data-v="views"]').textContent, n: document.getAnimations().length }));
+  assert.equal(q.order, FINAL); assert.equal(q.views, '212'); assert.equal(q.n, 0, 'reduced motion: something animates');
+  await rm.page.locator('#ins').screenshot({ path: join(RAW, 'ins-reduced-1440-en.png') }); assert.deepEqual(rm.errors, []); await rm.ctx.close();
+});
+
+await check('your dream, our creative: the words, the "coming · Halom" chip, three moods; no film before the phone is on screen, then the first mood plays; at its end a burst and the next mood; a tap switches; the AI label; never with reduced motion or Save-Data (the chips switch the posters)', async () => {
   const o = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false });
-  let r = await o.page.evaluate(() => { const v = document.querySelector('.reel-video'); return { src: v.getAttribute('src'), preload: v.preload, autoplay: v.autoplay, poster: v.getAttribute('poster'), muted: v.muted, loop: v.loop, chip: document.querySelector('#reels .chip').innerText.trim(), p: [...document.querySelectorAll('#reels .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), book: document.querySelector('.site-book').closest('a'), card: document.querySelector('.site-card').getAttribute('aria-hidden') }; });
-  assert.deepEqual([r.src, r.preload, r.autoplay, r.poster, r.muted, r.loop], [null, 'none', false, null, true, true]); assert.equal(r.chip, 'בקרוב'); assert.equal(r.p, 'אתר למסעדה מתוך אותו תפריט, ורילסים כדי להתחיל לפרסם.'); assert.equal(r.book, null); assert.equal(r.card, 'true');
-  assert.ok(!o.reqs.some((u) => /host-orbit\.mp4/.test(u)), 'the film was fetched before it was on screen');
-  await o.page.evaluate(() => document.getElementById('reels').scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await o.page.waitForFunction(() => document.querySelector('.reel-video').getAttribute('src'), null, { timeout: 8000 }).catch(() => {});      // a busy machine can be late
-  r = await o.page.evaluate(() => ({ src: document.querySelector('.reel-video').getAttribute('src') })); assert.equal(r.src, './img/host/host-orbit.mp4');
-  await o.page.locator('#reels').screenshot({ path: join(RAW, 'reels-1440-he.png') }); await o.ctx.close();
+  let r = await o.page.evaluate(() => { const vs = [...document.querySelectorAll('#ad .reel-video')]; return { h2: document.querySelector('#reels h2').innerText.trim(), chip: document.querySelector('#reels .chip').innerText.trim(), srcs: vs.map((v) => v.getAttribute('src')), pre: vs.map((v) => v.preload + v.autoplay + v.muted), moods: [...document.querySelectorAll('#ad .mood')].map((b) => [b.getAttribute('data-mood'), b.innerText.trim(), b.getAttribute('aria-pressed')]),
+    book: document.querySelector('.site-book').closest('a'), card: document.querySelector('.site-card').getAttribute('aria-hidden'), tag: document.querySelector('.reel .ai-tag').innerText.trim(), poster: document.querySelector('.reel-still.on').getAttribute('src') }; });
+  assert.equal(r.h2, 'החלום שלכם, הקריאטיב שלנו'); assert.equal(r.chip, 'בקרוב · מהסטודיו של Halom'); assert.deepEqual(r.srcs, [null, null, null]); assert.deepEqual(r.pre, ['nonefalsetrue', 'nonefalsetrue', 'nonefalsetrue']);
+  assert.deepEqual(r.moods, [['eat', 'בוקר שטוף שמש', 'true'], ['paris', 'ג׳אז בקפה פריזאי', 'false'], ['orbit', 'ערב במסעדה לבנה', 'false']]);
+  assert.equal(r.book, null); assert.equal(r.card, 'true'); assert.equal(r.tag, 'דמות שנוצרה בבינה מלאכותית'); assert.equal(r.poster, './img/host/host-eat.jpg');
+  assert.ok(!o.reqs.some((u) => /host-(eat|paris|orbit)\.mp4/.test(u)), 'a film was fetched before it was on screen');
+  await o.page.evaluate(() => document.getElementById('ad').scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await o.page.waitForFunction(() => document.querySelector('#ad .reel-video.m-eat').getAttribute('src'), null, { timeout: 8000 });
+  await o.page.locator('#reels').screenshot({ path: join(RAW, 'reels-1440-he.png') });
+  await o.page.evaluate(() => document.querySelector('#ad .reel-video.m-eat').dispatchEvent(new Event('ended')));      // the end of the first mood (this browser has no H.264)
+  r = await o.page.evaluate(() => ({ mood: document.getElementById('ad').getAttribute('data-mood'), boom: document.getElementById('ad').classList.contains('boom-on'), pressed: [...document.querySelectorAll('#ad .mood')].map((b) => b.getAttribute('aria-pressed')), src: document.querySelector('#ad .reel-video.m-paris').getAttribute('src'), poster: document.querySelector('.reel-still.on').getAttribute('src') }));
+  assert.deepEqual(r, { mood: 'paris', boom: true, pressed: ['false', 'true', 'false'], src: './img/host/host-paris.mp4', poster: './img/host/host-paris.jpg' });
+  await o.page.waitForTimeout(150); await o.page.locator('.reel').screenshot({ path: join(RAW, 'reels-boom-1440-he.png') });
+  await o.page.click('#ad .mood[data-mood="orbit"]');
+  r = await o.page.evaluate(() => ({ mood: document.getElementById('ad').getAttribute('data-mood'), src: document.querySelector('#ad .reel-video.m-orbit').getAttribute('src'), paused: document.querySelector('#ad .reel-video.m-paris').paused }));
+  assert.deepEqual(r, { mood: 'orbit', src: './img/host/host-orbit.mp4', paused: true }); await o.ctx.close();
   for (const [q, reduced] of [['save=1', false], ['', true]]) {
-    const s = await open('/mana/?' + q, { reduced }); await s.page.evaluate(() => document.getElementById('reels').scrollIntoView({ block: 'center', behavior: 'instant' })); await s.page.waitForTimeout(700);
-    assert.equal(await s.page.evaluate(() => document.querySelector('.reel-video').getAttribute('src')), null, 'the film loads with ' + (reduced ? 'reduced motion' : 'Save-Data')); await s.ctx.close();
+    const s = await open('/mana/?' + q, { reduced }); await s.page.evaluate(() => document.getElementById('ad').scrollIntoView({ block: 'center', behavior: 'instant' })); await s.page.waitForTimeout(700);
+    assert.deepEqual(await s.page.evaluate(() => [...document.querySelectorAll('#ad .reel-video')].map((v) => v.getAttribute('src'))), [null, null, null], 'a film loads with ' + (reduced ? 'reduced motion' : 'Save-Data'));
+    await s.page.click('#ad .mood[data-mood="paris"]'); assert.equal(await s.page.evaluate(() => document.querySelector('.reel-still.on').getAttribute('src')), './img/host/host-paris.jpg'); await s.ctx.close();
   }
 });
 
-await check('plans: three glass plans by number of dishes, each with "Get an offer" (no price yet); one shared list, included today and coming to every plan; the 30-day line; nothing says pilot', async () => {
+await check('plans: the early-access offer (no number, no deadline, no discount while EARLY is null) above three plans by what they give, each with what it is for, included today, coming (marked), a dish count and one button; no price; the buttons open the form with that plan chosen and the ask travels with the message', async () => {
   for (const lang of ['he', 'en']) {
     const o = await open('/mana/?lang=' + lang + '&motion=off', { w: 1440, h: 900, touch: false });
-    const r = await o.page.evaluate(() => { const s = document.getElementById('plans'); return { h2: s.querySelector('h2').innerText.trim(), sub: [...s.querySelectorAll('.sec-p')].find((e) => e.checkVisibility()).innerText.trim(), plans: [...s.querySelectorAll('.plan')].map((p) => [p.querySelector('h3').innerText.trim(), p.querySelector('.btn').innerText.trim(), p.classList.contains('glass'), !!p.querySelector('.plan-price')]),
-      groups: [...s.querySelectorAll('.plan-group')].map((g) => [g.querySelector('h3').innerText.trim(), [...g.querySelectorAll('li')].map((l) => l.innerText.trim())]), free: [...s.querySelectorAll('.plan-free p')].find((e) => e.checkVisibility()).innerText.trim(), text: s.innerText }; });
+    const r = await o.page.evaluate(() => { const s = document.getElementById('plans'), vis = (e) => e.checkVisibility(), txt = (e) => (e ? e.innerText.trim() : null), one = (root, sel) => [...root.querySelectorAll(sel)].find(vis);
+      return { h2: txt(s.querySelector('h2')), early: { h3: txt(s.querySelector('.early h3')), p: txt(one(s, '.early-p')), btn: txt(s.querySelector('.early .btn')), chips: [...s.querySelectorAll('.early .chip')].map(txt), perks: s.querySelectorAll('.early-perks li').length },
+        plans: [...s.querySelectorAll('.plan')].map((p) => ({ name: txt(p.querySelector('h3')), for: txt(one(p, '.plan-for')), n: txt(p.querySelector('.plan-n')), today: p.querySelectorAll('.plan-group:not(.soon) li').length, soon: p.querySelectorAll('.plan-group.soon li').length, soonH: txt(p.querySelector('.plan-group.soon h4')), btn: txt(p.querySelector('.btn')), price: !!p.querySelector('.plan-price'), glass: p.classList.contains('glass') })),
+        free: txt(one(s, '.plan-free p')), text: s.innerText }; });
     const he = lang === 'he';
-    assert.equal(r.h2, he ? 'חבילות' : 'Plans'); assert.equal(r.sub, he ? 'כל חבילה כוללת הכול. ההבדל הוא מספר המנות.' : 'Every plan includes everything. The difference is the number of dishes.');
-    assert.deepEqual(r.plans, (he ? ['עד 50 מנות', 'עד 100 מנות', 'מנות ללא הגבלה'] : ['Up to 50 dishes', 'Up to 100 dishes', 'Unlimited dishes']).map((n) => [n, he ? 'לקבל הצעה' : 'Get an offer', true, false]));
-    assert.deepEqual(r.groups, he ? [['כלול היום', ['תפריט QR עם תבליטים או איורים', 'עברית ואנגלית', '״אזל״ בנגיעה אחת', 'קוד QR להדפסה, שלא משתנה', 'נתוני צפייה, בלי עוגיות']], ['בקרוב לכל החבילות', ['מפת ישיבה ושעון לכל שולחן', 'אתר למסעדה', 'רילסים', 'מראות לבחירה', 'תשלום ליד השולחן']]]
-      : [['Included today', ['A QR menu with reliefs or illustrations', 'Hebrew and English', 'Sold out in one tap', 'A printable QR that never changes', 'Views data, no cookies']], ['Coming to every plan', ['A seat map and a clock for every table', 'A restaurant website', 'Reels', 'Looks to choose from', 'Pay at the table']]]);
-    assert.equal(r.free, he ? 'בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.' : 'Every plan: the first 30 days free, no card.'); assert.ok(!/פיילוט|pilot/i.test(r.text), 'the plans say pilot');
+    assert.equal(r.h2, he ? 'חבילות' : 'Plans');
+    assert.deepEqual(r.early, he ? { h3: 'המסעדות המייסדות', p: r.early.p, btn: 'בקשת גישה מוקדמת', chips: ['גישה מוקדמת'], perks: 3 } : { h3: 'The founding restaurants', p: r.early.p, btn: 'Request early access', chips: ['Early access'], perks: 3 });
+    assert.match(r.early.p, he ? /קבוצה קטנה של מסעדות מייסדות/ : /a small group of founding restaurants/);
+    assert.ok(!/\d/.test(r.early.p + r.early.chips.join('')), 'the offer carries a number: ' + r.early.p);
+    assert.deepEqual(r.plans.map((p) => [p.name, p.n, p.btn, p.price, p.glass]), he ? [['תפריט', 'עד 50 מנות', 'בוחרים ב״תפריט״', false, true], ['מקום', 'עד 100 מנות', 'בוחרים ב״מקום״', false, true], ['חלום', 'מנות ללא הגבלה', 'בוחרים ב״חלום״', false, true]]
+      : [['Menu', 'Up to 50 dishes', 'Choose Menu', false, true], ['Place', 'Up to 100 dishes', 'Choose Place', false, true], ['Dream', 'Unlimited dishes', 'Choose Dream', false, true]]);
+    assert.ok(r.plans.every((p) => p.for && p.today >= 1 && p.soon >= 1 && p.soonH === (he ? 'בקרוב' : 'Coming')), 'a plan lacks its line, today or coming: ' + JSON.stringify(r.plans));
+    assert.equal(r.free, he ? 'בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.' : 'Every plan: the first 30 days free, no card.'); assert.ok(!/פיילוט|pilot|₪|\$|%/i.test(r.text), 'the plans say pilot or show a price');
     await o.page.locator('#plans').screenshot({ path: join(RAW, `plans-1440-${lang}.png`) }); await o.ctx.close();
   }
+  /* the buttons and the form (the stub's leads function; the preview build's form stays off) */
+  const o = await open('/mana/?lang=he&demo=off', { w: 390, h: 844 }); await o.page.waitForTimeout(1600);
+  assert.equal(await o.page.evaluate(() => document.getElementById('talk-more').open), false);
+  await o.page.click('.plan-place .btn'); await o.page.waitForTimeout(1300);
+  let r = await o.page.evaluate(() => ({ open: document.getElementById('talk-more').open, plan: document.querySelector('#talk input[name="plan"]:checked').value, early: document.getElementById('f-early').value, focus: document.activeElement.id, top: Math.round(document.getElementById('talk-sec').getBoundingClientRect().top) }));
+  assert.deepEqual([r.open, r.plan, r.early, r.focus], [true, 'place', '1', 'f-place']); assert.ok(Math.abs(r.top) < 140, 'the talk section did not come into view: ' + r.top);
+  await o.page.click('.early .btn'); await o.page.waitForTimeout(300); assert.equal(await o.page.evaluate(() => document.querySelector('#talk input[name="plan"]:checked').value), 'any');
+  await o.page.click('.plan-dream .btn'); await o.page.waitForTimeout(300);
+  await o.page.fill('#f-place', 'בדיקה'); await o.page.fill('#f-contact', '0541234567'); const n = srv.server.leads.length; await o.page.click('#f-send'); await o.page.waitForSelector('#talk-ok:not([hidden])');
+  const b = srv.server.leads.at(-1); assert.equal(srv.server.leads.length, n + 1); assert.equal(b.p_package, 'menus'); assert.match(b.p_dream, /^מסעדה: בדיקה\n\[plan: dream\]\n\[early access\]\n\[updates: no\]$/);
+  await o.ctx.close();
+  const s2 = await listen(0, { pages: { 'index.html': renderIndex(mediaFound(), { preview: true }) } });
+  const pv = await open('/mana/?lang=en', { origin: s2.origin, w: 1440, h: 900, touch: false }); await pv.page.click('.plan-menu .btn'); await pv.page.waitForTimeout(400);
+  assert.deepEqual(await pv.page.evaluate(() => [document.getElementById('talk-more').open, document.getElementById('f-send').disabled, [...document.querySelectorAll('#talk input[name="plan"]')].every((i) => i.disabled)]), [true, true, true]); assert.equal(s2.server.leads.length, 0); await pv.ctx.close(); s2.server.close();
 });
 
-await check('questions: the five, with the two new answers (after 30 days you choose a plan; Halom sets up the first restaurants with you); nothing says pilot', async () => {
+await check('questions: the seven, with what works today and what early access is (after 30 days you choose a plan; Halom sets up the first restaurants with you); nothing says pilot', async () => {
   for (const lang of ['he', 'en']) {
     const o = await open('/mana/?lang=' + lang); await o.page.evaluate(() => document.querySelectorAll('.faq details').forEach((d) => { d.open = true; }));
     const a = await o.page.evaluate(() => [...document.querySelectorAll('.faq details')].map((d) => d.querySelector('.a').innerText.trim()));
-    assert.equal(a.length, 5);
+    assert.equal(a.length, 7);
+    assert.match(a[5], lang === 'he' ? /^התפריט: תבליטים[\s\S]*מסומנים ״בקרוב״/ : /^The menu: reliefs[\s\S]*marked “coming”/); assert.match(a[6], lang === 'he' ? /קבוצה קטנה של מסעדות/ : /A small group of restaurants/);
     assert.equal(a[3], lang === 'he' ? 'בוחרים חבילה. אם לא ממשיכים, הקישור נשאר שלכם ומציג ״התפריט לא זמין כרגע״. שום דבר לא נמחק.' : 'You choose a plan. If you stop, the link stays yours and shows “This menu is not available right now”. Nothing is deleted.');
     assert.equal(a[4], lang === 'he' ? 'Halom, סטודיו קריאייטיב מתל אביב. את המסעדות הראשונות אנחנו מקימים יחד איתכם.' : 'Halom, a creative studio in Tel Aviv. We set up the first restaurants together with you.');
     assert.ok(!/פיילוט|pilot/i.test(await o.page.evaluate(() => document.querySelector('main').innerText)), 'the page says pilot'); await o.ctx.close();
@@ -347,7 +430,7 @@ await check('demo dialog, the film: no film files → no film tab; with them the
   s2.server.close();
 });
 
-await check('reduced motion: nothing animates after load or after a scroll through the page, the stills show (the first dish and its name, the floor plan, the numbers as they are), no film', async () => {
+await check('reduced motion: nothing animates after load or after a scroll through the page, the stills show (the first dish and its name, the ingredients where they stand, the floor plan, the numbers as they are), no film', async () => {
   for (const [w, h, touch] of [[390, 844, true], [1440, 900, false]]) {
     const o = await open('/mana/?lang=he&hero=on', { w, h, touch, reduced: true }); await o.page.waitForTimeout(800);
     let n = await o.page.evaluate(() => document.getAnimations().length); assert.equal(n, 0, w + ': ' + n + ' animations after load');
@@ -355,9 +438,9 @@ await check('reduced motion: nothing animates after load or after a scroll throu
     await o.page.waitForTimeout(600);
     const r = await o.page.evaluate(() => ({ n: document.getAnimations().length, anim: document.documentElement.classList.contains('anim'), first: +getComputedStyle(document.querySelector('.stills img')).opacity, rest: [...document.querySelectorAll('.stills img')].slice(1).map((i) => +getComputedStyle(i).opacity),
       name: [...document.querySelectorAll('.dn')].filter((d) => +getComputedStyle(d).opacity > 0).map((d) => d.innerText.trim()), plan: document.querySelector('.floor-still').checkVisibility() && +getComputedStyle(document.querySelector('.floor-still')).opacity,
-      big: document.querySelector('.dash-big [data-count]').textContent, ring: getComputedStyle(document.querySelector('.ring-v')).strokeDasharray, video: document.querySelector('.reel-video').getAttribute('src'), steps: getComputedStyle(document.querySelector('.step')).opacity }));
+      big: document.querySelector('#ins [data-v="views"]').textContent, lev: document.querySelector('.lev').classList.contains('on'), video: [...document.querySelectorAll('.reel-video')].map((v) => v.getAttribute('src')).join(''), steps: getComputedStyle(document.querySelector('.chapter')).opacity }));
     assert.equal(r.n, 0, w + ': ' + r.n + ' animations after a scroll'); assert.equal(r.anim, false); assert.equal(r.first, 1); assert.ok(r.rest.every((x) => x === 0)); assert.deepEqual(r.name, ['מרגריטה']);
-    assert.equal(r.plan, 1); assert.equal(r.big, '212'); assert.match(r.ring, /^31(px)?,? 100/); assert.equal(r.video, null); assert.equal(r.steps, '1');
+    assert.equal(r.plan, 1); assert.equal(r.big, '212'); assert.equal(r.lev, false); assert.equal(r.video, ''); assert.equal(r.steps, '1');
     await o.page.screenshot({ path: join(RAW, `reduced-${w}.png`), fullPage: true }); assert.deepEqual(o.errors, []); await o.ctx.close();
   }
 });
@@ -466,7 +549,7 @@ await check('keyboard: skip link first, visible focus, a question opens with Ent
   await o.page.keyboard.press('Tab'); assert.equal(await o.page.evaluate(() => document.activeElement.className), 'skip');
   await o.page.focus('.faq summary'); await o.page.keyboard.press('Enter'); assert.equal(await o.page.evaluate(() => document.querySelector('.faq details').open), true);
   const out = await o.page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle); assert.notEqual(out, 'none');
-  assert.equal(await o.page.locator('.faq details').count(), 5);
+  assert.equal(await o.page.locator('.faq details').count(), 7);
   await o.ctx.close();
 });
 await check('first paint: no viewer, no video, no 3D module; the page\'s first script stays under 40 kB (minified) and the scripts before the hero under 60 kB gzipped', async () => {

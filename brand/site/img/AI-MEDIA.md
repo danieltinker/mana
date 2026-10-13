@@ -9,3 +9,6 @@ says so ("made with AI"). They show no real restaurant, dish or person.
 | `dishes/*.glb` | the same six dishes as textured meshes, for the shape-shifting dish in the hero | Tripo H3.1 image-to-3D, then glTF-Transform (meshopt, WebP 1024) |
 | `float/*.webp` | six ingredients (basil, cherry tomato, lemon slice, chili, rosemary, olives) that float around the hero | GPT Image 2.5 |
 | `host/host-orbit.mp4`, `host/host-orbit.jpg` | an invented person (Mana's AI host) in an invented white restaurant, one 360° orbit | AI Influencer sheet, then Seedance 2.5 (omni reference), 720p web cut |
+| `float/{mint,strawberry,garlic,parmesan,raspberry,coffee}.webp` | six more ingredients (mint, strawberry, garlic, parmesan, raspberry, coffee beans) that levitate through the hero (round two) | GPT Image 2.5, 13 Oct 2026 |
+| `host/host-eat.mp4`, `host/host-eat.jpg` | the same invented host eating shakshuka in an invented bright restaurant and raising a glass of white wine (8 s, 480p draft) | Seedance 2.5, 13 Oct 2026 |
+| `host/host-paris.mp4`, `host/host-paris.jpg` | the same invented host in an invented Parisian café with espresso and a croissant, an invented jazz bassist behind her (8 s, 480p draft) | Seedance 2.5, 13 Oct 2026 |
