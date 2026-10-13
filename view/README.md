@@ -160,7 +160,7 @@ seen last. A dish's matte carries a mip chain for its shadow (a third more memor
 counter is fetched when a neighbouring section is at the bar, so the walk there does not arrive in the dark. The pixel ratio is capped and a quality ladder steps down on a slow phone (bloom off → pixel
 ratio 1 → 0.7 → the list). Nothing is laid out during a drag; the card's words change once per dish. The closed list waits far
 below the screen, so its small pictures are fetched when it is first opened, not while the table loads.
-`node test/load.mjs` prints what a phone downloads: for Olea the first dish needs about 720 kB (script 181, the table's wood 233,
+`node test/load.mjs` prints what a phone downloads: for Olea the first dish needs about 738 kB (script 199, of which about 18 are the rooms, the taste tags and my table; the table's wood 233,
 fonts 137, its own pictures 152, menu data 8), and the pictures of its three neighbours another 436 kB.
 
 ## Counting
