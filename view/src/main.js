@@ -309,7 +309,8 @@ if (CAPTURE) $('app').classList.add('capture');
 /* night:page */
 /* hero mode (the product page's first screen): the dish alone, no chrome, scripted once; see hero.js. A separate chunk: a guest's menu never loads it.
    HERO_SWAY: the stage's rest sway, halved in hero mode (yaw ≤ 2°); declared here, read by startStage above (hoisted const: startStage runs after the snapshot). */
-const HERO_SWAY = Q.get('embed') === 'hero' ? .5 : 1;
-if (Q.get('embed') === 'hero') { $('app').classList.add('hero'); import('./hero.js').then((m) => m.start({ api, ticker, reduce, debug: Q.get('debug') === '1' })).catch(() => {}); }
+const HERO = source.kind === 'demo' && Q.get('embed') === 'hero';     // hero mode is for Halom's own demos only: a real menu never loses its chrome or counts an open
+const HERO_SWAY = HERO ? .5 : 1;
+if (HERO) { $('app').classList.add('hero'); import('./hero.js').then((m) => m.start({ api, ticker, reduce, debug: Q.get('debug') === '1' })).catch(() => {}); }
 /* /night:page */
 boot();
