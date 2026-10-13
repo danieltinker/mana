@@ -5,8 +5,8 @@
  },
  "after": {
   "390-he": {
-   "words": 183,
-   "height": 3461,
+   "words": 237,
+   "height": 5403,
    "sections": [
     [
      "top",
@@ -18,31 +18,35 @@
     ],
     [
      "how",
-     233
+     253
+    ],
+    [
+     "looks",
+     507
     ],
     [
      "demo",
-     417
+     404
+    ],
+    [
+     "seat",
+     527
     ],
     [
      "numbers",
-     541
+     568
+    ],
+    [
+     "reels",
+     752
     ],
     [
      "perks",
-     202
+     224
     ],
     [
      "price",
      530
-    ],
-    [
-     "faq",
-     355
-    ],
-    [
-     "talk-sec",
-     209
     ],
     [
      "foot",
@@ -51,8 +55,8 @@
    ]
   },
   "390-he-scan": {
-   "words": 183,
-   "height": 3461,
+   "words": 237,
+   "height": 5403,
    "sections": [
     [
      "top",
@@ -64,31 +68,35 @@
     ],
     [
      "how",
-     233
+     253
+    ],
+    [
+     "looks",
+     507
     ],
     [
      "demo",
-     417
+     404
+    ],
+    [
+     "seat",
+     527
     ],
     [
      "numbers",
-     541
+     568
+    ],
+    [
+     "reels",
+     752
     ],
     [
      "perks",
-     202
+     224
     ],
     [
      "price",
      530
-    ],
-    [
-     "faq",
-     355
-    ],
-    [
-     "talk-sec",
-     209
     ],
     [
      "foot",
@@ -97,8 +105,8 @@
    ]
   },
   "390-en": {
-   "words": 205,
-   "height": 3396,
+   "words": 261,
+   "height": 5414,
    "sections": [
     [
      "top",
@@ -110,77 +118,35 @@
     ],
     [
      "how",
-     231
+     251
+    ],
+    [
+     "looks",
+     522
     ],
     [
      "demo",
-     415
+     402
+    ],
+    [
+     "seat",
+     524
     ],
     [
      "numbers",
-     539
+     614
+    ],
+    [
+     "reels",
+     750
     ],
     [
      "perks",
-     202
+     240
     ],
     [
      "price",
      476
-    ],
-    [
-     "faq",
-     353
-    ],
-    [
-     "talk-sec",
-     207
-    ],
-    [
-     "foot",
-     130
-    ]
-   ]
-  },
-  "390-en-scan": {
-   "words": 204,
-   "height": 3396,
-   "sections": [
-    [
-     "top",
-     50
-    ],
-    [
-     "hero",
-     844
-    ],
-    [
-     "how",
-     231
-    ],
-    [
-     "demo",
-     415
-    ],
-    [
-     "numbers",
-     539
-    ],
-    [
-     "perks",
-     202
-    ],
-    [
-     "price",
-     476
-    ],
-    [
-     "faq",
-     353
-    ],
-    [
-     "talk-sec",
-     207
     ],
     [
      "foot",
@@ -189,18 +155,18 @@
    ]
   },
   "heroContrast": {
-   "390-he-h1": 18.11,
-   "390-he-.hero .lead": 12.74,
-   "390-he-.hero .demo-tag": 10.42,
-   "390-en-h1": 18.11,
-   "390-en-.hero .lead": 12.84,
-   "390-en-.hero .demo-tag": 10.38,
-   "1440-he-h1": 16.66,
-   "1440-he-.hero .lead": 12.02,
-   "1440-he-.hero .demo-tag": 11.08,
-   "1440-en-h1": 16.79,
-   "1440-en-.hero .lead": 12.05,
-   "1440-en-.hero .demo-tag": 11.08
+   "390-he-h1": 17.15,
+   "390-he-.hero .lead": 11.93,
+   "390-he-.hero .demo-tag": 9.78,
+   "390-en-h1": 17.22,
+   "390-en-.hero .lead": 12.05,
+   "390-en-.hero .demo-tag": 9.78,
+   "1440-he-h1": 14.52,
+   "1440-he-.hero .lead": 10.61,
+   "1440-he-.hero .demo-tag": 9.42,
+   "1440-en-h1": 14.84,
+   "1440-en-.hero .lead": 10.62,
+   "1440-en-.hero .demo-tag": 9.42
   },
   "media": {
    "hero.mp4": {
@@ -234,11 +200,11 @@
     "size": "1080×1920"
    }
   },
-  "requestsOnLoad390": 16,
+  "requestsOnLoad390": 19,
   "bytesGzipBeforeHero": {
-   "scripts": 7514,
-   "css": 9531,
-   "html": 9629
+   "scripts": 8494,
+   "css": 11094,
+   "html": 11479
   }
  }
 }

@@ -103,6 +103,54 @@
   if (lang() === 'en') (window.requestIdleCallback || function (f) { setTimeout(f, 300); })(loadFraunces);
   $$('[data-lang-toggle]').forEach(function (b) { b.addEventListener('mouseenter', loadFraunces); b.addEventListener('focus', loadFraunces); b.addEventListener('touchstart', loadFraunces, { passive: true }); });
 
+  /* ---------------------------------------------------------------- the lamp: one pre-painted pool, moved with translate3d as the reader scrolls
+     Its anchors are the objects of the stops (the dish, the looks, the sheet, the phone, the name card); between two stops it
+     travels in a straight line; at the reels it dims to 80%; it goes out as the ivory tail comes up. Nothing is repainted. */
+  var lamp = $('#page-lamp');
+  if (lamp) (function () {
+    var anchors = [], tailTop = 0, vh = 0, pending = false;
+    function measure() {
+      vh = window.innerHeight || root.clientHeight; var y0 = window.pageYOffset || 0;
+      anchors = $$('[data-lamp="object"]').map(function (sec) {
+        var el = $('.stop-object, #hero-stage', sec) || sec, b = el.getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + y0 + b.height * 0.5, dim: parseFloat(sec.getAttribute('data-dim') || '1') };
+      }).sort(function (a, b) { return a.y - b.y; });
+      var tail = $('.ivory-tail'); tailTop = tail ? tail.getBoundingClientRect().top + y0 : Infinity;
+    }
+    function place() {
+      pending = false; if (!anchors.length) return;
+      var y = (window.pageYOffset || 0), at = y + vh * 0.5, i = 0;
+      while (i < anchors.length - 1 && anchors[i + 1].y < at) i++;
+      var a = anchors[i], b = anchors[Math.min(i + 1, anchors.length - 1)], span = Math.max(1, b.y - a.y), k = Math.max(0, Math.min(1, (at - a.y) / span));
+      var x = a.x + (b.x - a.x) * k, ly = a.y + (b.y - a.y) * k, dim = a.dim + (b.dim - a.dim) * k;
+      var out = Math.max(0, Math.min(1, (y + vh - tailTop + vh * 0.2) / (vh * 0.9)));                 // the ivory tail comes up: the lamp goes out
+      lamp.style.transform = 'translate3d(' + Math.round(x) + 'px,' + Math.round(ly - y) + 'px,0)';
+      lamp.style.opacity = String((dim * (1 - out)).toFixed(3));
+    }
+    function ask() { if (!pending) { pending = true; requestAnimationFrame(place); } }
+    measure(); place();
+    window.addEventListener('scroll', ask, { passive: true });
+    window.addEventListener('resize', function () { measure(); ask(); });
+    window.addEventListener('load', function () { measure(); ask(); });
+    doc.addEventListener('mana:lang', function () { setTimeout(function () { measure(); ask(); }, 50); });
+    if ('ResizeObserver' in window) new ResizeObserver(function () { measure(); ask(); }).observe(doc.body);
+  })();
+
+  /* ---------------------------------------------------------------- stop 4: the film on the phone, played once when it is on screen, then held */
+  var reel = $('.reel-video');
+  if (reel && 'IntersectionObserver' in window) (function () {
+    var started = false;
+    function start() {
+      if (started) return; started = true;
+      var u = (lang() === 'en' && reel.getAttribute('data-mp4-en')) || reel.getAttribute('data-mp4'); if (!u) return;
+      reel.muted = true; reel.loop = false; reel.src = u;
+      reel.addEventListener('playing', function () { reel.closest('.reel-phone').setAttribute('data-film', 'on'); }, { once: true });
+      var p = reel.play(); if (p && p.catch) p.catch(function () { /* refused: the still stays */ });
+    }
+    if (saveData || reduced) return;                                                                  // the poster stays
+    new IntersectionObserver(function (e, io) { if (e[0].isIntersecting) { io.disconnect(); start(); } }, { threshold: 0.5 }).observe(reel);
+  })();
+
   /* ---------------------------------------------------------------- glass: blur only while the page keeps up. Ten frames are sampled on the first scroll; under 30 a second the pill goes solid. */
   if (!mq('(prefers-reduced-transparency: reduce)')) (function () {
     var done = false;

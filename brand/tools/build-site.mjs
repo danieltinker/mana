@@ -140,6 +140,28 @@ const nameCard = `<svg viewBox="0 0 320 230" aria-hidden="true">
   <path d="M90 170 L230 170 L229 172 L91 172 Z" fill="#a89f91"/>
   <path class="card-ring" pathLength="1" d="M160 206 A132 38 0 1 1 160 130 A132 38 0 1 1 160 206"/>
 </svg>`;
+/* stop 3: the Olea room's plan (seating/fixtures/olea.layout.json), drawn in the page's line style on a cream sheet: walls, the
+   door and the window, the zones as soft areas, the tables by shape, one of them lit. Metres are the unit (the viewBox is the room). */
+const LAYOUT = JSON.parse(readFileSync(join(ROOT, 'seating', 'fixtures', 'olea.layout.json'), 'utf8'));
+function planSvg(half, litId) {
+  const { w, d } = LAYOUT.room, ink = 'rgba(60,44,28,.78)', soft = 'rgba(60,44,28,.1)';
+  const foot = (t) => (t.shape === 'round' ? { r: .3 + Math.min(8, t.seats) * .045 } : t.shape === 'square' ? { w: t.seats <= 2 ? .72 : .92, h: t.seats <= 2 ? .72 : .92 } : t.shape === 'long' ? { w: 1 + Math.ceil(t.seats / 2) * .62, h: .92 } : { w: Math.max(2.2, t.seats * .58), h: .5 });
+  const walls = (LAYOUT.walls || []).map((wl) => {
+    const a = wl.from, b = wl.to; if (wl.kind === 'door' && wl.gap) { const v = [b[0] - a[0], b[1] - a[1]], L = Math.hypot(v[0], v[1]), u = [v[0] / L, v[1] / L], g0 = [a[0] + u[0] * wl.gap[0], a[1] + u[1] * wl.gap[0]], g1 = [a[0] + u[0] * wl.gap[1], a[1] + u[1] * wl.gap[1]];
+      return `<path d="M${a} L${g0} M${g1} L${b}" stroke="${ink}" stroke-width=".09" stroke-linecap="round"/><path d="M${g0} L${g1}" stroke="${ink}" stroke-width=".04" stroke-dasharray=".12 .12"/>`; }
+    return `<path d="M${a} L${b}" stroke="${ink}" stroke-width="${wl.kind === 'window' ? .05 : .09}" stroke-linecap="round"${wl.kind === 'window' ? ' stroke-dasharray=".5 .18"' : ''}/>`; }).join('');
+  const zones = LAYOUT.zones.map((z) => `<rect x="${z.rect[0] + .25}" y="${z.rect[1] + .25}" width="${z.rect[2] - z.rect[0] - .5}" height="${z.rect[3] - z.rect[1] - .5}" rx=".3" fill="${soft}"/>`).join('');
+  const tables = LAYOUT.tables.map((t) => { const f = foot(t), lit = t.id === litId, g = `transform="translate(${t.x} ${t.z}) rotate(${t.rot || 0})"`;
+    const shape = t.shape === 'round' ? `<circle r="${f.r}" fill="#fbf7ef" stroke="${ink}" stroke-width=".05"/>` : `<rect x="${-f.w / 2}" y="${-f.h / 2}" width="${f.w}" height="${f.h}" rx=".08" fill="#fbf7ef" stroke="${ink}" stroke-width=".05"/>`;
+    return `<g ${g}>${shape}${lit ? `<circle class="plan-lit" r=".22" fill="#F5B120"/><circle class="plan-lit plan-glow" r=".6" fill="#F5B120" opacity=".2"/>` : ''}</g>`; }).join('');
+  const vb = half === 'far' ? `0 0 ${w} ${d / 2}` : half === 'near' ? `0 ${d / 2} ${w} ${d / 2}` : `0 0 ${w} ${d}`;
+  return `<svg viewBox="${vb}" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="${w}" height="${d}" fill="#f4efe5"/>${zones}${walls}${tables}</svg>`;
+}
+/* the sheet: its near half lies on the table; its far half starts folded over it and unfolds once, in view */
+const sheet = (litId) => `<div class="sheet-stage"><div class="sheet" role="img" data-label-he="תוכנית קומה עם שולחן אחד נבחר" data-label-en="A floor plan with one table chosen" aria-label="תוכנית קומה עם שולחן אחד נבחר">
+        <div class="sheet-far">${planSvg('far', litId)}<i class="sheet-back" aria-hidden="true"></i></div>
+        <div class="sheet-near">${planSvg('near', litId)}</div>
+      </div></div>`;
 /* six plain benefits and four "what you learn" lines: 24 × 24 line icons */
 const ico = {
   noapp: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.8" width="10" height="18.4" rx="2.6" ${LINE}/><path d="M10.5 18h3" ${LINE}/><path d="M9.8 9.3l4.4 4.4M14.2 9.3l-4.4 4.4" ${LINE}/></svg>`,
@@ -198,6 +220,8 @@ const dashboard = () => `<figure class="dash reveal" aria-labelledby="dash-cap">
       </figure>`;
 
 /* ------------------------------------------------------------------------------------------------ index */
+/* stop 2: three of the looks (templates/templates.v1.json), their stills rendered from the engine (view/looks/img, copied to img/looks/) */
+const LOOKS = [['album-side', 'צד א׳', 'Album Side'], ['casablanca-white', 'לבן קזבלנקה', 'Casablanca White'], ['back-door', 'הדלת האחורית', 'Back Door']];
 const perks = [
   ['noapp', 'בלי אפליקציה לסועדים', 'No app for guests'],
   ['langs', 'עברית ואנגלית', 'Hebrew and English'],
@@ -243,12 +267,13 @@ export function renderIndex(media = mediaFound(), opts = {}) {
     descEn: 'A QR menu that shows your dishes on the table, in relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.',
     config: true
   }) + `
-<body>
+<body class="on-table">
+<div class="page-table" aria-hidden="true"></div><div class="page-lamp" id="page-lamp" aria-hidden="true"></div>
 <a class="skip" href="#main">${t('דילוג לתוכן', 'Skip to content')}</a>
 ${header()}
 <main id="main">
 
-<section class="hero table" aria-labelledby="hero-h">
+<section class="hero" aria-labelledby="hero-h" data-lamp="object">
   <div class="hero-grid">
     <div class="hero-words">
       <h1 id="hero-h">${t('רואים את המנה לפני שמזמינים.', 'See the dish before you order.')}</h1>
@@ -268,8 +293,8 @@ ${header()}
   </div>
 </section>
 
-<section class="flow reveal" id="how" aria-labelledby="how-h">
-  <div class="wrap">
+<section class="flow glass-sec reveal" id="how" aria-labelledby="how-h">
+  <div class="wrap"><div class="glass">
     <h2 id="how-h">${t('שלושה צעדים', 'Three steps')}</h2>
     <div class="flow-rail">
       <svg class="flow-line" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><path class="straight" pathLength="1" d="M0 12H100"/><path class="wave" pathLength="1" d="M0 12C9 3 17 3 25 12s16 9 25 0 16-9 25 0 16 9 25 0"/></svg>
@@ -290,11 +315,24 @@ ${header()}
         </li>
       </ol>
     </div>
+  </div></div>
+</section>
+
+<section class="stop looks reveal" id="looks" aria-labelledby="looks-h" data-lamp="object">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="looks-h">${t('התפריט שלכם, המראה שלכם', 'Your menu, your look')}</h2>
+      ${p('בונים לבד. הסועדים לא צריכים אפליקציה. המראה של המקום שלכם.', 'Build it yourself. Guests need no app. Your place’s look.')}
+    </div>
+    <figure class="looks-row stop-object">
+      ${LOOKS.map(([id, he, en], i) => `<a class="look" style="--i:${i}" href="./view/?demo=olea&amp;template=${id}&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=${id}&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=${id}&amp;lang=en"><img src="./img/looks/${id}.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="${3 + i}"><span class="look-name">${t(he, en)}</span></a>`).join('\n      ')}
+      <figcaption class="demo-tag"><b>${t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI')}</b></figcaption>
+    </figure>
   </div>
 </section>
 
-<section class="band-dark demo" id="demo" aria-labelledby="demo-h">
-  <div class="wrap demo-grid">
+<section class="demo glass-sec" id="demo" aria-labelledby="demo-h">
+  <div class="wrap"><div class="glass demo-grid">
     <div class="demo-words">
       <h2 id="demo-h">${t('נסו בעצמכם', 'Try it yourself')}</h2>
       <ul class="gest">
@@ -312,11 +350,22 @@ ${header()}
         </div>
       </div>
     </div>
+  </div></div>
+</section>
+
+<section class="stop seat reveal" id="seat" aria-labelledby="seat-h" data-lamp="object">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="seat-h">${t('המקום שלכם', 'Your seat')}</h2>
+      ${p('הסועדים בוחרים אזור או שולחן. אתם מאשרים.', 'Guests pick an area or a table. You approve.')}
+      <p class="stop-link"><a class="btn" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en">${t('לנסות את מפת הישיבה', 'Try the seat map')}</a></p>
+    </div>
+    <div class="stop-object">${sheet('w3')}</div>
   </div>
 </section>
 
-<section class="nums" id="numbers" aria-labelledby="nums-h">
-  <div class="wrap nums-grid">
+<section class="nums glass-sec" id="numbers" aria-labelledby="nums-h">
+  <div class="wrap"><div class="glass nums-grid">
     <div class="nums-words">
       <h2 id="nums-h">${t('מה תדעו על הסועדים', 'What you learn about guests')}</h2>
       <ul class="learn">
@@ -326,19 +375,40 @@ ${header()}
     <div class="nums-dash">
       ${dashboard()}
     </div>
+  </div></div>
+</section>
+
+<section class="stop reels reveal" id="reels" aria-labelledby="reels-h" data-lamp="object" data-dim="0.8">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="reels-h">${t('האתר שלכם, הרילסים שלכם', 'Your site, your reels')}</h2>
+      ${p('תפריט אחד, אתר אחד, רילסים כדי להתחיל.', 'One menu, one site, reels to start.')}
+    </div>
+    <figure class="reel stop-object">
+      <div class="reel-phone phone">
+        <div class="phone-screen">
+          <!-- the still is the picture under the film (lazy: it is far below the fold); the film plays once when the phone is on screen, from script:
+               no source, no poster and no autoplay here, so nothing is fetched before then -->
+          <img class="phone-poster" src="./img/hero-poster-480.jpg" srcset="./img/hero-poster-480.jpg 480w, ./img/hero-poster.jpg 720w" sizes="230px" width="720" height="1560" loading="lazy" decoding="async" alt="" aria-hidden="true">
+          <video class="reel-video" muted playsinline preload="none" width="390" height="844" tabindex="-1"${media.heroMp4 ? ` data-mp4="./img/hero.mp4"` : ''}${media.heroEnMp4 ? ` data-mp4-en="./img/hero-en.mp4"` : ''} data-label-he="התפריט של אוליאה בטלפון של סועד" data-label-en="The Olea menu on a guest’s phone" aria-label="התפריט של אוליאה בטלפון של סועד"></video>
+        </div>
+      </div>
+      <img class="reel-reflect" src="./img/hero-poster-480.jpg" width="480" height="1040" loading="lazy" decoding="async" alt="" aria-hidden="true">
+      <figcaption class="demo-tag"><b>${t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI')}</b></figcaption>
+    </figure>
   </div>
 </section>
 
-<section class="perks" aria-labelledby="perks-h">
-  <div class="wrap">
+<section class="perks glass-sec" aria-labelledby="perks-h">
+  <div class="wrap"><div class="glass">
     <h2 class="vh" id="perks-h">${t('מה מקבלים', 'What you get')}</h2>
     <ul>
       ${perks.map(([i, he, en]) => `<li>${ico[i]}${t(he, en)}</li>`).join('\n      ')}
     </ul>
-  </div>
+  </div></div>
 </section>
 
-<section class="start table reveal" id="price" aria-labelledby="price-h">
+<section class="start stop reveal" id="price" aria-labelledby="price-h" data-lamp="object">
   <div class="wrap start-grid">
     <div class="start-words">
       <h2 class="big" id="price-h">${t('30 יום חינם', '30 days free')}</h2>
@@ -354,6 +424,7 @@ ${header()}
   </div>
 </section>
 
+<div class="ivory-tail">
 <section class="qa" id="faq" aria-labelledby="faq-h">
   <div class="wrap qa-grid">
     <h2 id="faq-h">${t('שאלות', 'Questions')}</h2>
@@ -397,6 +468,7 @@ ${header()}
 
 </main>
 ${footer()}
+</div>
 ${film ? `<dialog class="film" id="film" aria-labelledby="film-t">
   <h2 class="vh" id="film-t">${t('הסרט של מנה', 'The Mana film')}</h2>
   <video controls playsinline preload="none"></video>
@@ -404,7 +476,7 @@ ${film ? `<dialog class="film" id="film" aria-labelledby="film-t">
 </dialog>
 ` : ''}<script src="./mana.js"></script>
 <script>/* picture descriptions, per language */
-(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table'}};
+(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ',3:'תפריט ההדגמה במראה צד א׳: מנות על בטון, ממוספרות כמו שירים בתקליט',4:'תפריט ההדגמה במראה לבן קזבלנקה: מנות על שיש לבן',5:'תפריט ההדגמה במראה הדלת האחורית: מנות על אגוז, באור ענבר נמוך'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table',3:'The demo menu in the Album Side look: dishes on concrete, numbered like tracks',4:'The demo menu in the Casablanca White look: dishes on white marble',5:'The demo menu in the Back Door look: dishes on walnut, in low amber light'}};
 function f(){var l=document.documentElement.lang==='en'?'en':'he';[].forEach.call(document.querySelectorAll('img[data-alt]'),function(i){i.alt=A[l][i.getAttribute('data-alt')];});}f();document.addEventListener('mana:lang',f);})();</script>
 </body>
 </html>

@@ -32,7 +32,8 @@
 <script>/* what the product can do today, before first paint: the menu scanner is named only when it is switched on */
 (function(){var c=window.HALOM_MENUS_CONFIG;if(c&&c.features&&c.features.scan===true)document.documentElement.setAttribute('data-scan','1');})();</script>
 </head>
-<body>
+<body class="on-table">
+<div class="page-table" aria-hidden="true"></div><div class="page-lamp" id="page-lamp" aria-hidden="true"></div>
 <a class="skip" href="#main"><span class="he" lang="he">דילוג לתוכן</span><span class="en" lang="en">Skip to content</span></a>
 <header class="top">
   <div class="pill">
@@ -45,7 +46,7 @@
 </header>
 <main id="main">
 
-<section class="hero table" aria-labelledby="hero-h">
+<section class="hero" aria-labelledby="hero-h" data-lamp="object">
   <div class="hero-grid">
     <div class="hero-words">
       <h1 id="hero-h"><span class="he" lang="he">רואים את המנה לפני שמזמינים.</span><span class="en" lang="en">See the dish before you order.</span></h1>
@@ -65,8 +66,8 @@
   </div>
 </section>
 
-<section class="flow reveal" id="how" aria-labelledby="how-h">
-  <div class="wrap">
+<section class="flow glass-sec reveal" id="how" aria-labelledby="how-h">
+  <div class="wrap"><div class="glass">
     <h2 id="how-h"><span class="he" lang="he">שלושה צעדים</span><span class="en" lang="en">Three steps</span></h2>
     <div class="flow-rail">
       <svg class="flow-line" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><path class="straight" pathLength="1" d="M0 12H100"/><path class="wave" pathLength="1" d="M0 12C9 3 17 3 25 12s16 9 25 0 16-9 25 0 16 9 25 0"/></svg>
@@ -109,11 +110,26 @@
         </li>
       </ol>
     </div>
+  </div></div>
+</section>
+
+<section class="stop looks reveal" id="looks" aria-labelledby="looks-h" data-lamp="object">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="looks-h"><span class="he" lang="he">התפריט שלכם, המראה שלכם</span><span class="en" lang="en">Your menu, your look</span></h2>
+      <p class="he" lang="he">בונים לבד. הסועדים לא צריכים אפליקציה. המראה של המקום שלכם.</p><p class="en" lang="en">Build it yourself. Guests need no app. Your place’s look.</p>
+    </div>
+    <figure class="looks-row stop-object">
+      <a class="look" style="--i:0" href="./view/?demo=olea&amp;template=album-side&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=album-side&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=album-side&amp;lang=en"><img src="./img/looks/album-side.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="3"><span class="look-name"><span class="he" lang="he">צד א׳</span><span class="en" lang="en">Album Side</span></span></a>
+      <a class="look" style="--i:1" href="./view/?demo=olea&amp;template=casablanca-white&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=casablanca-white&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=casablanca-white&amp;lang=en"><img src="./img/looks/casablanca-white.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="4"><span class="look-name"><span class="he" lang="he">לבן קזבלנקה</span><span class="en" lang="en">Casablanca White</span></span></a>
+      <a class="look" style="--i:2" href="./view/?demo=olea&amp;template=back-door&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=back-door&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=back-door&amp;lang=en"><img src="./img/looks/back-door.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="5"><span class="look-name"><span class="he" lang="he">הדלת האחורית</span><span class="en" lang="en">Back Door</span></span></a>
+      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b></figcaption>
+    </figure>
   </div>
 </section>
 
-<section class="band-dark demo" id="demo" aria-labelledby="demo-h">
-  <div class="wrap demo-grid">
+<section class="demo glass-sec" id="demo" aria-labelledby="demo-h">
+  <div class="wrap"><div class="glass demo-grid">
     <div class="demo-words">
       <h2 id="demo-h"><span class="he" lang="he">נסו בעצמכם</span><span class="en" lang="en">Try it yourself</span></h2>
       <ul class="gest">
@@ -131,11 +147,25 @@
         </div>
       </div>
     </div>
+  </div></div>
+</section>
+
+<section class="stop seat reveal" id="seat" aria-labelledby="seat-h" data-lamp="object">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="seat-h"><span class="he" lang="he">המקום שלכם</span><span class="en" lang="en">Your seat</span></h2>
+      <p class="he" lang="he">הסועדים בוחרים אזור או שולחן. אתם מאשרים.</p><p class="en" lang="en">Guests pick an area or a table. You approve.</p>
+      <p class="stop-link"><a class="btn" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en"><span class="he" lang="he">לנסות את מפת הישיבה</span><span class="en" lang="en">Try the seat map</span></a></p>
+    </div>
+    <div class="stop-object"><div class="sheet-stage"><div class="sheet" role="img" data-label-he="תוכנית קומה עם שולחן אחד נבחר" data-label-en="A floor plan with one table chosen" aria-label="תוכנית קומה עם שולחן אחד נבחר">
+        <div class="sheet-far"><svg viewBox="0 0 14 5" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="14" height="10" fill="#f4efe5"/><rect x="10.25" y="0.25" width="3.5" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="2.75" width="6" height="7" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="0.25" width="6" height="2" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="0.25" y="0.25" width="3" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><path d="M0,0 L14,0" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M14,0 L14,10" stroke="rgba(60,44,28,.78)" stroke-width="0.05" stroke-linecap="round" stroke-dasharray=".5 .18"/><path d="M14,10 L0,10" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M0,10 L0,6 M0,4 L0,0" stroke="rgba(60,44,28,.78)" stroke-width=".09" stroke-linecap="round"/><path d="M0,6 L0,4" stroke="rgba(60,44,28,.78)" stroke-width=".04" stroke-dasharray=".12 .12"/><g transform="translate(12.4 1.6) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 4) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 6.4) rotate(0)"><rect x="-0.46" y="-0.46" width="0.92" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/><circle class="plan-lit" r=".22" fill="#F5B120"/><circle class="plan-lit plan-glow" r=".6" fill="#F5B120" opacity=".2"/></g><g transform="translate(12.4 8.6) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.6 9) rotate(0)"><rect x="-1.74" y="-0.46" width="3.48" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.75 1) rotate(0)"><rect x="-1.7399999999999998" y="-0.25" width="3.4799999999999995" height="0.5" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 2) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 8) rotate(0)"><circle r="0.435" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g></svg><i class="sheet-back" aria-hidden="true"></i></div>
+        <div class="sheet-near"><svg viewBox="0 5 14 5" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="14" height="10" fill="#f4efe5"/><rect x="10.25" y="0.25" width="3.5" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="2.75" width="6" height="7" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="0.25" width="6" height="2" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="0.25" y="0.25" width="3" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><path d="M0,0 L14,0" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M14,0 L14,10" stroke="rgba(60,44,28,.78)" stroke-width="0.05" stroke-linecap="round" stroke-dasharray=".5 .18"/><path d="M14,10 L0,10" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M0,10 L0,6 M0,4 L0,0" stroke="rgba(60,44,28,.78)" stroke-width=".09" stroke-linecap="round"/><path d="M0,6 L0,4" stroke="rgba(60,44,28,.78)" stroke-width=".04" stroke-dasharray=".12 .12"/><g transform="translate(12.4 1.6) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 4) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 6.4) rotate(0)"><rect x="-0.46" y="-0.46" width="0.92" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/><circle class="plan-lit" r=".22" fill="#F5B120"/><circle class="plan-lit plan-glow" r=".6" fill="#F5B120" opacity=".2"/></g><g transform="translate(12.4 8.6) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.6 9) rotate(0)"><rect x="-1.74" y="-0.46" width="3.48" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.75 1) rotate(0)"><rect x="-1.7399999999999998" y="-0.25" width="3.4799999999999995" height="0.5" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 2) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 8) rotate(0)"><circle r="0.435" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g></svg></div>
+      </div></div></div>
   </div>
 </section>
 
-<section class="nums" id="numbers" aria-labelledby="nums-h">
-  <div class="wrap nums-grid">
+<section class="nums glass-sec" id="numbers" aria-labelledby="nums-h">
+  <div class="wrap"><div class="glass nums-grid">
     <div class="nums-words">
       <h2 id="nums-h"><span class="he" lang="he">מה תדעו על הסועדים</span><span class="en" lang="en">What you learn about guests</span></h2>
       <ul class="learn">
@@ -168,11 +198,32 @@
         </div>
       </figure>
     </div>
+  </div></div>
+</section>
+
+<section class="stop reels reveal" id="reels" aria-labelledby="reels-h" data-lamp="object" data-dim="0.8">
+  <div class="wrap stop-grid">
+    <div class="stop-words glass">
+      <h2 id="reels-h"><span class="he" lang="he">האתר שלכם, הרילסים שלכם</span><span class="en" lang="en">Your site, your reels</span></h2>
+      <p class="he" lang="he">תפריט אחד, אתר אחד, רילסים כדי להתחיל.</p><p class="en" lang="en">One menu, one site, reels to start.</p>
+    </div>
+    <figure class="reel stop-object">
+      <div class="reel-phone phone">
+        <div class="phone-screen">
+          <!-- the still is the picture under the film (lazy: it is far below the fold); the film plays once when the phone is on screen, from script:
+               no source, no poster and no autoplay here, so nothing is fetched before then -->
+          <img class="phone-poster" src="./img/hero-poster-480.jpg" srcset="./img/hero-poster-480.jpg 480w, ./img/hero-poster.jpg 720w" sizes="230px" width="720" height="1560" loading="lazy" decoding="async" alt="" aria-hidden="true">
+          <video class="reel-video" muted playsinline preload="none" width="390" height="844" tabindex="-1" data-mp4="./img/hero.mp4" data-mp4-en="./img/hero-en.mp4" data-label-he="התפריט של אוליאה בטלפון של סועד" data-label-en="The Olea menu on a guest’s phone" aria-label="התפריט של אוליאה בטלפון של סועד"></video>
+        </div>
+      </div>
+      <img class="reel-reflect" src="./img/hero-poster-480.jpg" width="480" height="1040" loading="lazy" decoding="async" alt="" aria-hidden="true">
+      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b></figcaption>
+    </figure>
   </div>
 </section>
 
-<section class="perks" aria-labelledby="perks-h">
-  <div class="wrap">
+<section class="perks glass-sec" aria-labelledby="perks-h">
+  <div class="wrap"><div class="glass">
     <h2 class="vh" id="perks-h"><span class="he" lang="he">מה מקבלים</span><span class="en" lang="en">What you get</span></h2>
     <ul>
       <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.8" width="10" height="18.4" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 18h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.8 9.3l4.4 4.4M14.2 9.3l-4.4 4.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">בלי אפליקציה לסועדים</span><span class="en" lang="en">No app for guests</span></li>
@@ -182,10 +233,10 @@
       <li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="10.5" cy="15" rx="8" ry="4.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.2 2.6"/><path d="M14.5 10.5l5.3-5.3 1.9 1.9-5.3 5.3-2.5.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">איורים עד שיש תמונות</span><span class="en" lang="en">Illustrations until you have photos</span></li>
       <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="17.6" font-family="Frank Ruhl Libre,serif" font-size="7.5" font-weight="500" text-anchor="middle" fill="currentColor">30</text></svg><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">Free for 30 days</span></li>
     </ul>
-  </div>
+  </div></div>
 </section>
 
-<section class="start table reveal" id="price" aria-labelledby="price-h">
+<section class="start stop reveal" id="price" aria-labelledby="price-h" data-lamp="object">
   <div class="wrap start-grid">
     <div class="start-words">
       <h2 class="big" id="price-h"><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">30 days free</span></h2>
@@ -212,6 +263,7 @@
   </div>
 </section>
 
+<div class="ivory-tail">
 <section class="qa" id="faq" aria-labelledby="faq-h">
   <div class="wrap qa-grid">
     <h2 id="faq-h"><span class="he" lang="he">שאלות</span><span class="en" lang="en">Questions</span></h2>
@@ -270,6 +322,7 @@
     <p class="foot-fine"><a href="https://halom.io" lang="en" dir="ltr">Mana by Halom</a><bdi dir="ltr" lang="en">Dreams, realized · חלומות מתגשמים</bdi></p>
   </div>
 </footer>
+</div>
 <dialog class="film" id="film" aria-labelledby="film-t">
   <h2 class="vh" id="film-t"><span class="he" lang="he">הסרט של מנה</span><span class="en" lang="en">The Mana film</span></h2>
   <video controls playsinline preload="none"></video>
@@ -277,7 +330,7 @@
 </dialog>
 <script src="./mana.js"></script>
 <script>/* picture descriptions, per language */
-(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table'}};
+(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ',3:'תפריט ההדגמה במראה צד א׳: מנות על בטון, ממוספרות כמו שירים בתקליט',4:'תפריט ההדגמה במראה לבן קזבלנקה: מנות על שיש לבן',5:'תפריט ההדגמה במראה הדלת האחורית: מנות על אגוז, באור ענבר נמוך'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table',3:'The demo menu in the Album Side look: dishes on concrete, numbered like tracks',4:'The demo menu in the Casablanca White look: dishes on white marble',5:'The demo menu in the Back Door look: dishes on walnut, in low amber light'}};
 function f(){var l=document.documentElement.lang==='en'?'en':'he';[].forEach.call(document.querySelectorAll('img[data-alt]'),function(i){i.alt=A[l][i.getAttribute('data-alt')];});}f();document.addEventListener('mana:lang',f);})();</script>
 </body>
 </html>

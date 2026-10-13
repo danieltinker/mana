@@ -182,7 +182,7 @@ async function startStage() {
   if (!store || store.getState().simple) return;
   const money = (p, l) => (p && p.amount != null ? formatMoney(p.amount, p.currency, l) : '');
   stage = mod && !NO_GL ? mod.createStage({
-    canvas: $('gl'), glide, theme: store.getModel().snapshot.theme, intro: !TEST, themes: new URL('themes/', document.baseURI).href, reduce, walk: WALK,
+    canvas: $('gl'), glide, theme: store.getModel().snapshot.theme, intro: !TEST, themes: new URL('themes/', document.baseURI).href, reduce, walk: WALK, /* night:page */ sway: HERO_SWAY, /* /night:page */
     bloom: Q.get('bloom') !== '0', auto: !TEST && Q.get('adapt') !== 'off', pixelRatio: Q.get('pr') ? Number(Q.get('pr')) : 0, wake: () => ticker.wake(),
     cardInfo(item) { const l = store.getState().lang; return { title: tx(item.name, l), price: money(item.price, l), rtl: isRtl(l) }; },
     onFrame: (f) => ui.layout(f), onLift: (L) => ui.setLift(L), sheet: () => ui.sheet(), onCut: (picture) => ui.cut(picture),
@@ -307,7 +307,9 @@ const api = {
 window.__mana = window.__menu = api;
 if (CAPTURE) $('app').classList.add('capture');
 /* night:page */
-/* hero mode (the product page's first screen): the dish alone, no chrome, scripted once; see hero.js. A separate chunk: a guest's menu never loads it. */
+/* hero mode (the product page's first screen): the dish alone, no chrome, scripted once; see hero.js. A separate chunk: a guest's menu never loads it.
+   HERO_SWAY: the stage's rest sway, halved in hero mode (yaw ≤ 2°); declared here, read by startStage above (hoisted const: startStage runs after the snapshot). */
+const HERO_SWAY = Q.get('embed') === 'hero' ? .5 : 1;
 if (Q.get('embed') === 'hero') { $('app').classList.add('hero'); import('./hero.js').then((m) => m.start({ api, ticker, reduce, debug: Q.get('debug') === '1' })).catch(() => {}); }
 /* /night:page */
 boot();
