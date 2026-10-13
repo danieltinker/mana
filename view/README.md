@@ -19,7 +19,9 @@ src/
   ui.js         everything a guest reads (real DOM)                         gestures.js  which finger movement means what
   main.js       boot order: text → table → pictures; wiring; the filming API
   scenes/walk.js  the table as geometry: how it is set (where dishes stand), the camera, sizes on screen (pure)
-  gl/           the stage (three.js) and the shaders          drinks/   drawn wine and beer, the pour
+  scenes/rooms.js which room a category is in (pure)            gl/rooms.js  what each room is made of: counter, backdrop, props
+  gl/           the stage (three.js) and the shaders          drinks/   drawn wine and beer, the pour, taste.js (what a guest wants to know)
+  tags.js       the taste tags of a wine or a beer (icons)    trayset.js   "my table" setting itself (a small canvas)
 test/  tools/  films/                  tests, local server with a backend stub, build, film tool and its scripts
 ```
 
@@ -78,12 +80,66 @@ overshoot, nothing rises; a change of section or of room is a plain cross-fade f
   down as the table moves on, and nothing comes up while the table is still flying (`CALM`). The camera stands back a
   touch in flight and comes in as it lands (`BREATH`); never under a finger. While dishes fly past, the card says their
   names dimmed and does not fade for each one.
-- **The bar** keeps its own setting (every drink the same room, a little to one side then the other so the one behind
-  is not hidden) and its own light.
+- **The drinks rooms** (and the bar of before) keep their own setting: every drink has the same room, a little to one side then
+  the other so the one behind is not hidden (at the taps a straight row, seen from the side), and their own light.
 - **From the table to the bar and back** (`across` in `sync`, `S.edge`, `stepRooms`): the other room lies further along
   the same walk, beyond a stretch of dark. Both are in the picture for a moment, each on its own side of a line across
   the walk and each with its own light; the camera, the lamp and the eye (45° to 31°) make one move. Turning round half
   way is the same move back across the same line. The same code runs for a chip, a swipe, a key, a link and Back.
+
+## The rooms of the place
+The menu is a walk through a restaurant, not one long table. Each kind of category has its own room, with its own eye, light,
+pace, counter, props and backdrop (`scenes/rooms.js` chooses, `scenes/walk.js` holds each room's camera as a preset of the same
+name, `gl/rooms.js` draws it):
+
+| Room | For | The eye | What is there |
+|---|---|---|---|
+| `table` | food | 45°, straight down the table | the long table under one lamp, as before |
+| `vitrine` | desserts (and sandwiches, by choice) | 36°, a guest's eye a little above the case; the dish drawn smaller, so the case shows | a glass case with brass edges and a strip of light inside, pale marble; each dish on a riser of one of three heights, read from the dish itself (a tall dessert low, a flat tart raised); the eye rises and settles with them |
+| `cellar` | wine | 29° | dark oak counter between a wall of glass-door wine fridges (lit racks, the ends of bottles, a little mist) and oak barrels, boutique shelves behind, a barrel vault far behind; lifted, the bottle comes off the rack towards the guest, turns once, and pours |
+| `taps` | beer | 22°, three-quarter on (from the side) | a straight row of brass taps on a glossy counter, a brass drip tray and rail, warm bulbs hanging over it, a tiled beer bar far behind; lifted, the tap pours with a head |
+| `cocktail` | drinks | 43°, from above and to one side (the old bar's 31° was "too flat for drinks"; the cold drinks were photographed at 45°, which this eye now matches) | a dark honed bar, a backlit back-bar, a cocktail bar far behind |
+
+- **Which room.** A category's room follows its `kind` (food → table, dessert → vitrine, wine → cellar, beer → taps, drinks →
+  cocktail). The snapshot's optional `category.room` lets an owner choose another (CONTRACT.md, r2); an unknown value is
+  ignored. `scene: 'table'` still keeps a category on the table, `scene: 'bar'` puts it in the drinks room of its kind,
+  `'holo'` is the projector. `?rooms=off` shows the two rooms of before (the table and one bar), for comparison; the older
+  browser tests of the walk run that way.
+- **From one room to the next** is the walk between the table and the bar of before, for every pair of rooms: the next room lies
+  further along the same walk beyond a stretch of dark, both are in the picture for a moment, each on its own side of a line
+  across the walk with its own light; the eye changes height and swings round (`yaw`) in the same move. Two neighbouring
+  sections in the same room still lie on the same table, their names lettered between them.
+- **The backdrop.** One photograph of a place like it (`themes/rooms/*.jpg`, 1024 px, blurred; made with AI and listed in
+  `brand/site/img/AI-MEDIA.md`) stands behind everything, above the counter's far end (`wall`, from 7.4 to 9.2 behind the focus),
+  and drifts a little as the guest walks; the counter reflects it. The card says once, quietly, in those rooms: "Backdrop: made
+  with AI" / "רקע: נוצר בבינה מלאכותית". Past the counter's far end the room ends: a dish there is not drawn.
+- **Only the rooms near the guest exist.** A room (its counter, a few shapes, its one picture, 50–75 kB) is built when the guest is
+  in it or a neighbouring section is in it, so the walk there does not arrive in the dark. The first dish of Olea needs nothing
+  more than before.
+- **What stays honest.** A relief at rest is still exactly its photo (the props and the glass of the case never stand between the
+  eye and the dish in focus); placeholders and drawn drinks keep their labels.
+
+## Sold out
+A sold-out item moves to the end of its section, in the merchant's order, greyed (it loses its colour) and labelled "Sold out",
+so a section never opens on it. `business.soldOut: 'hide'` (snapshot, optional; default `'bottom'`) leaves sold-out items out of
+the menu altogether (a section with nothing left goes too). The list follows the same order (`servedOrder` in `store.js`).
+
+## Taste tags (wine and beer)
+Small tags with icons for what a guest wants to know: a wine's style in its own colour (red, white, rosé, orange, sparkling),
+sweetness (dry → sweet), body (light → full), acidity; a beer's style (lager, wheat, pale ale, IPA, amber, stout, sour),
+bitterness, strength as the merchant wrote it ("4.8%"); and notes (wine: mineral, citrus, red fruit, stone fruit, floral, oak,
+spice, earthy · beer: citrus, malt, roast, hops, tart, fruity, spice). On the card: the style and a few; in the open sheet: all of
+them, the scales as pips; in the list: the icons (their words for a screen reader).
+`drinks/taste.js` reads them from the merchant only: the fields (`details.wine.color`, `.notes`, the optional `.taste`;
+`details.beer.style`, `.abv`, `.taste`) are facts; words found in the merchant's own description (Hebrew and English, whole words,
+"חצי יבש" is not "יבש") are **suggested**: drawn with a dotted edge and "read from the description" / "לפי התיאור בתפריט". No word,
+no tag. The icons are one SVG set in `tags.js` (16 px grid, one line weight).
+
+## My table sets itself
+Opening "my table" plays a small scene at the top of the sheet: a linen cloth floats down onto the wood and settles, then a plate
+for each chosen dish arrives in turn with a little weight and a bounce (its own small picture), a glass for each drink, the
+cutlery beside (`trayset.js`; about two seconds, on the page's clock, so it films frame by frame). Reduced motion shows the table
+set at once. The canvas has a text equivalent (the dishes' names); the list under it is the real content.
 
 ## Honest looks
 A relief or a photo is shown in its true colour, solid on the table with its shadow. A placeholder from the stock library
@@ -130,6 +186,7 @@ contact sheet of consecutive frames:
 node tools/film.mjs films/hero.json                 → .shots/v2/hero.mp4          (390x844, 30 fps)
 node tools/film.mjs films/sheets.json               → .shots/v2/<name>.jpg        (frames every 50 ms)
 node tools/film.mjs films/guest-glide.json           → .shots/v2/guest-glide.mp4   (780x1688, the selling film's clip)
+node tools/film.mjs films/rooms.json                 → .shots/v2/rooms-*.mp4       (into the vitrine, the cellar's pour, the taps, the cocktail bar; my table as a sheet)
 node tools/film.mjs films/sheets.json --only hebrew [--out dir] [--keep] [--frames-only]
 node tools/proof.mjs                                → .shots/v2/fix/<shape>.jpg   stills at four screen shapes, and a count of black pixels
 STOCK=fixture node tools/film.mjs …                 the eight test placeholders instead of ../stock (the real library, the default)
@@ -149,12 +206,12 @@ ten minutes.
 npm install                 # three@0.128, esbuild, fonts (dev only)
 npm run build               # src/ → app.js, seat.js + chunks/ (not in git: `npm run serve` and `npm run test:browser` build first; CI builds in tools/build-site.sh)
 npm run serve               # http://localhost:8787/projects/menus/view/?demo=olea  and  /m/olea (stub: olea, kiosk, paused, flaky, slow, broken)
-npm test                    # physics, glide, store (fuzz), snapshot + counting against the stub, geometry (how the table is set), drinks
-npm run test:browser        # headless Chromium, one at a time: glide, categories, courses, the set table, table ↔ bar, lift, list, placeholders, /m/, preview, languages, reduced motion, no WebGL, the bar
+npm test                    # rooms, sold out, taste, my table; physics, glide, store (fuzz), snapshot + counting against the stub, geometry (how the table is set), drinks
+npm run test:browser        # headless Chromium, one at a time: glide, categories, courses, the set table, table ↔ bar, lift, list, placeholders, /m/, preview, languages, reduced motion, no WebGL, the bar; the rooms (rooms.browser.test.mjs)
 node test/load.mjs          # bytes a phone downloads before the first dish is sharp
 python3 tools/build-kiosk.py   # rebuilds demo/kiosk and demo/solo
 ```
-Query switches: `lang=he|en` · `walk=feed|pull` · `bloom=0` · `view=list` · `motion=reduce|full` · `pr=<pixel ratio>` · `adapt=off` ·
+Query switches: `lang=he|en` · `walk=feed|pull` · `rooms=off` (the table and the one bar of before) · `bloom=0` · `view=list` · `motion=reduce|full` · `pr=<pixel ratio>` · `adapt=off` ·
 `gl=off` (as a phone without WebGL) · `hint=1|0` · `finger=1` (show the scripted finger) · `test=1` · `capture=1` · demos only:
 `surface=<table id>|holo`, `template=<look id>` (templates/templates.v1.json; the gallery is `looks/`) · `embed=hero` (with `demo=solo`:
 the dish alone, for the product page's hero; `src/hero.js`; it talks to its page by `postMessage` `{type:'mana-hero'}`) ·

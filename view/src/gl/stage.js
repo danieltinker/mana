@@ -460,7 +460,7 @@ export function createStage(opts) {
     /* camera */
     const tg = camTargets();
     go(S.E, tg.E, S.edge ? 6.5 : 9); go(S.fov, F.fov, 6.5); go(S.D, F.D, 6.5); go(S.zoom, tg.zoom, 10); go(S.cy, tg.cy, S.edge && !lifted ? 6.5 : 11);      // into another room the eye comes down (or up) as slowly as the camera travels
-    go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.yawR, (P.yaw || 0) * (lifted ? .55 : 1), S.edge ? 4.5 : 7);      // a room seen from one side: the eye swings round as it walks in go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * (P.open ? .8 : .46) : P.pool * (1 + (reduce ? 0 : P.open || 0) * (G.mode === 'drag' || G.mode === 'wheel' ? 1 : 1 - calmOf(G))), lifted ? 7 : 4.2);      // on a set table the lamp opens while the guest is moving along it, and closes on the dish they stop at
+    go(S.lookY, tg.lookY, 11); go(S.offX, tg.offX, 9); go(S.yawR, (P.yaw || 0) * (lifted ? .55 : 1), S.edge ? 4.5 : 7); /* a room seen from one side: the eye swings round as it walks in */ go(S.lift, lifted ? 1 : 0, 12); go(S.pool, lifted ? P.pool * (P.open ? .8 : .46) : P.pool * (1 + (reduce ? 0 : P.open || 0) * (G.mode === 'drag' || G.mode === 'wheel' ? 1 : 1 - calmOf(G))), lifted ? 7 : 4.2);      // on a set table the lamp opens while the guest is moving along it, and closes on the dish they stop at
     if (opts.onLift) opts.onLift(clamp(S.lift.x, 0, 1.2));
     if (S.dragX.active) { S.dev.x = -S.dragX.dx / F.ppu * .3; S.dev.v = 0; moving = true; } else go(S.dev, 0, 12);      // a sideways push: the table gives a little; let go and the walk goes on to the next section
     go(S.devZ, 0, 5.6);                                      // on to the next section: a longer glide along the same table

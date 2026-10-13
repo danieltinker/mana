@@ -8,7 +8,7 @@ import { launch, listen, open, tableUp, settle, drag, VIEW } from './browser.mjs
 let srv, browser;
 before(async () => { srv = await listen(0); browser = await launch(['--disable-ipc-flooding-protection']); });
 after(async () => { await browser.close(); srv.server.close(); });
-const demo = (q = '', hash = '') => srv.origin + VIEW + '?demo=olea' + q + hash;
+const demo = (q = '', hash = '') => srv.origin + VIEW + '?demo=olea&rooms=off' + q + hash;      // the one bar of before; the pour in the cellar and at the taps: rooms.browser.test.mjs
 const st = (page) => page.evaluate(() => window.__mana.state());
 const info = (page) => page.evaluate(() => window.__mana.info());
 const actor = async (page, id) => (await info(page)).actors.find((a) => a.id === id);
