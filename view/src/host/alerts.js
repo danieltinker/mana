@@ -34,7 +34,7 @@ export function createAlerts({ reduce = false } = {}) {
         return true;
       } catch (e) { return false; }
     },
-    buzz() { try { if (!reduce && navigator.vibrate) navigator.vibrate([90, 70, 90]); } catch (e) { /* no motor */ } },
+    buzz() { try { if (!reduce && navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate([90, 70, 90]); } catch (e) { /* no motor */ } },      // only after a first tap: browsers refuse (and log) a buzz before it
     notify(title, body, tag) {
       try {
         if (!armed || !('Notification' in window) || Notification.permission !== 'granted') return false;

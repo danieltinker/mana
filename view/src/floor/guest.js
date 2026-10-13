@@ -94,7 +94,7 @@ function checkReady() {
   shownReady.add(key); sset('mana-floor:ready:' + venue + ':' + tableId, [...shownReady].join(','));
   /* the beep: three soft chimes; a buzz; a notice if allowed; the full-screen card */
   alerts.chime(); setTimeout(() => alerts.chime(.8), 700); setTimeout(() => alerts.chime(.6), 1400);
-  try { if (!reduce && navigator.vibrate) navigator.vibrate([180, 90, 180, 90, 260]); } catch (e) { /* no motor */ }
+  try { if (!reduce && navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate([180, 90, 180, 90, 260]); } catch (e) { /* no motor */ }      // only after a first tap (browsers refuse it before)
   alerts.notify(t('notifTitle', { no: o.no }), t('notifBody'), 'mana-ready-' + o.id);
   const card = h('div', { class: 'ready', id: 'readyCard', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'readyT', 'aria-describedby': 'readyB' }, [
     h('div', { class: 'rcard glass' }, [h('div', { class: 'ring', 'aria-hidden': 'true', html: '' }), h('h2', { id: 'readyT', text: t('readyTitle') }), h('p', { class: 'big', text: '#' + o.no }), h('p', { id: 'readyB', text: t('readyBody', { no: o.no }) }),
