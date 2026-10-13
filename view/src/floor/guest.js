@@ -91,7 +91,9 @@ function checkReady() {
 
 /* ---------- bidding at peak ---------- */
 function renderBids() {
-  const box = $('bidCard'); box.textContent = ''; if (!B) { box.hidden = true; return; }
+  /* built aside, then merged: a card is replaced only when it changed; the countdown alone is updated in place, so a
+     tap never lands on a button that is being swapped */
+  const real = $('bidCard'), box = document.createElement('div'); if (!B) { real.hidden = true; return; }
   const n = now(), view = tickBids(B, n).state, slots = openSlots(R.peaks, n), mine = Object.values(view.auctions).filter((a) => a.bids.some((b) => b.guest === me));
   box.hidden = !(slots.length && view.rules.tables.length) && !mine.length;
   box.append(h('h2', { text: t('bidTitle') }), h('p', { text: t('bidHint') }));
@@ -104,13 +106,18 @@ function renderBids() {
     const tb = tableById(L, a.table), stText = st === 'leading' ? t('leading') : st === 'outbid' ? t('outbid') : st === 'won' ? t('won', { table: zoneName(tb.zone), from: hm(a.start), to: hm(a.end) }) : st === 'lost' ? t('lost') : st === 'declined' ? t('declinedG') : '';
     const card = h('div', { class: 'gbid', 'data-key': a.key, 'data-st': st, 'data-table': a.table }, [
       h('div', { class: 'top' }, [h('b', { text: tFull(a.table) }), h('span', { class: 'amt', text: lead ? '₪' + lead.amount : win ? '₪' + win.amount : '' })]),
-      h('small', { text: '\u2066' + hm(a.start) + '–' + hm(a.end) + '\u2069 · ' + (a.phase === 'open' ? (lead ? t('current', { n: lead.amount }) : t('start', { n: view.rules.min })) + ' · ' + t('closesIn', { t: left(a.closesAt - n) }) : '') }),
+      h('small', {}, ['\u2066' + hm(a.start) + '–' + hm(a.end) + '\u2069 · ' + (a.phase === 'open' ? (lead ? t('current', { n: lead.amount }) : t('start', { n: view.rules.min })) + ' · ' : ''), a.phase === 'open' ? h('span', { class: 'cd', text: t('closesIn', { t: left(a.closesAt - n) }) }) : null]),
       stText ? h('p', { class: 'st', role: 'status', text: stText + (st === 'won' && view.rules.credit ? ' · ' + t('creditG') : '') }) : null,
       a.phase === 'open' && st !== 'leading' ? h('div', { class: 'acts' }, [h('button', { class: 'pill lead', type: 'button', 'data-act': 'bid', 'data-amount': next, text: t('bidBtn', { n: next }), onclick: () => bid(a, next) }), h('small', { text: t('forParty', { n: party }) })]) : null]);
     box.append(card);
     if (st === 'won' && !wonShown.has(a.key)) { wonShown.add(a.key); if (stage) { stage.flyTo(a.table).then(() => stage.setTable(a.table, true)); } }
   });
   box.append(h('p', { class: 'note', text: t('bidSample') }));
+  real.hidden = box.hidden;
+  const sig = (el) => { const c = el.cloneNode(true); c.querySelectorAll('.cd').forEach((x) => { x.textContent = ''; }); return c.outerHTML; };
+  const want = [...box.children], have = [...real.children];
+  if (want.length !== have.length) { real.textContent = ''; want.forEach((el) => real.appendChild(el)); return; }
+  want.forEach((el, i) => { if (sig(el) !== sig(have[i])) real.replaceChild(el, have[i]); else { const a = have[i].querySelector('.cd'), b = el.querySelector('.cd'); if (a && b && a.textContent !== b.textContent) a.textContent = b.textContent; } });
 }
 function bid(a, amount) {
   const raw = live.get('bids'), v = raw && validateBids(raw, L); if (!v || !v.ok) return;

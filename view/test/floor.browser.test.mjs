@@ -53,8 +53,8 @@ test('board and phone (2D, Hebrew): seat a table, the order-ready beep reaches t
   /* a bid for the sofa corner at 10:00 (a sample bid of ₪15 leads): the phone offers ₪20, leads, and wins at 09:50 */
   await phone.waitForSelector('.gbid[data-table="l1"] [data-act="bid"]');
   assert.match(await phone.textContent('#bidCard'), /סכומים לדוגמה · שום דבר לא מחויב/);
-  const btn = await phone.$('.gbid[data-table="l1"] [data-act="bid"]'); assert.equal(await btn.getAttribute('data-amount'), '20');
-  await btn.click(); await phone.waitForSelector('.gbid[data-table="l1"][data-st="leading"]');
+  assert.equal(await phone.getAttribute('.gbid[data-table="l1"] [data-act="bid"]', 'data-amount'), '20');
+  await phone.click('.gbid[data-table="l1"] [data-act="bid"]'); await phone.waitForSelector('.gbid[data-table="l1"][data-st="leading"]');
   await board.waitForFunction(() => Object.values(window.__floor.state().B.auctions).some((a) => a.table === 'l1' && a.bids.some((b) => b.amount === 20 && b.status === 'leading')));
   await shot(phone, 'floor-phone-bid-he');
   await board.evaluate(() => window.__floor.advance(16 * 60000));                  // 09:35 → 09:51: bidding for 10:00 closed at 09:50
