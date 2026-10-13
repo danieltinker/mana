@@ -209,7 +209,7 @@ await check('levitation: twelve ingredients in four depths drift on their own pa
   assert.deepEqual(await rm.page.evaluate(() => [document.querySelector('.lev').classList.contains('on'), [...document.querySelectorAll('.lev .lv')].every((e) => !e.style.transform)]), [false, true], 'reduced motion: the ingredients moved'); await rm.ctx.close();
 });
 
-await check('one story: three chapters in reading order on glass, the menu marked today and the place and the creative marked coming; the scanner is never named; the platform line', async () => {
+await check('one story: three chapters in reading order on glass, the menu marked today and the place and the creative marked coming; the scanner is never named; the platform line; the light follows the scroll (one chapter lit, the orb on the thread); not with reduced motion', async () => {
   for (const [scan, lang] of [[false, 'he'], [false, 'en'], [true, 'he']]) {
     const s2 = await listen(0, { scan });
     const o = await open('/mana/?motion=off&lang=' + lang, { origin: s2.origin, w: 1440, h: 900, touch: false });
@@ -225,6 +225,17 @@ await check('one story: three chapters in reading order on glass, the menu marke
     if (!scan) await o.page.locator('#how').screenshot({ path: join(RAW, `story-1440-${lang}.png`) });
     await o.ctx.close(); s2.server.close();
   }
+  /* the light follows the reader: on a wide screen the orb and the lit chapter move with the scroll; on a phone the chapter in the middle of the screen is lit */
+  for (const [w, h, touch] of [[1440, 900, false], [390, 844, true]]) {
+    const o = await open('/mana/?lang=he', { w, h, touch }); const seen = [];
+    for (const k of [.3, .5, .7, .9]) { await o.page.evaluate((k) => { const s = document.getElementById('how'), r = s.getBoundingClientRect(); window.scrollTo({ top: scrollY + r.top + r.height * k - innerHeight / 2, behavior: 'instant' }); }, k); await o.page.waitForTimeout(250);
+      seen.push(await o.page.evaluate(() => [document.getElementById('how').getAttribute('data-lit'), document.querySelectorAll('#how .chapter.lit').length, getComputedStyle(document.getElementById('how')).getPropertyValue('--sp').trim()])); }
+    assert.ok(seen.every((x) => x[1] === 1), w + ': not exactly one chapter lit: ' + JSON.stringify(seen)); assert.ok(new Set(seen.map((x) => x[0])).size >= 2, w + ': the light does not follow the scroll: ' + JSON.stringify(seen));
+    if (w > 900) assert.ok(await o.page.evaluate(() => document.querySelector('.st-orb').checkVisibility()), 'no orb on the thread');
+    await o.page.waitForTimeout(1200); await o.page.locator('#how').screenshot({ path: join(RAW, `story-live-${w}-he.png`) }); assert.deepEqual(o.errors, []); await o.ctx.close();
+  }
+  const rm = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false, reduced: true }); await rm.page.evaluate(() => document.getElementById('how').scrollIntoView({ block: 'center', behavior: 'instant' })); await rm.page.waitForTimeout(400);
+  assert.equal(await rm.page.evaluate(() => document.querySelectorAll('#how .chapter.lit').length), 0, 'reduced motion: a chapter lights up'); await rm.ctx.close();
 });
 
 await check('simple for guests: six tiles with their words; copying the section gives clean words (no "אA", no "3030", no letters from the drawings); the loops run only while the section is on screen', async () => {
@@ -264,7 +275,7 @@ await check('your place: the words as written, the "new · in demo" chip, the st
 });
 
 const FINAL = 'shakshuka,pizza,ramen,burger,croissant';
-await check('what you learn: the four lines; one scene, labelled a sample: the still shows the sample (212, +18%, the five dishes in order, 78%, 31%, 64, the two busiest hours) and a text equivalent; insights3d.js is asked for only when the section comes near', async () => {
+await check('what you learn: the four lines; one scene, labelled a sample: the still shows the sample (212, +18%, the five dishes in order, 78%, 31%, 64, the two busiest hours) and a text equivalent; the plates and their labels read at 1440 and 390, the chips below the table on a phone; insights3d.js is asked for only when the section comes near', async () => {
   for (const lang of ['he', 'en']) {
     const o = await open('/mana/?lang=' + lang + '&ins=on', { w: 1440, h: 900, touch: false });
     await o.page.waitForTimeout(1200); assert.ok(!o.reqs.some((u) => /insights3d/.test(u)), 'the insights module was fetched at the top of the page');
@@ -279,15 +290,28 @@ await check('what you learn: the four lines; one scene, labelled a sample: the s
     assert.deepEqual(r.plates.map((x) => x[1]), he ? ['שקשוקה', 'מרגריטה', 'ראמן', 'המבורגר', 'קרואסון'] : ['Shakshuka', 'Margherita', 'Ramen', 'Burger', 'Croissant']);
     assert.deepEqual(r.chips, ['78%', '31%', '64', '13:00 · 20:00']);
     assert.match(r.sr, he ? /צפיות השבוע: 212, 18% יותר[\s\S]*13:00 ו־20:00[\s\S]*שקשוקה 96[\s\S]*קרואסון 41[\s\S]*78%[\s\S]*31%[\s\S]*64/ : /Views this week: 212, 18% more[\s\S]*13:00 and 20:00[\s\S]*Shakshuka 96[\s\S]*Croissant 41[\s\S]*78%[\s\S]*31%[\s\S]*64/);
+    const sz = await o.page.evaluate(() => [...document.querySelectorAll('#ins .ip')].map((p) => [Math.round(p.querySelector('img').getBoundingClientRect().width), parseFloat(getComputedStyle(p.querySelector('.ip-w')).fontSize)]));
+    assert.ok(sz.every(([w, f]) => w >= 70 && f >= 12), 'the plates or their labels are too small at 1440: ' + JSON.stringify(sz));
     await o.page.locator('#ins').screenshot({ path: join(RAW, `ins-still-1440-${lang}.png`) });
     await o.page.evaluate(() => document.getElementById('numbers').scrollIntoView({ block: 'start', behavior: 'instant' }));
     for (const t0 = Date.now(); !o.reqs.some((u) => /insights3d/.test(u)) && Date.now() - t0 < 6000;) await o.page.waitForTimeout(100);
     assert.ok(o.reqs.some((u) => /\/land\/chunks\/insights3d-/.test(u)), 'the insights module was never asked for'); assert.deepEqual(o.errors, []); await o.ctx.close();
   }
+  for (const lang of ['he', 'en']) {      // a phone: plates that read, the chips below the table, nothing over a plate
+    const o = await open('/mana/?lang=' + lang, { w: 390, h: 844 });
+    await o.page.evaluate(() => document.getElementById('ins').scrollIntoView({ block: 'center', behavior: 'instant' })); await o.page.waitForTimeout(300);
+    const r = await o.page.evaluate(() => { const b = (e) => e.getBoundingClientRect(), hit = (a, c) => a.left < c.right && a.right > c.left && a.top < c.bottom && a.bottom > c.top, st = b(document.querySelector('#ins .ins-stage'));
+      const plates = [...document.querySelectorAll('#ins .ip')].map((p) => [b(p.querySelector('img')), b(p.querySelector('.ip-w')), parseFloat(getComputedStyle(p.querySelector('.ip-w')).fontSize)]), chips = [...document.querySelectorAll('#ins .ic')].filter((c) => c.checkVisibility()).map(b);
+      return { w: plates.map((p) => Math.round(p[0].width)), f: plates.map((p) => p[2]), inside: plates.every((p) => p[1].left >= st.left - 1 && p[1].right <= st.right + 1), over: chips.filter((c) => plates.some((p) => hit(c, p[0]) || hit(c, p[1]))).length, below: chips.every((c) => c.top > Math.max(...plates.map((p) => p[0].bottom))) }; });
+    assert.ok(r.w.every((x) => x >= 45), 'the plates are too small at 390: ' + r.w); assert.ok(r.f.every((x) => x >= 11), 'the labels are too small at 390: ' + r.f);
+    assert.equal(r.inside, true, 'a label leaves the stage at 390'); assert.equal(r.over, 0, 'a chip covers a plate at 390'); assert.equal(r.below, true, 'the chips crowd the table at 390');
+    await o.page.locator('#ins').screenshot({ path: join(RAW, `ins-still-390-${lang}.png`) }); await o.ctx.close();
+  }
 });
 
-await check('the insights scene: it goes live (a canvas, the still fades), the race reorders through the week and ends on the sample order with the sample counts; it pauses while the dialog is open; reduced motion draws the end of the week once', async () => {
+await check('the insights scene: it goes live (a canvas, the still fades), the race reorders through the week (each overtake an arc in the air) and ends on the sample order with the sample counts; it pauses while the dialog is open; reduced motion draws the end of the week once', async () => {
   const o = await open('/mana/?lang=he&ins=on&ins-speed=6', { w: 1440, h: 900, touch: false }); await stubViewer(o.page);
+  await o.page.evaluate(() => { window.__lift = 0; setInterval(() => { document.querySelectorAll('#ins .ip').forEach((p) => { const z = +p.style.zIndex || 0; if (z >= 30) window.__lift++; }); }, 40); });
   await o.page.evaluate(() => { window.__orders = []; new MutationObserver(() => { const v = document.getElementById('ins').getAttribute('data-order'); if (v && window.__orders[window.__orders.length - 1] !== v) window.__orders.push(v); }).observe(document.getElementById('ins'), { attributes: true, attributeFilter: ['data-order'] }); });
   await o.page.evaluate(() => document.getElementById('ins').scrollIntoView({ block: 'center', behavior: 'instant' }));
   await o.page.waitForFunction(() => document.getElementById('ins').getAttribute('data-ins') === 'live', null, { timeout: 45000 });      // software GL: seconds
@@ -296,6 +320,7 @@ await check('the insights scene: it goes live (a canvas, the still fades), the r
   await o.page.waitForFunction(() => [...document.querySelectorAll('#ins .ip .ip-w b')].map((b) => b.textContent).join() === '96,81,64,52,41', null, { timeout: 30000 });      // the end of the week: the sample
   const r = await o.page.evaluate(() => ({ orders: window.__orders, counts: [...document.querySelectorAll('#ins .ip')].map((p) => [p.getAttribute('data-id'), p.querySelector('.ip-w b').textContent, p.querySelector('.ip-r').textContent]), day: document.querySelector('#ins .ins-day').textContent }));
   assert.ok(new Set(r.orders).size >= 3, 'the dishes never swapped places: ' + JSON.stringify(r.orders)); assert.ok(r.day.length > 0, 'no day shown');
+  assert.ok(await o.page.evaluate(() => window.__lift) > 0, 'no plate was seen in the air while changing lanes (an arc)');
   await o.page.waitForTimeout(400); await o.page.locator('#ins').screenshot({ path: join(RAW, 'ins-live-1440-he.png') });
   await o.page.click('.top [data-demo-open]'); await o.page.waitForTimeout(500);
   const p1 = await o.page.evaluate(() => document.querySelector('#ins .ip').style.transform); await o.page.waitForTimeout(900);
@@ -399,6 +424,7 @@ await check('demo dialog: the Demo button opens it and its frame loads view/?dem
     await o.page.screenshot({ path: join(RAW, `dialog-looks-${w}-${lang}.png`) });
     await o.page.click('.dlg-tab[data-tab="seat"]'); assert.equal((await dlgState(o.page)).src, './view/seat/?demo=olea&lang=' + lang);
     await o.page.click('.dlg-tab[data-tab="tables"]'); assert.equal((await dlgState(o.page)).src, './view/host/?demo=olea&speed=60&lang=' + lang);      // the table clocks: the manager's board, sped up
+    await o.page.waitForFunction(() => { try { const f = document.querySelector('#demo iframe'); return /\/view\/host\//.test(f.contentWindow.location.href) && f.contentDocument.getElementById('stub'); } catch (e) { return false; } }, null, { timeout: 8000 }).catch(() => {});      // closing while the frame still loads aborts its request (not an error of the page)
     await o.page.keyboard.press('Escape'); await o.page.waitForFunction(() => !document.getElementById('demo').open);
     await o.page.waitForTimeout(100); r = await dlgState(o.page); assert.equal(r.frames, 0, 'the frame stayed after closing');
     assert.ok(await o.page.evaluate(() => document.activeElement && document.activeElement.matches('.top [data-demo-open]')), 'focus did not return to the button');

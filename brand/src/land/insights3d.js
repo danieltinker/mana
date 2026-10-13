@@ -5,7 +5,8 @@
    the page's sample (the page says so); the race ends on the sample's order.
    Contract: mountInsights(host, { data, layer, lang, reduced, lowPower, speed, onReady, onFail, onOrder, onDay }) →
    { pause, resume, setLang, destroy } or null without WebGL. host: an empty, CSS-sized element; layer: the HTML overlay that
-   holds the plates (.ip[data-id]) and chips (.ic-*), which this module places on their 3D anchors. reduced: one still frame
+   holds the plates (.ip[data-id]), which this module places on the track, and the chips (.ic-*), which stay where the page
+   puts them (only the views count moves). reduced: one still frame
    (the end of the week), again on resize. No requests: the dishes' pictures are the overlay's own <img>. */
 import {
   WebGLRenderer, Scene, PerspectiveCamera, Group, Mesh, CylinderGeometry, TorusGeometry, BoxGeometry, PlaneGeometry, CircleGeometry, SphereGeometry,
@@ -14,7 +15,11 @@ import {
 } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-const R = 3, RING = R + .34, DAY = 4, HOLD = 5, BACK = 1.4, FOV = 30, ELEV = 31 * Math.PI / 180;
+const R = 3, RING = R + .34, DAY = 4, HOLD = 5, BACK = 1.4, FOV = 30, DEG = Math.PI / 180;
+/* the race track on the glass: five lanes across the table (x: the week's opens; z: the rank, 1 at the back) */
+const TW = 4.4, LP = .92, TD = LP * 5 + .0, FIN = TW / 2 - .5, ALLOW = { wide: 1.15, narrow: 1.6 }, SWAP = .9;
+const laneZ = (r) => (r - 2) * LP;
+const outBack = (x) => { const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
 const DAYS = { he: ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'], en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] };
 const LEVEL = (k) => (k >= .999 ? 0xFF7A45 : k > .75 ? 0xF06B6E : k > .5 ? 0xFF8A55 : k > .25 ? 0xF5B120 : k > .05 ? 0xF1D49A : 0xE4DCD0);
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -56,9 +61,24 @@ export async function mountInsights(host, opts = {}) {
   const heartTex = keep(radial([[0, 'rgba(255,214,140,1)'], [.35, 'rgba(255,150,90,.55)'], [.7, 'rgba(255,122,69,.12)'], [1, 'rgba(255,122,69,0)']]));
   const heartMat = keep(new MeshBasicMaterial({ map: heartTex, transparent: true, depthWrite: false, blending: NormalBlending, opacity: .6, toneMapped: false }));
   const heart = new Mesh(keep(new CircleGeometry(1.5, 48)), heartMat); heart.rotation.x = -Math.PI / 2; heart.position.y = .085; world.add(heart);
-  const laneMat = keep(new MeshBasicMaterial({ color: 0x16120E, transparent: true, opacity: .07, depthWrite: false }));
-  const laneZ = (r) => -1.6 + r * .8;
-  for (let r = 0; r < 5; r++) { const l = new Mesh(keep(new PlaneGeometry(4.2, .022)), laneMat); l.rotation.x = -Math.PI / 2; l.position.set(0, .083, laneZ(r)); world.add(l); }
+  /* the track: drawn once on a canvas (lanes, their edges), laid on the glass; the start and the finish are their own lines */
+  const trackTex = keep(new CanvasTexture((() => {
+    const c = document.createElement('canvas'), Wc = 1024, Hc = Math.round(1024 * TD / TW); c.width = Wc; c.height = Hc; const g = c.getContext('2d'), rr = 150, lh = Hc / 5;
+    g.beginPath(); g.moveTo(rr, 0); g.arcTo(Wc, 0, Wc, Hc, rr); g.arcTo(Wc, Hc, 0, Hc, rr); g.arcTo(0, Hc, 0, 0, rr); g.arcTo(0, 0, Wc, 0, rr); g.closePath(); g.save(); g.clip();
+    g.fillStyle = 'rgba(255,253,248,.82)'; g.fillRect(0, 0, Wc, Hc);
+    for (let i = 0; i < 5; i++) { g.fillStyle = i % 2 ? 'rgba(245,177,32,.16)' : 'rgba(255,226,190,.34)'; g.fillRect(0, i * lh, Wc, lh); }
+    g.strokeStyle = 'rgba(22,18,14,.34)'; g.lineWidth = 5; g.setLineDash([26, 18]);
+    for (let i = 1; i < 5; i++) { g.beginPath(); g.moveTo(24, i * lh); g.lineTo(Wc - 24, i * lh); g.stroke(); }
+    g.restore(); g.setLineDash([]); g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 6; g.stroke();
+    return c; })()));
+  const track = new Mesh(keep(new PlaneGeometry(TW, TD)), keep(new MeshBasicMaterial({ map: trackTex, transparent: true, depthWrite: false, toneMapped: false })));
+  track.rotation.x = -Math.PI / 2; track.position.y = .092; world.add(track);
+  const startLine = new Mesh(keep(new PlaneGeometry(.05, TD - .3)), keep(new MeshBasicMaterial({ color: lin(0x16120E), transparent: true, opacity: .4, depthWrite: false, toneMapped: false })));
+  startLine.rotation.x = -Math.PI / 2; startLine.position.y = .094; world.add(startLine);
+  const finTex = keep(new CanvasTexture((() => { const c = document.createElement('canvas'); c.width = 16; c.height = 160; const g = c.getContext('2d');
+    for (let y = 0; y < 20; y++) for (let x = 0; x < 2; x++) { g.fillStyle = (x + y) % 2 ? '#16120E' : '#FFFFFF'; g.fillRect(x * 8, y * 8, 8, 8); } return c; })()));
+  const finish = new Mesh(keep(new PlaneGeometry(.16, TD - .3)), keep(new MeshBasicMaterial({ map: finTex, transparent: true, opacity: .6, depthWrite: false, toneMapped: false })));
+  finish.rotation.x = -Math.PI / 2; finish.position.y = .094; world.add(finish);
   const shTex = keep(radial([[0, 'rgba(70,45,20,.42)'], [.5, 'rgba(70,45,20,.16)'], [1, 'rgba(70,45,20,0)']]));
   const ground = new Mesh(keep(new PlaneGeometry(R * 2.8, R * 2.8)), keep(new MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false }))); ground.rotation.x = -Math.PI / 2; ground.position.y = -1.7; world.add(ground);
 
@@ -84,32 +104,29 @@ export async function mountInsights(host, opts = {}) {
 
   /* the race: five plates (HTML, over the canvas), each with a soft shadow on the glass */
   const rtl = () => (document.documentElement.dir || 'rtl') === 'rtl';
-  const plateSh = keep(new MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false, opacity: .9 }));
   const nMax = Math.max(...D.race.map((d) => d.n));
   const plates = D.race.map((d, i) => {
-    const el = layer.querySelector('.ip[data-id="' + d.id + '"]'), sh = new Mesh(keep(new CircleGeometry(.36, 32)), plateSh); sh.rotation.x = -Math.PI / 2; sh.position.y = .084; world.add(sh);
+    const el = layer.querySelector('.ip[data-id="' + d.id + '"]'), sh = new Mesh(keep(new CircleGeometry(.5, 32)), keep(new MeshBasicMaterial({ map: shTex, transparent: true, depthWrite: false, opacity: .9 }))); sh.rotation.x = -Math.PI / 2; sh.position.y = .096; world.add(sh);
     const cum = [0]; d.d.forEach((v) => cum.push(cum[cum.length - 1] + v));
-    return { d, el, sh, cum, z: laneZ(i), rank: i, count: 0, num: el && el.querySelector('.ip-w b'), badge: el && el.querySelector('.ip-r') };
+    return { d, el, sh, cum, z: laneZ(i), from: laneZ(i), to: laneZ(i), t0: -9, lift: 0, rank: i, count: 0, num: el && el.querySelector('.ip-w b'), badge: el && el.querySelector('.ip-r') };
   });
-  const chip = (c) => layer.querySelector('.ic-' + c);
-  const chips = { views: chip('views'), qr: chip('qr'), en: chip('en'), adds: chip('adds'), peak: chip('peak') };
-  const viewsNum = chips.views && chips.views.querySelector('[data-v="views"]');
+  /* the leader's light: a warm pool under the first plate */
+  const leadGlow = new Mesh(keep(new CircleGeometry(.95, 40)), keep(new MeshBasicMaterial({ map: heartTex, transparent: true, depthWrite: false, opacity: .85, toneMapped: false })));
+  leadGlow.rotation.x = -Math.PI / 2; leadGlow.position.y = .095; world.add(leadGlow);
+  const viewsNum = layer.querySelector('.ic-views [data-v="views"]');      // the chips stand where the page puts them; only the views count moves
   const handChip = document.createElement('span'); handChip.className = 'ic ic-hand'; handChip.innerHTML = '<b class="num"><bdi dir="ltr"></bdi></b>'; layer.appendChild(handChip);
   const handText = handChip.querySelector('bdi');
   const dayCum = [0]; D.days.forEach((v) => dayCum.push(dayCum[dayCum.length - 1] + v));
   const dayMax = Math.max(...D.days), dayMean = dayCum[7] / 7;
 
-  let W = 1, H = 1, narrow = false, anchors = null;
+  let W = 1, H = 1, narrow = false;
   function fit() {
     W = Math.max(1, host.clientWidth); H = Math.max(1, host.clientHeight); narrow = W / H < 1.15;
     renderer.setSize(W, H, false); camera.aspect = W / H;
-    const half = narrow ? 3.9 : 4.3, vf = FOV * Math.PI / 360, hf = Math.atan(Math.tan(vf) * camera.aspect);
-    const dist = Math.max(half / Math.tan(hf), 3.9 / Math.tan(vf));
-    camera.position.set(0, Math.sin(ELEV) * dist + .6, Math.cos(ELEV) * dist); camera.lookAt(0, -.15, .3); camera.updateProjectionMatrix();
-    const pa = D.peaks[1] / 24 * Math.PI * 2;
-    anchors = narrow
-      ? { views: new Vector3(-2.05, 2.55, -2.8), qr: new Vector3(-2.4, -1.15, 3.1), en: new Vector3(0, -1.3, 3.6), adds: new Vector3(2.4, -1.15, 3.1), peak: new Vector3(2.05, 2.55, -2.8) }
-      : { views: new Vector3(0, 2.2, -3.1), qr: new Vector3(-5.1, .7, .5), en: new Vector3(5.1, .7, .3), adds: new Vector3(4.4, -.7, 2.6), peak: new Vector3(Math.sin(pa) * RING - .9, 2.95, -Math.cos(pa) * RING - .4) };
+    /* the framing matches the page's still: the table's centre at 52 % of the height on a wide stage, 38.7 % on a phone */
+    const elev = (narrow ? 58 : 44) * DEG, half = narrow ? 3.62 : 5.05, hf = Math.atan(Math.tan(FOV * DEG / 2) * camera.aspect), dist = half / Math.tan(hf);
+    camera.position.set(0, Math.sin(elev) * dist, Math.cos(elev) * dist); camera.lookAt(0, 0, 0);
+    camera.setViewOffset(W, H, 0, (.5 - (narrow ? .387 : .522)) * H, W, H); camera.updateProjectionMatrix();
   }
   const v3 = new Vector3();
   function place(el, p, sc) {
@@ -154,25 +171,35 @@ export async function mountInsights(host, opts = {}) {
     const viewsNow = cumAt(dayCum, f) * (1 - back);
     heartMat.opacity = .25 + .65 * (viewsNow / dayCum[7]) + (reduced ? 0 : Math.sin(time * 2.1) * .04); heart.scale.setScalar(.7 + .5 * viewsNow / dayCum[7]);
     if (viewsNum) viewsNum.textContent = String(Math.round(viewsNow));
-    /* the race: counts through the week; lanes sorted by count; a plate that overtakes glides to its new lane with a little hop */
+    /* the race: counts through the week along the lanes; the lanes are the ranking (1 at the back). When a dish overtakes,
+       both plates change lanes in a little arc and settle (a spring's overshoot), never a jump. */
+    const now = time, A = narrow ? ALLOW.narrow : ALLOW.wide, x0 = -TW / 2 + A;
+    track.scale.x = s; startLine.position.x = s * x0; finish.position.x = s * FIN;
     plates.forEach((p) => { p.count = cumAt(p.cum, f) * (1 - back); });
-    const order = plates.slice().sort((a, b) => b.count - a.count || a.d.n - b.d.n);       // ties: as the sample ends
-    order.forEach((p, r) => { p.rank = r; });
+    const order = plates.slice().sort((a, b) => b.count - a.count || b.d.n - a.d.n);       // ties: as the sample ends
+    order.forEach((p, r) => { if (p.rank !== r) { p.from = p.z; p.to = laneZ(r); p.t0 = now; p.up = r < p.rank; } p.rank = r; });
     plates.forEach((p) => {
-      const tz = laneZ(p.rank); p.z += (tz - p.z) * (reduced ? 1 : Math.min(1, dt * 3.2));
-      const hop = Math.min(.35, Math.abs(tz - p.z) * .7), x = s * (-1.95 + 3.9 * p.count / nMax), y = .1 + hop;
-      p.sh.position.set(x, .084, p.z); p.sh.scale.setScalar(1 - hop * .6); p.sh.material.opacity = .9 - hop;
-      if (p.el) { v3.set(x, y + .32, p.z); const dz = camera.position.distanceTo(v3); place(p.el, v3, Math.min(1.15, Math.max(.7, 12.5 / dz))); p.el.style.zIndex = String(10 + Math.round((p.z + 2) * 10)); }
+      let lift = 0;
+      if (reduced) p.z = p.to = laneZ(p.rank);
+      else { const k = clamp01((now - p.t0) / SWAP); p.z = p.from + (p.to - p.from) * (k >= 1 ? 1 : outBack(k)); lift = k < 1 ? Math.sin(k * Math.PI) * (p.up ? .55 : .18) : 0; }
+      const x = s * (x0 + (FIN - x0) * p.count / nMax);
+      p.sh.position.set(x, .096, p.z); p.sh.scale.setScalar(1 - lift * .5); p.sh.material.opacity = .9 - lift * .8;
+      if (p.rank === 0) leadGlow.position.set(x, .095, p.z);
+      if (p.el) {
+        v3.set(x, .34 + lift, p.z); const dz = camera.position.distanceTo(v3), base = camera.position.length();
+        place(p.el, v3, Math.min(1.08, Math.max(.92, base / dz)) * (1 + lift * .22));
+        p.el.style.zIndex = String(10 + p.rank + (lift > .05 ? 20 : 0));      // front lanes over back ones; a plate in the air over all
+        p.el.classList.toggle('lead', p.rank === 0);
+      }
       if (p.num) p.num.textContent = String(Math.round(p.count));
       if (p.badge) p.badge.textContent = String(p.rank + 1);
     });
+    leadGlow.material.opacity = (.55 + (reduced ? 0 : Math.sin(time * 2.4) * .15)) * (1 - back);
     const ord = order.map((p) => p.d.id).join(',');
     if (ord !== lastOrder) { lastOrder = ord; try { if (opts.onOrder) opts.onOrder(ord); } catch (e) { /* the page */ } }
     const dd = f >= 7 ? 6 : day;
     if (dd !== lastDay) { lastDay = dd; try { if (opts.onDay) opts.onDay(DAYS[lang][dd]); } catch (e) { /* the page */ } }
     const hr = Math.floor(clock) % 24; if (hr !== lastHour) { lastHour = hr; handText.textContent = hh(hr); }
-    /* the chips float on their anchors, a slow breath each */
-    Object.keys(anchors).forEach((k, i) => { v3.copy(anchors[k]); if (!reduced) v3.y += Math.sin(time * .8 + i * 1.7) * .08; place(chips[k], v3); });
     v3.copy(hand.position); v3.y += .55; place(handChip, v3);
     world.rotation.y = reduced ? 0 : Math.sin(time * .12) * .05;
     renderer.render(scene, camera);

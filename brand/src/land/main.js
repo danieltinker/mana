@@ -73,6 +73,23 @@ function main() {
     $$('[data-live]').forEach((el) => lio.observe(el));
   }
 
+  /* ---------------------------------------------------------------- one story: the light follows the reader. The chapter nearest the
+     middle of the screen is lit (its little scene plays); on a wide screen an orb runs along the thread above them with the scroll */
+  const story = $('#how'), chapters = story ? $$('.chapter', story) : [];
+  if (story && motion && chapters.length) {
+    let pend = false;
+    const upd = () => {
+      pend = false; const r = story.getBoundingClientRect(), vh = window.innerHeight || root.clientHeight; if (r.bottom < -100 || r.top > vh + 100) return;
+      const sp = Math.max(0, Math.min(1, .5 + (vh / 2 - (r.top + r.height / 2)) / (vh * .6))); story.style.setProperty('--sp', sp.toFixed(3));
+      const row = Math.abs(chapters[0].getBoundingClientRect().top - chapters[chapters.length - 1].getBoundingClientRect().top) < 8;      // side by side: the orb decides
+      let best = Math.round(sp * (chapters.length - 1));
+      if (!row) { let bd = 1e9; chapters.forEach((c, i) => { const b = c.getBoundingClientRect(), d = Math.abs(b.top + b.height / 2 - vh * .5); if (d < bd) { bd = d; best = i; } }); }
+      if (story.getAttribute('data-lit') !== String(best)) { story.setAttribute('data-lit', String(best)); chapters.forEach((c, i) => c.classList.toggle('lit', i === best)); }
+    };
+    const ask = () => { if (!pend) { pend = true; requestAnimationFrame(upd); } };
+    window.addEventListener('scroll', ask, { passive: true }); window.addEventListener('resize', ask); upd();
+  }
+
   /* ---------------------------------------------------------------- the hero: the stills first; the shape-shifting dish after paint */
   const stage = $('#hero-stage'), heroHost = $('#hero-gl'), heroSec = $('#hero');
   let hero = null, heroVisible = true;

@@ -157,43 +157,57 @@ SAMPLE.items.forEach(([id, , , n]) => { if (RACE[id].reduce((a, b) => a + b, 0) 
 const peaks = SAMPLE.hours.map((v, h) => [v, h]).sort((a, b) => b[0] - a[0]).slice(0, 2).map((x) => x[1]).sort((a, b) => a - b);      // 13:00 and 20:00
 const hh = (h) => String(h).padStart(2, '0') + ':00';
 const INS = { days: SAMPLE.days.slice(-7), hours: SAMPLE.hours, race: SAMPLE.items.map(([id, he, en, n]) => ({ id, he, en, n, d: RACE[id] })), views: views7, delta, qr: SAMPLE.qr, en: SAMPLE.en, adds: SAMPLE.adds, peaks };
-/* the still (no WebGL; and the moment before the scene draws): the glass table seen in three-quarter view, the 24 hours standing
-   round its edge, the five plates in the sample's final order */
-const ST = { cx: 400, cy: 236, rx: 236, ry: 104, ring: 1.12 };
-function insStill() {
-  const hMax = Math.max(...SAMPLE.hours);
-  const bars = SAMPLE.hours.map((v, h) => { const a = h / 24 * Math.PI * 2, x = ST.cx + Math.sin(a) * ST.rx * ST.ring, y = ST.cy - Math.cos(a) * ST.ry * ST.ring, k = v / hMax, len = 8 + k * 92;
-    const c = k >= .999 ? 'url(#ins-pk)' : k > .75 ? '#F06B6E' : k > .5 ? '#FF8A55' : k > .25 ? '#F5B120' : k > .05 ? '#F1D49A' : 'rgba(22,18,14,.12)';
-    return [y, `<rect x="${(x - 4.5).toFixed(1)}" y="${(y - len).toFixed(1)}" width="9" height="${len.toFixed(1)}" rx="3" fill="${c}"/>`]; });
-  const back = bars.filter((b) => b[0] < ST.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join(''), front = bars.filter((b) => b[0] >= ST.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join('');
-  return `<svg class="ins-svg" viewBox="0 0 800 440" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>
-    <radialGradient id="ins-glass" cx=".42" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset=".6" stop-color="#fff" stop-opacity=".62"/><stop offset="1" stop-color="#F3E7D6" stop-opacity=".7"/></radialGradient>
-    <radialGradient id="ins-core" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFD27A" stop-opacity=".75"/><stop offset=".5" stop-color="#FF7A45" stop-opacity=".2"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
-    <linearGradient id="ins-pk" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F5B120"/><stop offset=".55" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
-    <radialGradient id="ins-sh" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#462D14" stop-opacity=".22"/><stop offset="1" stop-color="#462D14" stop-opacity="0"/></radialGradient></defs>
-    <ellipse cx="${ST.cx}" cy="${ST.cy + 150}" rx="${ST.rx * 1.05}" ry="38" fill="url(#ins-sh)"/>
+/* the still (no WebGL; and the moment before the scene draws): the glass table as the scene frames it, the 24 hours standing
+   round its edge, the race track on the glass and the five plates where the week ends. Two framings, like the scene: a wide
+   stage (16:9) and a phone (2:3). The world is the scene's: table radius 3, the track 4.4 × 4.6 with five lanes. */
+const VIEWS = {
+  wide: { w: 1600, h: 900, cx: 800, cy: 470, rx: 470, ry: 330, bar: 150, bw: 16, allow: 1.15 },
+  narrow: { w: 1000, h: 1500, cx: 500, cy: 580, rx: 440, ry: 373, bar: 120, bw: 14, allow: 1.6 }
+};
+const TRK = { w: 4.4, d: 4.6, fin: 1.7 };
+const trackGeo = (v) => { const sx = v.rx / 3, sz = v.ry / 3, x0 = v.cx - TRK.w / 2 * sx, x1 = v.cx + TRK.w / 2 * sx, y0 = v.cy - TRK.d / 2 * sz, y1 = v.cy + TRK.d / 2 * sz;
+  return { sx, sz, x0, x1, y0, y1, start: v.cx + (-TRK.w / 2 + v.allow) * sx, finish: v.cx + TRK.fin * sx, lane: (r) => y0 + (r + .5) * (y1 - y0) / 5 }; };
+/* a plate's place in the still, in % of the stage, measured from the inline start (the race runs from the start side) */
+const platePos = (v, r, n) => { const g = trackGeo(v), x = g.start + (g.finish - g.start) * n / SAMPLE.items[0][3]; return [x / v.w * 100, g.lane(r) / v.h * 100]; };
+function insStill(k) {
+  const v = VIEWS[k], g = trackGeo(v), hMax = Math.max(...SAMPLE.hours);
+  const bars = SAMPLE.hours.map((val, h) => { const a = h / 24 * Math.PI * 2, x = v.cx + Math.sin(a) * v.rx * 1.13, y = v.cy - Math.cos(a) * v.ry * 1.13, q = val / hMax, len = 10 + q * v.bar;
+    const c = q >= .999 ? 'url(#ins-pk-' + k + ')' : q > .75 ? '#F06B6E' : q > .5 ? '#FF8A55' : q > .25 ? '#F5B120' : q > .05 ? '#F1D49A' : 'rgba(22,18,14,.12)';
+    return [y, `<rect x="${(x - v.bw / 2).toFixed(1)}" y="${(y - len).toFixed(1)}" width="${v.bw}" height="${len.toFixed(1)}" rx="${v.bw / 3}" fill="${c}"/>`]; });
+  const back = bars.filter((b) => b[0] < v.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join(''), front = bars.filter((b) => b[0] >= v.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join('');
+  const lanes = [1, 2, 3, 4].map((r) => `<path d="M${(g.x0 + 20).toFixed(1)} ${(g.y0 + r * (g.y1 - g.y0) / 5).toFixed(1)}H${(g.x1 - 20).toFixed(1)}" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/>`).join('');
+  const fills = [0, 1, 2, 3, 4].map((r) => `<rect x="${g.x0.toFixed(1)}" y="${(g.y0 + r * (g.y1 - g.y0) / 5).toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${((g.y1 - g.y0) / 5).toFixed(1)}" fill="${r % 2 ? 'rgba(245,177,32,.1)' : 'rgba(255,236,206,.28)'}"/>`).join('');
+  const lead = platePos(v, 0, SAMPLE.items[0][3]);
+  return `<svg class="ins-svg ins-svg-${k}" viewBox="0 0 ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>
+    <radialGradient id="ins-glass-${k}" cx=".42" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset=".6" stop-color="#fff" stop-opacity=".66"/><stop offset="1" stop-color="#F3E7D6" stop-opacity=".72"/></radialGradient>
+    <radialGradient id="ins-core-${k}" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFD27A" stop-opacity=".8"/><stop offset=".5" stop-color="#FF7A45" stop-opacity=".22"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ins-pk-${k}" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F5B120"/><stop offset=".55" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
+    <radialGradient id="ins-sh-${k}" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#462D14" stop-opacity=".22"/><stop offset="1" stop-color="#462D14" stop-opacity="0"/></radialGradient>
+    <clipPath id="ins-trk-${k}"><rect x="${g.x0.toFixed(1)}" y="${g.y0.toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${(g.y1 - g.y0).toFixed(1)}" rx="${(g.sx * .62).toFixed(1)}"/></clipPath></defs>
+    <ellipse cx="${v.cx}" cy="${v.cy + v.ry * 1.25}" rx="${v.rx * 1.05}" ry="${v.ry * .22}" fill="url(#ins-sh-${k})"/>
     ${back}
-    <ellipse cx="${ST.cx}" cy="${ST.cy + 9}" rx="${ST.rx}" ry="${ST.ry}" fill="rgba(70,45,20,.08)"/>
-    <ellipse cx="${ST.cx}" cy="${ST.cy}" rx="${ST.rx}" ry="${ST.ry}" fill="url(#ins-glass)" stroke="#fff" stroke-width="2"/>
-    <ellipse cx="${ST.cx}" cy="${ST.cy}" rx="${ST.rx * .42}" ry="${ST.ry * .42}" fill="url(#ins-core)"/>
-    ${[0, 1, 2, 3, 4].map((r) => `<path d="M${ST.cx - ST.rx * .62} ${ST.cy - 52 + r * 26}H${ST.cx + ST.rx * .62}" stroke="rgba(22,18,14,.07)" stroke-width="1.4" stroke-linecap="round"/>`).join('')}
+    <ellipse cx="${v.cx}" cy="${v.cy + v.ry * .05}" rx="${v.rx}" ry="${v.ry}" fill="rgba(70,45,20,.08)"/>
+    <ellipse cx="${v.cx}" cy="${v.cy}" rx="${v.rx}" ry="${v.ry}" fill="url(#ins-glass-${k})" stroke="#fff" stroke-width="3"/>
+    <ellipse cx="${v.cx}" cy="${v.cy}" rx="${v.rx * .42}" ry="${v.ry * .42}" fill="url(#ins-core-${k})"/>
+    <g clip-path="url(#ins-trk-${k})"><rect x="${g.x0}" y="${g.y0}" width="${g.x1 - g.x0}" height="${g.y1 - g.y0}" fill="rgba(255,255,255,.5)"/>${fills}${lanes}</g>
+    <rect x="${g.x0.toFixed(1)}" y="${g.y0.toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${(g.y1 - g.y0).toFixed(1)}" rx="${(g.sx * .62).toFixed(1)}" fill="none" stroke="#fff" stroke-width="4"/>
+    <g class="trk-dir"><path d="M${g.start.toFixed(1)} ${(g.y0 + 22).toFixed(1)}V${(g.y1 - 22).toFixed(1)}" stroke="rgba(22,18,14,.32)" stroke-width="5"/><path d="M${g.finish.toFixed(1)} ${(g.y0 + 22).toFixed(1)}V${(g.y1 - 22).toFixed(1)}" stroke="#16120E" stroke-opacity=".55" stroke-width="12" stroke-dasharray="12 12"/>
+      <ellipse cx="${(lead[0] / 100 * v.w).toFixed(1)}" cy="${(lead[1] / 100 * v.h).toFixed(1)}" rx="${(g.sx * .9).toFixed(1)}" ry="${(g.sz * .9).toFixed(1)}" fill="url(#ins-core-${k})"/></g>
     ${front}
   </svg>`;
 }
-/* where the still puts the plates (rank → lane, the count → how far along it) and the chips, in % of the stage */
-const lane = (r) => 41.5 + (r - 2) * 6.2, along = (n) => 31 + n / SAMPLE.items[0][3] * 38;
 const insights = () => `<figure class="ins glass" id="ins" data-ins="still" data-reveal aria-labelledby="ins-cap">
         <figcaption class="ins-top" id="ins-cap"><b class="dash-name">${t('אוליאה', 'Olea')}</b><span class="ins-day" aria-hidden="true"></span><span class="dash-sample">${t('דוגמה · מספרים להמחשה', 'Example · sample numbers')}</span></figcaption>
         <div class="ins-stage">
-          <div class="ins-still">${insStill()}</div>
+          <div class="ins-still">${insStill('wide')}${insStill('narrow')}</div>
           <div class="ins-gl" id="ins-gl"></div>
           <div class="ins-layer" aria-hidden="true">
-            ${SAMPLE.items.map(([id, he, en, n], r) => `<span class="ip" data-id="${id}" style="--x:${along(n).toFixed(1)}%;--y:${lane(r).toFixed(1)}%;--mx:${(22 + n / SAMPLE.items[0][3] * 50).toFixed(1)}%;--my:${(36 + r * 7.4).toFixed(1)}%"><img src="./img/dishes/${id}.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">${r + 1}</b><span class="ip-w">${t(he, en)}<b class="num">${n}</b></span></span>`).join('')}
-            <span class="ic ic-views" style="--x:50%;--y:8%;--mx:28%;--my:10%"><small>${t('צפיות השבוע', 'Views this week')}</small><b class="num" data-v="views">${views7}</b><i class="up num"><bdi dir="ltr">+${delta}%</bdi></i></span>
-            <span class="ic ic-qr" style="--x:10%;--y:62%;--mx:17%;--my:88%"><b class="num"><bdi dir="ltr">${SAMPLE.qr}%</bdi></b><small>${t('מקוד ה־QR', 'From the QR')}</small></span>
-            <span class="ic ic-en" style="--x:90%;--y:58%;--mx:50%;--my:88%"><b class="num"><bdi dir="ltr">${SAMPLE.en}%</bdi></b><small>${t('תיירים', 'Tourists')}</small></span>
-            <span class="ic ic-adds" style="--x:82%;--y:84%;--mx:83%;--my:88%"><b class="num">${SAMPLE.adds}</b><small>${t('ל״שולחן שלי״', 'To “my table”')}</small></span>
-            <span class="ic ic-peak" style="--x:16%;--y:26%;--mx:72%;--my:10%"><small>${t('הכי עמוס', 'Busiest')}</small><b class="num"><bdi dir="ltr">${peaks.map(hh).join(' · ')}</bdi></b></span>
+            ${SAMPLE.items.map(([id, he, en, n], r) => { const [x, y] = platePos(VIEWS.wide, r, n), [mx, my] = platePos(VIEWS.narrow, r, n); return `<span class="ip${r ? '' : ' lead'}" data-id="${id}" style="--x:${x.toFixed(1)}%;--y:${y.toFixed(1)}%;--mx:${mx.toFixed(1)}%;--my:${my.toFixed(1)}%"><img src="./img/dishes/${id}.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">${r + 1}</b><span class="ip-w">${t(he, en)}<b class="num">${n}</b></span></span>`; }).join('')}
+            <span class="ic ic-views" style="--x:12%;--y:14%;--mx:27%;--my:77%"><small>${t('צפיות השבוע', 'Views this week')}</small><b class="num" data-v="views">${views7}</b><i class="up num"><bdi dir="ltr">+${delta}%</bdi></i></span>
+            <span class="ic ic-qr" style="--x:8%;--y:60%;--mx:17%;--my:91%"><b class="num"><bdi dir="ltr">${SAMPLE.qr}%</bdi></b><small>${t('מקוד ה־QR', 'From the QR')}</small></span>
+            <span class="ic ic-en" style="--x:92%;--y:54%;--mx:50%;--my:91%"><b class="num"><bdi dir="ltr">${SAMPLE.en}%</bdi></b><small>${t('תיירים', 'Tourists')}</small></span>
+            <span class="ic ic-adds" style="--x:88%;--y:86%;--mx:83%;--my:91%"><b class="num">${SAMPLE.adds}</b><small>${t('ל״שולחן שלי״', 'To “my table”')}</small></span>
+            <span class="ic ic-peak" style="--x:86%;--y:14%;--mx:73%;--my:77%"><small>${t('הכי עמוס', 'Busiest')}</small><b class="num"><bdi dir="ltr">${peaks.map(hh).join(' · ')}</bdi></b></span>
           </div>
         </div>
         <ul class="vh">
@@ -284,14 +298,23 @@ const CHAPTERS = [
   ['creative', false, 'הקריאטיב שלכם נוצר.', 'Your creative, made.', 'אתר משלכם, רילסים ודמות מארחת למותג, מבית הסטודיו של Halom.', 'Your own site, reels and a host character for your brand, from the Halom studio.']
 ];
 const chArt = {
-  menu: `<div class="ch-art ch-menu" aria-hidden="true"><div class="ch-phone"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-l"></i><i class="ch-l s"></i><i class="ch-chip"></i></div></div>`,
-  place: `<div class="ch-art ch-place" aria-hidden="true"><div class="ch-plane">${['free', 'seated', 'ending', 'bid', 'seated', 'free', 'reserved', 'seated'].map((st, i) => `<i class="ch-t ${st}" style="--i:${i}"></i>`).join('')}</div></div>`,
-  creative: `<div class="ch-art ch-creative" aria-hidden="true"><div class="ch-site"><i></i><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"></div><div class="ch-reel"><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-play"></i></div></div>`
+  /* a dish lifts off its line on a printed menu, in relief, and settles back; then the next one */
+  menu: `<div class="ch-art ch-menu" aria-hidden="true"><div class="ch-card">${[0, 1, 2, 3].map((i) => `<i class="ch-line l${i}"><b></b><s></s></i>`).join('')}
+    <img class="ch-dish d1" src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><img class="ch-dish d2" src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-sh"></i></div></div>`,
+  /* a small floor in three-quarter view; its tables light up one after another; one is held by a bid (violet) */
+  place: `<div class="ch-art ch-place" aria-hidden="true"><div class="ch-plane"><i class="ch-bar"></i>${['free', 'seated', 'ending', 'bid', 'seated', 'free', 'reserved', 'seated'].map((st, i) => `<i class="ch-t ${st}" style="--i:${i}"></i>`).join('')}</div></div>`,
+  /* a phone whose creative changes: a reel, a post, the site */
+  creative: `<div class="ch-art ch-creative" aria-hidden="true"><div class="ch-phone2"><div class="ch-slides">
+    <div class="ch-s s-reel"><i class="ch-prog"></i><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-play"></i></div>
+    <div class="ch-s s-post"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-tl"></i><i class="ch-tl s"></i><i class="ch-heart"></i></div>
+    <div class="ch-s s-site"><i class="ch-dots"></i><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-btn"></i></div>
+  </div></div></div>`
 };
 const how = () => `<section class="sec story" id="how" aria-labelledby="how-h" data-live>
   <div class="wrap">
     <p class="eyebrow story-eye">${t('פלטפורמה אחת למסעדה', 'One platform for your restaurant')}</p>
     <h2 class="sec-h center" id="how-h">${t('מנה היא יותר מתפריט.', 'Mana is more than a menu.')}</h2>
+    <div class="story-thread" aria-hidden="true"><i class="st-line"></i><i class="st-node"></i><i class="st-node"></i><i class="st-node"></i><i class="st-orb"></i></div>
     <ol class="chapters" data-reveal>
       ${CHAPTERS.map(([id, today, th, te, ph, pe], i) => `<li class="chapter glass sheen c-${id}${today ? ' today' : ''}" style="--i:${i}">
         ${chArt[id]}
