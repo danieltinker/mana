@@ -126,7 +126,7 @@ export function createPlace(host, layout, opts = {}) {
   }
 
   /* ---------- input ---------- */
-  const pointers = new Map(); let drag = null, editing = false, selected = null;
+  const pointers = new Map(); let drag = null, editing = false, selected = null, frozen = null;
   const ray = new Raycaster(), v2 = new Vector2(), floorPlane = new Plane(new Vector3(0, 1, 0), 0), hitP = new Vector3();
   const toNdc = (e) => { const r = canvas.getBoundingClientRect(); v2.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); return v2; };
   const pickAt = (e) => { ray.setFromCamera(toNdc(e), camera); const hit = ray.intersectObjects([...T.values()].map((o) => o.proxy), false)[0]; return hit ? hit.object.userData.id : null; };
@@ -204,7 +204,7 @@ export function createPlace(host, layout, opts = {}) {
     o.flash = instant || reduced ? 0 : 1; o.flashAt = performance.now() + 1700;
   }
   function animateSetting(o, now) {
-    if (!o.anim) return false; const el = now - o.anim.t0; let live = false;
+    if (!o.anim) return false; const el = frozen != null ? frozen : now - o.anim.t0; let live = false;
     o.setting.pieces.forEach((p) => {
       const k = clamp((el - p.delay) / p.ms, 0, 1); p.obj.visible = el >= p.delay;
       if (k < 1) live = true;
@@ -292,7 +292,7 @@ export function createPlace(host, layout, opts = {}) {
     /* where a table's label is on screen (for tests and for the page's own overlays) */
     screenOf(id) { const o = T.get(id); if (!o) return null; v.set(o.liveX != null ? o.liveX : o.t.x, o.top, wz(o.liveZ != null ? o.liveZ : o.t.z)).project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height }; },
     /* a film or a contact sheet: put every running table setting at `ms` after its start */
-    seek(ms) { const n = performance.now(); T.forEach((o) => { if (o.anim) o.anim.t0 = n - ms; else if (setOn.has(o.t.id) && ms < 2400) { showSetting(o, false); o.anim.t0 = n - ms; } }); wake(); },
+    seek(ms) { frozen = ms; T.forEach((o) => { if (!o.anim && setOn.has(o.t.id)) showSetting(o, false); }); wake(); },      /* holds every table setting at `ms` until seek(null) */
     info: () => ({ frames, firstMs, preset: presetName, cur: Object.assign({}, cur), flying: !!flight, setting: [...T.values()].some((o) => !!o.anim), set: [...setOn] }),
     wake, size,
     dispose() { dead = true; if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); renderer.dispose(); scene.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); canvas.remove(); layer.remove(); }
