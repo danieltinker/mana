@@ -147,7 +147,7 @@ ten minutes.
 ## Develop
 ```
 npm install                 # three@0.128, esbuild, fonts (dev only)
-npm run build               # src/ → app.js + chunks/
+npm run build               # src/ → app.js, seat.js + chunks/ (not in git: `npm run serve` and `npm run test:browser` build first; CI builds in tools/build-site.sh)
 npm run serve               # http://localhost:8787/projects/menus/view/?demo=olea  and  /m/olea (stub: olea, kiosk, paused, flaky, slow, broken)
 npm test                    # physics, glide, store (fuzz), snapshot + counting against the stub, geometry (how the table is set), drinks
 npm run test:browser        # headless Chromium, one at a time: glide, categories, courses, the set table, table ↔ bar, lift, list, placeholders, /m/, preview, languages, reduced motion, no WebGL, the bar
@@ -156,7 +156,9 @@ python3 tools/build-kiosk.py   # rebuilds demo/kiosk and demo/solo
 ```
 Query switches: `lang=he|en` · `walk=feed|pull` · `bloom=0` · `view=list` · `motion=reduce|full` · `pr=<pixel ratio>` · `adapt=off` ·
 `gl=off` (as a phone without WebGL) · `hint=1|0` · `finger=1` (show the scripted finger) · `test=1` · `capture=1` · demos only:
-`surface=<table id>|holo`.
+`surface=<table id>|holo`, `template=<look id>` (templates/templates.v1.json; the gallery is `looks/`) · `embed=hero` (with `demo=solo`:
+the dish alone, for the product page's hero; `src/hero.js`; it talks to its page by `postMessage` `{type:'mana-hero'}`) ·
+the seat map is `seat/?demo=olea` (`src/seat/`, contracts in `../seating/`).
 
 ## Why three.js r128
 The relief, table and bloom shaders were tuned on r128, which does no colour management: a dish at rest is its photo, pixel for

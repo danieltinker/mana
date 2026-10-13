@@ -20,6 +20,8 @@ Run one browser job at a time. A suite takes longer than most shells wait, so st
 
 ## The local stack (one command)
 
+The stack serves the guest menu from `../view/`: build it first (`cd ../view && npm run build`); its output is not in git.
+
 ```
 npm run stack                # = node test/stack/start.mjs   (Ctrl-C stops everything; --keep keeps the database; --fake-gen uses the stand-in generator)
 ```
