@@ -2,7 +2,7 @@
    table's lamp; an owner's own table photo still wins; an unknown look leaves today's theme. Pure, no browser. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { validateLooks, validateLook, SURFACES, DETAILS, contrast, hexRgb } from '../../templates/validate.mjs';
 import { lookOf, looks, applyLook, resetPresets, applyLookDom, inkAccent, trackOf, ID } from '../src/looks.js';
 import { normalise } from '../src/snapshot.js';
@@ -106,4 +106,16 @@ test('the matrix keeps all 99 concepts as data, without their sources; the live 
   for (const l of doc().looks) { assert.ok(m.categories.some((c) => c.id === l.category), l.category); assert.ok(subs.some((s) => s.id === l.subcategory && s.id.startsWith(l.category + '-')), l.subcategory); }
   assert.ok(existsSync(new URL('../../templates/sources.md', import.meta.url)));
   assert.ok(!vars.some((v) => /^the salon$|flore|thonet|sessions/i.test(v.name)), 'no venue, maker or menu-page name as a concept name');
+});
+
+test('the gallery (view/looks/) names every live look in both languages, links its demo, carries the AI label and a small still', () => {
+  const html = readFileSync(new URL('../looks/index.html', import.meta.url), 'utf8');
+  for (const l of doc().looks) {
+    assert.ok(html.includes('data-look="' + l.id + '"'), l.id + ' listed'); assert.ok(html.includes(l.name.he) && html.includes(l.name.en), l.id + ' named in both languages');
+    assert.ok(html.includes('href="../?demo=olea&amp;template=' + l.id + '"'), l.id + ' has a try-it link');
+    const still = new URL('../looks/img/' + l.id + '.webp', import.meta.url); assert.ok(existsSync(still), l.id + ' has a still'); assert.ok(statSync(still).size <= 60 * 1024, l.id + ' still ≤ 60 kB');
+  }
+  assert.ok(html.includes('מנות לדוגמה · נוצרו בבינה מלאכותית') && html.includes('Demo dishes · made with AI'), 'the AI label');
+  assert.ok(!/inspiredBy|3D model|digital twin/i.test(html));
+  assert.ok(!/<script/i.test(html), 'a quiet page: no script');
 });
