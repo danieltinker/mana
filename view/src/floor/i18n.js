@@ -34,7 +34,13 @@ export const STR = {
     dup: 'לשכפל', del: 'למחוק', rotate: 'לסובב 15°', seats: 'מקומות', minParty: 'הכי מעט', maxParty: 'הכי הרבה', zone: 'אזור', redo: 'שוב',
     save: 'לשמור', saved: 'נשמר', resetLima: 'לחזור לטיוטה של לימה', export: 'לייצא JSON', top: 'מבט מלמעלה', pick: 'בוחרים שולחן: נוגעים בו, גוררים אותו, או חצים להזזה ו־R לסיבוב.',
     wOverlap: '{a} נוגע ב{b}', wOutside: '{a} מחוץ לבית הקפה', wOk: 'אין בעיות ברצפה.', notSaved: 'לא נשמר: {why}', unsaved: 'יש שינויים שלא נשמרו',
-    flash_set: 'השולחן נערך', credit: 'מנה · ניהול המקום'
+    flash_set: 'השולחן נערך', credit: 'מנה · ניהול המקום',
+    discardQ: 'לבטל את השינויים?', discardHint: 'הרצפה תחזור למה שנשמר.', discard: 'לבטל את השינויים', keepEditing: 'להמשיך לערוך', noLongerOpen: 'השעה הזו כבר לא פתוחה',
+    err_refused: 'אי אפשר לעשות את זה עכשיו.', err_seated: 'השולחן תפוס עד שהזמן שלו נגמר. אפשר להאריך או לפנות.', 'err_not-seated': 'השולחן לא תפוס.',
+    err_items: 'צריך לבחור לפחות פריט אחד.', 'err_queue-full': '99 הזמנות ממתינות. כדאי למסור כמה קודם.', err_already: 'ההזמנה כבר עברה את השלב הזה.', 'err_not-ready': 'ההזמנה עוד לא מוכנה.', 'err_cannot-back': 'אי אפשר לחזור מהשלב הזה.', 'err_no-order': 'ההזמנה לא נמצאה.',
+    'err_no-auction': 'ההצעות לשולחן הזה לא נמצאו.', 'err_not-open-auction': 'ההצעות לשולחן הזה כבר נסגרו.', 'err_no-leader': 'אין עדיין הצעה לאשר.', 'err_need-reason': 'צריך לכתוב לאורחים למה.', 'err_not-won': 'השולחן לא שמור לזוכה.', 'err_bad-rules': 'ההגדרות האלה לא תקינות.',
+    'err_bad-peaks': 'שעות העומס לא תקינות: השעה שבה הן נגמרות צריכה להיות אחרי השעה שבה הן מתחילות.', 'err_peak-overlap': 'שתי שעות עומס חופפות באותו יום.',
+    'err_no-point': 'הגרירה לא נגעה ברצפה.', 'err_last-table': 'ברצפה נשאר לפחות שולחן אחד.', 'err_no-zone': 'האזור הזה לא נמצא.', 'err_no-table': 'השולחן הזה לא נמצא.', 'err_bad-kind': 'סוג השולחן הזה לא מוכר.', err_layout: 'יש ברצפה משהו שלא תקין. אפשר לחזור צעד אחורה או לחזור לטיוטה.'
   },
   en: {
     venue: 'Café Lima', draft: 'a first draft drawn from photos', boardTitle: 'The board', lang: 'עב', langLabel: 'מעבר לעברית',
@@ -68,7 +74,13 @@ export const STR = {
     dup: 'Duplicate', del: 'Delete', rotate: 'Rotate 15°', seats: 'Seats', minParty: 'Fewest', maxParty: 'Most', zone: 'Zone', redo: 'Redo',
     save: 'Save', saved: 'Saved', resetLima: 'Reset to Lima’s draft', export: 'Export JSON', top: 'Top view', pick: 'Pick a table: tap it, drag it, or use the arrows to move and R to rotate.',
     wOverlap: '{a} touches {b}', wOutside: '{a} is outside the café', wOk: 'The floor has no problems.', notSaved: 'Not saved: {why}', unsaved: 'Unsaved changes',
-    flash_set: 'The table is set', credit: 'Mana · the place system'
+    flash_set: 'The table is set', credit: 'Mana · the place system',
+    discardQ: 'Discard changes?', discardHint: 'The floor goes back to what was saved.', discard: 'Discard changes', keepEditing: 'Keep editing', noLongerOpen: 'this time is no longer open',
+    err_refused: 'That cannot be done now.', err_seated: 'The table is seated until its time is up. Extend it or free it.', 'err_not-seated': 'The table is not seated.',
+    err_items: 'Pick at least one item.', 'err_queue-full': '99 orders are waiting. Hand some out first.', err_already: 'The order is already past that step.', 'err_not-ready': 'The order is not ready yet.', 'err_cannot-back': 'That step cannot be undone.', 'err_no-order': 'The order was not found.',
+    'err_no-auction': 'The bids for this table were not found.', 'err_not-open-auction': 'Bidding for this table has already closed.', 'err_no-leader': 'There is no bid to accept yet.', 'err_need-reason': 'Write the guests a reason.', 'err_not-won': 'The table is not held for a winner.', 'err_bad-rules': 'These settings are not valid.',
+    'err_bad-peaks': 'The peak hours are not valid: they must end after they start.', 'err_peak-overlap': 'Two peak windows overlap on the same day.',
+    'err_no-point': 'The drag did not reach the floor.', 'err_last-table': 'A floor keeps at least one table.', 'err_no-zone': 'That zone was not found.', 'err_no-table': 'That table was not found.', 'err_bad-kind': 'That kind of table is not known.', err_layout: 'Something on the floor is not valid. Undo a step or reset to the draft.'
   }
 };
 /* the guest's phone */
@@ -82,7 +94,11 @@ export const GSTR = {
     bidTitle: 'המקומות הטובים בשעת העומס', bidHint: 'מציעים על שולחן לשעה מסוימת. ההצעה הגבוהה זוכה כשההצעות נסגרות.', bidSample: 'סכומים לדוגמה · שום דבר לא מחויב',
     bidFor: 'הצעה', bidBtn: 'להציע ₪{n}', forParty: 'בשביל {n}', leading: 'אתם מובילים', outbid: 'עקפו את ההצעה שלכם', won: '{table} שלכם, \u2066{from}–{to}\u2069', lost: 'ההצעה לא זכתה',
     declinedG: 'בית הקפה לא פתח את השולחן הזה', creditG: 'הסכום יקוזז מההזמנה שלכם', none: 'אין הצעות פתוחות עכשיו.', current: 'הגבוהה ₪{n}', start: 'מתחיל ב־₪{n}', closesIn: 'נסגר בעוד {t}',
-    lang: 'EN', langLabel: 'Switch to English', noTable: 'השולחן הזה לא נמצא בבית הקפה.', back: 'לשולחן שלי'
+    lang: 'EN', langLabel: 'Switch to English', noTable: 'השולחן הזה לא נמצא בבית הקפה.', back: 'לשולחן שלי',
+    leadingElsewhere: 'אתם כבר מובילים בשולחן אחר בשעה הזו.', tooBig: 'השולחן הזה לא מתאים ל־{n}.', noLongerOpen: 'השעה הזו כבר לא פתוחה',
+    sOrder: 'ההזמנה #{no}: {state}', sLeading: 'אתם מובילים: {table}', sOutbid: 'עקפו את ההצעה שלכם: {table}', sWon: '{table} שלכם',
+    err_refused: 'אי אפשר להציע עכשיו.', 'err_not-biddable': 'אי אפשר להציע על השולחן הזה.', 'err_no-slot': 'אין שעת עומס בזמן הזה.', 'err_not-open': 'ההצעות לשעה הזו עוד לא נפתחו.', err_closed: 'ההצעות לשעה הזו נסגרו.',
+    err_party: 'השולחן הזה לא מתאים ל־{n}.', 'err_bad-amount': 'הסכום צריך להיות מספר שלם.', err_leading: 'אתם כבר מובילים.', 'err_one-table': 'אתם כבר מובילים בשולחן אחר בשעה הזו.', 'err_too-low': 'ההצעה הבאה היא לפחות ₪{n}.', 'err_no-table': 'השולחן הזה לא נמצא.', 'err_bad-bid': 'ההצעה לא שלמה.'
   },
   en: {
     youAt: 'You are at Table {n} · {zone}', hello: 'Welcome to Lima', demo: 'Demo · the table, the order and the bids are samples',
@@ -93,7 +109,11 @@ export const GSTR = {
     bidTitle: 'The best seats at peak', bidHint: 'Bid for a table at a time. The highest bid wins when bidding closes.', bidSample: 'Sample amounts · nothing is charged',
     bidFor: 'Bid', bidBtn: 'Bid ₪{n}', forParty: 'for {n}', leading: 'You’re leading', outbid: 'You’ve been outbid', won: '{table} is yours, {from}–{to}', lost: 'Your bid did not win',
     declinedG: 'The café did not open this table', creditG: 'The amount is credited to your order', none: 'No bidding open right now.', current: 'highest ₪{n}', start: 'starts at ₪{n}', closesIn: 'closes in {t}',
-    lang: 'עב', langLabel: 'מעבר לעברית', noTable: 'This table is not in the café.', back: 'My table'
+    lang: 'עב', langLabel: 'מעבר לעברית', noTable: 'This table is not in the café.', back: 'My table',
+    leadingElsewhere: 'You are already leading at another table for this time.', tooBig: 'This table does not fit {n}.', noLongerOpen: 'this time is no longer open',
+    sOrder: 'Order #{no}: {state}', sLeading: 'You’re leading: {table}', sOutbid: 'You’ve been outbid: {table}', sWon: '{table} is yours',
+    err_refused: 'You cannot bid right now.', 'err_not-biddable': 'This table cannot be bid for.', 'err_no-slot': 'There is no peak time then.', 'err_not-open': 'Bidding for this time has not opened yet.', err_closed: 'Bidding for this time has closed.',
+    err_party: 'This table does not fit {n}.', 'err_bad-amount': 'The amount must be a whole number.', err_leading: 'You are already leading.', 'err_one-table': 'You are already leading at another table for this time.', 'err_too-low': 'The next bid is at least ₪{n}.', 'err_no-table': 'That table was not found.', 'err_bad-bid': 'The bid is not complete.'
   }
 };
 export function makeT(table, getLang) {

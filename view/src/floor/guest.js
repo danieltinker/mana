@@ -46,31 +46,46 @@ let party = 2, stage = null, flown = false, wonShown = new Set();
 const alerts = createAlerts({ reduce });
 const zoneName = (zid) => { const z = zoneById(L, zid); return z ? (z.name[lang] || z.name.en) : zid; };
 const tFull = (id) => { const tb = tableById(L, id); return tb ? (lang === 'he' ? 'שולחן ' : 'Table ') + tableNo(L, id) + ' · ' + zoneName(tb.zone) : id; };
+/* everything from storage is checked; anything unreadable leaves the phone with an empty queue and no bids, never broken */
 function read() {
-  const ov = live.get('orders') && validateOrders(live.get('orders')); O = ov && ov.ok ? ov.state : { v: 1, seq: 0, orders: [] };
-  const bv = live.get('bids') && validateBids(live.get('bids'), L); B = bv && bv.ok ? bv.state : null;
-  const c = live.get('clock'); if (c && Number.isFinite(c.virt)) clk = c;
-  R = loadRules(live, L);
+  try { const ov = live.get('orders') && validateOrders(live.get('orders')); O = ov && ov.ok ? ov.state : { v: 1, seq: 0, orders: [] }; } catch (e) { O = { v: 1, seq: 0, orders: [] }; }
+  try { const bv = live.get('bids') && validateBids(live.get('bids'), L); B = bv && bv.ok ? bv.state : null; } catch (e) { B = null; }
+  try { const c = live.get('clock'); if (c && Number.isFinite(c.virt) && Number.isFinite(c.real) && c.speed >= 1) clk = c; } catch (e) { /* keep the clock */ }
+  try { R = loadRules(live, L); } catch (e) { /* keep the rules */ }
 }
+const errText = (r) => { const s = t('err_' + (r && r.code), { n: r && r.n != null ? r.n : '' }); return s === 'err_' + (r && r.code) ? t('err_refused') : s; };
+/* a quiet voice for what changed: the order's state, the guest's standing in a bid (never the seconds) */
+let lastSaid = '';
+function say(text) { if (!text || text === lastSaid) return; lastSaid = text; const el = $('gStatus'); if (el) { el.textContent = ''; setTimeout(() => { el.textContent = text; }, 30); } }
 
 /* ---------- the order ---------- */
 function myOrder() {
   if (watching) return byNumber(O, watching);
   const att = forTable(O, tableId); return att.length ? att[att.length - 1] : null;
 }
-function renderOrder() {
+/* the order card is built once (its number field keeps what the guest is typing, and the focus); updates change only the
+   title, the status and the words */
+let orderUI = null;
+function buildOrder() {
   const box = $('orderCard'); box.textContent = '';
-  const o = myOrder(), attached = o && !watching;
-  box.append(h('h2', { text: o ? t('yourOrder', { no: o.no }) : t('orderTitle') }));
-  if (o) {
-    box.append(attached ? h('p', { text: t('attached') }) : null,
-      h('div', { class: 'gstate', 'data-phase': o.phase, id: 'orderState' }, [h('span', { class: 'no', text: '#' + o.no }), h('span', {}, [h('b', { text: t({ new: 'gNew', preparing: 'gPrep', ready: 'gReady', picked: 'gPicked' }[o.phase]) }), h('br'), h('small', { text: o.items.map((i) => itemName(i, lang)).join(' · ') })])]));
-  } else box.append(h('p', { text: t('orderHint') }));
-  const inp = h('input', { id: 'orderNo', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '2', 'aria-label': t('numLabel'), placeholder: '23', value: watching || '' });
+  const title = h('h2', {}), hint = h('p', {}), state = h('div', { class: 'gstate', id: 'orderState', hidden: true }, [h('span', { class: 'no' }), h('span', {}, [h('b', {}), h('br'), h('small', {})])]);
+  const inp = h('input', { id: 'orderNo', inputmode: 'numeric', pattern: '[0-9]*', maxlength: '2', placeholder: '23', value: watching || '' });
   const go = () => { const n = Math.round(Number(inp.value)); if (n >= 1 && n <= 99) { watching = n; sset('mana-floor:watch:' + venue + ':' + tableId, String(n)); arm(); renderOrder(); checkReady(); if (!byNumber(O, n)) flash(t('notFound')); } };
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-  box.append(h('div', { class: 'gnum' }, [inp, h('button', { class: 'pill lead', type: 'button', id: 'followBtn', text: t('follow'), onclick: go })]),
-    h('button', { class: 'pill soundchip', type: 'button', id: 'soundBtn', 'aria-pressed': String(alerts.armed), text: alerts.armed ? t('soundOn') : t('sound'), onclick: () => { arm(); setTimeout(() => { renderOrder(); const b = $('soundBtn'); if (b) b.focus(); }, 60); } }));      /* the permission prompt may stay open: the button answers at once */
+  const follow = h('button', { class: 'pill lead', type: 'button', id: 'followBtn', onclick: go });
+  const sound = h('button', { class: 'pill soundchip', type: 'button', id: 'soundBtn', onclick: () => { arm(); setTimeout(renderOrder, 60); } });      /* the permission prompt may stay open: the button answers at once */
+  box.append(title, hint, state, h('div', { class: 'gnum' }, [inp, follow]), sound);
+  orderUI = { title, hint, state, inp, follow, sound };
+}
+function renderOrder() {
+  if (!orderUI) buildOrder();
+  const u = orderUI, o = myOrder(), attached = o && !watching, word = o ? t({ new: 'gNew', preparing: 'gPrep', ready: 'gReady', picked: 'gPicked' }[o.phase]) : '';
+  u.title.textContent = o ? t('yourOrder', { no: o.no }) : t('orderTitle');
+  u.hint.textContent = o ? (attached ? t('attached') : '') : t('orderHint'); u.hint.hidden = !u.hint.textContent;
+  u.state.hidden = !o;
+  if (o) { u.state.setAttribute('data-phase', o.phase); u.state.querySelector('.no').textContent = '#' + o.no; u.state.querySelector('b').textContent = word; u.state.querySelector('small').textContent = o.items.map((i) => itemName(i, lang)).join(' · '); say(t('sOrder', { no: o.no, state: word })); }
+  u.inp.setAttribute('aria-label', t('numLabel')); u.follow.textContent = t('follow');
+  u.sound.setAttribute('aria-pressed', String(alerts.armed)); u.sound.textContent = alerts.armed ? t('soundOn') : t('sound');
 }
 async function arm() { if (!alerts.armed) await alerts.arm(); }
 function checkReady() {
@@ -85,7 +100,7 @@ function checkReady() {
     h('div', { class: 'rcard glass' }, [h('div', { class: 'ring', 'aria-hidden': 'true', html: '' }), h('h2', { id: 'readyT', text: t('readyTitle') }), h('p', { class: 'big', text: '#' + o.no }), h('p', { id: 'readyB', text: t('readyBody', { no: o.no }) }),
       h('button', { class: 'pill lead wide', type: 'button', id: 'gotIt', text: t('gotIt'), onclick: () => { card.remove(); $('followBtn') && $('followBtn').focus(); } })])]);
   card.querySelector('.ring').innerHTML = '<svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 16.5v-5a5.5 5.5 0 0 1 11 0v5l1.6 1.8H4.9z"/><path d="M10.2 20.6a2 2 0 0 0 3.6 0"/></svg>';
-  const old = $('readyCard'); if (old) old.remove(); document.body.appendChild(card); $('gotIt').focus();
+  const old = $('readyCard'); if (old) old.remove(); document.body.appendChild(card); $('gotIt').focus(); say(t('readyTitle') + ' · #' + o.no);
   document.title = '● ' + t('readyTitle');
 }
 
@@ -103,12 +118,18 @@ function renderBids() {
   if (!list.length) box.append(h('p', { text: t('none') }));
   list.forEach((a) => {
     const lead = leaderOf(a), st = standing(a, me), win = a.phase === 'won' || a.phase === 'done' ? a.bids.find((b) => b.id === a.winner) : null, next = minNext(view, a);
-    const tb = tableById(L, a.table), stText = st === 'leading' ? t('leading') : st === 'outbid' ? t('outbid') : st === 'won' ? t('won', { table: zoneName(tb.zone), from: hm(a.start), to: hm(a.end) }) : st === 'lost' ? t('lost') : st === 'declined' ? t('declinedG') : '';
+    const tb = tableById(L, a.table); if (!tb) return;
+    const stText = st === 'leading' ? t('leading') : st === 'outbid' ? t('outbid') : st === 'won' ? t('won', { table: zoneName(tb.zone), from: hm(a.start), to: hm(a.end) }) : st === 'lost' ? t('lost') : st === 'declined' ? (a.reasonCode === 'no-longer-open' ? t('noLongerOpen') : t('declinedG')) : '';
+    if (st === 'leading') say(t('sLeading', { table: tFull(a.table) })); else if (st === 'outbid') say(t('sOutbid', { table: tFull(a.table) })); else if (st === 'won') say(t('sWon', { table: zoneName(tb.zone) }));
+    /* would the bid be refused? then say why instead of offering the button */
+    const dry = a.phase === 'open' && st !== 'leading' ? placeBid(view, { table: a.table, start: a.start, guest: me, party, amount: next }, { layout: L, peaks: R.peaks, now: n }) : null;
+    const blocked = dry && !dry.ok ? (dry.code === 'one-table' ? t('leadingElsewhere') : dry.code === 'party' ? t('tooBig', { n: party }) : errText(dry)) : '';
     const card = h('div', { class: 'gbid', 'data-key': a.key, 'data-st': st, 'data-table': a.table }, [
       h('div', { class: 'top' }, [h('b', { text: tFull(a.table) }), h('span', { class: 'amt', text: lead ? '₪' + lead.amount : win ? '₪' + win.amount : '' })]),
       h('small', {}, ['\u2066' + hm(a.start) + '–' + hm(a.end) + '\u2069 · ' + (a.phase === 'open' ? (lead ? t('current', { n: lead.amount }) : t('start', { n: view.rules.min })) + ' · ' : ''), a.phase === 'open' ? h('span', { class: 'cd', text: t('closesIn', { t: left(a.closesAt - n) }) }) : null]),
-      stText ? h('p', { class: 'st', role: 'status', text: stText + (st === 'won' && view.rules.credit ? ' · ' + t('creditG') : '') }) : null,
-      a.phase === 'open' && st !== 'leading' ? h('div', { class: 'acts' }, [h('button', { class: 'pill lead', type: 'button', 'data-act': 'bid', 'data-amount': next, text: t('bidBtn', { n: next }), onclick: () => bid(a, next) }), h('small', { text: t('forParty', { n: party }) })]) : null]);
+      stText ? h('p', { class: 'st', text: stText + (st === 'won' && view.rules.credit ? ' · ' + t('creditG') : '') }) : null,
+      a.phase === 'open' && st !== 'leading' && !blocked ? h('div', { class: 'acts' }, [h('button', { class: 'pill lead', type: 'button', 'data-act': 'bid', 'data-amount': next, text: t('bidBtn', { n: next }), onclick: () => bid(a, next) }), h('small', { text: t('forParty', { n: party }) })]) : null,
+      blocked ? h('p', { class: 'note', 'data-blocked': dry.code, text: blocked }) : null]);
     box.append(card);
     if (st === 'won' && !wonShown.has(a.key)) { wonShown.add(a.key); if (stage) { stage.flyTo(a.table).then(() => stage.setTable(a.table, true)); } }
   });
@@ -122,7 +143,7 @@ function renderBids() {
 function bid(a, amount) {
   const raw = live.get('bids'), v = raw && validateBids(raw, L); if (!v || !v.ok) return;
   const r = placeBid(v.state, { table: a.table, start: a.start, guest: me, party, amount }, { layout: L, peaks: R.peaks, now: now() });
-  if (!r.ok) { flash(r.error); return; }
+  if (!r.ok) { flash(errText(r)); return; }
   live.put('bids', r.state); B = r.state; renderBids();
 }
 function flash(msg) { const f = $('flash'); f.textContent = msg; f.hidden = false; clearTimeout(flash.tm); flash.tm = setTimeout(() => { f.hidden = true; }, 3500); }
@@ -131,7 +152,7 @@ function flash(msg) { const f = $('flash'); f.textContent = msg; f.hidden = fals
 async function mountStage() {
   const host = $('gstage'); let s = null;
   if (GL !== 'off') {
-    try { const { createPlace } = await import('../room/place.js'); s = createPlace(host, L, { reduced: reduce, test: TEST, lowPower: LOW, start: 'above', forceGL: GL === 'on', slowMs: 4000, label: t('youAt', { n: tableNo(L, tableId), zone: zoneName(tableById(L, tableId).zone) }), onTable: () => {}, onSlow: () => { if (stage) stage.dispose(); stage = createPlan(host, L, { lang }); paintStage(); window.__guest.stageKind = '2d'; } }); } catch (e) { s = null; }
+    try { const { createPlace } = await import('../room/place.js'); s = createPlace(host, L, { reduced: reduce, test: TEST, lowPower: LOW, start: 'above', forceGL: GL === 'on', slowMs: 4000, label: here(), onTable: () => {}, onSlow: () => { if (stage) stage.dispose(); stage = createPlan(host, L, { lang }); paintStage(); window.__guest.stageKind = '2d'; } }); } catch (e) { s = null; }
   }
   stage = s || createPlan(host, L, { lang }); window.__guest.stageKind = s ? '3d' : '2d';
   paintStage();
@@ -141,26 +162,36 @@ async function mountStage() {
 function paintStage() {
   if (!stage) return;
   const n = now(), view = B ? tickBids(B, n).state : null, open = view ? new Set(view.rules.tables) : new Set();
+  if (gone) return;
   stage.setRows(L.tables.map((tb) => ({ id: tb.id, phase: tb.id === tableId ? 'seated' : open.has(tb.id) && openSlots(R.peaks, n).length ? 'held' : 'free', text: tb.id === tableId ? t('back') : open.has(tb.id) && openSlots(R.peaks, n).length ? '₪' : '' })));
   stage.select(tableId);
 }
 
+const here = () => { const tb = tableById(L, tableId); return tb ? t('youAt', { n: tableNo(L, tableId), zone: zoneName(tb.zone) }) : t('noTable'); };
 function shell() {
   document.documentElement.lang = lang; document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
-  const tb = tableById(L, tableId);
-  $('hello').textContent = t('hello'); $('youAt').textContent = t('youAt', { n: tableNo(L, tableId), zone: zoneName(tb.zone) });
+  $('hello').textContent = t('hello'); $('youAt').textContent = here();
   $('gdemo').textContent = t('demo'); $('glang').textContent = t('lang'); $('glang').setAttribute('aria-label', t('langLabel'));
-  document.title = t('hello') + ' · ' + t('youAt', { n: tableNo(L, tableId), zone: zoneName(tb.zone) });
+  document.title = t('hello') + ' · ' + here();
 }
-function paint() { read(); renderOrder(); renderBids(); paintStage(); checkReady(); }
+/* the owner removed this table (and saved): the phone says so plainly instead of breaking */
+let gone = false;
+function tableGone() {
+  if (gone) return; gone = true;
+  if (stage) { try { stage.dispose(); } catch (e) { /* gone already */ } stage = null; }
+  $('gstage').querySelectorAll('canvas, svg.pl-plan, .pl-layer').forEach((x) => x.remove());
+  $('orderCard').hidden = true; $('bidCard').hidden = true; $('youAt').textContent = t('noTable'); say(t('noTable'));
+  window.__guest.gone = true;
+}
+function paint() { read(); if (!tableById(L, tableId)) { tableGone(); return; } renderOrder(); renderBids(); paintStage(); checkReady(); }
 
 window.__guest = { stageKind: null, landed: false, me, stage: () => stage, now, party: (n) => { party = n; } };
 document.documentElement.classList.toggle('reduce', reduce); document.documentElement.classList.toggle('embed', EMBED); document.documentElement.classList.toggle('test', TEST);
 if (!L || !tableById(L, tableId)) { document.body.textContent = ''; document.body.appendChild(h('p', { class: 'none glass', style: 'margin:24px', text: (GSTR[lang] || GSTR.en).noTable })); }
 else {
   read(); shell(); renderOrder(); renderBids(); mountStage(); checkReady();
-  live.on((m) => { if (['orders', 'bids', 'clock', 'rules', 'layout'].includes(m.part)) { if (m.part === 'layout') { const g = loadLayout(live, venue); if (g) { L = g.layout; if (stage) stage.setLayout(L); } } paint(); } });
-  setInterval(() => { renderBids(); }, 1000);
-  $('glang').addEventListener('click', () => { lang = lang === 'he' ? 'en' : 'he'; const u = new URL(location.href); u.searchParams.set('lang', lang); history.replaceState(null, '', u); shell(); renderOrder(); renderBids(); paintStage(); });
+  live.on((m) => { if (gone || !['orders', 'bids', 'clock', 'rules', 'layout'].includes(m.part)) return; if (m.part === 'layout') { let g = null; try { g = loadLayout(live, venue); } catch (e) { g = null; } if (g) { L = g.layout; if (!tableById(L, tableId)) { tableGone(); return; } if (stage) stage.setLayout(L); } } paint(); });
+  setInterval(() => { if (!gone) renderBids(); }, 1000);
+  $('glang').addEventListener('click', () => { lang = lang === 'he' ? 'en' : 'he'; const u = new URL(location.href); u.searchParams.set('lang', lang); history.replaceState(null, '', u); shell(); if (gone) { $('youAt').textContent = t('noTable'); return; } renderOrder(); renderBids(); paintStage(); if (stage && stage.setLang) stage.setLang(lang, here()); });
 }
 requestAnimationFrame(() => document.documentElement.classList.add('in'));

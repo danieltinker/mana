@@ -46,18 +46,20 @@ export function createPlace(host, layout, opts = {}) {
   let renderer;
   try { renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'default', preserveDrawingBuffer: test }); if (!renderer.getContext()) throw new Error('no context'); }
   catch (e) { return null; }
-  let dead = false, raf = 0;
-  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); dead = true; if (raf) cancelAnimationFrame(raf); if (opts.onSlow) opts.onSlow('the GL context was lost'); }, { once: true });
+  let dead = false, raf = 0, nap = 0;
+  /* a lost context sends the page to its plan, but only while this place is alive (an old, disposed canvas says nothing) */
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); if (dead) return; dead = true; if (raf) cancelAnimationFrame(raf); clearTimeout(nap); if (opts.onSlow) opts.onSlow('the GL context was lost'); }, { once: true });
   renderer.setClearColor(0x000000, 0); renderer.outputEncoding = sRGBEncoding; renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = .98;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, test ? 1 : 1.6));
-  renderer.shadowMap.enabled = shadows; renderer.shadowMap.type = PCFSoftShadowMap; renderer.shadowMap.autoUpdate = true;      /* frames are drawn only when something changes, so the shadow map follows them */
+  renderer.shadowMap.enabled = shadows; renderer.shadowMap.type = PCFSoftShadowMap; renderer.shadowMap.autoUpdate = false;     /* the place stands still: its shadows are drawn again only when something in it moves */
   host.appendChild(canvas);
   const layer = document.createElement('div'); layer.className = 'pl-layer'; layer.setAttribute('aria-hidden', 'true'); host.appendChild(layer);
 
   const scene = new Scene(), camera = new PerspectiveCamera(36, 1, .2, 200), M = materials();
   /* reflections only where a surface shines (chrome, steel, glass, marble): a room environment on everything floods the
      shade and the sun's shadows disappear */
-  try { const pm = new PMREMGenerator(renderer), env = pm.fromScene(new RoomEnvironment(), .04).texture; pm.dispose();
+  let env = null;
+  try { const pm = new PMREMGenerator(renderer); env = pm.fromScene(new RoomEnvironment(), .04).texture; pm.dispose();
     [['chrome', .7], ['steel', .6], ['glass', .9], ['marble', .25], ['tumbler', .8], ['black', .3]].forEach(([k, i]) => { M[k].envMap = env; M[k].envMapIntensity = i; }); } catch (e) { /* without reflections */ }
   /* a warm, low sun from the street's left (a Tel Aviv morning), soft shadows fitted to the venue; a sky / ground fill */
   scene.add(new HemisphereLight(0xfff0d8, 0x9c8669, .62), new AmbientLight(0xfff1e2, .06));
@@ -174,7 +176,7 @@ export function createPlace(host, layout, opts = {}) {
     const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
     if (Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) > 5) drag.moved = true;
     if (pointers.size === 2) { const d = pinchDist(); if (drag.pinch) goal.dist = clamp(goal.dist * drag.pinch / Math.max(1, d), 2.5, 34); drag.pinch = d; panBy(dx / 2, dy / 2); }
-    else if (drag.moving && drag.moved) { const f = floorAt(e); if (f) { const o = T.get(drag.moving); const x = snap(f[0] + drag.off[0]), z = snap(f[1] + drag.off[1]); moveLive(o, x, z); } }
+    else if (drag.moving && drag.moved) { const f = floorAt(e); if (f && Number.isFinite(f[0]) && Number.isFinite(f[1])) { const o = T.get(drag.moving); const x = snap(f[0] + drag.off[0]), z = snap(f[1] + drag.off[1]); moveLive(o, x, z); } }
     else if (drag.pan) panBy(dx, dy);
     else { goal.yaw -= dx * .0052; goal.pitch = clamp(goal.pitch + dy * .004, .1, 1.48); }
     wake();
@@ -182,7 +184,7 @@ export function createPlace(host, layout, opts = {}) {
   const up = (e) => {
     if (!pointers.has(e.pointerId)) return; pointers.delete(e.pointerId);
     if (drag && !pointers.size) {
-      if (drag.moving && drag.moved) { const o = T.get(drag.moving); if (opts.onMove) opts.onMove(drag.moving, o.liveX, o.liveZ); }
+      if (drag.moving && drag.moved) { const o = T.get(drag.moving); if (opts.onMove && Number.isFinite(o.liveX) && Number.isFinite(o.liveZ)) opts.onMove(drag.moving, o.liveX, o.liveZ); }
       else if (!drag.moved && drag.id && opts.onTable) opts.onTable(drag.id);
       else if (!drag.moved && !drag.id && opts.onTable && editing) opts.onTable(null);
       drag = null;
@@ -208,7 +210,7 @@ export function createPlace(host, layout, opts = {}) {
   }
   function moveLive(o, x, z) {
     o.liveX = x; o.liveZ = z; const dx = x - o.t.x, dz = z - o.t.z;
-    o.group.position.set(x, 0, z); o.ringG.position.set(x, .03, z); o.proxy.position.set(x, .6, z); void dx; void dz; renderer.shadowMap.needsUpdate = true;
+    o.group.position.set(x, 0, z); o.ringG.position.set(x, .03, z); o.proxy.position.set(x, .6, z); void dx; void dz; shadowsMoved();
   }
 
   /* ---------- states and labels ---------- */
@@ -245,9 +247,10 @@ export function createPlace(host, layout, opts = {}) {
   }
 
   /* ---------- walls that stand between the camera and its target fade ---------- */
+  const fv = { seg: new Vector3(), p: new Vector3(), q: new Vector3() }, camXZ = [0, 0], tgXZ = [0, 0];      /* reused every frame: no garbage while idle */
   const crosses = (a, b, c, d) => { const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])); return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b); };
   function fades(dt) {
-    let live = false; const cam = [camera.position.x, wz(camera.position.z)], tg = [cur.tx, wz(cur.tz)], high = cur.pitch > 1.25;
+    let live = false; camXZ[0] = camera.position.x; camXZ[1] = wz(camera.position.z); tgXZ[0] = cur.tx; tgXZ[1] = wz(cur.tz); const cam = camXZ, tg = tgXZ, high = cur.pitch > 1.25;
     arch.walls.forEach((w) => {
       const want = !high && crosses(cam, tg, w.a, w.b) ? .16 : 1; w.k = w.k == null ? want : w.k + (want - w.k) * Math.min(1, dt * 5);
       if (Math.abs(w.k - want) > .01) live = true;
@@ -256,9 +259,9 @@ export function createPlace(host, layout, opts = {}) {
     /* from above the awnings would hide the terrace: they thin out as the camera rises */
     const aw = clamp((1.05 - cur.pitch) / .3, .18, 1); M.awning.opacity = .9 * aw; M.awningEdge.opacity = aw; M.awningEdge.transparent = true; M.awning.depthWrite = aw > .95;
     /* a lantern hanging between the camera and what it looks at fades away */
-    const tg3 = new Vector3(cur.tx, cur.ty, cur.tz), cam3 = camera.position, seg = tg3.clone().sub(cam3), len = seg.length();
+    const cam3 = camera.position; fv.seg.set(cur.tx, cur.ty, cur.tz).sub(cam3); const len2 = Math.max(1e-6, fv.seg.lengthSq());
     lanterns.forEach((ln) => {
-      const p = new Vector3(ln.x, ln.y, wz(ln.z)), u = clamp(p.clone().sub(cam3).dot(seg) / (len * len), 0, 1), d = p.distanceTo(cam3.clone().add(seg.clone().multiplyScalar(u)));
+      fv.p.set(ln.x, ln.y, wz(ln.z)); const u = clamp(fv.q.copy(fv.p).sub(cam3).dot(fv.seg) / len2, 0, 1); const d = fv.p.distanceTo(fv.q.copy(fv.seg).multiplyScalar(u).add(cam3));
       const want = u > .02 && u < .97 && d < .9 ? .08 : 1; ln.k += (want - ln.k) * Math.min(1, dt * 5); if (Math.abs(ln.k - want) > .01) live = true;
       ln.mats.forEach((m) => { m.opacity = ln.k; m.depthWrite = ln.k > .98; }); ln.glow.material.opacity = .55 * ln.k;
     });
@@ -284,8 +287,8 @@ export function createPlace(host, layout, opts = {}) {
     let live = false;
     if (flight) { const k = clamp((now - flight.t0) / flight.ms, 0, 1), e = EASE(k); KEYS.forEach((key) => { cur[key] = flight.from[key] + (flight.to[key] - flight.from[key]) * e; }); live = true; if (k >= 1) { const r = flight.res; flight = null; r(); } }
     else KEYS.forEach((key) => { const d = goal[key] - cur[key]; if (Math.abs(d) > 1e-4) { cur[key] += d * Math.min(1, dt * 7); live = true; } else cur[key] = goal[key]; });
-    const drift = !reduced && !test && !editing && !flight && now - lastInput > 5000;
-    apply(cur, drift); if (drift) live = true;
+    const idle = now - lastInput, drift = !reduced && !test && !editing && !flight && idle > 5000, drifting = drift && idle < 65000;
+    apply(cur, drift); let onlyDrift = drifting;
     T.forEach((o) => {
       if (animateSetting(o, now)) live = true;
       let pulse = 0;
@@ -296,15 +299,19 @@ export function createPlace(host, layout, opts = {}) {
       o.selMat.opacity = selected === o.t.id ? .95 : 0;
     });
     if (fades(dt)) live = true;
+    if (live) onlyDrift = false;
     const r0 = performance.now(); renderer.render(scene, camera); const ms = performance.now() - r0; frames++;
     /* the quality ladder: a slow first frame with shadows turns the shadows off and tries again; still slow, the page goes 2D */
     if (firstMs == null) { firstMs = ms; if (opts.onReady) opts.onReady(ms); if (ms > slowMs && !opts.forceGL) { if (shadows) { shadows = false; renderer.shadowMap.enabled = false; sun.castShadow = false; scene.traverse((x) => { if (x.material && x.material.isMaterial) x.material.needsUpdate = true; }); live = true; } else if (opts.onSlow) opts.onSlow('the first frame took ' + Math.round(ms) + ' ms'); } }
     else if (secondMs == null && frames === 2) { secondMs = ms; if (ms > slowMs && !opts.forceGL && opts.onSlow && !shadows && firstMs > slowMs) opts.onSlow('the frames took ' + Math.round(ms) + ' ms without shadows'); }
     labels();
-    if ((live || dirty) && !dead && fixedT == null) { dirty = false; raf = requestAnimationFrame(frame); }
-    else if (fixedT != null) dirty = false;
+    if (fixedT != null) { dirty = false; return; }
+    if (dead) return;
+    if (live || dirty) { dirty = false; raf = requestAnimationFrame(frame); }
+    else if (onlyDrift) nap = setTimeout(() => { nap = 0; if (!raf && !dead) raf = requestAnimationFrame(frame); }, 100);      /* drifting: ten frames a second, for a minute, then asleep */
   }
-  function wake() { dirty = true; if (!raf && !dead) raf = requestAnimationFrame(frame); }
+  function wake() { dirty = true; clearTimeout(nap); nap = 0; if (!raf && !dead) raf = requestAnimationFrame(frame); }
+  const shadowsMoved = () => { renderer.shadowMap.needsUpdate = true; };
   function size() { const r = host.getBoundingClientRect(); W = Math.max(1, Math.round(r.width)); H = Math.max(1, Math.round(r.height)); renderer.setSize(W, H, false); camera.aspect = W / H; camera.fov = W / H < .8 ? 48 : 36; camera.updateProjectionMatrix(); wake(); }
   const aspectNow = () => W / Math.max(1, H);
   const ro = window.ResizeObserver ? new ResizeObserver(size) : null; if (ro) ro.observe(host); size();
@@ -325,8 +332,11 @@ export function createPlace(host, layout, opts = {}) {
     isSet: (id) => setOn.has(id),
     edit(on) { editing = !!on; canvas.classList.toggle('pl-edit', editing); wake(); },
     setLayout(next) {
-      L = next; root.remove(arch.group, fix.group); lampLights.forEach((p) => root.remove(p)); lampLights.length = 0; lanterns.forEach((ln) => root.remove(ln.g)); lanterns.length = 0;
-      [arch.group, fix.group].forEach((g) => g.traverse((x) => { if (x.geometry) x.geometry.dispose(); }));
+      L = next; root.remove(arch.group, fix.group); lampLights.forEach((p) => root.remove(p)); lampLights.length = 0;
+      /* what the old floor made for itself goes: its geometry, its cloned materials and their cloned textures (M stays) */
+      const shared = new Set(Object.values(M)), sharedMaps = new Set(Object.values(M).map((m) => m.map).filter(Boolean));
+      const drop = (g) => g.traverse((x) => { if (x.geometry) x.geometry.dispose(); const m = x.material; if (m && !shared.has(m)) { if (m.map && !sharedMaps.has(m.map)) m.map.dispose(); m.dispose(); } });
+      [arch.group, fix.group].forEach(drop); lanterns.forEach((ln) => { drop(ln.g); root.remove(ln.g); }); lanterns.length = 0;
       buildStatic(); buildTables(); [...setOn].forEach((id) => { if (!T.has(id)) setOn.delete(id); }); wake();
     },
     /* where a table's label is on screen (for tests and for the page's own overlays) */
@@ -337,7 +347,20 @@ export function createPlace(host, layout, opts = {}) {
     film(t) { if (t == null) { fixedT = null; wake(); return; } fixedT = t; if (raf) { cancelAnimationFrame(raf); raf = 0; } frame(); },
     info: () => ({ frames, firstMs, shadows, preset: presetName, cur: Object.assign({}, cur), flying: !!flight, setting: [...T.values()].some((o) => !!o.anim), set: [...setOn] }),
     wake, size,
-    dispose() { dead = true; if (raf) cancelAnimationFrame(raf); if (ro) ro.disconnect(); renderer.dispose(); scene.traverse((x) => { if (x.geometry) x.geometry.dispose(); }); canvas.remove(); layer.remove(); }
+    /* the language changes without a new stage: only the words the place carries */
+    setLang(next, label) { if (label != null) canvas.setAttribute('aria-label', label); },
+    /* everything this place made goes: geometry, materials and their textures (canvas ones too), the environment map,
+       the shadow map, the GL context itself (forceContextLoss), the canvas and the labels */
+    dispose() {
+      if (dead && !canvas.isConnected) return; dead = true; if (raf) cancelAnimationFrame(raf); raf = 0; clearTimeout(nap); if (ro) ro.disconnect();
+      const mats = new Set(Object.values(M)); [groundMat, proxyMat].forEach((m) => mats.add(m));
+      scene.traverse((x) => { if (x.geometry) x.geometry.dispose(); const m = x.material; if (m) (Array.isArray(m) ? m : [m]).forEach((mm) => mats.add(mm)); });
+      mats.forEach((m) => { ['map', 'envMap', 'emissiveMap', 'alphaMap'].forEach((k) => { if (m[k] && m[k].dispose) m[k].dispose(); }); m.dispose(); });
+      [glowTex, glowTexL, env].forEach((x) => { if (x && x.dispose) x.dispose(); });
+      if (sun.shadow && sun.shadow.map) sun.shadow.map.dispose();
+      renderer.dispose(); try { renderer.forceContextLoss(); } catch (e) { /* already lost */ }
+      canvas.remove(); layer.remove();
+    }
   };
   wake();
   return api;
