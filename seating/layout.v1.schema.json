@@ -32,7 +32,7 @@
       "kind": { "enum": ["walkway", "closed", "kitchen", "hatch", "counter", "vitrine", "espresso", "fridge", "shelf", "bench", "banquette", "post", "planter", "tree", "awning", "lamp"], "description": "walkway: kept clear (the pavement); closed: not the venue; kitchen: staff only; hatch: the street-side window" },
       "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4, "description": "[x1, z1, x2, z2], up to 2 m past the room" },
       "at": { "$ref": "#/definitions/point" }, "name": { "$ref": "#/definitions/text" } },
-      "anyOf": [{ "required": ["rect"] }, { "required": ["at"] }] } }
+      "if": { "properties": { "kind": { "enum": ["espresso", "post", "planter", "tree", "lamp"] } } }, "then": { "required": ["at"] }, "else": { "required": ["rect"] } } }
   },
   "definitions": {
     "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,39}$" },

@@ -175,3 +175,4 @@ html.reduce .pl-lab,html.reduce .pp-set{transition:none!important}
 html.reduce .pl-plan .pp-t[data-phase="over"] .pp-ring,html.reduce .ready .rcard,html.reduce .ready .ring,html.reduce .sky i{animation:none!important}
 html.test .page{opacity:1!important;transform:none!important;transition:none!important}
 html.test .sky i{animation:none!important}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}

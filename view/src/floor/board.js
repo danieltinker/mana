@@ -9,7 +9,7 @@
 import { validateLayout, tableById, zoneById, tableNo, fits } from '../../../seating/validate.mjs';
 import { MIN, LIMITS, configure, seat, extend, free, tick, status, validateState } from '../../../seating/timers.mjs';
 import { peakAt, windowsOn, openSlots, frameFor, validatePeaks, validateFrames } from '../../../seating/peaks.mjs';
-import { tickBids, holdAt, auctionFor, leaderOf, accept, decline, release, configureBids, validateBids } from '../../../seating/bids.mjs';
+import { tickBids, holdAt, auctionFor, leaderOf, accept, decline, release, configureBids, reconcileBids, validateBids } from '../../../seating/bids.mjs';
 import { addOrder, advance, back, byPhase } from '../../../seating/orders.mjs';
 import * as E from '../../../seating/edit.mjs';
 import { createAlerts } from '../host/alerts.js';
@@ -46,14 +46,20 @@ const now = () => clockNow(clk);
 let R = L ? loadRules(live, L) : null;
 let S = null, O = null, B = null;
 function loadAll(fresh) {
-  const p = loadParts(live, L);
+  let p = { timers: null, orders: null, bids: null };
+  try { p = loadParts(live, L); } catch (e) { fresh = true; }                    /* anything unreadable in storage: the demo's morning again */
   if (fresh || !p.timers || !p.orders || !p.bids) { const seedS = seedMorning(L, now()); S = fresh || !p.timers ? seedS.timers : p.timers; O = fresh || !p.orders ? seedS.orders : p.orders; B = fresh || !p.bids ? seedS.bids : p.bids; live.put('timers', S); live.put('orders', O); live.put('bids', B); }
   else { S = p.timers; O = p.orders; B = p.bids; }
 }
 if (L) loadAll(false);
 const zoneName = (zid) => { const z = zoneById(L, zid); return z ? (z.name[lang] || z.name.en) : zid; };
 const tName = (id) => t('tableN', { n: tableNo(L, id) });
-const tFull = (id) => { const tb = tableById(L, id); return tb ? tName(id) + ' · ' + zoneName(tb.zone) : id; };
+const tFull = (id, lay = L) => { const tb = tableById(lay, id); return tb ? t('tableN', { n: tableNo(lay, id) }) + ' · ' + zoneName(tb.zone) : id; };
+/* a refusal from the rules, in the screen's language: a code from seating/*.mjs, or a timers message read for its meaning */
+function errText(e) {
+  const code = e && e.code ? e.code : e && /seated until|is seated/.test(e.message || '') ? 'seated' : e && /not seated/.test(e.message || '') ? 'not-seated' : 'refused';
+  const s = t('err_' + code, { n: e && e.n != null ? e.n : '' }); return s === 'err_' + code ? t('err_refused') : s;
+}
 const saveS = () => live.put('timers', S), saveO = () => live.put('orders', O), saveB = () => live.put('bids', B);
 const alerts = createAlerts({ reduce });
 const log = []; const note = (text, kind = 'info') => { log.unshift({ at: now(), text, kind }); log.length = Math.min(log.length, 30); };
@@ -76,15 +82,15 @@ const rows = (n) => L.tables.map((tb) => rowOf(tb.id, n));
 let stage = null, stageKind = null, selected = null, editing = false, topView = false, fbWhy = '';
 async function mountStage(kind) {
   if (stage) { stage.dispose(); stage = null; }
-  const host = $('stage'); host.textContent = '';
+  const host = $('stage'); host.textContent = ''; const lay = editing && D ? D : L;
   const common = { lang, onTable: (id) => onStageTable(id), onMove: (id, x, z) => editOp((l) => E.moveTable(l, id, x, z), id), onKey: (e, id) => editKey(e, id) };
   if (kind === '3d') {
     try {
       const { createPlace } = await import('../room/place.js');
-      stage = createPlace(host, L, Object.assign({}, common, { reduced: reduce, test: TEST, lowPower: Q.get('quality') === 'low', forceGL: GL === 'on', slowMs: 4000, label: t('placeLabel', { n: L.tables.length }), onSlow: (why) => { fbWhy = why; mountStage('2d'); } }));
+      stage = createPlace(host, lay, Object.assign({}, common, { reduced: reduce, test: TEST, lowPower: Q.get('quality') === 'low', forceGL: GL === 'on', slowMs: 4000, label: t('placeLabel', { n: L.tables.length }), onSlow: (why) => { fbWhy = why; mountStage('2d'); } }));
     } catch (e) { stage = null; fbWhy = String(e && e.message || e); }
     if (!stage) { if (!fbWhy) fbWhy = 'no WebGL'; return mountStage('2d'); }
-  } else stage = createPlan(host, L, Object.assign({}, common, { label: t('planLabel', { n: L.tables.length }) }));
+  } else stage = createPlan(host, lay, Object.assign({}, common, { label: t('planLabel', { n: L.tables.length }) }));
   stageKind = kind; stage.edit(editing); stage.select(selected);
   [...setTables].forEach((id) => stage.setTable(id, true, { instant: true }));
   views(); paintStage(); window.__floor.stageKind = kind;
@@ -96,10 +102,12 @@ function views() {
   if (GL !== 'off' && !fbWhy) box.appendChild(h('button', { class: 'pill', type: 'button', id: 'kindBtn', 'aria-pressed': String(stageKind === '2d'), text: stageKind === '3d' ? t('view2d') : t('view3d'), onclick: () => { topView = stageKind === '3d'; mountStage(topView ? '2d' : '3d'); } }));
   $('fbNote').hidden = !fbWhy; $('fbNote').textContent = fbWhy ? t('fallback', { why: fbWhy }) : '';
 }
-const warnIds = () => new Set(editing ? E.warnings(L).map((w) => w.id) : []);
+const warnIds = () => new Set(editing ? E.warnings(D).map((w) => w.id) : []);
 function paintStage() {
   if (!stage) return; const n = now(), w = warnIds();
-  stage.setRows(rows(n).map((r) => ({ id: r.id, phase: r.phase, text: editing ? String(tableNo(L, r.id)) : r.text, warn: w.has(r.id), aria: r.aria })));
+  /* editing: the draft floor, numbered; a table the saved floor does not have yet is shown free */
+  if (editing) { stage.setRows(D.tables.map((tb) => ({ id: tb.id, phase: tableById(L, tb.id) && S.tables[tb.id] ? rowOf(tb.id, n).phase : 'free', text: String(tableNo(D, tb.id)), warn: w.has(tb.id), aria: tFull(tb.id, D) }))); return; }
+  stage.setRows(rows(n).map((r) => ({ id: r.id, phase: r.phase, text: r.text, warn: false, aria: r.aria })));
 }
 const setTables = new Set();
 function setTable(id, on = true) { if (on) setTables.add(id); else setTables.delete(id); return stage ? stage.setTable(id, on) : Promise.resolve(); }
@@ -116,6 +124,15 @@ function selectTable(id, open) {
 const PANELS = ['tables', 'orders', 'bids', 'alerts'];
 let UI = (() => { const u = live.get('ui'); const order = u && Array.isArray(u.order) ? u.order.filter((p) => PANELS.includes(p)) : []; PANELS.forEach((p) => { if (!order.includes(p)) order.push(p); }); return { order, on: Object.assign({ tables: true, orders: true, bids: true, alerts: true }, u && u.on), density: u && u.density === 'compact' ? 'compact' : 'roomy' }; })();
 const saveUI = () => live.put('ui', UI, true);
+/* Is the new panel the old one with only its changing words different (the minutes, a countdown, a count, an aria-label)?
+   Then those words are copied in place and the buttons stay; → false when the panel must be replaced. */
+const sig = (el) => { const c = el.cloneNode(true); c.querySelectorAll('[data-live]').forEach((x) => { x.textContent = ''; }); c.querySelectorAll('[aria-label]').forEach((x) => x.removeAttribute('aria-label')); return c.innerHTML; };
+function merge(old, next) {
+  if (sig(old) !== sig(next)) return false;
+  const a = old.querySelectorAll('[data-live]'), b = next.querySelectorAll('[data-live]'); a.forEach((x, i) => { if (x.textContent !== b[i].textContent) x.textContent = b[i].textContent; });
+  const c = old.querySelectorAll('[aria-label]'), d = next.querySelectorAll('[aria-label]'); c.forEach((x, i) => { const v = d[i] && d[i].getAttribute('aria-label'); if (v != null && x.getAttribute('aria-label') !== v) x.setAttribute('aria-label', v); });
+  return true;
+}
 function keep(fn) { const a = document.activeElement, key = a && a.getAttribute && a.getAttribute('data-k'); fn(); if (key) { const b = document.querySelector('[data-k="' + CSS.escape(key) + '"]'); if (b && b !== a) b.focus({ preventScroll: true }); } }
 function renderPanels() {
   if (!L) return;
@@ -128,13 +145,13 @@ function renderPanels() {
     cols.forEach((col, c) => {
       const have = [...col.children];
       if (have.length !== want[c].length || have.some((el, i) => el.dataset.panel !== want[c][i].dataset.panel)) { col.textContent = ''; want[c].forEach((el) => col.appendChild(el)); return; }
-      have.forEach((el, i) => { if (el.innerHTML !== want[c][i].innerHTML) col.replaceChild(want[c][i], el); });
+      have.forEach((el, i) => { if (!merge(el, want[c][i])) col.replaceChild(want[c][i], el); });
     });
   });
 }
 function panel(p) {
   const n = now(), body = p === 'tables' ? tablesPanel(n) : p === 'orders' ? ordersPanel(n) : p === 'bids' ? bidsPanel(n) : alertsPanel(n);
-  return h('section', { class: 'panel glass', 'data-panel': p, 'aria-labelledby': 'h-' + p }, [h('h2', { id: 'h-' + p }, [t({ tables: 'pTables', orders: 'pOrders', bids: 'pBids', alerts: 'pAlerts' }[p]), body.count != null ? h('span', { class: 'n', text: String(body.count) }) : null]), body.el]);
+  return h('section', { class: 'panel glass', 'data-panel': p, 'aria-labelledby': 'h-' + p }, [h('h2', { id: 'h-' + p }, [t({ tables: 'pTables', orders: 'pOrders', bids: 'pBids', alerts: 'pAlerts' }[p]), body.count != null ? h('span', { class: 'n', 'data-live': '', text: String(body.count) }) : null]), body.el]);
 }
 function tablesPanel(n) {
   const rank = { over: 0, ending: 1, held: 2, seated: 3, reserved: 4, free: 5 }, list = rows(n).sort((a, b) => rank[a.phase] - rank[b.phase] || (a.s.leftMs || 0) - (b.s.leftMs || 0));
@@ -144,7 +161,7 @@ function tablesPanel(n) {
     box.appendChild(h('div', { class: 'row' + (selected === r.id ? ' sel' : ''), 'data-id': r.id, 'data-phase': r.phase, style: '--c:' + STATE_COLOURS[r.phase] }, [
       h('button', { class: 'hit', type: 'button', 'data-k': 'tsel-' + r.id, 'aria-label': r.aria, onclick: () => selectTable(r.id, true) }),
       h('i', { class: 'dot', 'aria-hidden': 'true' }),
-      h('span', { class: 'tx' }, [h('b', { text: tFull(r.id) }), h('small', { text: (r.text ? r.text + ' · ' : '') + r.sub })]),
+      h('span', { class: 'tx' }, [h('b', { text: tFull(r.id) }), h('small', { 'data-live': '', text: (r.text ? r.text + ' · ' : '') + r.sub })]),
       busy ? h('button', { class: 'pill go', type: 'button', 'data-k': 'tx-' + r.id, 'data-act': 'extend', text: t('extend', { n: S.settings.extendBy }), onclick: () => act('extend', r.id) })
         : h('button', { class: 'pill go lead', type: 'button', 'data-k': 'ts-' + r.id, 'data-act': 'seat', text: t('seat'), onclick: () => { selectTable(r.id, false); openSeat(r.id); } })]));
   });
@@ -180,14 +197,14 @@ function bidsPanel(n) {
     const a = auctionFor(B, id, sl), lead = leaderOf(a), bidders = new Set(a.bids.map((b) => b.guest)).size;
     box.appendChild(h('div', { class: 'bid', 'data-key': a.key, 'data-phase': a.phase }, [
       h('div', { class: 'top' }, [h('b', { text: tFull(id) }), h('span', { class: 'amt', text: lead ? '₪' + lead.amount : '' })]),
-      h('small', { text: t('slot', { from: hm(sl.start), to: hm(sl.end) }) + ' · ' + (lead ? t('highest', { n: lead.amount }) + ' · ' + t.count('bidders', bidders) : t('noBids')) + ' · ' + t('closesIn', { t: left(sl.closesAt - n) }) }),
+      h('small', {}, [t('slot', { from: hm(sl.start), to: hm(sl.end) }) + ' · ' + (lead ? t('highest', { n: lead.amount }) + ' · ' + t.count('bidders', bidders) : t('noBids')) + ' · ', h('span', { class: 'cd', 'data-live': '', text: t('closesIn', { t: left(sl.closesAt - n) }) })]),
       lead ? h('div', { class: 'acts' }, [h('button', { class: 'pill lead', type: 'button', 'data-k': 'ba-' + a.key, 'data-act': 'accept', text: t('acceptNow'), onclick: () => bidAct('accept', a.key) }), h('button', { class: 'pill quiet', type: 'button', 'data-k': 'bd-' + a.key, 'data-act': 'decline', text: t('declineIt'), onclick: () => bidAct('decline', a.key) })]) : null]));
   }));
   Object.values(B.auctions).filter((a) => a.phase !== 'open' && a.end > n - 3 * 60 * MIN).sort((a, b) => a.start - b.start).forEach((a) => {
     const w = a.bids.find((b) => b.id === a.winner);
     box.appendChild(h('div', { class: 'bid', 'data-key': a.key, 'data-phase': a.phase }, [
       h('div', { class: 'top' }, [h('b', { text: tFull(a.table) }), h('span', { class: 'amt', text: w ? '₪' + w.amount : '' })]),
-      h('small', { text: t('slot', { from: hm(a.start), to: hm(a.end) }) + ' · ' + (a.phase === 'won' || a.phase === 'done' ? t('wonBy', { n: w ? w.amount : 0 }) + (B.rules.credit ? ' · ' + t('credited') : '') : t(a.phase === 'unsold' ? 'unsold' : a.phase === 'declined' ? 'declined' : 'released')) }),
+      h('small', { text: t('slot', { from: hm(a.start), to: hm(a.end) }) + ' · ' + (a.phase === 'won' || a.phase === 'done' ? t('wonBy', { n: w ? w.amount : 0 }) + (B.rules.credit ? ' · ' + t('credited') : '') : t(a.phase === 'unsold' ? 'unsold' : a.phase === 'declined' ? (a.reasonCode === 'no-longer-open' ? 'noLongerOpen' : 'declined') : 'released')) }),
       a.phase === 'won' ? h('div', { class: 'acts' }, [h('button', { class: 'pill', type: 'button', 'data-k': 'br-' + a.key, 'data-act': 'release', text: t('releaseIt'), onclick: () => bidAct('release', a.key) })]) : null]));
   });
   box.appendChild(h('p', { class: 'note', text: t('bidsSample') }));
@@ -207,18 +224,18 @@ function act(what, id, extra) {
     if (what === 'extend') S = extend(S, id, { now: n });
     else if (what === 'free') { S = free(S, id, { now: n }); setTable(id, false); }
     else if (what === 'seat') { S = seat(S, id, Object.assign({ now: n }, extra)); setTable(id, true); }
-  } catch (e) { flash(e.message); return false; }
+  } catch (e) { flash(errText(e)); return false; }
   saveS(); paint(); return true;
 }
 function orderAct(id, to) {
   const n = now();
   try { const r = to === 'back' ? back(O, id) : advance(O, id, to, { now: n }); O = r.state; if (to === 'ready') note(t('aReady', { no: r.order.no }), 'ready'); }
-  catch (e) { flash(e.message); return; }
+  catch (e) { flash(errText(e)); return; }
   saveO(); paint();
 }
 function bidAct(what, key) {
   const n = now(), r = what === 'accept' ? accept(B, key, { now: n }) : what === 'decline' ? decline(B, key, { reason: t('declineReason'), now: n }) : release(B, key, { now: n });
-  if (!r.ok) { flash(r.error); return; }
+  if (!r.ok) { flash(errText(r)); return; }
   B = r.state; saveB();
   if (what === 'accept') { const a = B.auctions[key], w = a.bids.find((b) => b.id === a.winner); note(t('aWon', { table: tFull(a.table), n: w.amount }), 'bid'); setTable(a.table, true); }
   paint();
@@ -231,13 +248,13 @@ function openSheet(build, from) {
   opener = from || document.activeElement; const sh = $('sheet');
   sh.textContent = ''; sheetUpdate = build(sh) || null;
   sh.hidden = false; $('scrim').hidden = false;
-  ['page', 'toasts'].forEach((id) => { $(id).inert = true; });
+  ['page', 'toasts', 'phone'].forEach((id) => { $(id).inert = true; });      /* the sheet is modal: the phone frame too */
   requestAnimationFrame(() => { sh.classList.add('in'); $('scrim').classList.add('in'); const ttl = $('sheetTitle'); if (ttl) ttl.focus(); });
 }
 function closeSheet() {
   const sh = $('sheet'); if (sh.hidden) return;
   sh.classList.remove('in'); $('scrim').classList.remove('in'); sheetUpdate = null; sh.hidden = true; $('scrim').hidden = true;
-  ['page', 'toasts'].forEach((id) => { $(id).inert = false; });
+  ['page', 'toasts', 'phone'].forEach((id) => { $(id).inert = false; });
   const b = opener && opener.isConnected ? opener : null; opener = null; if (b) try { b.focus(); } catch (e) { /* gone */ }
 }
 const head = (title, sub) => h('header', { class: 'sh-head' }, [h('div', {}, [h('h2', { id: 'sheetTitle', tabindex: '-1', text: title }), sub ? h('p', { class: 'sub', text: sub }) : null]),
@@ -292,7 +309,7 @@ function openNewOrder() {
       const sel = h('select', { id: 'orderTable', 'aria-label': t('orderFor') }, [h('option', { value: '', text: t('noTable') })].concat(L.tables.map((tb) => h('option', { value: tb.id, text: tFull(tb.id), selected: st.table === tb.id }))));
       sel.addEventListener('change', () => { st.table = sel.value || null; });
       sh.append(head(t('newOrder'), t('itemsDemo')), items, h('label', { class: 'field' }, [t('orderFor'), sel]),
-        h('div', { class: 'sh-acts' }, [h('button', { class: 'pill lead wide', type: 'button', id: 'orderGo', disabled: !st.items.size, text: t('addOrder'), onclick: () => { try { O = addOrder(O, { items: [...st.items], table: st.table, now: now() }).state; saveO(); closeSheet(); paint(); } catch (e) { flash(e.message); } } }),
+        h('div', { class: 'sh-acts' }, [h('button', { class: 'pill lead wide', type: 'button', id: 'orderGo', disabled: !st.items.size, text: t('addOrder'), onclick: () => { try { O = addOrder(O, { items: [...st.items], table: st.table, now: now() }).state; saveO(); closeSheet(); paint(); } catch (e) { flash(errText(e)); } } }),
           h('button', { class: 'pill quiet', type: 'button', text: t('cancel'), onclick: closeSheet })]));
     };
     render();
@@ -327,10 +344,11 @@ function openSettings() {
             h('output', { class: 'val' + (v == null ? ' muted' : ''), text: t('minutes', { n: shown }) }),
             h('button', { class: 'round', type: 'button', id: idp + z.id + 'Inc', 'aria-label': t('longer') + ' · ' + (z.name[lang] || z.name.en), text: '+', disabled: shown + 5 > LIMITS.minutes[1], onclick: () => setFrame(key, z.id, shown + 5, idp + z.id + 'Inc') })])]); };
       const setFrame = (key, zid, m, f) => { const next = JSON.parse(JSON.stringify(R.frames)); if (key === 'zones') next.zones[zid] = m; else next.peak.zones[zid] = m; const v = validateFrames(next, L); if (v.ok) { R.frames = v.frames; saveRules(); render(f); paint(); } };
-      const setWin = (patch, f) => { const v = validatePeaks(Object.assign({}, R.peaks, { windows: [Object.assign({}, w0, patch)] })); if (v.ok) { R.peaks = v.peaks; saveRules(); render(f); paint(); } else flash(v.errors[0]); };
+      /* new peak hours: an open auction whose slot is gone is declined, "this time is no longer open" */
+      const setWin = (patch, f) => { const v = validatePeaks(Object.assign({}, R.peaks, { windows: [Object.assign({}, w0, patch)] })); if (v.ok) { R.peaks = v.peaks; saveRules(); const nb = reconcileBids(B, R.peaks, now()); if (nb !== B) { B = nb; saveB(); } render(f); paint(); } else flash(errText({ code: (v.codes && v.codes[0]) || 'bad-peaks' })); };
       const fromI = h('input', { type: 'time', id: 'pkFrom', value: w0.from, step: 900, 'aria-label': t('sPeaks') + ' · ' + t('sFrom') }), toI = h('input', { type: 'time', id: 'pkTo', value: w0.to, step: 900, 'aria-label': t('sPeaks') + ' · ' + t('sTo') });
       fromI.addEventListener('change', () => setWin({ from: fromI.value }, 'pkFrom')); toI.addEventListener('change', () => setWin({ to: toI.value }, 'pkTo'));
-      const bidRule = (patch, f) => { const r = configureBids(B, patch, L); if (r.ok) { B = r.state; saveB(); render(f); paint(); } else flash(r.error); };
+      const bidRule = (patch, f) => { const r = configureBids(B, patch, L, { now: now() }); if (r.ok) { B = r.state; saveB(); render(f); paint(); } else flash(errText(r)); };
       sh.append(head(t('setTitle'), t('venue') + ' · ' + t('peakExample')),
         h('h3', { class: 'sec-h', text: t('sFrames') }),
         stepper(t('sDefault'), t('minutes', { n: c.minutes }), () => { S = configure(S, { minutes: c.minutes - 5 }); saveS(); render('setMinDec'); }, () => { S = configure(S, { minutes: c.minutes + 5 }); saveS(); render('setMinInc'); }, { id: 'setMin', decOff: c.minutes - 5 < LIMITS.minutes[0], incOff: c.minutes + 5 > LIMITS.minutes[1] }),
@@ -352,24 +370,21 @@ function openSettings() {
   });
 }
 
-/* ---------- edit mode ---------- */
-let H = null;
+/* ---------- edit mode ----------
+   The owner edits a draft (D): the stage shows it, the clocks, orders and bids keep the saved floor (L) untouched. Save
+   checks the draft, keeps it, and only then the clocks and bids follow it (a new table starts free; a table that left takes
+   its seating and its auctions with it). Done with unsaved changes asks, inside the page, whether to discard them. */
+let H = null, D = null, askDiscard = false;
 function editOp(fn, select) {
   if (!editing) return;
-  let next; try { next = fn(H.present); } catch (e) { flash(e.message); return; }
+  let next; try { next = fn(H.present); } catch (e) { flash(errText(e)); return; }
   if (next && next.layout) { select = next.id; next = next.layout; }
-  H = E.commit(H, next); applyLayout(next); if (select !== undefined) selected = select; if (stage) stage.select(selected); renderEdit();
+  H = E.commit(H, next); showDraft(next); if (select !== undefined) selected = select; if (stage) stage.select(selected); askDiscard = false; renderEdit();
 }
-function applyLayout(next) {
-  L = next; const ids = L.tables.map((x) => x.id);
-  const v = validateState(S, ids); if (v.ok) S = v.state;
-  const b = validateBids(JSON.parse(JSON.stringify(B)), L); if (b.ok) B = b.state;
-  [...setTables].forEach((id) => { if (!ids.includes(id)) setTables.delete(id); });
-  if (stage) stage.setLayout(L); paintStage(); renderPanels();
-}
+function showDraft(next) { D = next; if (stage) stage.setLayout(D); paintStage(); }
 function editKey(e, id) {
   if (!editing || !id) return false;
-  const k = e.key, step = e.shiftKey ? .5 : .05, tb = tableById(L, id); if (!tb) return false;
+  const k = e.key, step = e.shiftKey ? .5 : .05, tb = tableById(D, id); if (!tb) return false;
   /* arrows move the table as you see it: the plan has the street at the bottom (z grows upwards) */
   if (k === 'ArrowLeft') editOp((l) => E.moveTable(l, id, tb.x - step, tb.z), id);
   else if (k === 'ArrowRight') editOp((l) => E.moveTable(l, id, tb.x + step, tb.z), id);
@@ -380,39 +395,54 @@ function editKey(e, id) {
   else return false;
   return true;
 }
+const unsaved = () => H && H.present !== L && JSON.stringify(H.present) !== JSON.stringify(L);
 function renderEdit() {
   const bar = $('editbar'); bar.hidden = !editing; if (!editing) return;
   keep(() => {
     bar.textContent = '';
-    const tb = selected ? tableById(L, selected) : null, ws = E.warnings(L), mine = ws.filter((w, i) => ws.findIndex((x) => x.id === w.id && x.type === w.type) === i);
+    const tb = selected ? tableById(D, selected) : null, ws = E.warnings(D), mine = ws.filter((w, i) => ws.findIndex((x) => x.id === w.id && x.type === w.type) === i);
     const btn = (id, text, fn, o = {}) => h('button', { class: 'pill' + (o.lead ? ' lead' : ''), type: 'button', id, 'data-k': id, disabled: o.off, 'aria-pressed': o.pressed == null ? null : String(o.pressed), text, onclick: fn });
+    if (askDiscard) {
+      bar.append(h('div', { class: 'line', role: 'alertdialog', 'aria-labelledby': 'discardQ' }, [h('b', { id: 'discardQ', text: t('discardQ') }), h('span', { class: 'note', text: t('discardHint') }),
+        btn('discardGo', t('discard'), () => { askDiscard = false; showDraft(L); toggleEdit(false, true); }, { lead: true }), btn('keepEditing', t('keepEditing'), () => { askDiscard = false; renderEdit(); })]));
+      requestAnimationFrame(() => { const b = $('discardGo'); if (b) b.focus(); });
+      return;
+    }
     bar.append(
       h('div', { class: 'line' }, [h('b', { text: t('editTitle') }), ...['round2', 'round3', 'square2', 'long4', 'lounge'].map((k) => btn('add-' + k, '+ ' + t('k' + k[0].toUpperCase() + k.slice(1)), () => editOp((l) => E.addTable(l, k, tb ? { x: tb.x + 1.2, z: tb.z } : {})))),
-        btn('undoBtn', t('undo'), () => { H = E.undo(H); applyLayout(H.present); renderEdit(); }, { off: !H.past.length }), btn('redoBtn', t('redo'), () => { H = E.redo(H); applyLayout(H.present); renderEdit(); }, { off: !H.future.length })]),
-      tb ? h('div', { class: 'line', 'data-sel': tb.id }, [h('b', { text: tFull(tb.id) }),
+        btn('undoBtn', t('undo'), () => { H = E.undo(H); showDraft(H.present); renderEdit(); }, { off: !H.past.length }), btn('redoBtn', t('redo'), () => { H = E.redo(H); showDraft(H.present); renderEdit(); }, { off: !H.future.length })]),
+      tb ? h('div', { class: 'line', 'data-sel': tb.id }, [h('b', { text: tFull(tb.id, D) }),
         btn('rotBtn', t('rotate'), () => editOp((l) => E.rotateTable(l, tb.id, 15), tb.id)), btn('dupBtn', t('dup'), () => editOp((l) => E.duplicateTable(l, tb.id))), btn('delBtn', t('del'), () => editOp((l) => E.removeTable(l, tb.id), null)),
         stepper(t('seats'), String(tb.seats), () => editOp((l) => E.setSeats(l, tb.id, { seats: tb.seats - 1 }), tb.id), () => editOp((l) => E.setSeats(l, tb.id, { seats: tb.seats + 1, maxParty: tb.maxParty === tb.seats ? tb.seats + 1 : tb.maxParty }), tb.id), { id: 'eSeats', decOff: tb.seats <= 1, incOff: tb.seats >= 40 }),
         stepper(t('minParty'), String(tb.minParty), () => editOp((l) => E.setSeats(l, tb.id, { minParty: tb.minParty - 1 }), tb.id), () => editOp((l) => E.setSeats(l, tb.id, { minParty: tb.minParty + 1 }), tb.id), { id: 'eMin', decOff: tb.minParty <= 1, incOff: tb.minParty >= tb.maxParty }),
         stepper(t('maxParty'), String(tb.maxParty), () => editOp((l) => E.setSeats(l, tb.id, { maxParty: tb.maxParty - 1 }), tb.id), () => editOp((l) => E.setSeats(l, tb.id, { maxParty: tb.maxParty + 1 }), tb.id), { id: 'eMax', decOff: tb.maxParty <= tb.minParty, incOff: tb.maxParty >= tb.seats }),
-        (() => { const s = h('select', { id: 'eZone', 'aria-label': t('zone') }, L.zones.map((z) => h('option', { value: z.id, text: z.name[lang] || z.name.en, selected: z.id === tb.zone }))); s.addEventListener('change', () => editOp((l) => E.setZone(l, tb.id, s.value), tb.id)); return s; })()])
+        (() => { const s = h('select', { id: 'eZone', 'aria-label': t('zone') }, D.zones.map((z) => h('option', { value: z.id, text: z.name[lang] || z.name.en, selected: z.id === tb.zone }))); s.addEventListener('change', () => editOp((l) => E.setZone(l, tb.id, s.value), tb.id)); return s; })()])
         : h('p', { class: 'note', text: t('pick') }),
-      h('p', { class: 'warns' + (mine.length ? '' : ' ok'), id: 'warns', 'aria-live': 'polite', text: mine.length ? mine.map((w) => w.type === 'overlap' ? t('wOverlap', { a: tFull(w.id), b: tFull(w.with) }) : t('wOutside', { a: tFull(w.id) })).join(' · ') : t('wOk') }),
-      h('div', { class: 'line' }, [btn('saveBtn', t('save') + (H.past.length ? ' · ' + t('unsaved') : ''), saveFloor, { lead: true }), btn('resetBtn', t('resetLima'), () => editOp(() => validateLayout(DEMOS[venue]).layout)),
+      h('p', { class: 'warns' + (mine.length ? '' : ' ok'), id: 'warns', 'aria-live': 'polite', text: mine.length ? mine.map((w) => w.type === 'overlap' ? t('wOverlap', { a: tFull(w.id, D), b: tFull(w.with, D) }) : t('wOutside', { a: tFull(w.id, D) })).join(' · ') : t('wOk') }),
+      h('div', { class: 'line' }, [btn('saveBtn', t('save') + (unsaved() ? ' · ' + t('unsaved') : ''), saveFloor, { lead: true }), btn('resetBtn', t('resetLima'), () => editOp(() => validateLayout(DEMOS[venue]).layout)),
         btn('exportBtn', t('export'), exportFloor), btn('topBtn', t('top'), () => { topView = !topView; mountStage(want3d() ? '3d' : '2d'); renderEdit(); }, { pressed: stageKind === '2d' }), btn('doneBtn', t('done'), () => toggleEdit(false))]));
   });
 }
 function saveFloor() {
-  const v = validateLayout(H.present); if (!v.ok) { flash(t('notSaved', { why: v.errors[0] })); return; }
-  live.put('layout', v.layout); edited = true; H = E.createHistory(v.layout); flash(t('saved')); renderEdit();
-  saveS(); saveB();
+  const v = validateLayout(D); if (!v.ok) { flash(t('notSaved', { why: t('err_layout') })); return; }
+  live.put('layout', v.layout); edited = true;
+  /* now the clocks and the bids follow the saved floor */
+  L = v.layout; const ids = L.tables.map((x) => x.id);
+  const vs = validateState(S, ids); if (vs.ok) S = vs.state;
+  const cb = configureBids(B, { tables: B.rules.tables.filter((id) => ids.includes(id) && tableById(L, id).bookable) }, L, { now: now() }); if (cb.ok) B = cb.state;
+  const vb = validateBids(JSON.parse(JSON.stringify(B)), L); if (vb.ok) B = vb.state;
+  [...setTables].forEach((id) => { if (!ids.includes(id)) setTables.delete(id); });
+  saveS(); saveB(); H = E.createHistory(L); D = L; flash(t('saved')); renderEdit(); renderPanels(); paint();
 }
 function exportFloor() {
-  const blob = new Blob([JSON.stringify(H.present, null, 2) + '\n'], { type: 'application/json' }), a = h('a', { href: URL.createObjectURL(blob), download: venue + '.layout.json' });
+  const blob = new Blob([JSON.stringify(D, null, 2) + '\n'], { type: 'application/json' }), a = h('a', { href: URL.createObjectURL(blob), download: venue + '.layout.json' });
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
-function toggleEdit(on) {
-  editing = on; $('editBtn').setAttribute('aria-pressed', String(on)); document.documentElement.classList.toggle('editing', on);
-  if (on) { H = E.createHistory(L); selected = null; } else { selected = null; }
+function toggleEdit(on, discarded) {
+  if (!on && editing && !discarded && unsaved()) { askDiscard = true; renderEdit(); return; }      /* unsaved changes: ask first */
+  editing = on; askDiscard = false; $('editBtn').setAttribute('aria-pressed', String(on)); document.documentElement.classList.toggle('editing', on);
+  if (on) { H = E.createHistory(L); D = L; } else { if (D !== L && stage) stage.setLayout(L); D = null; }
+  selected = null;
   if (stage) { stage.edit(on); stage.select(selected); }
   renderEdit(); paintStage();
 }
@@ -503,16 +533,16 @@ if (!L) {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeSheet(); return; }
     if (!editing || !$('sheet').hidden || /INPUT|SELECT|TEXTAREA/.test((e.target && e.target.tagName) || '')) return;
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); H = e.shiftKey ? E.redo(H) : E.undo(H); applyLayout(H.present); renderEdit(); return; }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); H = E.redo(H); applyLayout(H.present); renderEdit(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); H = e.shiftKey ? E.redo(H) : E.undo(H); showDraft(H.present); renderEdit(); return; }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); H = E.redo(H); showDraft(H.present); renderEdit(); return; }
     if (selected && e.target && !(e.target.closest && e.target.closest('.pp-t, .pl-canvas')) && editKey(e, selected)) e.preventDefault();
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { step(); schedule(); } });
 }
-$('langBtn').addEventListener('click', () => { lang = lang === 'he' ? 'en' : 'he'; mem.set('halom-menu-lang', lang); const u = new URL(location.href); u.searchParams.set('lang', lang); history.replaceState(null, '', u); closeSheet(); shell(); toastKey = ''; if (stage) mountStage(stageKind); paint(); renderEdit(); });
+$('langBtn').addEventListener('click', () => { lang = lang === 'he' ? 'en' : 'he'; mem.set('halom-menu-lang', lang); const u = new URL(location.href); u.searchParams.set('lang', lang); history.replaceState(null, '', u); closeSheet(); shell(); toastKey = ''; if (stage && stage.setLang) stage.setLang(lang, stageKind === '3d' ? t('placeLabel', { n: L.tables.length }) : t('planLabel', { n: L.tables.length })); views(); paint(); renderEdit(); });
 requestAnimationFrame(() => document.documentElement.classList.add('in'));
 Object.assign(window.__floor, {
-  layout: () => L, state: () => ({ S, O, B, R }), now, rows: () => rows(now()).map((r) => ({ id: r.id, phase: r.phase, text: r.text })), stage: () => stage, history: () => H, edited: () => edited, log: () => log.slice(),
+  layout: () => L, draft: () => D, state: () => ({ S, O, B, R }), now, rows: () => rows(now()).map((r) => ({ id: r.id, phase: r.phase, text: r.text })), stage: () => stage, history: () => H, edited: () => edited, log: () => log.slice(),
   advance(ms) { const n = now(); clk = { real: Date.now(), virt: n + ms, speed: clk.speed }; live.put('clock', clk); step(); },
   step, paint, select: (id) => selectTable(id, false), editOp: (fn) => editOp(fn), E
 });

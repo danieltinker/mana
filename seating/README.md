@@ -163,7 +163,7 @@ floor/?demo=lima                       the counter's board (Hebrew; &lang=en, &s
 floor/guest.html?demo=lima&table=t3    the guest's phone, opened from the QR on table 3 (also inside the board: "Guest's phone")
 ```
 
-Café Lima is Rami's café. Its floor, `fixtures/lima.layout.json`, is **a first draft drawn from six photos**: every measure
+Café Lima is the demo venue. Its floor, `fixtures/lima.layout.json`, is **a first draft drawn from six photos**: every measure
 is an estimate (about ±0.5 m), no people and no photos are in it. Outside, two messy lines (by the street, along the
 wall) under three awnings; inside, the banquette row with four marble tables, one table by the door, the sofa corner; the
 counter with its vitrine behind a glass partition on the left as you come in. 16 tables, 44 seats. What changed from
@@ -171,8 +171,7 @@ Claude's first sketch: the counter faces the room from behind the partition (the
 no room for the barista); a table moved from the street line in front of the street window (the photos show that space
 empty) to the left line, with saddle stools; the entrance is wider (about 2.1 m) and the glazing beside it is drawn; the
 arched doorway at the back sits left of the banquette; the table by the door is closer to it; the glass-top table stands
-across the line (its long side faces the street). Open for Rami: where exactly the counter is and which way it faces,
-and how many seats each outdoor table really has.
+across the line (its long side faces the street).
 
 **The 3D place** (`view/src/room/`: `build.js` builds it, `place.js` runs it, `plan2d.js` is the plan) is built from the
 layout with three.js r128 (the guest menu's copy, one chunk loaded only when the stage goes 3D). Walls with their openings,
@@ -207,11 +206,15 @@ It should feel like reserving the best seat, not paying for a chair.
    example). It opens 120 minutes before the slot and closes 10 minutes before it (the owner's settings).
 3. A bid is a whole amount ≥ the minimum; when someone leads, ≥ the leader's amount + the step. The party must fit the
    table. The leader cannot outbid himself. A guest leads at most one table per slot.
-4. When bidding closes the highest bid wins: the table is held for that slot (violet on the board and the phone), the
-   other bids are released, the board seats the winner when they arrive. The owner may accept the leading bid early,
+4. When bidding closes the highest bid wins: the table is held for that slot (violet on the board and the phone) from the
+   slot's start (or from the owner's early accept, if that came later) to the slot's end, so back-to-back slots never
+   hold one table twice; the other bids are released, the board seats the winner when they arrive. The owner may accept the leading bid early,
    decline an auction with a reason the guests read (every bid is released), or release a held table.
-5. Nothing is charged: in the demo the amounts are samples and every screen says so. In production a won bid becomes a
-   credit or a charge only through `db/proposed/0005_payments.sql`'s rules, which Daniel and Rami decide.
+5. When the owner changes the peak hours, an open auction whose slot no longer exists is declined, and so are the open
+   auctions of a table taken off the list: the guests read "this time is no longer open". Peak windows of one day may
+   not overlap. A bid is checked against the stored auction's own close too.
+6. Nothing is charged: in the demo the amounts are samples and every screen says so. In production a won bid becomes a
+   credit or a charge only through `db/proposed/0005_payments.sql`'s rules (not decided here).
 
 ```
 open ──bid──▶ open (the new bid leads; the previous leader is outbid)
@@ -255,7 +258,7 @@ explain the spaces inside his restaurant."
   hours, the default time frame and any shorter one at peak.
 - **What Halom does with them today**: this draft, by hand. Claude traces the plan from the photos into `layout.v1`
   (walls, openings, zones, tables with their looks, fixtures), checks it with `validateLayout`, and the owner corrects it
-  in edit mode. About an hour per venue; the measures are estimates.
+  in edit mode. The measures are estimates.
 - **A better pipeline later**: a phone LiDAR scan (Polycam or Scaniverse on an iPhone Pro) gives the room's true measures
   and a textured mesh; photogrammetry from a short video does the same without LiDAR; Gaussian splats give a
   photo-real place to look at. Either way the tables stay `layout.v1` (the scan is the backdrop, the layout is what is

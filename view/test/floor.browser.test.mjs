@@ -58,6 +58,8 @@ test('board and phone (2D, Hebrew): seat a table, the order-ready beep reaches t
   await board.waitForFunction(() => Object.values(window.__floor.state().B.auctions).some((a) => a.table === 'l1' && a.bids.some((b) => b.amount === 20 && b.status === 'leading')));
   await shot(phone, 'floor-phone-bid-he');
   await board.evaluate(() => window.__floor.advance(16 * 60000));                  // 09:35 → 09:51: bidding for 10:00 closed at 09:50
+  assert.equal(await phase(board, 'l1'), 'free', 'won, but held only from the slot’s start');
+  await board.evaluate(() => window.__floor.advance(10 * 60000));                  // 10:01
   assert.equal(await phase(board, 'l1'), 'held', 'the sofa corner is held for the winner (violet)');
   await phone.waitForSelector('.gbid[data-table="l1"][data-st="won"]', { timeout: 8000 });
   assert.match(await phone.textContent('.gbid[data-table="l1"] .st'), /פינת הספות שלכם, .*10:00.*11:30.*· הסכום יקוזז מההזמנה שלכם/);
@@ -72,7 +74,10 @@ test('edit the floor (2D, English): move by keys and by drag, add, delete, undo,
   await page.waitForSelector('.pp-t');
   assert.equal(await page.$eval('html', (e) => e.lang + '/' + e.dir), 'en/ltr');
   await page.click('#editBtn'); await page.waitForSelector('#editbar:not([hidden])');
-  const x = (id) => page.evaluate((i) => window.__floor.layout().tables.find((t) => t.id === i), id);
+  /* while editing, the draft moves; the saved floor (layout) waits for Save */
+  const x = (id) => page.evaluate((i) => (window.__floor.draft() || window.__floor.layout()).tables.find((t) => t.id === i), id);
+  const sx = (id) => page.evaluate((i) => window.__floor.layout().tables.find((t) => t.id === i), id);
+  const draftIds = () => page.evaluate(() => (window.__floor.draft() || window.__floor.layout()).tables.map((t) => t.id));
   /* pick table 5 along the wall and move it with the arrows (5 cm a press), rotate with R */
   await page.click('.pp-t[data-id="t5"]'); await page.waitForSelector('[data-sel="t5"]');
   await page.focus('.pp-t[data-id="t5"]'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowRight');
@@ -83,24 +88,43 @@ test('edit the floor (2D, English): move by keys and by drag, add, delete, undo,
   await page.mouse.move(b[0], b[1]); await page.mouse.down(); await page.mouse.move(b[0] - 30, b[1], { steps: 4 }); await page.mouse.up();
   const t5 = await x('t5'); assert.ok(t5.x < 9.8 && Math.abs(t5.x * 20 - Math.round(t5.x * 20)) < 1e-6, 'dragged left and snapped: ' + t5.x);
   /* add a round table for 2 next to it, then delete it, then undo the delete */
-  await page.click('#add-round2'); let ids = await page.evaluate(() => window.__floor.layout().tables.map((t) => t.id)); assert.ok(ids.includes('n1')); assert.equal(ids.length, 17);
+  await page.click('#add-round2'); let ids = await draftIds(); assert.ok(ids.includes('n1')); assert.equal(ids.length, 17);
+  assert.equal(await page.evaluate(() => window.__floor.layout().tables.length), 16, 'not saved yet');
   assert.equal(await page.$$eval('.pp-t', (els) => els.length), 17);
-  await page.click('#delBtn'); assert.equal((await page.evaluate(() => window.__floor.layout().tables.length)), 16);
-  await page.click('#undoBtn'); assert.equal((await page.evaluate(() => window.__floor.layout().tables.length)), 17, 'undo brings it back');
+  await page.click('#delBtn'); assert.equal((await draftIds()).length, 16);
+  await page.click('#undoBtn'); assert.equal((await draftIds()).length, 17, 'undo brings it back');
   await page.click('#redoBtn'); await page.click('#undoBtn');
   /* a warning: push table 2 onto table 3 */
   await page.evaluate(() => window.__floor.editOp((l) => window.__floor.E.moveTable(l, 't2', 4.2, 3.35)));
   assert.match(await page.textContent('#warns'), /Table 2 · Along the wall touches Table 3 · Along the wall/);
   await page.evaluate(() => window.__floor.editOp((l) => window.__floor.E.moveTable(l, 't2', 3.0, 3.35)));
   assert.equal((await page.textContent('#warns')).trim(), 'The floor has no problems.');
+  /* a delete and its undo leave the table's seating as it was: while editing, the clocks are not touched */
+  await page.click('.pp-t[data-id="t2"]'); await page.click('#delBtn'); assert.equal((await draftIds()).includes('t2'), false); assert.equal(await page.evaluate(() => window.__floor.layout().tables.some((t) => t.id === 't2')), true, 'the saved floor still has it');
+  await page.click('#undoBtn');
   await shot(page, 'floor-edit-en-2d');
   await page.click('#saveBtn');
+  assert.equal(await page.evaluate(() => window.__floor.state().S.tables.t2.phase), 'seated', 'deleted and undone: still seated');
   await page.reload(); await page.waitForSelector('.pp-t');
   ids = await page.evaluate(() => window.__floor.layout().tables.map((t) => t.id)); assert.ok(ids.includes('n1'), 'a reload keeps the saved floor');
-  assert.equal((await x('t5')).x, t5.x); assert.equal(await page.evaluate(() => window.__floor.edited()), true);
+  assert.equal((await sx('t5')).x, t5.x); assert.equal(await page.evaluate(() => window.__floor.edited()), true);
   assert.ok(await page.evaluate(() => Object.keys(localStorage).includes('mana-floor:v1:lima:layout')));
+  /* a phone at the new table: when the owner deletes it and saves, the phone says the table is not in the café */
+  const { page: phone, errors: perr } = await tab(ctx, url('guest.html', '&table=n1&gl=off&lang=en'), { width: 390, height: 844 });
+  await phone.waitForSelector('#orderState', { state: 'attached' });
   await page.click('#editBtn'); await page.click('#resetBtn'); await page.click('#saveBtn');
   assert.equal(await page.evaluate(() => window.__floor.layout().tables.length), 16, 'back to Lima’s draft');
+  await phone.waitForFunction(() => window.__guest.gone === true, null, { timeout: 8000 });
+  assert.equal((await phone.textContent('#youAt')).trim(), 'This table is not in the café.'); assert.deepEqual(perr, []); await phone.close();
+  /* Done with unsaved changes asks inside the page; Discard brings the saved floor back */
+  const x5 = (await sx('t5')).x;
+  await page.evaluate(() => window.__floor.editOp((l) => window.__floor.E.moveTable(l, 't5', 8.5, 3.2)));
+  assert.equal((await sx('t5')).x, x5, 'the saved floor waits for Save'); assert.equal((await x('t5')).x, 8.5);
+  await page.click('#doneBtn'); await page.waitForSelector('#discardGo');
+  assert.match(await page.textContent('#discardQ'), /Discard changes\?/);
+  await page.click('#discardGo'); await page.waitForSelector('#editbar', { state: 'hidden' });
+  assert.equal(await page.evaluate(() => window.__floor.draft()), null);
+  assert.equal(await page.$eval('.pp-t[data-id="t5"]', (e) => e.getAttribute('transform').startsWith('translate(' + 9.7 + ' ') || e.getAttribute('transform').includes('9.7')), true, 'the plan shows the saved floor again');
   /* every button is at least 44 px; nothing overflows */
   const small = await page.$$eval('button', (els) => els.filter((e) => e.offsetParent && !e.classList.contains('hit')).map((e) => e.getBoundingClientRect()).filter((r) => r.height < 43.5 || r.width < 43.5).length);
   assert.equal(small, 0, 'targets ≥ 44 px'); assert.equal(await noOverflow(page), 0);

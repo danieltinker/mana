@@ -23,8 +23,10 @@ const mins = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3));
 const dayStart = (at) => { const d = new Date(ms(at)); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const atMinute = (day0, m) => { const d = new Date(day0); d.setHours(Math.floor(m / 60), m % 60, 0, 0); return d.getTime(); };
 
-/* → { ok: true, peaks } | { ok: false, errors }. Never throws. */
-export function validatePeaks(raw) {
+/* → { ok: true, peaks } | { ok: false, errors, codes }. Never throws. Windows of one day may not overlap (one table would
+   otherwise belong to two slots at once). */
+export function validatePeaks(raw) { try { return checkPeaks(raw); } catch (e) { return { ok: false, errors: ['malformed peaks'], codes: ['bad-peaks'] }; } }
+function checkPeaks(raw) {
   const errors = [], err = (m) => errors.push(m);
   if (!isObj(raw)) return { ok: false, errors: ['not an object'] };
   const windows = Array.isArray(raw.windows) ? raw.windows : (err('windows must be an array'), []);
@@ -39,7 +41,12 @@ export function validatePeaks(raw) {
   const pick = (k) => { const v = raw[k] == null ? PEAK_DEFAULTS[k] : raw[k]; if (!onScale(v, PEAK_LIMITS[k])) err(k + ' must be ' + PEAK_LIMITS[k][0] + '–' + PEAK_LIMITS[k][1] + ' in steps of ' + PEAK_LIMITS[k][2]); return v; };
   const peaks = { windows: out, slot: pick('slot'), opensBefore: pick('opensBefore'), closeBefore: pick('closeBefore') };
   if (peaks.closeBefore >= peaks.opensBefore) err('bidding must open before it closes');
-  return errors.length ? { ok: false, errors } : { ok: true, peaks };
+  const codes = errors.map(() => 'bad-peaks');
+  for (let i = 0; i < out.length; i++) for (let j = i + 1; j < out.length; j++) {
+    const A = out[i], B = out[j];
+    if (A.days.some((d) => B.days.includes(d)) && HM.test(A.from) && HM.test(B.from) && HM.test(A.to) && HM.test(B.to) && mins(A.from) < mins(B.to) && mins(B.from) < mins(A.to)) { errors.push('windows[' + i + '] and windows[' + j + '] overlap'); codes.push('peak-overlap'); }
+  }
+  return errors.length ? { ok: false, errors, codes } : { ok: true, peaks };
 }
 
 /* the window `at` falls in, as { from, to } in ms on that day, or null */
@@ -82,7 +89,8 @@ export function nextPeak(peaks, now) {
 }
 
 /* ---------- time frames ---------- */
-export function validateFrames(raw, layout) {
+export function validateFrames(raw, layout) { try { return checkFrames(raw, layout); } catch (e) { return { ok: false, errors: ['malformed frames'] }; } }
+function checkFrames(raw, layout) {
   const errors = [], err = (m) => errors.push(m), zones = new Set(layout ? layout.zones.map((z) => z.id) : []);
   if (!isObj(raw)) return { ok: false, errors: ['not an object'] };
   const map = (o, where) => {

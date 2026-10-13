@@ -7,9 +7,9 @@ import { readFileSync } from 'node:fs';
 import { validateLayout, tableNo } from './validate.mjs';
 import { createState, settings, seat } from './timers.mjs';
 import { validatePeaks, peakAt, slotsOf, windowsOn, slotAt, openSlots, nextPeak, validateFrames, frameFor } from './peaks.mjs';
-import { createBids, configureBids, placeBid, accept, decline, release, tickBids, holdAt, standing, leaderOf, minNext, keyOf, validateBids, auctionFor } from './bids.mjs';
+import { createBids, configureBids, reconcileBids, placeBid, accept, decline, release, tickBids, holdAt, wonAhead, standing, leaderOf, minNext, keyOf, validateBids, auctionFor } from './bids.mjs';
 import { createOrders, addOrder, advance, back, attach, waiting, byPhase, byNumber, forTable, validateOrders, OrderError } from './orders.mjs';
-import { moveTable, rotateTable, addTable, duplicateTable, removeTable, setSeats, setZone, warnings, overlaps, zoneAt, sizeOf, createHistory, commit, undo, redo } from './edit.mjs';
+import { EditError, moveTable, rotateTable, addTable, duplicateTable, removeTable, setSeats, setZone, warnings, overlaps, zoneAt, sizeOf, createHistory, commit, undo, redo } from './edit.mjs';
 
 const read = (n) => JSON.parse(readFileSync(new URL('./fixtures/' + n + '.layout.json', import.meta.url), 'utf8'));
 const L = validateLayout(read('lima')).layout;
@@ -37,7 +37,10 @@ test('layout.v1: bad looks, outdoor flags and fixtures are refused with a reason
   bad((r) => { r.tables[0].look = 'nice'; }, /look must be an object/);
   bad((r) => { r.zones[0].outdoor = 'yes'; }, /outdoor must be true or false/);
   bad((r) => { r.fixtures.push({ kind: 'jacuzzi', at: [1, 1] }); }, /"jacuzzi" is not a known kind/);
-  bad((r) => { r.fixtures.push({ kind: 'tree' }); }, /needs a rect or an at/);
+  bad((r) => { r.fixtures.push({ kind: 'tree' }); }, /\(tree\) needs at/);
+  bad((r) => { r.fixtures.push({ kind: 'awning', at: [1, 1] }); }, /\(awning\) needs rect/, 'an area kind needs a rect');
+  bad((r) => { r.fixtures.push({ kind: 'bench', at: [2, 2] }); }, /\(bench\) needs rect/);
+  bad((r) => { r.fixtures.push({ kind: 'lamp', rect: [1, 1, 2, 2] }); }, /\(lamp\) needs at/, 'a point kind needs at');
   bad((r) => { r.fixtures.push({ kind: 'lamp', at: [99, 1] }); }, /at must be/);
   bad((r) => { r.fixtures.push({ kind: 'bench', rect: [3, 3, 1, 1] }); }, /rect must be/);
   bad((r) => { r.fixtures = {}; }, /fixtures must be an array/);
@@ -155,4 +158,62 @@ test('edit: move snaps and the zone follows, rotate by 15°, add, duplicate, del
   let h = createHistory(L); h = commit(h, F); h = commit(h, a.layout);
   h = undo(h); assert.equal(h.present, F); h = undo(h); assert.equal(h.present, L); assert.equal(undo(h), h, 'nothing more to undo');
   h = redo(h); assert.equal(h.present, F); h = commit(h, d.layout); assert.deepEqual(h.future, [], 'a new edit clears redo');
+});
+
+test('bids, the review: a hold runs from the slot’s start; back-to-back slots never hold one table twice; early accept', () => {
+  const ctx = (h, m) => ({ layout: L, peaks: PEAKS, now: at(h, m) });
+  let S = createBids({ tables: ['l1'] }, L);
+  S = placeBid(S, { table: 'l1', start: at(10), guest: 'guest-a', party: 2, amount: 10 }, ctx(9, 40)).state;
+  S = placeBid(S, { table: 'l1', start: at(11, 30), guest: 'guest-b', party: 2, amount: 10 }, ctx(9, 40)).state;
+  S = tickBids(S, at(11, 21)).state;                                                   // both closed: 9:50 and 11:20
+  assert.equal(holdAt(S, 'l1', at(9, 55)), null, 'closed at 9:50, held only from 10:00'); assert.ok(wonAhead(S, 'l1', at(9, 55)));
+  assert.equal(holdAt(S, 'l1', at(10, 30)).bids[0].guest, 'guest-a');
+  assert.equal(holdAt(S, 'l1', at(11, 25)).bids[0].guest, 'guest-a', '11:20–11:30 is still the first slot');
+  assert.equal(holdAt(S, 'l1', at(11, 30)).bids.find((b) => b.status === 'won').guest, 'guest-b', 'at 11:30 the second winner holds it, alone');
+  const holders = (n) => Object.values(S.auctions).filter((a) => a.phase === 'won' && n >= Math.max(a.decidedAt, a.start) && n < a.end).length;
+  for (let m = 9 * 60; m < 13 * 60; m += 5) assert.ok(holders(at(Math.floor(m / 60), m % 60)) <= 1, 'one winner at a time at ' + m);
+  let E = placeBid(createBids({ tables: ['l1'] }, L), { table: 'l1', start: at(11, 30), guest: 'guest-c', party: 2, amount: 10 }, ctx(9, 40)).state;
+  E = accept(E, keyOf('l1', at(11, 30)), { now: at(9, 45) }).state;
+  assert.equal(holdAt(E, 'l1', at(10)), null, 'accepted early at 9:45: not held before 11:30'); assert.ok(holdAt(E, 'l1', at(11, 31)));
+});
+
+test('bids, the review: changed peak hours or biddable tables decline open auctions; a stored close is honoured; codes', () => {
+  const ctx = (h, m, peaks = PEAKS) => ({ layout: L, peaks, now: at(h, m) });
+  let S = createBids({ tables: ['l1', 't6'] }, L);
+  S = placeBid(S, { table: 'l1', start: at(10), guest: 'guest-a', party: 2, amount: 10 }, ctx(9, 0)).state;
+  S = placeBid(S, { table: 't6', start: at(10), guest: 'guest-b', party: 2, amount: 10 }, ctx(9, 0)).state;
+  const k1 = keyOf('l1', at(10)), k2 = keyOf('t6', at(10));
+  /* the owner takes the sofa corner off the list: its open auction is declined, "no longer open" */
+  const c = configureBids(S, { tables: ['t6'] }, L, { now: at(9, 5) }).state;
+  assert.deepEqual([c.auctions[k1].phase, c.auctions[k1].reasonCode, standing(c.auctions[k1], 'guest-a')], ['declined', 'no-longer-open', 'declined']);
+  assert.equal(c.auctions[k2].phase, 'open');
+  /* the owner moves the peak to 11:00–14:00: the 10:00 auctions have no slot any more */
+  const later = validatePeaks({ windows: [{ days: [0, 1, 2, 3, 4, 5, 6], from: '11:00', to: '14:00' }], slot: 90, opensBefore: 120, closeBefore: 10 }).peaks;
+  const r = reconcileBids(S, later, at(9, 6)); assert.equal(r.auctions[k2].phase, 'declined'); assert.equal(r.auctions[k2].reasonCode, 'no-longer-open');
+  assert.equal(reconcileBids(S, PEAKS, at(9, 6)), S, 'nothing changes when the slots are the same');
+  const t1 = tickBids(r, at(9, 51)); assert.equal(t1.events.length, 0, 'a declined auction never closes and wins');
+  /* a stored auction whose own close has passed takes no bid, even when the new hours would still allow one */
+  const wide = validatePeaks({ windows: [{ days: [0, 1, 2, 3, 4, 5, 6], from: '10:00', to: '13:00' }], slot: 90, opensBefore: 120, closeBefore: 0 }).peaks;
+  const late = placeBid(S, { table: 'l1', start: at(10), guest: 'guest-z', party: 2, amount: 50 }, ctx(9, 55, wide));
+  assert.deepEqual([late.ok, late.code], [false, 'closed']);
+  /* refusals carry codes the screens translate */
+  assert.equal(placeBid(S, { table: 'l1', start: at(10), guest: 'guest-a', party: 2, amount: 50 }, ctx(9, 1)).code, 'leading');
+  assert.deepEqual([placeBid(S, { table: 'l1', start: at(10), guest: 'guest-c', party: 2, amount: 12 }, ctx(9, 1)).code, placeBid(S, { table: 'l1', start: at(10), guest: 'guest-c', party: 2, amount: 12 }, ctx(9, 1)).n], ['too-low', 15]);
+  assert.equal(placeBid(S, { table: 't6', start: at(10), guest: 'guest-a', party: 2, amount: 50 }, ctx(9, 1)).code, 'one-table');
+  assert.equal(placeBid(S, { table: 'l1', start: at(10), guest: 'guest-c', party: 9, amount: 50 }, ctx(9, 1)).code, 'party');
+  assert.throws(() => addOrder(createOrders(), { items: [], now: at(9) }), (e) => e.code === 'items');
+});
+
+test('the review: validators never throw on bad stored data; overlapping peak windows are refused; a move needs a point', () => {
+  for (const raw of [null, 7, 'x', [], { v: 1, seq: 0, auctions: {}, rules: { tables: 'l1' } }, { v: 1, seq: 0, auctions: { a: null }, rules: null }, { v: 1, seq: 0, auctions: { 'l1@1': { phase: 'open', start: 1, end: 2, closesAt: 1, bids: [null, 5], table: 'l1' } }, rules: { tables: ['l1', 5, null] } }]) {
+    assert.doesNotThrow(() => validateBids(raw, L)); assert.doesNotThrow(() => validateOrders(raw)); assert.doesNotThrow(() => validatePeaks(raw)); assert.doesNotThrow(() => validateFrames(raw, L)); assert.doesNotThrow(() => validateLayout(raw));
+  }
+  assert.equal(validateBids({ v: 1, seq: 0, auctions: {}, rules: { tables: 'l1' } }, L).ok, true, 'a broken list of tables is an empty one');
+  const ov = validatePeaks({ windows: [{ days: [5], from: '09:00', to: '12:00' }, { days: [5, 6], from: '11:00', to: '13:00' }] });
+  assert.equal(ov.ok, false); assert.ok(ov.codes.includes('peak-overlap'));
+  assert.equal(validatePeaks({ windows: [{ days: [5], from: '09:00', to: '11:00' }, { days: [5], from: '11:00', to: '13:00' }] }).ok, true, 'touching is fine');
+  assert.equal(validatePeaks({ windows: [{ days: [5], from: '09:00', to: '12:00' }, { days: [6], from: '11:00', to: '13:00' }] }).ok, true, 'other days are fine');
+  assert.throws(() => moveTable(L, 't3', undefined, 3), (e) => e instanceof EditError && e.code === 'no-point');
+  assert.throws(() => moveTable(L, 't3', NaN, 3), /point on the floor/); assert.throws(() => moveTable(L, 't3', 4, Infinity), /point/);
+  assert.throws(() => removeTable({ ...L, tables: [L.tables[0]] }, 't1'), (e) => e.code === 'last-table');
 });
