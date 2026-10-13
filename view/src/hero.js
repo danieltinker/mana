@@ -23,7 +23,7 @@ const CSS = `
 .app.hero .scene:active{cursor:grabbing}
 .app.hero #gl{opacity:0}
 .app.hero[data-hero="rest"] #gl,.app.hero[data-hero="rise"] #gl{opacity:var(--hero-gl,0)}
-.hero-poster{position:absolute;pointer-events:none;opacity:1;will-change:opacity}
+.hero-poster{position:absolute;pointer-events:none;opacity:1;will-change:opacity;filter:drop-shadow(0 18px 24px rgba(0,0,0,.55))}
 .app.hero[data-hero="poster"] .hero-poster{opacity:1!important}
 .hero-lamp{position:absolute;inset:-300%;pointer-events:none;background:radial-gradient(ellipse 14% 9% at 50% 50%,rgba(11,9,7,0) 0,rgba(11,9,7,0) 45%,rgba(11,9,7,.985) 100%);will-change:transform,opacity;opacity:0}
 .hero-ring{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
@@ -136,7 +136,7 @@ export function start(env) {
 
   api.ready.then(() => {
     const m = api.model(), cat = m.cats[0]; if (!cat) return; item = cat.items[0]; kind = cat.raw.kind; const s = api.state(); rtl = s ? s.lang === 'he' : true;
-    scene.setAttribute('aria-label', tx(item.name, s ? s.lang : 'he')); scene.setAttribute('role', 'img');
+    scene.setAttribute('aria-label', tx(item.name, s ? s.lang : 'he')); scene.setAttribute('role', 'img'); scene.tabIndex = 0;      // the keyboard path: Tab to the dish, arrows turn it, Enter opens the demo
     place(); paintPoster(); wait();
   });
   window.__manaHero = { phase: () => phase, posterReady: () => posterReady, paused: () => paused, rect: () => rect };
