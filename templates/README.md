@@ -11,7 +11,8 @@ They are called looks, not templates, until each has its own texture and type (w
 templates.v1.json   the live looks (the contract below); bundled into the guest menu by esbuild, never fetched at run time
 validate.mjs        the contract as a check: `node templates/validate.mjs` (exit 1 with the errors listed); also exported for tests
 matrix.json         all 99 concepts of the design research (9 categories × 33 subcategories × 3), as data, without their sources
-sources.md          what each concept was inspired by; stays out of the built site
+(not here)          what each concept was inspired by lives in the Halom Project (ventures/mana/templates-sources.md):
+                    real venues' names are research, not product, and this repository is public
 tools/stills.mjs    renders one still per live look into view/looks/img/<id>.webp for the gallery (headless, software WebGL)
 ```
 

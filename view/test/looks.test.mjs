@@ -102,9 +102,9 @@ test('the matrix keeps all 99 concepts as data, without their sources; the live 
   const m = JSON.parse(readFileSync(new URL('../../templates/matrix.json', import.meta.url), 'utf8')), txt = JSON.stringify(m);
   const subs = m.categories.flatMap((c) => c.subcategories), vars = subs.flatMap((s) => s.variants);
   assert.equal(m.categories.length, 9); assert.equal(subs.length, 33); assert.equal(vars.length, 99);
-  assert.ok(!/inspiredBy/.test(txt), 'inspiredBy stays in sources.md'); assert.equal(new Set(vars.map((v) => v.id)).size, 99);
+  assert.ok(!/inspiredBy/.test(txt), 'inspiredBy stays out of the repository (the Project keeps it)'); assert.equal(new Set(vars.map((v) => v.id)).size, 99);
   for (const l of doc().looks) { assert.ok(m.categories.some((c) => c.id === l.category), l.category); assert.ok(subs.some((s) => s.id === l.subcategory && s.id.startsWith(l.category + '-')), l.subcategory); }
-  assert.ok(existsSync(new URL('../../templates/sources.md', import.meta.url)));
+  assert.ok(!existsSync(new URL('../../templates/sources.md', import.meta.url)), 'the venue research lives in the Project, not in this public repository');
   assert.ok(!vars.some((v) => /^the salon$|flore|thonet|sessions/i.test(v.name)), 'no venue, maker or menu-page name as a concept name');
 });
 
