@@ -159,14 +159,14 @@ function sparkline(v, w = 300, h = 72, pad = 4) {
   const d = v.map((n, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(n)).join('');
   return `<div class="spark" aria-hidden="true"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path class="spark-area" d="${d}L${x(v.length - 1)} ${h}L${x(0)} ${h}z"/><path class="spark-line" pathLength="1" d="${d}"/></svg><i class="spark-dot" style="left:${(x(v.length - 1) / w * 100).toFixed(2)}%;top:${(y(v[v.length - 1]) / h * 100).toFixed(2)}%"></i></div>`;
 }
-/* busy hours in 3D: 7 days × 24 hours, each hour's share (SAMPLE.hours) scaled by that day's opens (the last seven SAMPLE.days) */
+/* busy hours in 3D: the owner app's own breakdown (my_stats: opens per hour of the day, over 30 days), 24 bars standing in a row */
 function hoursField() {
-  const days = SAMPLE.days.slice(-7), hMax = Math.max(...SAMPLE.hours), dMax = Math.max(...days);
-  const v = days.map((dv) => SAMPLE.hours.map((hv) => (hv / hMax) * (dv / dMax)));
+  const hMax = Math.max(...SAMPLE.hours);
+  const v = [SAMPLE.hours.map((hv) => hv / hMax)];
   const peak = Math.max(...v.flat()); let bars = '';
   v.forEach((row, y) => row.forEach((n, x) => {
     const k = n / peak, lvl = k >= .999 ? 'pk' : k > .75 ? 'v4' : k > .5 ? 'v3' : k > .25 ? 'v2' : k > .05 ? 'v1' : 'v0';
-    bars += `<i class="b ${lvl}" style="--x:${x};--y:${y};--h:${Math.max(.04, k).toFixed(3)};--d:${(x * 22 + y * 60)}ms"><b class="t"></b><b class="f"></b><b class="s"></b></i>`;
+    bars += `<i class="b ${lvl}" style="--x:${x};--y:${y};--h:${Math.max(.04, k).toFixed(3)};--d:${(x * 40)}ms"><b class="t"></b><b class="f"></b><b class="s"></b></i>`;
   }));
   return `<div class="hf-wrap" aria-hidden="true"><div class="hfield">${bars}</div><i class="hf-sweep"></i></div>`;
 }
@@ -256,7 +256,7 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
     <div class="hero-words">
       <p class="eyebrow">${t('מָנָה · כוח החיים שבאוכל', 'Mana · the life force in food')}</p>
       <h1 id="hero-h">${t('רואים את <em>המנה</em> לפני שמזמינים.', 'See <em>the dish</em> before you order.')}</h1>
-      ${p('תפריט QR שמראה את המנות שלכם על השולחן, ולצידו אתר, רילסים ומפת ישיבה. חבילה אחת, בצד שלכם.', 'A QR menu that shows your dishes on the table, with a website, reels and a seat map beside it. One package, on your side.', 'lead')}
+      ${p('תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.', 'A QR menu that shows your dishes on the table. Coming to the same package: a website, reels and a seat map.', 'lead')}
       <div class="cta">
         <a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
         <a class="btn btn-glass btn-lg" ${DEMO} data-demo-open>${ico.play}${t('לנסות את ההדגמה', 'Try the demo')}</a>
@@ -302,7 +302,7 @@ const bento = () => `<section class="sec simple" id="simple" aria-labelledby="si
 const place = () => `<section class="sec place" id="place" aria-labelledby="place-h" data-live>
   <div class="wrap split">
     <div class="split-words">
-      <span class="chip chip-new">${t('חדש · בהדגמה', 'New · in demo')}</span>
+      <span class="chip chip-new">${t('בקרוב · אפשר לנסות בהדגמה', 'Coming · try the demo')}</span>
       <h2 class="sec-h" id="place-h">${t('המקום שלכם', 'Your place')}</h2>
       ${p('מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.', 'Your restaurant’s seat map, alive. Guests pick an area or a table, you approve, and every table has a clock.', 'sec-p')}
       <ul class="marks">
@@ -394,7 +394,7 @@ const talk = (preview) => `<section class="sec talk" id="talk-sec" aria-labelled
     </div>
     <details class="talk-form" id="talk-more">
       <summary>${t('או להשאיר פרטים', 'Or leave details')}</summary>
-      <form class="form" id="talk" novalidate${preview ? ' data-off="1"' : ''}>${preview ? `
+      <form class="form" id="talk" method="post" novalidate${preview ? ' data-off="1"' : ''}>${preview ? `
         <p class="preview-off">${t('זאת תצוגה מקדימה: הטופס כבוי ולא שולח דבר. אפשר לכתוב לנו בוואטסאפ.', 'This is a preview: the form is off and sends nothing. You can write to us on WhatsApp.')}</p>` : ''}
         <div class="field"><label for="f-place">${t('שם המסעדה', 'Restaurant name')}</label><input id="f-place" name="place" type="text" autocomplete="organization" maxlength="120" required aria-describedby="e-place"${preview ? ' disabled' : ''}><p class="err" id="e-place">${t('כתבו את שם המסעדה.', 'Please write the restaurant’s name.')}</p></div>
         <div class="field"><label for="f-contact">${t('טלפון או אימייל', 'Phone or e-mail')}</label><input id="f-contact" name="contact" type="text" inputmode="email" autocomplete="email" maxlength="200" dir="ltr" required aria-describedby="e-contact"${preview ? ' disabled' : ''}><p class="err" id="e-contact">${t('צריך מספר טלפון או כתובת אימייל כדי שנוכל לחזור אליכם.', 'We need a phone number or an e-mail address to get back to you.')}</p></div>
@@ -448,8 +448,8 @@ export function renderLand(media = mediaFound(), opts = {}) {
   const preview = opts.preview != null ? !!opts.preview : PREVIEW;
   return head({
     titleHe: 'מנה · רואים את המנה לפני שמזמינים', titleEn: 'Mana · See the dish before you order',
-    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט, ולצידו אתר, רילסים ומפת ישיבה. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית Halom.',
-    descEn: 'A QR menu that shows your dishes on the table, in relief, with a website, reels and a seat map beside it. The first 30 days free, no card. By Halom.',
+    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית Halom.',
+    descEn: 'A QR menu that shows your dishes on the table, in relief. Coming to the same package: a website, reels and a seat map. The first 30 days free, no card. By Halom.',
     config: true, styles: ['land.css'], theme: '#F7F4EE'
   }) + `
 <body class="land">

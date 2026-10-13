@@ -148,7 +148,7 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   const r = await o.page.evaluate(() => ({ eyebrow: document.querySelector('.eyebrow').innerText.trim(), h1: document.querySelector('h1').innerText.trim(), lead: document.querySelector('.hero .lead').innerText.trim(),
     stills: [...document.querySelectorAll('.stills img')].map((i) => i.getAttribute('src')), first: (() => { const i = document.querySelector('.stills img'); return i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity > 0; })(),
     names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.floaters img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
-  assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן, ולצידו אתר, רילסים ומפת ישיבה. חבילה אחת, בצד שלכם.');
+  assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב באותה חבילה: אתר, רילסים ומפת ישיבה.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
   assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 6); assert.deepEqual(r.host, ['relative', 0]);
   await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 25000 });
@@ -222,7 +222,7 @@ await check('your place: the words as written, the "new · in demo" chip, the st
   await o.page.waitForTimeout(1500); assert.ok(!o.reqs.some((u) => /floor3d/.test(u)), 'the floor module was fetched at the top of the page');
   const r = await o.page.evaluate(() => ({ chip: document.querySelector('#place .chip-new').innerText.trim(), p: [...document.querySelectorAll('#place .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), lines: [...document.querySelectorAll('#place .marks li')].map((l) => l.innerText.trim()), tables: document.querySelectorAll('.fl-t').length,
     states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
-  assert.equal(r.chip, 'חדש · בהדגמה'); assert.equal(r.p, 'מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.');
+  assert.equal(r.chip, 'בקרוב · אפשר לנסות בהדגמה'); assert.equal(r.p, 'מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.');
   assert.deepEqual(r.lines, ['זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.', 'כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.']); assert.equal(r.tables, 12);
   assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.equal(r.host, 'relative');
   await o.page.evaluate(() => document.getElementById('place').scrollIntoView({ block: 'center', behavior: 'instant' }));
@@ -233,7 +233,7 @@ await check('your place: the words as written, the "new · in demo" chip, the st
   await o.page.locator('#place').screenshot({ path: join(RAW, 'place-1440-he.png') }); assert.deepEqual(o.errors, []); await o.ctx.close();
 });
 
-await check('what you learn: the four lines; the sample label beside the numbers; the numbers count up once in view and end on the sample (212, +18%, the five dishes, 31%, 78%, 64); the busy hours are a 7 × 24 field of three-faced bars', async () => {
+await check('what you learn: the four lines; the sample label beside the numbers; the numbers count up once in view and end on the sample (212, +18%, the five dishes, 31%, 78%, 64); the busy hours are 24 three-faced bars (the owner app’s hours)', async () => {
   for (const lang of ['he', 'en']) {
     const o = await open('/mana/?lang=' + lang, { w: 1440, h: 900, touch: false });
     let r = await o.page.evaluate(() => ({ in: document.querySelector('.dash').classList.contains('in'), lines: [...document.querySelectorAll('.learn li')].map((l) => l.innerText.trim()) }));
@@ -251,7 +251,7 @@ await check('what you learn: the four lines; the sample label beside the numbers
     assert.equal(r.label, lang === 'he' ? 'דוגמה · מספרים להמחשה' : 'Example · sample numbers'); assert.equal(r.labVis, true); assert.ok(r.gap >= 0 && r.gap < 160, 'the sample label is not beside the numbers: ' + r.gap);
     assert.match(r.big, /^212 ?\+18%$/); assert.deepEqual(r.dishes.map((x) => x[1]), ['96', '81', '64', '52', '41']);
     assert.deepEqual(r.dishes.map((x) => x[0]), lang === 'he' ? ['שקשוקה', 'מרגריטה', 'ראמן', 'המבורגר', 'קרואסון'] : ['Shakshuka', 'Margherita', 'Ramen', 'Burger', 'Croissant']);
-    assert.deepEqual(r.rings, ['31%', '78%']); assert.equal(r.adds, '64'); assert.equal(r.bars, 168); assert.equal(r.faces, 504); assert.equal(r.peak, 1); assert.equal(r.preserve, 'preserve-3d'); assert.equal(r.grown, true, 'a bar did not finish rising'); assert.match(r.tabular, /tabular-nums/);
+    assert.deepEqual(r.rings, ['31%', '78%']); assert.equal(r.adds, '64'); assert.equal(r.bars, 24); assert.equal(r.faces, 72); assert.equal(r.peak, 1); assert.equal(r.preserve, 'preserve-3d'); assert.equal(r.grown, true, 'a bar did not finish rising'); assert.match(r.tabular, /tabular-nums/);
     await o.page.locator('.dash').screenshot({ path: join(RAW, `dash-1440-${lang}.png`) }); assert.deepEqual(o.errors, []); await o.ctx.close();
   }
 });

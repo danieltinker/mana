@@ -83,7 +83,7 @@ html.solid .glass{-webkit-backdrop-filter:none;backdrop-filter:none;background:l
 .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--muted)}
 .chip-new::before{background:var(--energy);box-shadow:0 0 0 3px rgba(255,122,69,.18)}
 .chip-soon::before{background:var(--sky);box-shadow:0 0 0 3px rgba(127,169,219,.2)}
-.ai-tag{display:block;font:400 .74rem/1.35 var(--text);color:var(--muted);letter-spacing:.01em}
+.ai-tag{display:block;font:400 .76rem/1.35 var(--text);color:var(--ink-2);letter-spacing:.01em}      /* AA on porcelain and on white (the review: --muted was 3.5:1) */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.55em;min-height:48px;padding:0 1.35em;border-radius:999px;border:0;cursor:pointer;
   font:500 1rem/1.15 var(--text);text-decoration:none;text-align:center;white-space:nowrap;transition:transform var(--d1) var(--spring),box-shadow var(--d1) var(--ease),background var(--d1) var(--ease)}
 .btn svg{width:1.05em;height:1.05em;flex:none}
@@ -420,21 +420,21 @@ html[lang="en"] .dash-big{font-family:var(--display-en);font-weight:420}
 .dash-big .up{font:600 .82rem/1 var(--text);color:#2f7d4f;background:rgba(111,174,142,.18);border-radius:999px;padding:5px 9px}
 .spark{position:relative;width:100%;height:clamp(64px,8vw,92px);margin-top:10px}
 .spark svg{width:100%;height:100%;overflow:visible}
-.spark-line{fill:none;stroke:url(#g-energy);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;stroke-dasharray:1 1;stroke-dashoffset:0}
+.spark-line{fill:none;stroke:url(#g-energy);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}      /* drawn with a clip (a dash on a non-scaling stroke stopped short of today) */
 .spark-area{fill:url(#g-area)}
 .spark-dot{position:absolute;width:11px;height:11px;border-radius:50%;background:#fff;border:3px solid var(--rose);transform:translate(-50%,-50%);box-shadow:0 0 0 6px rgba(226,92,122,.16),0 0 18px 4px rgba(255,122,69,.45)}
 @keyframes ping{0%{box-shadow:0 0 0 0 rgba(226,92,122,.4),0 0 18px 4px rgba(255,122,69,.45)}100%{box-shadow:0 0 0 14px rgba(226,92,122,0),0 0 18px 4px rgba(255,122,69,.45)}}
 .anim .numbers.live .dash.in .spark-dot{animation:ping 1.8s ease-out infinite 1.6s}
-.anim .dash:not(.in) .spark-line{stroke-dashoffset:1}
+.anim .dash:not(.in) .spark-line{clip-path:inset(-10% 100% -10% 0)}
 .anim .dash:not(.in) .spark-area,.anim .dash:not(.in) .spark-dot{opacity:0}
-.anim .dash.in .spark-line{transition:stroke-dashoffset 1.6s var(--ease) .2s}
+.anim .dash.in .spark-line{clip-path:inset(-10% 0 -10% 0);transition:clip-path 1.6s var(--ease) .2s}
 .anim .dash.in .spark-area{transition:opacity 1s var(--ease) 1s}
 .anim .dash.in .spark-dot{transition:opacity .4s var(--ease) 1.6s}
 /* busy hours: an isometric field of bars, each a box of three faces, rising in a wave */
 .hf-wrap{position:relative;height:clamp(170px,26vw,250px);margin-top:4px;display:grid;place-items:center;perspective:900px;overflow:hidden}
-.hfield{--c:clamp(10px,3.1vw,17px);--hmax:clamp(56px,13vw,104px);position:relative;width:calc(24 * var(--c));height:calc(7 * var(--c));transform-style:preserve-3d;transform:translateY(10%) rotateX(58deg) rotateZ(-34deg);direction:ltr}
+.hfield{--c:clamp(10px,3.1vw,17px);--hmax:clamp(70px,16vw,132px);--dep:2.6;position:relative;width:calc(24 * var(--c));height:calc(var(--dep) * var(--c));transform-style:preserve-3d;transform:translateY(10%) rotateX(58deg) rotateZ(-34deg);direction:ltr}
 .hfield::before{content:"";position:absolute;inset:-4px;border-radius:6px;background:rgba(22,18,14,.04);box-shadow:inset 0 0 0 1px rgba(22,18,14,.06)}
-.hfield .b{position:absolute;left:calc(var(--x) * var(--c));top:calc(var(--y) * var(--c));width:calc(var(--c) - 2px);height:calc(var(--c) - 2px);transform-style:preserve-3d;--z:calc(var(--h) * var(--hmax));--t:#ECE6DD;--f:#DCD3C7;--s:#CFC5B8}
+.hfield .b{position:absolute;left:calc(var(--x) * var(--c));top:calc(var(--y) * var(--c));width:calc(var(--c) - 3px);height:calc(var(--dep) * var(--c) - 3px);transform-style:preserve-3d;--z:calc(var(--h) * var(--hmax));--t:#ECE6DD;--f:#DCD3C7;--s:#CFC5B8}
 .hfield .b b{position:absolute;display:block}
 .hfield .b .t{inset:0;background:var(--t);transform:translateZ(var(--z));border-radius:1px}
 .hfield .b .f{left:0;bottom:0;width:100%;height:var(--z);background:var(--f);transform-origin:50% 100%;transform:rotateX(-90deg)}
@@ -620,7 +620,7 @@ html[lang="en"] .faq summary{font-family:var(--display-en);font-weight:450}
 .foot-row{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:4px 24px}
 .foot-links{display:flex;flex-wrap:wrap;gap:0 22px;list-style:none;margin:0;padding:0}
 .foot-links a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;font-size:.95rem;color:var(--ink-2)}
-.foot-fine{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 24px;margin-top:10px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:.84rem}
+.foot-fine{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 24px;margin-top:10px;padding-top:12px;border-top:1px solid var(--line);color:var(--ink-2);font-size:.84rem}
 .foot-fine a{display:inline-flex;align-items:center;min-height:44px;margin-block:-12px}
 
 /* ------------------------------------------------------------------ the demo dialog */

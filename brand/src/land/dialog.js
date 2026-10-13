@@ -50,12 +50,12 @@ export function initDialog({ $, $$, mq, lang, root }) {
   }
   function open(id) {
     if (dlg.open) { setTab(id); load(); return; }
-    opener = doc.activeElement; setTab(id); dlg.showModal(); root.classList.add('dlg-open'); load();
+    opener = doc.activeElement; setTab(id); dlg.showModal(); root.classList.add('dlg-open'); doc.dispatchEvent(new CustomEvent('mana:dialog', { detail: true })); load();
     const b = $('.dlg-tab[aria-pressed="true"]', dlg); if (b) b.focus();
   }
   function close() { dropFrame(); stopFilm(); if (dlg.open) dlg.close(); }
   dlg.addEventListener('close', () => {
-    dropFrame(); stopFilm(); root.classList.remove('dlg-open');
+    dropFrame(); stopFilm(); root.classList.remove('dlg-open'); doc.dispatchEvent(new CustomEvent('mana:dialog', { detail: false }));
     if (location.hash === '#demo') try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* ignore */ }
     if (opener && opener.focus && doc.contains(opener)) opener.focus(); opener = null;
   });

@@ -16,11 +16,13 @@ const reduced = mq('(prefers-reduced-motion: reduce)') || qs.get('motion') === '
 const lowPower = mq('(max-width: 820px), (pointer: coarse)');
 const hasIO = 'IntersectionObserver' in window;
 const motion = !reduced && hasIO && qs.get('motion') !== 'off';
-let framed = false; try { framed = window.top !== window.self; } catch (e) { framed = true; }
+/* inside this page's own demo dialog (same origin): the demo's "← Mana" link loaded this page in the frame. Anywhere else (a preview
+   host, a site that frames us) the page runs normally. */
+let framed = false; try { framed = !!(window.frameElement && window.frameElement.closest && window.frameElement.closest('#demo')); } catch (e) { framed = false; }
 
 /* The demo menu has a "← Mana" link. When the demo runs inside this page's dialog, that link loads this page INSIDE the frame:
    tell the page around us to close the dialog, and do nothing else here. */
-if (framed) { try { if (window.parent.location.origin === location.origin) window.parent.postMessage({ type: 'mana-site-home' }, location.origin); } catch (e) { /* another site framed us */ } }
+if (framed) { try { window.parent.postMessage({ type: 'mana-site-home' }, location.origin); } catch (e) { /* gone */ } }
 else main();
 
 function main() {
@@ -88,7 +90,7 @@ function main() {
       setTimeout(() => { if (!ready) fail(); }, 20000);                                                 // nothing drawn: the stills stay
     }).catch(() => fail());
   }
-  if (stage && hasIO) new IntersectionObserver((es) => { heroVisible = es[0].isIntersecting; if (hero) heroVisible ? hero.resume() : hero.pause(); }, { threshold: 0 }).observe(stage);
+  if (stage && hasIO) new IntersectionObserver((es) => { heroVisible = es[0].isIntersecting; if (hero) heroVisible && !doc.hidden && !root.classList.contains('dlg-open') ? hero.resume() : hero.pause(); }, { threshold: 0 }).observe(stage);
   if (stage && !saveData && !reduced && qs.get('hero') !== 'off') {
     const go = () => idle(startHero);
     if (doc.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
@@ -122,14 +124,18 @@ function main() {
       .then((h) => { if (!h) return; floor3d = h; if (!floorVisible || doc.hidden) h.pause(); }).catch(() => fail());
   }
   if (floor && hasIO) {
-    new IntersectionObserver((es) => { floorVisible = es[0].isIntersecting; if (floor3d) floorVisible ? floor3d.resume() : floor3d.pause(); }, { threshold: 0 }).observe(floor);
+    new IntersectionObserver((es) => { floorVisible = es[0].isIntersecting; if (floor3d) floorVisible && !doc.hidden && !root.classList.contains('dlg-open') ? floor3d.resume() : floor3d.pause(); }, { threshold: 0 }).observe(floor);
     if (!saveData && qs.get('floor') !== 'off') new IntersectionObserver((es, io) => { if (es[0].isIntersecting) { io.disconnect(); idle(startFloor, 50); } }, { rootMargin: '600px 0px' }).observe(floor);
   }
   doc.addEventListener('mana:lang', (e) => { if (floor3d && floor3d.setLang) floor3d.setLang(e.detail); });
-  doc.addEventListener('visibilitychange', () => {
-    if (hero) doc.hidden || !heroVisible ? hero.pause() : hero.resume();
-    if (floor3d) doc.hidden || !floorVisible ? floor3d.pause() : floor3d.resume();
-  });
+  const covered = () => doc.hidden || root.classList.contains('dlg-open');      // the tab is hidden, or the demo dialog covers the page
+  const settle = () => {
+    if (hero) covered() || !heroVisible ? hero.pause() : hero.resume();
+    if (floor3d) covered() || !floorVisible ? floor3d.pause() : floor3d.resume();
+    const v = $('.reel video'); if (v && v.getAttribute('src') && covered()) v.pause();
+  };
+  doc.addEventListener('visibilitychange', settle);
+  doc.addEventListener('mana:dialog', settle);
 
   /* ---------------------------------------------------------------- the sample numbers count up once, in view */
   const dash = $('.dash');

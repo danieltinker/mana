@@ -5,7 +5,7 @@
 
    The rules
    - The venue has a default time frame in minutes (the owner's setting: 15–360 in steps of 5, 90 unless changed). Any
-     table may have its own (the bar 45, the long table 150). A setting changes the next seating, never a running one.
+     table may have its own (the bar 45, the long table 150). A time frame changes the next seating, never a running one; the warning threshold and the grace period apply at once.
    - A table is free, reserved (a booking is coming), or seated. A seated table is `ending` when `ending` minutes or less
      are left (a setting, 5 by default) and `over` when its time is up.
    - Time is up: the table counts as free for availability at once; the board shows it `over` until the manager extends

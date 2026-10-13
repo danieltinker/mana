@@ -33,7 +33,7 @@ const CSS = `
 .mf-lab.mf-up{color:#fff;background:linear-gradient(135deg,rgba(234,104,136,.94),rgba(226,92,122,.86));border-color:rgba(255,214,224,.9);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 10px 22px -10px rgba(226,92,122,.6)}
 .mf-lab.mf-up i{background:#fff;box-shadow:0 0 0 2.5px rgba(255,255,255,.35)}
 .mf-sm .mf-lab{font-size:11px;line-height:16px;padding:1px 7px 1px 5px;gap:4px}
-.mf-toast{position:absolute;top:14px;inset-inline-start:14px;display:flex;align-items:center;gap:9px;padding:6px 14px 6px 6px;border-radius:999px;max-width:calc(100% - 28px);
+.mf-toast{position:absolute;top:14px;inset-inline-start:14px;display:flex;align-items:center;gap:9px;padding-block:6px;padding-inline:6px 14px;border-radius:999px;max-width:calc(100% - 28px);
  background:linear-gradient(135deg,rgba(255,255,255,.84),rgba(255,255,255,.56));-webkit-backdrop-filter:blur(18px) saturate(170%);backdrop-filter:blur(18px) saturate(170%);
  border:1px solid rgba(255,255,255,.9);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 18px 36px -18px rgba(70,45,20,.35),0 2px 6px rgba(70,45,20,.06);
  color:#16120E;font-size:13px;line-height:20px;font-weight:500;opacity:0;transform:translateY(-10px) scale(.96);transition:opacity .24s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.34,1.36,.64,1)}
@@ -51,6 +51,7 @@ export async function mountFloor(host, opts = {}) {
   const reduced = !!opts.reduced, low = !!opts.lowPower, dbg = opts.debug || {};
   let lang = opts.lang === 'en' ? 'en' : 'he';
   const canvas = document.createElement('canvas'); canvas.className = 'mf-canvas'; canvas.setAttribute('aria-hidden', 'true');
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); dead = true; if (raf) cancelAnimationFrame(raf); raf = 0; fail(new Error('floor: the GL context was lost')); }, { once: true });      // the page shows its still plan again
   let renderer;
   try {
     renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: low ? 'low-power' : 'default' });

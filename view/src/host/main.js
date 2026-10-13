@@ -211,12 +211,14 @@ function openSheet(build, from) {
   opener = from || document.activeElement; const sh = $('sheet');
   sh.textContent = ''; sheetUpdate = build(sh) || null;
   sh.hidden = false; $('scrim').hidden = false; document.documentElement.classList.add('sheet-open');
+  ['page', 'toasts'].forEach((id) => { const el = $(id); if (el) el.inert = true; });      // the sheet is modal: focus stays in it
   requestAnimationFrame(() => { sh.classList.add('in'); $('scrim').classList.add('in'); const ttl = $('sheetTitle'); if (ttl) ttl.focus(); });
 }
 function closeSheet() {
   const sh = $('sheet'); if (sh.hidden) return;
   sh.classList.remove('in'); $('scrim').classList.remove('in'); sheetUpdate = null; document.documentElement.classList.remove('sheet-open');
   sh.hidden = true; $('scrim').hidden = true;
+  ['page', 'toasts'].forEach((id) => { const el = $(id); if (el) el.inert = false; });
   const back = opener && opener.isConnected ? opener : null; opener = null; if (back) try { back.focus(); } catch (e) { /* gone */ }
 }
 const stepper = (label, value, dec, inc, opts = {}) => h('div', { class: 'stepper-row' }, [
@@ -301,11 +303,22 @@ function onEvent(e, n) {
   const s = status(S, e.tableId, n); if (s.phase !== 'over' || seen.has(alertKey(e.tableId))) return;
   alerts.chime(); alerts.buzz(); alerts.notify(t('notifTitle', { table: tFull(e.tableId) }), t('notifBody'), 'mana-host-' + e.tableId);
 }
+/* a sped-up demo only: when fewer than three tables are seated, the next free table takes a party that sat down a little while
+   ago, so a pitch never ends on an empty floor (Daniel's review: at ×60 the four demo tables had all freed after two minutes) */
+function keepAlive(n) {
+  const busy = L.tables.filter((t) => S.tables[t.id] && S.tables[t.id].phase === 'seated').length;
+  if (busy >= 3) return;
+  const open = L.tables.filter((t) => t.bookable !== false && S.tables[t.id] && S.tables[t.id].phase === 'free');
+  if (!open.length) return;
+  const t = open[Math.floor(n / MIN) % open.length];
+  try { S = seat(S, t.id, { party: Math.max(t.minParty || 1, Math.min(t.seats, 2)), now: n - (Math.floor(n / MIN) % 25) * MIN }); save(); } catch (e) { /* the rules said no: the next tick tries again */ }
+}
 function step() {
   if (!L) return;
   const n = now(), r = tick(S, n);
   if (r.state !== S) { S = r.state; save(); }
   r.events.forEach((e) => onEvent(e, n));
+  if (speed > 1) keepAlive(n);      /* timers: a sped-up demo (a pitch) keeps its evening going */
   paint();
 }
 let timer = 0;

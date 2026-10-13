@@ -61,6 +61,7 @@ export async function mountHero(host, opts = {}) {
   let renderer;
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-hidden', 'true');
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); fail(new Error('hero: the GL context was lost')); }, { once: true });      // the page shows its stills again
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none';
   try {
     renderer = new WebGLRenderer({ canvas, alpha: true, antialias: !lowPower, premultipliedAlpha: true, powerPreference: lowPower ? 'default' : 'high-performance' });
@@ -326,6 +327,7 @@ export async function mountHero(host, opts = {}) {
     await sample(firstId);
     for (let s = 1; s < ids.length; s++) {
       await new Promise((r) => setTimeout(r, lowPower ? 900 : 400));
+      while (paused && !dead) await new Promise((r) => setTimeout(r, 500));      // nothing is fetched while the dish is paused
       if (dead) return;
       const j = (firstId + s) % ids.length;
       await load(j); await sample(j);

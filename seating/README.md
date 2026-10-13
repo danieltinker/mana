@@ -131,7 +131,7 @@ no DOM, no clock of their own (`now` is passed in), immutable JSON state `{ v: 1
 (run by `cd view && npm test`).
 
 - The venue's default frame: 15–360 minutes in steps of 5, 90 unless the owner changes it; any table may have its own
-  (in the demo the bar 45, the long table 150). A setting changes the next seating, never a running one.
+  (in the demo the bar 45, the long table 150). A time frame changes the next seating, never a running one; the warning threshold and the grace period apply at once, to running seatings too.
 - free → seated → `ending` (5 minutes or less left, a setting) → `over` (time is up) → free. Time is up: the table
   counts as free for availability at once (`availableAt`), the manager is alerted once, and the board shows it over
   until he extends or frees it, or the grace period (10 minutes, a setting, at least 1) passes and it frees itself.
