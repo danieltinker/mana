@@ -113,10 +113,16 @@ back → "Your table is confirmed".
 2. Halom traces the plan: walls, the door, the window, zones, tables by shape, in metres (a phone LiDAR scan — Polycam
    or Scaniverse — gives the room's measures when the photos are not enough; R3 §1). The result is a `layout.v1` file,
    checked by `validateLayout`, and the plan above is drawn from it with no further work.
-3. For the 3D room, `blender/bake.py` builds the same layout in Blender (bpy): floor, walls, window, door, tables by
-   shape and their chairs, simple warm materials, baked lighting, exported as a GLB the page loads as a toggle "2D / 3D"
-   (2D stays the default and the fallback; the GLB is never committed when it is over 3 MB).
-4. Later still: a splat or photo-textured mesh for believability, with the plan's tables as colliders (R3 §2.2).
+3. The page's "2D / 3D" toggle (`view/src/seat/room3d.js`, loaded on the first tap) draws the same layout standing up
+   with three.js r128, the guest menu's own copy (esbuild puts three.js in one shared chunk; no second copy). 2D stays
+   the default and the fallback: no WebGL, or a slow first frame (over 400 ms) or ten slow ones (over 70 ms on average)
+   and the page is back on the plan with the toggle gone. `?view=3d` opens in 3D, `?adapt=off` keeps it in software GL.
+4. `blender/bake.py` builds the same layout in Blender (bpy 5): floor, walls with the door's opening and leaf, the
+   window, each zone's patch, tables by shape with their chairs, simple warm materials, one lamp, exported as a GLB
+   (`python bake.py fixtures/olea.layout.json out.glb`). Olea's room: 150 objects, 292 kB, about 2 s on a laptop-class
+   CPU. The GLB is a hand-off to the photo-textured and splat rooms (R3 §2.2); the page does not load it yet, and a GLB
+   over 3 MB is never committed.
+5. Later still: a splat or photo-textured mesh for believability, with the plan's tables as colliders (R3 §2.2).
 
 ## Hebrew for the read
 

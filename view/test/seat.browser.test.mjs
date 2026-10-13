@@ -112,3 +112,17 @@ test('reduced motion and a phone: the plan is still, one glass sheet, 44 px targ
   assert.notEqual(await page.$eval('.sheet', (e) => getComputedStyle(e).backdropFilter), 'none', 'on a desktop the one glass element blurs');
   assert.deepEqual(errors, []); await ctx.close();
 });
+
+test('2D / 3D: the room stands up on a tap, falls back to the plan without WebGL, and the plan stays the keyboard path', async () => {
+  const { page, errors, ctx } = await open(browser, seat('&adapt=off&lang=en'), { width: 1000, height: 700 });
+  await page.waitForSelector('#next'); assert.equal(await page.$eval('#viewSeg', (e) => e.hidden), false); assert.equal(await page.$eval('#room', (e) => e.hidden), true);
+  await page.click('#view3d'); await page.waitForSelector('#room.in', { timeout: 60000 });
+  let st = await S(page); assert.equal(st.view, '3d'); assert.ok(st.room && st.room.frames.length >= 1 && st.room.w > 100, JSON.stringify(st.room));
+  assert.equal(await page.$eval('#view3d', (e) => e.getAttribute('aria-pressed')), 'true'); assert.equal(await page.$eval('#plan', (e) => getComputedStyle(e).visibility), 'hidden');
+  await page.click('#next'); await page.click('[data-zone="hall"]'); await page.click('#next'); await page.click('#opt-h2');
+  st = await S(page); assert.equal(st.G.table, 'h2'); assert.equal(st.view, '3d', 'the flow goes on in 3D');
+  await page.click('#view2d'); st = await S(page); assert.equal(st.view, '2d'); assert.equal(await page.$eval('#room', (e) => e.hidden), true); assert.ok(await has(page, '#plan .table[data-id="h2"]', 'on'), 'the plan kept up');
+  await shot(page, 'seat-3d');
+  await page.goto(seat('&gl=off&lang=en')); await page.waitForSelector('#next'); assert.equal(await page.$eval('#viewSeg', (e) => e.hidden), true, 'no WebGL: no toggle, the plan is the map');
+  assert.deepEqual(errors, []); await ctx.close();
+});

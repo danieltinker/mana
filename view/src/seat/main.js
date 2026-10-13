@@ -200,11 +200,30 @@ function renderOwner() {
   sheet.append(h('div', { class: 'nav' }, [guest]));
 }
 
+/* ---------- 2D / 3D: the same room standing up (three.js, loaded on the first tap; 2D is the truth and the fallback) ---------- */
+let room = null, roomWanted = false, roomLoading = false, roomFailed = Q.get('gl') === 'off';
+function planState() { return OWNER ? ownerPlanState() : guestPlanState(); }
+function setView(three) {
+  roomWanted = three && !roomFailed; $('view2d').setAttribute('aria-pressed', roomWanted ? 'false' : 'true'); $('view3d').setAttribute('aria-pressed', roomWanted ? 'true' : 'false');
+  $('planBox').classList.toggle('is3d', roomWanted); $('room').hidden = !roomWanted; $('room').classList.toggle('in', roomWanted && !!room);
+  if (roomWanted && !room && !roomLoading) {
+    roomLoading = true;
+    import('./room3d.js').then((m) => {
+      roomLoading = false; if (!roomWanted) return;
+      room = m.createRoom($('room'), L, { reduce: reduce || TEST, onTable: (id) => plan && planTaps.onTable(id), onSlow: Q.get('adapt') === 'off' ? null : () => { roomFailed = true; setView(false); $('viewSeg').hidden = true; } });      // ?adapt=off: tests and films in software GL keep the room
+      if (!room) { roomFailed = true; $('viewSeg').hidden = true; setView(false); return; }
+      room.update(planState()); requestAnimationFrame(() => $('room').classList.add('in'));
+    }).catch(() => { roomLoading = false; roomFailed = true; $('viewSeg').hidden = true; setView(false); });
+  }
+  if (room) { if (roomWanted) { room.size(); room.update(planState()); } }
+}
+let planTaps = { onTable() {} };
+
 function render() {
   shell();
   if (!L) { $('sheet').textContent = ''; $('sheet').append(h('h2', { text: t('noLayout') }), h('p', { class: 'body', text: t('noLayoutBody') })); $('planWrap').hidden = true; return; }
   if (OWNER) renderOwner(); else renderGuest();
-  plan.update(OWNER ? ownerPlanState() : guestPlanState());
+  plan.update(planState()); if (room && roomWanted) room.update(planState());
   $('page').dataset.mode = OWNER ? 'owner' : 'guest'; $('page').dataset.step = G.sent ? 'sent' : String(G.step);
   if (focusAfter) {
     const want = focusAfter; focusAfter = null;
@@ -216,7 +235,7 @@ function render() {
 /* ---------- boot ---------- */
 document.documentElement.classList.toggle('reduce', reduce); document.documentElement.classList.toggle('test', TEST);
 if (L) {
-  plan = drawPlan($('plan'), L, {
+  planTaps = {
     onZone(id) { if (OWNER) return; if (G.sent) return; if (G.step === 1) G.step = 2; if (G.step === 2 || G.step === 3) { G.zone = id; if (G.table && tableById(L, G.table).zone !== id) G.table = null; if (G.step === 3) G.step = 2; render(); } },
     onTable(id) {
       if (G.sent) return;
@@ -224,9 +243,12 @@ if (L) {
       const tb = tableById(L, id); if (!tablesFor(L, G.party).some((x) => x.id === id)) return;
       G.zone = tb.zone; G.table = L.tableChoice ? id : null; if (G.step === 1) G.step = 2; if (G.step === 2 && L.tableChoice) G.step = 3; render();
     }
-  });
+  };
+  plan = drawPlan($('plan'), L, planTaps);
+  $('viewSeg').hidden = roomFailed; $('view2d').addEventListener('click', () => setView(false)); $('view3d').addEventListener('click', () => setView(true));
+  if (Q.get('view') === '3d') setView(true);
 }
 $('langBtn').addEventListener('click', () => { lang = lang === 'he' ? 'en' : 'he'; mem.set('halom-menu-lang', lang); const u = new URL(location.href); u.searchParams.set('lang', lang); history.replaceState(null, '', u); render(); });
 render();
 requestAnimationFrame(() => requestAnimationFrame(() => { $('plan').classList.add('in'); }));      // the plan arrives once (600 ms); with reduced motion it is simply there
-window.__seat = { state: () => ({ G: Object.assign({}, G), O: Object.assign({}, O), lang }), store, layout: L, render, set(patch) { Object.assign(G, patch); render(); } };
+window.__seat = { state: () => ({ G: Object.assign({}, G), O: Object.assign({}, O), lang, view: roomWanted ? '3d' : '2d', room: room ? room.info() : null }), store, layout: L, render, set(patch) { Object.assign(G, patch); render(); }, setView };

@@ -22,7 +22,11 @@
   <main class="body">
     <section class="sheet" id="sheet" aria-live="polite"></section>
     <section class="plan-wrap" id="planWrap">
-      <svg class="plan" id="plan" role="img"></svg>
+      <div class="plan-box" id="planBox">
+        <svg class="plan" id="plan" role="img"></svg>
+        <canvas class="room" id="room" aria-hidden="true" hidden></canvas>
+      </div>
+      <div class="seg" id="viewSeg" role="group" hidden><button type="button" id="view2d" aria-pressed="true">2D</button><button type="button" id="view3d" aria-pressed="false">3D</button></div>
       <p class="demo-line" id="demoLine"></p>
       <p class="credit"><a id="credit" target="_blank" rel="noopener"></a></p>
     </section>
