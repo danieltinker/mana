@@ -1,7 +1,7 @@
 // Style: logo, colour, table, languages, the ordering link and phone, and the place's name in both languages.
 // The two quick picks (colour dots, table strip) are also shown on the publish step, where they change the preview at once.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { sb, q, toAppError, publicUrl } from '../lib/api.ts';
+import { cfg, sb, q, toAppError, publicUrl } from '../lib/api.ts';
 import { t, errText, lang } from '../lib/i18n.ts';
 import { D, edit, everPublished } from '../lib/store.ts';
 import { resize, accentFromImage, brighten, isBright } from '../lib/images.ts';
@@ -62,7 +62,9 @@ export function StyleScreen() {
   const path = !everPublished();
   const [logoBusy, setLogoBusy] = useState(false), [error, setError] = useState(''), [fromLogo, setFromLogo] = useState<string | null>(null), [adjusted, setAdjusted] = useState(false);
   const [orderUrl, setOrderUrl] = useState(b.order_url || ''), [orderBad, setOrderBad] = useState(false);
-  useEffect(() => { setOrderUrl(D.value!.biz.order_url || ''); }, [b.id]);
+  const [bookUrl, setBookUrl] = useState(b.book_url || ''), [bookBad, setBookBad] = useState(false);
+  const bookOn = !!cfg!.features.bookUrl;                       // the booking link needs businesses.book_url (db/proposed/0003): sent only when the config says the backend has it
+  useEffect(() => { setOrderUrl(D.value!.biz.order_url || ''); setBookUrl(D.value!.biz.book_url || ''); }, [b.id]);
 
   async function onLogo(e: Event) {
     const input = e.target as HTMLInputElement, file = input.files && input.files[0];
@@ -85,12 +87,14 @@ export function StyleScreen() {
     const langs = has ? b.langs.filter((x: string) => x !== l) : ['he', 'en'].filter((x) => x === l || b.langs.includes(x));
     edit('businesses', b.id, { langs, default_lang: langs.includes(b.default_lang) ? b.default_lang : langs[0] }, { now: true });
   };
-  const onOrderUrl = (v: string) => {
-    setOrderUrl(v);
+  // the ordering link and the booking link: https only, no spaces, up to 300 characters (the database checks the same)
+  const onLink = (field: 'order_url' | 'book_url', v: string) => {
+    (field === 'order_url' ? setOrderUrl : setBookUrl)(v);
+    const bad = field === 'order_url' ? setOrderBad : setBookBad;
     const s = v.trim();
-    if (s === '') { setOrderBad(false); return edit('businesses', b.id, { order_url: null }); }
-    if (!/^https:\/\/[^\s]+\.[^\s]+$/.test(s) || s.length > 300) return setOrderBad(true);
-    setOrderBad(false); edit('businesses', b.id, { order_url: s });
+    if (s === '') { bad(false); return edit('businesses', b.id, { [field]: null }); }
+    if (!/^https:\/\/[^\s]+\.[^\s]+$/.test(s) || s.length > 300) return bad(true);
+    bad(false); edit('businesses', b.id, { [field]: s });
   };
   const setName = (field: 'name_he' | 'name_en', v: string) => {
     const other = field === 'name_he' ? b.name_en : b.name_he;
@@ -158,7 +162,8 @@ export function StyleScreen() {
       <section class="blk" aria-labelledby="contact-h">
         <h2 id="contact-h">{t('look.contact')}</h2>
         <div class="grid2">
-          <Field label={t('look.orderUrl')} optional error={orderBad ? t('look.orderUrlBad') : undefined}>{(p) => <input {...p} type="url" dir="ltr" inputMode="url" maxLength={300} placeholder="https://" value={orderUrl} data-field="order_url" onInput={(e) => onOrderUrl((e.target as HTMLInputElement).value)} />}</Field>
+          <Field label={t('look.orderUrl')} optional error={orderBad ? t('look.orderUrlBad') : undefined}>{(p) => <input {...p} type="url" dir="ltr" inputMode="url" maxLength={300} placeholder="https://" value={orderUrl} data-field="order_url" onInput={(e) => onLink('order_url', (e.target as HTMLInputElement).value)} />}</Field>
+          {bookOn && <Field label={t('look.bookUrl')} optional hint={t('look.bookUrlHint')} error={bookBad ? t('look.orderUrlBad') : undefined}>{(p) => <input {...p} type="url" dir="ltr" inputMode="url" maxLength={300} placeholder="https://" value={bookUrl} data-field="book_url" onInput={(e) => onLink('book_url', (e.target as HTMLInputElement).value)} />}</Field>}
           <Field label={t('look.phone')} optional>{(p) => <input {...p} type="tel" dir="ltr" inputMode="tel" maxLength={40} value={b.phone || ''} data-field="phone" onInput={(e) => edit('businesses', b.id, { phone: (e.target as HTMLInputElement).value.trim() || null })} />}</Field>
         </div>
       </section>

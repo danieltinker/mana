@@ -553,6 +553,8 @@ const S: Record<string, [string, string]> = {
   'look.contact': ['הזמנות', 'Ordering'],
   'look.orderUrl': ['קישור להזמנות', 'Ordering link'],
   'look.orderUrlBad': ['הקישור צריך להתחיל ב־https:// ולא לכלול רווחים.', 'The link must start with https:// and contain no spaces.'],
+  'look.bookUrl': ['קישור להזמנת שולחן', 'Booking link'],
+  'look.bookUrlHint': ['הדביקו את הקישור לעמוד ההזמנות שלכם ב־Ontopo, ב־Tabit או בכל שירות אחר.', 'Paste your Ontopo, Tabit or other booking page.'],
   'look.phone': ['טלפון להזמנות', 'Phone for orders'],
   'look.place': ['המקום', 'Your place'],
   'look.nameHe': ['שם בעברית', 'Name in Hebrew'],

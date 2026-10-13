@@ -144,3 +144,14 @@ is the reference; the event shapes above are the contract).
 - E-mail sign-up still confirms the address without checking it (no mail service yet). With OAuth switched on, an
   e-mail account made by someone else with the owner's address could be joined to the owner's Google sign-in: fix by
   adding a mail service and real confirmation before any wide launch.
+
+---
+# Proposed (13 Oct 2026) — `db/proposed/0003_templates.sql`, `db/proposed/0004_events.sql`: NOT applied yet
+
+- 0003: `businesses.book_url` (https only, ≤ 300, members may update), `menus.template` (`^[a-z0-9-]{1,40}$`), and the snapshot
+  carries `business.bookUrl` and `theme.template` (still `v: 1`). The owner app sends `book_url` only when
+  `config.features.bookUrl` is true: Daniel applies 0003 first, then flips the flag.
+- 0004: `menu_events_daily(business_id, day, kind in book|seat|view|start, n)` read by members; `site_events_daily(day, kind in
+  view|start, n)` read by nobody through the API; `track_menu(p_slug, p_kind)` (book, seat; published menus only) and
+  `track_site(p_kind)`, both anon-callable, both capped per day (`app_config.event_caps`), never called from a demo or a preview.
+- Tested in the studio stack: `STACK_EXTRA_SQL=1`, `cd studio && npm run test:proposed`.
