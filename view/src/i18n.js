@@ -31,7 +31,7 @@ export const STR = {
     sweetScale: ['Dry', 'Off-dry', 'Medium sweet', 'Sweet'], bodyScale: ['Light', 'Medium', 'Full'], acidScale: ['Soft', 'Fresh', 'Crisp'], bitterScale: ['Mild', 'Balanced', 'Bitter'],
     wineNote: { mineral: 'Mineral', citrus: 'Citrus', redfruit: 'Red fruit', stonefruit: 'Stone fruit', floral: 'Floral', oak: 'Oak', spice: 'Spice', earthy: 'Earthy' },
     beerNote: { citrus: 'Citrus', malt: 'Malt', roast: 'Roast', hop: 'Hops', sour: 'Tart', fruit: 'Fruity', spice: 'Spice' },
-    trayScene: 'Your table, set with what you chose', trayGlass: 'a glass', trayPlate: 'a plate'
+    trayScene: 'Your table, set with what you chose'
     /* /r2:menu */
   },
   he: {
@@ -61,7 +61,7 @@ export const STR = {
     sweetScale: ['יבש', 'חצי יבש', 'חצי מתוק', 'מתוק'], bodyScale: ['קל', 'בינוני', 'מלא'], acidScale: ['רכה', 'רעננה', 'חדה'], bitterScale: ['עדינה', 'מאוזנת', 'מרירה'],
     wineNote: { mineral: 'מינרלי', citrus: 'הדרים', redfruit: 'פרי אדום', stonefruit: 'פרי גלעין', floral: 'פרחוני', oak: 'עץ אלון', spice: 'תבלינים', earthy: 'אדמתי' },
     beerNote: { citrus: 'הדרים', malt: 'לתת', roast: 'קלוי', hop: 'כשות', sour: 'חמצמץ', fruit: 'פירותי', spice: 'תבלינים' },
-    trayScene: 'השולחן שלכם, ערוך במה שבחרתם', trayGlass: 'כוס', trayPlate: 'צלחת'
+    trayScene: 'השולחן שלכם, ערוך במה שבחרתם'
     /* /r2:menu */
   }
 };

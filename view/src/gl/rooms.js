@@ -205,13 +205,14 @@ export function createRoomSet(kind, preset, ctx) {
   const row = (n, make) => { for (let k = 0; k < n; k++) repeat.push({ o: make(k), k, n }); };
 
   if (kind === 'vitrine') {
-    const W = 1.62, Hc = 1.72;
+    const W = 1.62, Hc = 1.72, near = -long / 2 + 3.4;      // the case begins a little in front of the dish in focus: its near end is in the picture, not over the guest's head
     [-W, W].forEach((x) => {
-      add(geo(new PlaneGeometry(long, Hc)).rotateY(Math.PI / 2).translate(0, Hc / 2, 0), glass([.92, .97, 1], 1), x, 0, 0, 'z');
-      add(geo(new BoxGeometry(.05, .05, long)), brass, x, Hc, 0, 'z');
-      add(geo(new BoxGeometry(.07, .09, long)), brass, x, .04, 0, 'z');
-      add(geo(new BoxGeometry(.03, .025, long)), emit([1, .93, .82], 1.15), x * .97, Hc - .06, 0, 'z');      // the light strip inside the case
+      add(geo(new PlaneGeometry(long, Hc)).rotateY(Math.PI / 2).translate(0, Hc / 2, 0), glass([.92, .97, 1], 1), x, 0, near, 'z');
+      add(geo(new BoxGeometry(.05, .05, long)), brass, x, Hc, near, 'z');
+      add(geo(new BoxGeometry(.07, .09, long)), brass, x, .04, near, 'z');
+      add(geo(new BoxGeometry(.03, .025, long)), emit([1, .93, .82], 1.15), x * .97, Hc - .06, near, 'z');      // the light strip inside the case
     });
+    add(geo(new BoxGeometry(2 * W + .05, .05, .05)), brass, 0, Hc, near + long / 2, 'z');      // the case's near top edge
     const post = geo(new BoxGeometry(.06, Hc, .06)).translate(0, Hc / 2, 0);
     row(10, (k) => add(post, brass, k % 2 ? W : -W, 0, 0));
   } else if (kind === 'cellar') {
@@ -247,6 +248,7 @@ export function createRoomSet(kind, preset, ctx) {
     repeat.forEach((r) => {
       const idx = kind === 'vitrine' ? r.k >> 1 : r.k, slot = Math.floor(fz / per) + 1 - idx;      // from one place ahead of the focus to several behind it
       r.o.position.z = slot * per + (kind === 'cellar' && r.o.rotation.z ? per * .5 : 0);
+      if (kind === 'vitrine') r.o.visible = r.o.position.z <= fz + 3.45;      // no post in front of the case's near end
     });
     P.set(fx, 0, back).project(camera); plateU.uLine.value = Math.max(-.6, Math.min(.85, P.y)); plateU.uAspect.value = w / h;
     plateU.uDrift.value.set(-fz * .0035 + Math.sin(t * .07) * .006, Math.sin(t * .05) * .004);
