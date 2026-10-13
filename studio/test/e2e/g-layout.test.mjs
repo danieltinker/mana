@@ -427,7 +427,7 @@ test('on a phone (touch): a dish\'s picture offers the camera or the gallery wit
   await page.goto(app('menu')); await page.locator('section.sec').first().waitFor();
   await tool(page, 'import', 'tap');
   await page.locator('[data-sheet=import] [data-way=scan]').tap();
-  const choose = page.locator('[data-scan=pick] [data-scan-pick]');
+  const choose = page.locator('[data-scan=pick] .scan-pick');
   await choose.waitFor();
   assert.equal(await page.locator('dialog[open]').count(), 0, 'no sheet');
   assert.deepEqual(await choose.locator('.btn-txt').allInnerTexts(), ['צילום התפריט', 'בחירת תמונות'], 'on a phone the camera comes first');
