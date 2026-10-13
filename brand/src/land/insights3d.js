@@ -108,8 +108,8 @@ export async function mountInsights(host, opts = {}) {
     camera.position.set(0, Math.sin(ELEV) * dist + .6, Math.cos(ELEV) * dist); camera.lookAt(0, -.15, .3); camera.updateProjectionMatrix();
     const pa = D.peaks[1] / 24 * Math.PI * 2;
     anchors = narrow
-      ? { views: new Vector3(0, 2.6, -2.6), qr: new Vector3(-2.4, -1.15, 3.1), en: new Vector3(0, -1.3, 3.6), adds: new Vector3(2.4, -1.15, 3.1), peak: new Vector3(Math.sin(pa) * RING, 2.05, -Math.cos(pa) * RING) }
-      : { views: new Vector3(0, 2.2, -3.1), qr: new Vector3(-5.1, .7, .5), en: new Vector3(5.1, .7, .3), adds: new Vector3(4.4, -.7, 2.6), peak: new Vector3(Math.sin(pa) * RING - .5, 2.05, -Math.cos(pa) * RING) };
+      ? { views: new Vector3(-2.05, 2.55, -2.8), qr: new Vector3(-2.4, -1.15, 3.1), en: new Vector3(0, -1.3, 3.6), adds: new Vector3(2.4, -1.15, 3.1), peak: new Vector3(2.05, 2.55, -2.8) }
+      : { views: new Vector3(0, 2.2, -3.1), qr: new Vector3(-5.1, .7, .5), en: new Vector3(5.1, .7, .3), adds: new Vector3(4.4, -.7, 2.6), peak: new Vector3(Math.sin(pa) * RING - .9, 2.95, -Math.cos(pa) * RING - .4) };
   }
   const v3 = new Vector3();
   function place(el, p, sc) {
