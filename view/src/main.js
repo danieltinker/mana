@@ -14,14 +14,15 @@ import { createUI, showStatus } from './ui.js';
 import { bindGestures } from './gestures.js';
 import { createGlide } from './glide.js';
 import { createTicker, createTweens } from './clock.js';
-import { presetById, frameOf } from './scenes/walk.js';
+import { presetById, frameOf, PRESETS } from './scenes/walk.js';
 import { SIZE } from './scenes/common.js';
 import { EDGE_PULL } from './physics.js';
+/* night:templates */ import { applyLook, applyLookDom } from './looks.js'; /* /night:templates */
 
 const Q = new URLSearchParams(location.search), $ = (id) => document.getElementById(id);
 const CAPTURE = Q.get('capture') === '1';                              // filming: one hand-turned clock, frames wait for their pictures
 const TEST = Q.get('test') === '1' || CAPTURE;                         // no loop of its own: frames are advanced by __mana.tick / __mana.frame
-const reduce = Q.get('motion') === 'reduce' || (Q.get('motion') !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+let reduce = Q.get('motion') === 'reduce' || (Q.get('motion') !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);      /* night:templates: let, a look with motion "none" sets it before the stage exists */
 const mark = (name) => { try { performance.mark(name); } catch (e) { /* optional */ } };
 const mem = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage is optional */ } } };
 const source = sourceOf(location), live = source.kind === 'slug';
@@ -98,9 +99,15 @@ async function start(snapshot) {
 }
 function open(snapshot) {
   if (source.kind === 'demo' && Q.get('surface')) snapshot.theme.surface = Q.get('surface');      // demo only: try the same menu on another table (?surface=marble, ?surface=holo)
+  /* night:templates */
+  if (source.kind === 'demo' && Q.get('template')) snapshot.theme.template = Q.get('template');      // demo only: the same menu in a look (?template=album-side); a real menu's look comes with its snapshot
+  const look = applyLook(snapshot.theme, PRESETS);                      // the look's surface, accent and lamp (an owner's own table photo still wins); null = today's theme
+  if (look && look.motion === 'none' && !stage) reduce = true;
+  /* /night:templates */
   const model = buildModel(snapshot);
   if (!model.cats.length) return showStatus('empty', { lang: snapshot.locale.default });
   applyTheme(snapshot.theme);
+  /* night:templates */ applyLookDom(document.documentElement, $('app'), look); /* /night:templates */
   let tray = null; try { tray = JSON.parse(mem.get('halom-menu-tray:' + model.slug) || 'null'); } catch (e) { tray = null; }
   if (store) {                                                         // the same page, new content (a live preview, or the placeholder library arriving late)
     const cur = store.getState(); rev++;
