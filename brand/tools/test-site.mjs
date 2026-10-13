@@ -34,7 +34,7 @@ async function open(path, { w = 390, h = 844, touch = true, origin = srv.origin,
   page.on('requestfailed', (r) => { if (!/\.(mp4|webm)(\?|$)/.test(r.url())) errors.push('requestfailed: ' + r.url()); });      // a video the page stops on purpose is not a failure
   page.on('response', (r) => { if (r.status() >= 400) errors.push(r.status() + ' ' + r.url()); });
   page.on('request', (r) => { reqs.push(r.url()); try { hosts.add(new URL(r.url()).host); } catch (e) { /* data: */ } });
-  if (!/[?&]hero=/.test(path)) { const i = path.indexOf('#'), u = i < 0 ? path : path.slice(0, i), hash = i < 0 ? '' : path.slice(i); path = u + (u.includes('?') ? '&' : '?') + 'hero=off' + hash; }      // the live hero (the viewer in a frame) is opened only by the checks about it
+  for (const k of ['hero', 'floor']) if (!new RegExp('[?&]' + k + '=').test(path)) { const i = path.indexOf('#'), u = i < 0 ? path : path.slice(0, i), hash = i < 0 ? '' : path.slice(i); path = u + (u.includes('?') ? '&' : '?') + k + '=off' + hash; }      // the two 3D modules (software GL here: slow) run only in the checks about them      // the live hero (the viewer in a frame) is opened only by the checks about it
   await page.goto(origin + path, { waitUntil: wait }); await page.evaluate(() => document.fonts.ready);
   return { page, ctx, errors, hosts, reqs, held };
 }
@@ -89,7 +89,7 @@ for (const prefix of ['/mana/', '/projects/menus/']) for (const [w, h, touch] of
 const AI_LABEL = { he: 'מנות לדוגמה · נוצרו בבינה מלאכותית', en: 'Demo dishes · made with AI' };      // the demo-food label
 const AI_WORDS = /\bAI\b|בינה מלאכותית/;
 const builtWith = (m) => renderIndex(Object.assign(mediaFound(), m));
-const stubViewer = async (page) => page.route(/\/view\/(seat\/)?(\?|index\.html|$)/, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><meta charset="utf-8"><title>viewer stub</title><body style="margin:0;background:#15110d;color:#fff;font:16px sans-serif"><p id="stub">viewer stub</p>' }));
+const stubViewer = async (page) => page.route(/\/view\/((seat|host)\/)?(\?|index\.html|$)/, (route) => route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><meta charset="utf-8"><title>viewer stub</title><body style="margin:0;background:#15110d;color:#fff;font:16px sans-serif"><p id="stub">viewer stub</p>' }));
 
 await check('words: "AI" only inside .ai-tag elements and the demo-food label is there; the relief is never a "3D model"; no "3D" in the meta; no invented e-mail address', async () => {
   for (const pg of PAGES) for (const lang of ['he', 'en']) {
@@ -151,11 +151,12 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן, ולצידו אתר, רילסים ומפת ישיבה. חבילה אחת, בצד שלכם.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
   assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 6); assert.deepEqual(r.host, ['relative', 0]);
-  await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 8000 });
+  await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 25000 });
   const at = await o.page.evaluate(() => ({ chunk: performance.getEntriesByType('resource').find((e) => /hero-morph/.test(e.name)).startTime, load: window.__t.loadAt }));
-  assert.ok(at.chunk >= at.load, 'the hero module was asked for before load'); await o.page.waitForTimeout(600);
-  assert.equal(await o.page.evaluate(() => document.getElementById('hero-stage').getAttribute('data-hero')), 'still', 'the stand-in returns null: the stills must stay');
-  const anim = await o.page.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.stills')).length); assert.ok(anim >= 6, 'the stills do not crossfade: ' + anim);
+  assert.ok(at.chunk >= at.load, 'the hero module was asked for before load');
+  await o.page.waitForFunction(() => document.getElementById('hero-stage').getAttribute('data-hero') === 'live', null, { timeout: 45000 });      // the real dish draws (software GL: seconds)
+  assert.equal(await o.page.evaluate(() => document.querySelectorAll('#hero-gl canvas').length), 1, 'the hero has no canvas');
+  assert.ok(o.reqs.some((u) => /img\/dishes\/pizza\.glb$/.test(u)), 'the first dish mesh was not loaded'); await o.page.waitForTimeout(1500);
   await o.page.screenshot({ path: join(RAW, 'hero-1440-he.png') }); assert.deepEqual(o.errors, []); await o.ctx.close();
   for (const q of ['save=1', 'hero=on']) {
     const s = await open('/mana/?' + q, { reduced: q === 'hero=on' }); await s.page.waitForTimeout(1500);
@@ -209,14 +210,15 @@ await check('simple for guests: six tiles with their words; copying the section 
     assert.deepEqual(r.titles, lang === 'he' ? ['בלי אפליקציה לסועדים', 'עברית ואנגלית', '״אזל״ בנגיעה אחת', 'קוד QR שלא משתנה', 'איורים עד שיש תמונות', 'המראה של המקום שלכם'] : ['No app for guests', 'Hebrew and English', 'Sold out in one tap', 'Your QR never changes', 'Illustrations until you have photos', 'Your place’s look']);
     const count = () => o.page.evaluate(() => document.getAnimations().filter((a) => a.effect && a.effect.target && a.effect.target.closest && a.effect.target.closest('.bento')).length);
     assert.equal(await count(), 0, 'the tiles move while off screen');
-    await o.page.evaluate(() => document.getElementById('simple').scrollIntoView({ block: 'center', behavior: 'instant' })); await o.page.waitForTimeout(1600);
+    await o.page.evaluate(() => document.getElementById('simple').scrollIntoView({ block: 'center', behavior: 'instant' }));
+    for (const t0 = Date.now(); (await count()) < 12 && Date.now() - t0 < 8000;) await o.page.waitForTimeout(200);      // a busy machine can be late to start them
     assert.ok(await count() >= 12, 'the tiles do not move on screen'); await o.page.locator('#simple').screenshot({ path: join(RAW, `simple-1440-${lang}.png`) });
     await o.ctx.close();
   }
 });
 
 await check('your place: the words as written, the "new · in demo" chip, the still plan on glass with the Olea room\'s twelve tables and the five table states; floor3d.js is asked for only when the section comes near; while it returns nothing the still stays', async () => {
-  const o = await open('/mana/?lang=he', { w: 1440, h: 900, touch: false });
+  const o = await open('/mana/?lang=he&floor=on', { w: 1440, h: 900, touch: false });
   await o.page.waitForTimeout(1500); assert.ok(!o.reqs.some((u) => /floor3d/.test(u)), 'the floor module was fetched at the top of the page');
   const r = await o.page.evaluate(() => ({ chip: document.querySelector('#place .chip-new').innerText.trim(), p: [...document.querySelectorAll('#place .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), lines: [...document.querySelectorAll('#place .marks li')].map((l) => l.innerText.trim()), tables: document.querySelectorAll('.fl-t').length,
     states: [...new Set([...document.querySelectorAll('.fl-t')].map((t) => t.classList[1]))].sort(), key: [...document.querySelectorAll('.floor-key li')].map((l) => l.innerText.trim()), host: getComputedStyle(document.getElementById('floor-gl')).position }));
@@ -225,8 +227,9 @@ await check('your place: the words as written, the "new · in demo" chip, the st
   assert.deepEqual(r.states, ['ending', 'free', 'reserved', 'seated', 'up']); assert.equal(r.key.length, 5); assert.equal(r.host, 'relative');
   await o.page.evaluate(() => document.getElementById('place').scrollIntoView({ block: 'center', behavior: 'instant' }));
   for (const t0 = Date.now(); !o.reqs.some((u) => /floor3d/.test(u)) && Date.now() - t0 < 6000;) await o.page.waitForTimeout(100);
-  assert.ok(o.reqs.some((u) => /\/land\/chunks\/floor3d-/.test(u)), 'the floor module was never asked for'); await o.page.waitForTimeout(500);
-  assert.equal(await o.page.evaluate(() => document.getElementById('floor').getAttribute('data-floor')), 'still');
+  assert.ok(o.reqs.some((u) => /\/land\/chunks\/floor3d-/.test(u)), 'the floor module was never asked for');
+  await o.page.waitForFunction(() => document.getElementById('floor').getAttribute('data-floor') === 'live', null, { timeout: 45000 });      // the real floor draws (software GL: seconds)
+  assert.equal(await o.page.evaluate(() => document.querySelectorAll('#floor-gl canvas').length), 1, 'the floor has no canvas'); await o.page.waitForTimeout(1500);
   await o.page.locator('#place').screenshot({ path: join(RAW, 'place-1440-he.png') }); assert.deepEqual(o.errors, []); await o.ctx.close();
 });
 
@@ -258,7 +261,8 @@ await check('your site, your reels: the words, the "coming" chip, the host film 
   let r = await o.page.evaluate(() => { const v = document.querySelector('.reel-video'); return { src: v.getAttribute('src'), preload: v.preload, autoplay: v.autoplay, poster: v.getAttribute('poster'), muted: v.muted, loop: v.loop, chip: document.querySelector('#reels .chip').innerText.trim(), p: [...document.querySelectorAll('#reels .sec-p')].find((e) => e.checkVisibility()).innerText.trim(), book: document.querySelector('.site-book').closest('a'), card: document.querySelector('.site-card').getAttribute('aria-hidden') }; });
   assert.deepEqual([r.src, r.preload, r.autoplay, r.poster, r.muted, r.loop], [null, 'none', false, null, true, true]); assert.equal(r.chip, 'בקרוב'); assert.equal(r.p, 'אתר למסעדה מתוך אותו תפריט, ורילסים כדי להתחיל לפרסם.'); assert.equal(r.book, null); assert.equal(r.card, 'true');
   assert.ok(!o.reqs.some((u) => /host-orbit\.mp4/.test(u)), 'the film was fetched before it was on screen');
-  await o.page.evaluate(() => document.getElementById('reels').scrollIntoView({ block: 'center', behavior: 'instant' })); await o.page.waitForTimeout(900);
+  await o.page.evaluate(() => document.getElementById('reels').scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await o.page.waitForFunction(() => document.querySelector('.reel-video').getAttribute('src'), null, { timeout: 8000 }).catch(() => {});      // a busy machine can be late
   r = await o.page.evaluate(() => ({ src: document.querySelector('.reel-video').getAttribute('src') })); assert.equal(r.src, './img/host/host-orbit.mp4');
   await o.page.locator('#reels').screenshot({ path: join(RAW, 'reels-1440-he.png') }); await o.ctx.close();
   for (const [q, reduced] of [['save=1', false], ['', true]]) {
@@ -309,6 +313,7 @@ await check('demo dialog: the Demo button opens it and its frame loads view/?dem
     await o.page.click('.dlg-look[data-look="back-door"]'); assert.equal((await dlgState(o.page)).src, './view/?demo=olea&lang=' + lang + '&template=back-door');
     await o.page.screenshot({ path: join(RAW, `dialog-looks-${w}-${lang}.png`) });
     await o.page.click('.dlg-tab[data-tab="seat"]'); assert.equal((await dlgState(o.page)).src, './view/seat/?demo=olea&lang=' + lang);
+    await o.page.click('.dlg-tab[data-tab="tables"]'); assert.equal((await dlgState(o.page)).src, './view/host/?demo=olea&speed=60&lang=' + lang);      // the table clocks: the manager's board, sped up
     await o.page.keyboard.press('Escape'); await o.page.waitForFunction(() => !document.getElementById('demo').open);
     await o.page.waitForTimeout(100); r = await dlgState(o.page); assert.equal(r.frames, 0, 'the frame stayed after closing');
     assert.ok(await o.page.evaluate(() => document.activeElement && document.activeElement.matches('.top [data-demo-open]')), 'focus did not return to the button');
@@ -360,7 +365,7 @@ await check('reduced motion: nothing animates after load or after a scroll throu
 await check('head: a CSP that limits connections to the site and Supabase and frames to the site; the page\'s own stylesheet; the English display face is self-hosted and fetched only by the English page', async () => {
   const o = await open('/mana/?lang=he');
   const r = await o.page.evaluate(() => ({ csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content, css: [...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.getAttribute('href')), script: [...document.querySelectorAll('script[src]')].map((s) => [s.getAttribute('src'), s.type]), theme: document.querySelector('meta[name="theme-color"]').content }));
-  assert.equal(r.csp, "connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'"); assert.deepEqual(r.css, ['./land.css']); assert.deepEqual(r.script, [['./config.js', ''], ['./land/main.js', 'module']]); assert.equal(r.theme, '#F7F4EE');
+  assert.equal(r.csp, "connect-src 'self' blob: https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'"); assert.deepEqual(r.css, ['./land.css']); assert.deepEqual(r.script, [['./config.js', ''], ['./land/main.js', 'module']]); assert.equal(r.theme, '#F7F4EE');      // blob: the dish meshes' textures are decoded from blob addresses the page makes itself
   await o.page.waitForTimeout(800); assert.ok(!o.reqs.some((u) => /fraunces/.test(u)), 'the Hebrew page fetched the English display face'); await o.ctx.close();
   const e = await open('/mana/?lang=en'); await e.page.waitForFunction(() => document.fonts.check('16px Fraunces'), null, { timeout: 8000 });
   assert.ok(e.reqs.some((u) => /fonts\/fraunces-latin-standard-normal\.woff2$/.test(u)), 'Fraunces was not fetched from the site'); assert.match(await e.page.evaluate(() => getComputedStyle(document.querySelector('h1')).fontFamily), /^Fraunces/);

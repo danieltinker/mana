@@ -52,11 +52,11 @@ bdi,.ltr{direction:ltr;unicode-bidi:isolate}
 /* the light: a few very soft colour fields drifting behind everything, and a whisper of grain */
 .aura{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
 .aura i{position:absolute;width:70vmax;height:70vmax;border-radius:50%;opacity:.9;will-change:transform}
-.aura .a1{left:-22vmax;top:-26vmax;background:radial-gradient(closest-side,rgba(245,177,32,.22),rgba(245,177,32,0))}
-.aura .a2{right:-26vmax;top:-12vmax;background:radial-gradient(closest-side,rgba(255,160,120,.2),rgba(255,160,120,0))}
-.aura .a3{left:10vmax;top:38vh;background:radial-gradient(closest-side,rgba(232,140,165,.13),rgba(232,140,165,0))}
-.aura .a4{right:-18vmax;bottom:-30vmax;background:radial-gradient(closest-side,rgba(130,205,170,.16),rgba(130,205,170,0))}
-.aura .a5{left:-26vmax;bottom:-34vmax;background:radial-gradient(closest-side,rgba(127,169,219,.17),rgba(127,169,219,0))}
+.aura .a1{left:-22vmax;top:-26vmax;background:radial-gradient(closest-side,rgba(245,177,32,.32),rgba(245,177,32,0))}
+.aura .a2{right:-26vmax;top:-12vmax;background:radial-gradient(closest-side,rgba(255,160,120,.28),rgba(255,160,120,0))}
+.aura .a3{left:10vmax;top:38vh;background:radial-gradient(closest-side,rgba(232,140,165,.2),rgba(232,140,165,0))}
+.aura .a4{right:-18vmax;bottom:-30vmax;background:radial-gradient(closest-side,rgba(130,205,170,.24),rgba(130,205,170,0))}
+.aura .a5{left:-26vmax;bottom:-34vmax;background:radial-gradient(closest-side,rgba(127,169,219,.24),rgba(127,169,219,0))}
 .aura::after{content:"";position:absolute;inset:0;opacity:.3;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .38 0 0 0 0 .3 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
 @keyframes drift1{to{transform:translate3d(9vmax,7vmax,0) scale(1.08)}}
 @keyframes drift2{to{transform:translate3d(-8vmax,10vmax,0) scale(.94)}}
@@ -199,7 +199,7 @@ html[lang="en"] .sec-h{line-height:1.02}
 .sec-p.center{max-width:36em}
 .split{display:grid;gap:clamp(28px,5vw,80px);align-items:center}
 .split-words .chip{margin-bottom:18px}
-.split-cta{margin-top:28px}
+.split-cta{margin-top:28px;display:flex;flex-wrap:wrap;gap:12px}
 @media (min-width:900px){.split{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}.split-rev{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}}
 
 /* reveals: only when the script says motion is welcome (html.anim); without it everything is simply there */
@@ -667,6 +667,7 @@ html[lang="en"] .faq summary{font-family:var(--display-en);font-weight:450}
   .dlg-gest li{display:flex;align-items:center;gap:12px;font:500 1.02rem/1 var(--text);color:var(--ink-2)}
   .dlg-gest svg{width:40px;height:40px;padding:9px;border-radius:50%;color:var(--ember);background:#fff;box-shadow:0 10px 22px -14px rgba(70,45,20,.5)}
   .dlg[data-tab="seat"] .dlg-gest li:nth-child(n+2){display:none}
+  .dlg[data-tab="tables"] .dlg-gest{display:none}
   .dlg-film{background:transparent;padding:10px 28px}
   .dlg-film video{box-shadow:0 40px 80px -40px rgba(22,18,14,.7)}
 }

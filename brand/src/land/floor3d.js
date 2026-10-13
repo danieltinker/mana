@@ -103,7 +103,7 @@ export async function mountFloor(host, opts = {}) {
   function place() { camera.position.set(0, aimY + Math.sin(ELEV) * dist, Math.cos(ELEV) * dist); camera.lookAt(0, aimY, 0); camera.updateMatrixWorld(); }
   function fit() {
     camera.aspect = W / H; camera.fov = FOV * (W / H < .95 ? 1.12 : 1); camera.updateProjectionMatrix();
-    const mx = W < 520 ? .95 : .88, my = W < 520 ? .88 : .84;
+    const mx = W < 520 ? .99 : .97, my = W < 520 ? .95 : .93;      // the slab fills its stage (integrator: it read small inside the card)
     for (let k = 0; k < 7; k++) {
       place(); let ax = 0, y0 = 1, y1 = -1;
       for (let s = 0; s < 16; s++) { const c = Math.cos(s * Math.PI / 8), sn = Math.sin(s * Math.PI / 8); pts.forEach((p) => { v.set(p.x * c + p.z * sn, p.y, -p.x * sn + p.z * c).project(camera); ax = Math.max(ax, Math.abs(v.x)); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); }); }

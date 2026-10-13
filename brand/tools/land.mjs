@@ -26,7 +26,7 @@ const FLOAT = [['basil', 2, 4, 19, 1, 1], ['tomato', 6, 80, 13, .55, 1], ['olive
 const LOOKS = [['album-side', 'צד א׳', 'Album Side'], ['casablanca-white', 'לבן קזבלנקה', 'Casablanca White'], ['back-door', 'הדלת האחורית', 'Back Door']];
 const AI_DISHES = () => t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI');
 const hrefs = (path, extra = '') => `href="${path}lang=he${extra}" data-href-he="${path}lang=he${extra}" data-href-en="${path}lang=en${extra}"`;
-const DEMO = hrefs('./view/?demo=olea&amp;'), SEAT = hrefs('./view/seat/?demo=olea&amp;');
+const DEMO = hrefs('./view/?demo=olea&amp;'), SEAT = hrefs('./view/seat/?demo=olea&amp;'), HOST = hrefs('./view/host/?demo=olea&amp;speed=60&amp;');
 
 /* ------------------------------------------------------------------------------------------------ drawings
    Decorative letters and numbers are never text nodes: they are paths, or CSS content on aria-hidden elements. */
@@ -309,7 +309,7 @@ const place = () => `<section class="sec place" id="place" aria-labelledby="plac
         <li>${ico.clock}${t('זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.', 'A seating time for every table. You set the default.')}</li>
         <li>${ico.bell}${t('כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.', 'When time is up, the table frees up and the manager is alerted.')}</li>
       </ul>
-      <p class="split-cta"><a class="btn btn-glass btn-lg" ${SEAT} data-demo-open="seat">${t('לנסות את מפת הישיבה', 'Try the seat map')}</a></p>
+      <p class="split-cta"><a class="btn btn-glass btn-lg" ${SEAT} data-demo-open="seat">${t('לנסות את מפת הישיבה', 'Try the seat map')}</a> <a class="btn btn-glass btn-lg" ${HOST} data-demo-open="tables">${t('שעון לשולחן', 'Table clocks')}</a></p>
     </div>
     <figure class="floor glass" id="floor" data-floor="still">
       <div class="floor-stage">
@@ -430,7 +430,7 @@ function dialog(media) {
     <div class="dlg-top">
       <h2 class="vh" id="dlg-h">${t('הדגמה', 'Demo')}</h2>
       <span class="dlg-mark" aria-hidden="true">${mark(INK, 30)}</span>
-      <div class="dlg-tabs">${tab('menu', 'התפריט', 'The menu', true)}${tab('looks', 'מראות', 'Looks')}${tab('seat', 'מפת ישיבה', 'Seat map')}${film ? tab('film', 'הסרט', 'The film') : ''}</div>
+      <div class="dlg-tabs">${tab('menu', 'התפריט', 'The menu', true)}${tab('looks', 'מראות', 'Looks')}${tab('seat', 'מפת ישיבה', 'Seat map')}${tab('tables', 'שעון לשולחן', 'Table clocks')}${film ? tab('film', 'הסרט', 'The film') : ''}</div>
       <button class="dlg-x" type="button" data-dlg-close data-label-he="לסגור" data-label-en="Close" aria-label="לסגור">${ico.close}</button>
     </div>
     <div class="dlg-body">

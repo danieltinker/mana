@@ -8,7 +8,7 @@
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#F7F4EE">
-<meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' blob: https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="מנה · רואים את המנה לפני שמזמינים">
@@ -155,7 +155,7 @@
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.</span><span class="en" lang="en">A seating time for every table. You set the default.</span></li>
         <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.8H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.</span><span class="en" lang="en">When time is up, the table frees up and the manager is alerted.</span></li>
       </ul>
-      <p class="split-cta"><a class="btn btn-glass btn-lg" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en" data-demo-open="seat"><span class="he" lang="he">לנסות את מפת הישיבה</span><span class="en" lang="en">Try the seat map</span></a></p>
+      <p class="split-cta"><a class="btn btn-glass btn-lg" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en" data-demo-open="seat"><span class="he" lang="he">לנסות את מפת הישיבה</span><span class="en" lang="en">Try the seat map</span></a> <a class="btn btn-glass btn-lg" href="./view/host/?demo=olea&amp;speed=60&amp;lang=he" data-href-he="./view/host/?demo=olea&amp;speed=60&amp;lang=he" data-href-en="./view/host/?demo=olea&amp;speed=60&amp;lang=en" data-demo-open="tables"><span class="he" lang="he">שעון לשולחן</span><span class="en" lang="en">Table clocks</span></a></p>
     </div>
     <figure class="floor glass" id="floor" data-floor="still">
       <div class="floor-stage">
@@ -310,7 +310,7 @@
     <div class="dlg-top">
       <h2 class="vh" id="dlg-h"><span class="he" lang="he">הדגמה</span><span class="en" lang="en">Demo</span></h2>
       <span class="dlg-mark" aria-hidden="true"><svg viewBox="0 14 64 39" width="30" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#16120E" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg></span>
-      <div class="dlg-tabs"><button class="dlg-tab" type="button" data-tab="menu" aria-pressed="true"><span class="he" lang="he">התפריט</span><span class="en" lang="en">The menu</span></button><button class="dlg-tab" type="button" data-tab="looks" aria-pressed="false"><span class="he" lang="he">מראות</span><span class="en" lang="en">Looks</span></button><button class="dlg-tab" type="button" data-tab="seat" aria-pressed="false"><span class="he" lang="he">מפת ישיבה</span><span class="en" lang="en">Seat map</span></button><button class="dlg-tab" type="button" data-tab="film" aria-pressed="false"><span class="he" lang="he">הסרט</span><span class="en" lang="en">The film</span></button></div>
+      <div class="dlg-tabs"><button class="dlg-tab" type="button" data-tab="menu" aria-pressed="true"><span class="he" lang="he">התפריט</span><span class="en" lang="en">The menu</span></button><button class="dlg-tab" type="button" data-tab="looks" aria-pressed="false"><span class="he" lang="he">מראות</span><span class="en" lang="en">Looks</span></button><button class="dlg-tab" type="button" data-tab="seat" aria-pressed="false"><span class="he" lang="he">מפת ישיבה</span><span class="en" lang="en">Seat map</span></button><button class="dlg-tab" type="button" data-tab="tables" aria-pressed="false"><span class="he" lang="he">שעון לשולחן</span><span class="en" lang="en">Table clocks</span></button><button class="dlg-tab" type="button" data-tab="film" aria-pressed="false"><span class="he" lang="he">הסרט</span><span class="en" lang="en">The film</span></button></div>
       <button class="dlg-x" type="button" data-dlg-close data-label-he="לסגור" data-label-en="Close" aria-label="לסגור"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button>
     </div>
     <div class="dlg-body">

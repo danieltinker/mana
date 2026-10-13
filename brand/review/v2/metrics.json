@@ -34,10 +34,10 @@
   },
   "requestsOnLoad390": 22,
   "bytesGzipBeforeHero": {
-   "mainRaw": 15044,
-   "scripts": 6368,
-   "css": 15590,
-   "html": 15045
+   "mainRaw": 15204,
+   "scripts": 6412,
+   "css": 15599,
+   "html": 15130
   }
  }
 }

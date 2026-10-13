@@ -50,7 +50,7 @@ ${note ? `<!-- ${note} -->\n` : ''}<html lang="he" dir="rtl" data-title-he="${es
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="${theme || (config ? '#0B0907' : '#FCF8F6')}">
-<meta http-equiv="Content-Security-Policy" content="connect-src 'self'${supabaseOrigin() ? ' ' + supabaseOrigin() : ''}; frame-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' blob:${supabaseOrigin() ? ' ' + supabaseOrigin() : ''}; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
 <meta property="og:title" content="${esc(titleHe)}">

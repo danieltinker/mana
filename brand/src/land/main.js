@@ -85,7 +85,7 @@ function main() {
     })).then((h) => {
       if (!h) return;                                                                                   // no WebGL: the stills stay
       hero = h; if (!heroVisible || doc.hidden) h.pause();
-      setTimeout(() => { if (!ready) fail(); }, 10000);                                                 // nothing drawn: the stills stay
+      setTimeout(() => { if (!ready) fail(); }, 20000);                                                 // nothing drawn: the stills stay
     }).catch(() => fail());
   }
   if (stage && hasIO) new IntersectionObserver((es) => { heroVisible = es[0].isIntersecting; if (hero) heroVisible ? hero.resume() : hero.pause(); }, { threshold: 0 }).observe(stage);
