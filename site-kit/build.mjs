@@ -34,7 +34,8 @@ export function render(menu, { menuUrl, demo, index = false, base = '.' } = {}) 
   const first = items.find((it) => it.asset && it.asset.color) || items[0];
   const heroImg = first && first.asset && first.asset.color ? pic(first.asset.color) : null;
   const url = https(menuUrl) || 'https://halom.io/m/' + encodeURIComponent(slug);
-  const bookUrl = https(b.bookUrl), orderUrl = https(b.orderUrl), phone = typeof b.phone === 'string' && b.phone.trim() ? b.phone.trim() : null;
+  /* a demo's Book button opens the seat map demo (as the guest menu's does); a real menu's opens its own booking page */
+  const bookUrl = https(b.bookUrl) ? (isDemo ? 'https://halom.io/mana/view/seat/?demo=' + encodeURIComponent(slug) : https(b.bookUrl)) : null, orderUrl = https(b.orderUrl), phone = typeof b.phone === 'string' && b.phone.trim() ? b.phone.trim() : null;
   const address = b.address || b.area, hours = b.hours && (typeof b.hours === 'string' || typeof b.hours === 'object') ? b.hours : null;
 
   const nav = menu.categories.map((c) => '<a href="#' + esc(c.id) + '">' + both(c.name) + '</a>').join('');
@@ -47,7 +48,7 @@ export function render(menu, { menuUrl, demo, index = false, base = '.' } = {}) 
   if (hours) info.push('<div><h2>' + spans({ he: 'מתי', en: 'When' }) + '</h2><p>' + (typeof hours === 'string' ? esc(hours) : both(hours)) + '</p></div>');
   if (phone) info.push('<div><h2>' + spans({ he: 'טלפון', en: 'Phone' }) + '</h2><p><a href="tel:' + esc(phone.replace(/[^\d+]/g, '')) + '"><bdi dir="ltr">' + esc(phone) + '</bdi></a></p></div>');
 
-  const ld = jsonld(menu, { address, phone, url });
+  const ld = jsonld(menu, { address, phone, url, demo: isDemo });
   const title = nameHe + (nameEn && nameEn !== nameHe ? ' · ' + nameEn : '') + ' · ' + t({ he: 'תפריט', en: 'Menu' }, 'he');
   const html = readFileSync(join(HERE, 'template.html'), 'utf8')
     .replaceAll('{{TITLE}}', esc(title))
@@ -87,13 +88,13 @@ function dish(it, pic) {
 }
 
 /** schema.org Restaurant + Menu, only from what the snapshot says. Hebrew names, English as alternateName. */
-export function jsonld(menu, { address, phone, url }) {
+export function jsonld(menu, { address, phone, url, demo = false }) {
   const b = menu.business, alt = (v) => { const en = t(v, 'en'); return en && en !== t(v, 'he') ? { alternateName: en } : {}; };
   const r = { '@context': 'https://schema.org', '@type': 'Restaurant', name: t(b.name, 'he'), ...alt(b.name), inLanguage: ['he', 'en'] };
   if (b.cuisine) r.servesCuisine = t(b.cuisine, 'he');
   if (address) r.address = typeof address === 'string' ? address : { '@type': 'PostalAddress', streetAddress: t(address, 'he') };
   if (phone) r.telephone = phone;
-  if (https(b.bookUrl)) r.acceptsReservations = b.bookUrl;
+  if (https(b.bookUrl) && !demo) r.acceptsReservations = b.bookUrl;   // a demo claims no booking page
   r.hasMenu = { '@type': 'Menu', name: t({ he: 'תפריט', en: 'Menu' }, 'he'), url, inLanguage: 'he',
     hasMenuSection: menu.categories.map((c) => ({ '@type': 'MenuSection', name: t(c.name, 'he'), ...alt(c.name),
       hasMenuItem: (c.items || []).map((it) => { const m = { '@type': 'MenuItem', name: t(it.name, 'he'), ...alt(it.name) };

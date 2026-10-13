@@ -56,7 +56,8 @@ test('Hebrew first, RTL, with the English toggle and no outside load', () => {
   assert.ok(h.includes('<meta name="robots" content="noindex">'));                                                   // a preview until the owner says so
   assert.ok(h.includes('href="https://halom.io/m/olea"'));
   assert.ok(h.includes('href="https://example.com/olea"'));                                                         // the order link from the snapshot
-  assert.ok(!h.includes('להזמין שולחן'), 'no Book button without business.bookUrl');
+  assert.ok(h.includes('href="https://halom.io/mana/view/seat/?demo=olea"'), 'the demo\'s Book button opens the seat map demo');
+  { const noBook = render({ ...menu, slug: 'y', business: { ...menu.business, bookUrl: null } }, { demo: false, base: dirname(MENU) }).html; assert.ok(!noBook.includes('להזמין שולחן'), 'no Book button without business.bookUrl'); }
 });
 
 test('JSON-LD: Restaurant + Menu from the snapshot only', () => {
