@@ -124,6 +124,31 @@ back → "Your table is confirmed".
    over 3 MB is never committed.
 5. Later still: a splat or photo-textured mesh for believability, with the plan's tables as colliders (R3 §2.2).
 
+## The table clock (`timers.mjs`) and the host board (`view/host/`)
+
+How long a party keeps its table, when the manager hears about it, and when the table frees itself. Pure functions,
+no DOM, no clock of their own (`now` is passed in), immutable JSON state `{ v: 1, … }`; tests in `timers.test.mjs`
+(run by `cd view && npm test`).
+
+- The venue's default frame: 15–360 minutes in steps of 5, 90 unless the owner changes it; any table may have its own
+  (in the demo the bar 45, the long table 150). A setting changes the next seating, never a running one.
+- free → seated → `ending` (5 minutes or less left, a setting) → `over` (time is up) → free. Time is up: the table
+  counts as free for availability at once (`availableAt`), the manager is alerted once, and the board shows it over
+  until he extends or frees it, or the grace period (10 minutes, a setting, at least 1) passes and it frees itself.
+- `extend` (+15 by default, any number of times) moves a running seating's end; after time is up it runs from now
+  (to the whole minute). An extension sets a new end, which can alert once more.
+- `tick(state, now) → { state, events }`: `ending`, `over`, `freed`, each once per seating end; after a gap (the board
+  was closed) only what is still true is reported. `status`, `availableAt`, `byUrgency` read the state;
+  `validateState` checks what comes back from storage. Bad input throws a `TimerError` with a plain reason.
+
+```
+host/?demo=olea            the manager's board (Hebrew; &lang=en, &view=list, &speed=60 for a pitch: a minute a second)
+```
+
+The board is a demo: Olea's room from `fixtures/olea.layout.json`, the floor in `localStorage` (`mana-host:v1:olea`),
+four tables seated on first load (one ending soon), nothing sent anywhere. A party is a number; no names. When it goes
+live: `db/proposed/0006_table_clock.sql` (not applied).
+
 ## Hebrew for the read
 
 Every Hebrew line on these pages is new tonight and is listed in the night report for Rami's 10:00 read.

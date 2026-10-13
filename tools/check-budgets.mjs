@@ -22,7 +22,7 @@ import { resolve, dirname, join, relative, extname, basename } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const SITE = resolve(process.argv[2] || '_site');
-const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB };
+const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB, /* timers */ host: 175 * KB /* /timers */ };
 const TEXT = /\.(html?|css|m?js|json|svg|txt|md|xml|webmanifest)$/i;
 if (!existsSync(SITE)) { console.error('✗ no built site at ' + SITE + ' (run tools/build-site.sh first)'); process.exit(2); }
 
@@ -145,6 +145,23 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     section('(c) seat map page', rows, BUDGET.seat);
   }
 }
+
+/* timers */
+/* (e) the host board, when present (view/host/index.html: the page, its scripts and their own chunks, its stylesheet and
+   the fonts the stylesheet declares; a manager's screen, so its fonts count), ≤ 175 kB */
+{
+  const host = join(SITE, 'view/host/index.html'), rows = [];
+  if (!existsSync(host)) notes.push('(e) no host board at view/host/index.html: nothing to measure');
+  else {
+    rows.push(row(host, 'the page'));
+    const html = read(host).toString();
+    for (const { tag } of tags(html, 'script')) { const p = local(attr(tag, 'src'), host); if (!p || !existsSync(p)) continue; rows.push(row(p, 'script')); for (const c of staticImports(p)) if (existsSync(c)) rows.push(row(c, 'its own chunk')); }
+    for (const { tag } of tags(html, 'link')) if (/stylesheet/i.test(attr(tag, 'rel') || '')) { const p = local(attr(tag, 'href'), host); if (!p || !existsSync(p)) continue; rows.push(row(p, 'style'));
+      for (const u of cssUrls(p).filter((x) => /\.woff2?$/i.test(x))) { const q = local(u, p); if (q && existsSync(q)) rows.push(row(q, 'font host.css declares')); } }
+    section('(e) host board page', rows, BUDGET.host);
+  }
+}
+/* /timers */
 
 /* (d) media */
 {

@@ -14,4 +14,5 @@ const common = { outdir: root, bundle: true, format: 'esm', splitting: true, min
    taps "3D" in a demo. */
 const res = await build({ ...common, entryPoints: { app: join(root, 'src/main.js') } });
 const seat = await build({ ...common, entryPoints: { seat: join(root, 'src/seat/main.js') }, chunkNames: 'chunks/seat-[name]-[hash]' });   /* night:seating */
-for (const f of [...Object.keys(res.metafile.outputs), ...Object.keys(seat.metafile.outputs)]) console.log(f.replace(root + '/', ''), statSync(f).size);
+/* timers */ const host = await build({ ...common, entryPoints: { host: join(root, 'src/host/main.js') }, chunkNames: 'chunks/host-[name]-[hash]' });   /* the host board: table clocks (view/host/) */ /* /timers */
+for (const f of [...Object.keys(res.metafile.outputs), ...Object.keys(seat.metafile.outputs), /* timers */ ...Object.keys(host.metafile.outputs) /* /timers */]) console.log(f.replace(root + '/', ''), statSync(f).size);
