@@ -86,9 +86,17 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
   rows.push(need(join(V, 'index.html'), 'the page'), need(join(V, 'app.css'), 'style'));
   const app = need(join(V, 'app.js'), 'entry script'); rows.push(app);
   if (app) {
-    const imports = chunksOf(join(V, 'app.js'));
-    for (const c of imports) rows.push(need(c, /\/stage-[^/]+\.js$/.test(c) ? 'the stage chunk (on demand, before the first dish)' : 'chunk app.js imports'));
-    if (!imports.some((c) => /\/stage-[^/]+\.js$/.test(c))) breaches.push('view/app.js names no stage chunk');
+    /* What a guest's phone fetches before the first dish: app.js, every chunk it imports statically, the stage chunk it
+       imports on demand, and everything those import statically in turn (three.js sits in its own chunk since the seat map
+       shares it). Other on-demand chunks (the hero mode, the 3D room) are not part of a guest's first dish. */
+    const staticOf = (js) => { const s = read(js).toString(); return [...s.matchAll(/(?:\bfrom\s*|\bimport\s*)["'](\.\.?\/(?:chunks\/)?[^"']+\.js)["']/g)].map((m) => resolve(dirname(js), m[1])); };
+    const dynamicOf = (js) => { const s = read(js).toString(); return [...s.matchAll(/import\s*\(\s*["'](\.\.?\/(?:chunks\/)?[^"']+\.js)["']/g)].map((m) => resolve(dirname(js), m[1])); };
+    const seen = new Map(), walk = (js, why) => { if (seen.has(js) || !existsSync(js)) return; seen.set(js, why); for (const c of staticOf(js)) walk(c, 'chunk ' + rel(js) + ' imports'); };
+    for (const c of staticOf(join(V, 'app.js'))) walk(c, 'chunk app.js imports');
+    const stage = dynamicOf(join(V, 'app.js')).filter((c) => /\/stage-[^/]+\.js$/.test(c));
+    if (!stage.length) breaches.push('view/app.js names no stage chunk');
+    for (const c of stage) walk(c, 'the stage chunk (on demand, before the first dish)');
+    for (const [c, why] of seen) rows.push(need(c, why));
   }
   rows.push(need(join(V, 'themes/oak.jpg'), 'the default table'), need(join(V, 'themes/oak_h.jpg'), 'the default table, height'));
   if (existsSync(join(V, 'app.css'))) {
