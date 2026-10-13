@@ -6,6 +6,18 @@ export function initForm({ $, $$, mq, lang }) {
   if (more && mq('(min-width: 900px)')) more.open = true;
   const form = $('#talk');
   if (!form) return;
+  /* "Request early access" and each plan's button: open the form with that plan chosen (the preview build's form stays off) */
+  $$('[data-early]').forEach((a) => a.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button > 0) return;
+    const want = a.getAttribute('data-early'), r = form.querySelector('input[name="plan"][value="' + want + '"]') || form.querySelector('input[name="plan"][value="any"]');
+    if (r && !r.disabled) r.checked = true;
+    const early = $('#f-early'); if (early) early.value = '1';
+    if (more) more.open = true;
+    e.preventDefault();
+    const sec = $('#talk-sec'); if (sec) sec.scrollIntoView({ behavior: mq('(prefers-reduced-motion: reduce)') ? 'auto' : 'smooth', block: 'start' });
+    try { history.replaceState(null, '', location.pathname + location.search + '#talk-sec'); } catch (x) { /* ignore */ }
+    setTimeout(() => { if (!f.place.disabled) f.place.focus({ preventScroll: true }); else { const s = $('#talk-sec summary'); if (s) s.focus({ preventScroll: true }); } }, 450);
+  }));
   let opened = Date.now(), busy = false;
   const KEY = 'mana-lead-token';
   const T = {
@@ -30,6 +42,9 @@ export function initForm({ $, $$, mq, lang }) {
   function dream() {
     let s = (lang() === 'he' ? 'מסעדה: ' : 'Restaurant: ') + f.place.value.trim();
     if (f.msg.value.trim()) s += '\n' + f.msg.value.trim();
+    const plan = form.querySelector('input[name="plan"]:checked'), early = $('#f-early');
+    if (plan && plan.value !== 'any') s += '\n[plan: ' + plan.value + ']';                // the plan and the early-access ask travel with the message, like the consent
+    if (early && early.value) s += '\n[early access]';
     s += '\n' + (f.news.checked ? '[updates: yes]' : '[updates: no]');     // marketing consent travels with the message until the table has a column for it
     return s.slice(0, 4000);
   }

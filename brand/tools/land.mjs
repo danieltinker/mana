@@ -16,13 +16,23 @@ import { qrPath } from './qr.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LINE = 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
 
-/* Plan prices: not set yet. When they are, write each as { he, en } (for example { he: '₪149 לחודש', en: '₪149 a month' }) and
-   the card shows it above its button; while null the card shows "Get an offer" only. */
-export const PRICES = { p50: null, p100: null, pAll: null };
+/* Plan prices: not set yet (Rami sets them). When they are, write each as { he, en } (for example { he: '₪149 לחודש', en: '₪149 a
+   month' }) and the card shows it above its button; while null no price is shown. */
+export const PRICES = { pMenu: null, pPlace: null, pDream: null };
+/* The early-access offer's facts: not set yet (Rami confirms them). spots: a number of places in the founding group; until: the
+   last day, as { he, en }. While null the offer speaks of "a small group of founding restaurants" only: no number, no deadline,
+   no discount. */
+export const EARLY = { spots: null, until: null };
 
 const DISHES = [['pizza', 'מרגריטה', 'Margherita'], ['burger', 'המבורגר', 'Burger'], ['ramen', 'ראמן', 'Ramen'], ['croissant', 'קרואסון', 'Croissant'], ['shakshuka', 'שקשוקה', 'Shakshuka'], ['gelato', 'גלידה', 'Gelato']];
-/* the six ingredients around the hero: [file, top %, inline-start %, size % of the stage, depth 0 (far) .. 1 (near), on phones too] */
-const FLOAT = [['basil', 2, 4, 19, 1, 1], ['tomato', 6, 80, 13, .55, 1], ['olive', 40, -2, 13, .25, 0], ['chili', 44, 88, 15, .85, 0], ['lemon', 76, 6, 16, .6, 1], ['rosemary', 80, 74, 18, .3, 0]];
+/* the twelve ingredients that levitate through the hero (levitate.js moves them; this is their still composition, also the
+   reduced-motion picture): [file, inline-start %, top %, depth 0 (far) .. 3 (near), phone: null (wide screens only) or [x %, y %]] */
+const LEV = [
+  ['coffee', 47, 9, 0, [88, 62]], ['garlic', 60, 88, 0, null], ['rosemary', 97, 64, 0, null],
+  ['olive', 3, 91, 1, [8, 98]], ['chili', 95, 19, 1, null], ['parmesan', 50, 60, 1, null],
+  ['basil', 63, 10, 2, [10, 60]], ['lemon', 87, 87, 2, [14, 93]], ['raspberry', 41, 92, 2, [88, 95]], ['strawberry', 76, 6, 2, null],
+  ['tomato', 101, 44, 3, [92, 70]], ['mint', 54, 101, 3, [6, 82]]
+];
 const LOOKS = [['album-side', 'צד א׳', 'Album Side'], ['casablanca-white', 'לבן קזבלנקה', 'Casablanca White'], ['back-door', 'הדלת האחורית', 'Back Door']];
 const AI_DISHES = () => t('מנות לדוגמה · נוצרו בבינה מלאכותית', 'Demo dishes · made with AI');
 const hrefs = (path, extra = '') => `href="${path}lang=he${extra}" data-href-he="${path}lang=he${extra}" data-href-en="${path}lang=en${extra}"`;
@@ -39,33 +49,6 @@ const defs = `<svg class="defs" width="0" height="0" aria-hidden="true" focusabl
   <linearGradient id="g-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF7A45" stop-opacity=".28"/><stop offset="1" stop-color="#F5B120" stop-opacity="0"/></linearGradient>
 </defs></svg>`;
 
-/* the three steps: one small scene each (96 × 96), the yolk "serving" travelling through them */
-const stepScan = `<svg viewBox="0 0 96 96" aria-hidden="true">
-  <g transform="rotate(-9 38 54)"><rect x="17" y="27" width="42" height="54" rx="4" fill="#fff" stroke="${INK}" stroke-width="1.7"/><path d="M25 38h18M25 46h26M25 54h22M25 62h26M25 70h14" stroke="${INK}" stroke-width="1.7" stroke-linecap="round" opacity=".35"/></g>
-  <g transform="rotate(8 63 44)"><rect x="46" y="13" width="34" height="62" rx="7.5" fill="${INK}"/><rect x="49.5" y="18.5" width="27" height="51" rx="4" fill="#FFFDF9"/>
-    <path d="M54 29h13M54 37h18M54 45h11M54 53h18" stroke="${INK}" stroke-width="1.6" stroke-linecap="round" opacity=".45"/>
-    <rect class="scan" x="49.5" y="21" width="27" height="2.6" rx="1.3" fill="#F5B120"/></g>
-</svg>`;
-const stepType = `<svg viewBox="0 0 96 96" aria-hidden="true">
-  <rect x="23" y="16" width="50" height="64" rx="5" fill="#fff" stroke="${INK}" stroke-width="1.7"/>
-  <path d="M32 30h20M32 41h24M32 52h17" stroke="${INK}" stroke-width="1.7" stroke-linecap="round" opacity=".35"/>
-  <path d="M60 30h5M60 41h5M60 52h5" stroke="#FF7A45" stroke-width="1.7" stroke-linecap="round"/>
-  <path d="M32 63h11" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
-  <rect class="caret" x="46" y="57.5" width="2.4" height="11" rx="1.2" fill="#F5B120"/>
-</svg>`;
-const stepRelief = `<svg viewBox="0 0 96 96" aria-hidden="true">
-  <path d="M12 64 38 47l46 10-26 20z" fill="#fff" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
-  <ellipse cx="48" cy="62" rx="19" ry="7.5" fill="none" stroke="${INK}" stroke-width="1.4" opacity=".25"/>
-  <path d="M26 50v10M70 50v10" stroke="${INK}" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1.5 3.5" opacity=".5"/>
-  <g class="lift"><ellipse cx="48" cy="42" rx="24" ry="10.5" fill="#FFFDF9" stroke="${INK}" stroke-width="1.7"/><ellipse cx="48" cy="38.5" rx="13" ry="6" fill="#F5B120"/></g>
-</svg>`;
-const stepCard = `<svg viewBox="0 0 96 96" aria-hidden="true">
-  <path d="M18 80h60" stroke="${INK}" stroke-width="1.4" stroke-linecap="round" opacity=".25"/>
-  <g transform="rotate(-4 48 48)"><rect x="27" y="13" width="42" height="62" rx="4.5" fill="#fff" stroke="${INK}" stroke-width="1.7"/>
-    <g fill="${INK}"><path fill-rule="evenodd" d="M34 21h10v10H34zm2.6 2.6v4.8h4.8v-4.8zM52 21h10v10H52zm2.6 2.6v4.8h4.8v-4.8zM34 39h10v10H34zm2.6 2.6v4.8h4.8v-4.8z"/>
-      <path d="M38 25h2v2h-2zM56 25h2v2h-2zM38 43h2v2h-2zM46.5 21h3v3h-3zM46.5 27h3v3h-3zM34 33.5h3v3h-3zM40 33.5h3v3h-3zM46.5 33.5h3v3h-3zM53 33.5h3v3h-3zM59 33.5h3v3h-3zM46.5 40h3v3h-3zM53 40h3v3h-3zM59 46h3v3h-3zM46.5 46h3v3h-3zM53 46h3v3h-3zM59 40h3v3h-3z"/></g>
-    <ellipse cx="48" cy="63" rx="9.5" ry="5" fill="none" stroke="${INK}" stroke-width="1.4"/><ellipse class="glow" cx="48" cy="61.8" rx="5" ry="2.7" fill="#F5B120"/></g>
-</svg>`;
 /* small line icons, 24 × 24 */
 const ico = {
   dish: `<svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="14" rx="9" ry="4.8" ${LINE}/><ellipse cx="12" cy="12.3" rx="4.6" ry="2.4" fill="currentColor"/></svg>`,
@@ -99,9 +82,16 @@ const vizSold = `<div class="viz v-sold" aria-hidden="true">
     <div class="v-row v-row-b"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-sw"></i><i class="v-chip"></i></div>
     <div class="v-row v-row-c"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-sw on"></i></div>
   </div>`;
+/* 4. one code, a living menu: the printed card never moves; beside it the menu changes (a new dish, sold out, the look) */
 const vizQr = `<div class="viz v-qrs" aria-hidden="true">
-    <div class="v-deck">${['burger', 'gelato', 'ramen'].map((d, i) => `<img style="--i:${i}" src="./img/dishes/${d}.webp" width="640" height="640" alt="" loading="lazy" decoding="async">`).join('')}</div>
-    <div class="v-qrcard">${qrUse()}<i class="v-sweep"></i></div>
+    <div class="v-tent"><div class="v-qrcard">${qrUse()}</div><i class="v-stand"></i><i class="v-pulse"></i></div>
+    <i class="v-beam"></i>
+    <div class="v-live"><i class="v-notch"></i><div class="v-lscreen">
+      <div class="v-lrow v-new"><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-tag v-tag-new"></i></div>
+      <div class="v-lrow v-r1"><img src="./img/dishes/burger.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-price"></i></div>
+      <div class="v-lrow v-r2"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-tag v-tag-out"></i></div>
+      <div class="v-lrow v-r3"><img src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-price"></i></div>
+    </div></div>
   </div>`;
 const vizDraw = `<div class="viz v-draw" aria-hidden="true"><div class="v-art">
     <svg viewBox="0 0 120 120"><g fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -113,14 +103,20 @@ const vizDraw = `<div class="viz v-draw" aria-hidden="true"><div class="v-art">
       <path class="d9" pathLength="1" d="M36 76l3 2M48 84l2-3M80 54l3-1M54 44l-2-3M30 64l-3 1"/></g></svg>
     <img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async">
   </div></div>`;
-const vizLooks = `<div class="viz v-looks" aria-hidden="true">${LOOKS.map(([id], i) => `<img style="--i:${i}" src="./img/looks/${id}.webp" width="390" height="844" alt="" loading="lazy" decoding="async">`).join('')}</div>`;
+/* 6. the looks: the same dish, the material under it changing (slate, white linen, dark wood), the menu's screen with it */
+const vizLooks = `<div class="viz v-looks" aria-hidden="true">
+    <div class="v-surf">${LOOKS.map(([id], i) => `<i class="v-mat m-${id}" style="--i:${i}"></i>`).join('')}<i class="v-wipe"></i></div>
+    <div class="v-hero"><i class="v-shadow"></i><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"></div>
+    <div class="v-screens">${LOOKS.map(([id], i) => `<img style="--i:${i}" src="./img/looks/${id}.webp" width="390" height="844" alt="" decoding="async" fetchpriority="low">`).join('')}</div>
+    <ul class="v-names">${LOOKS.map(([id], i) => `<li class="n-${id}" style="--i:${i}"><i></i></li>`).join('')}</ul>
+  </div>`;
 const TILES = [
   ['noapp', vizNoApp, 'בלי אפליקציה לסועדים', 'No app for guests', 'מצלמה, קוד, תפריט.', 'Camera, code, menu.'],
   ['lang', vizLang, 'עברית ואנגלית', 'Hebrew and English', 'בנגיעה אחת, לכל סועד.', 'One tap, for every guest.'],
   ['sold', vizSold, '״אזל״ בנגיעה אחת', 'Sold out in one tap', 'המנה נשארת, הסועד יודע.', 'The dish stays; the guest knows.'],
-  ['qr', vizQr, 'קוד QR שלא משתנה', 'Your QR never changes', 'משנים תפריט, לא מדפיסים שוב.', 'Change the menu, never reprint.'],
+  ['qr', vizQr, 'קוד אחד. תפריט חי.', 'One code. A living menu.', 'הקוד המודפס נשאר. התפריט, המראה, המחירים ו״אזל״ משתנים מתי שרוצים.', 'The printed code stays. The menu, the look, the prices and sold out change whenever you like.'],
   ['draw', vizDraw, 'איורים עד שיש תמונות', 'Illustrations until you have photos', 'מתחילים היום, מצלמים מחר.', 'Start today, shoot tomorrow.'],
-  ['looks', vizLooks, 'המראה של המקום שלכם', 'Your place’s look', 'כמה סגנונות, אחד שלכם.', 'A few styles; one is yours.']
+  ['looks', vizLooks, 'המראה של המקום שלכם', 'Your place’s look', 'אותה מנה, על אבן, על פשתן לבן, על עץ כהה. בוחרים את המראה שמרגיש כמו המקום.', 'The same dish on stone, on white linen, on dark wood. Choose the look that feels like your place.']
 ];
 
 /* ------------------------------------------------------------------------------------------------ the floor's still
@@ -154,43 +150,73 @@ const SAMPLE = {
   en: 31, qr: 78, adds: 64
 };
 const views7 = SAMPLE.days.slice(-7).reduce((a, b) => a + b, 0), prev7 = SAMPLE.days.slice(-14, -7).reduce((a, b) => a + b, 0), delta = Math.round((views7 / prev7 - 1) * 100);
-function sparkline(v, w = 300, h = 72, pad = 4) {
-  const lo = Math.min(...v), hi = Math.max(...v), x = (i) => +(pad + i * (w - 2 * pad) / (v.length - 1)).toFixed(1), y = (n) => +(h - pad - (n - lo) / (hi - lo) * (h - 2 * pad)).toFixed(1);
-  const d = v.map((n, i) => (i ? 'L' : 'M') + x(i) + ' ' + y(n)).join('');
-  return `<div class="spark" aria-hidden="true"><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path class="spark-area" d="${d}L${x(v.length - 1)} ${h}L${x(0)} ${h}z"/><path class="spark-line" pathLength="1" d="${d}"/></svg><i class="spark-dot" style="left:${(x(v.length - 1) / w * 100).toFixed(2)}%;top:${(y(v[v.length - 1]) / h * 100).toFixed(2)}%"></i></div>`;
+/* the race (round two): the same five dishes, day by day through the sample week (opens per day). Each row adds up to the
+   dish's sample total above, so the race ends on the sample's order; on the way the dishes overtake each other. */
+const RACE = { shakshuka: [7, 9, 11, 13, 16, 20, 20], pizza: [6, 8, 10, 12, 14, 16, 15], ramen: [9, 14, 12, 9, 8, 6, 6], burger: [4, 6, 7, 8, 9, 9, 9], croissant: [12, 10, 6, 4, 3, 3, 3] };
+SAMPLE.items.forEach(([id, , , n]) => { if (RACE[id].reduce((a, b) => a + b, 0) !== n) throw new Error('the race does not add up for ' + id); });
+const peaks = SAMPLE.hours.map((v, h) => [v, h]).sort((a, b) => b[0] - a[0]).slice(0, 2).map((x) => x[1]).sort((a, b) => a - b);      // 13:00 and 20:00
+const hh = (h) => String(h).padStart(2, '0') + ':00';
+const INS = { days: SAMPLE.days.slice(-7), hours: SAMPLE.hours, race: SAMPLE.items.map(([id, he, en, n]) => ({ id, he, en, n, d: RACE[id] })), views: views7, delta, qr: SAMPLE.qr, en: SAMPLE.en, adds: SAMPLE.adds, peaks };
+/* the still (no WebGL; and the moment before the scene draws): the glass table as the scene frames it, the 24 hours standing
+   round its edge, the race track on the glass and the five plates where the week ends. Two framings, like the scene: a wide
+   stage (16:9) and a phone (2:3). The world is the scene's: table radius 3, the track 4.4 × 4.6 with five lanes. */
+const VIEWS = {
+  wide: { w: 1600, h: 900, cx: 800, cy: 470, rx: 470, ry: 330, bar: 150, bw: 16, allow: 1.15 },
+  narrow: { w: 1000, h: 1500, cx: 500, cy: 580, rx: 440, ry: 373, bar: 120, bw: 14, allow: 1.6 }
+};
+const TRK = { w: 4.4, d: 4.6, fin: 1.7 };
+const trackGeo = (v) => { const sx = v.rx / 3, sz = v.ry / 3, x0 = v.cx - TRK.w / 2 * sx, x1 = v.cx + TRK.w / 2 * sx, y0 = v.cy - TRK.d / 2 * sz, y1 = v.cy + TRK.d / 2 * sz;
+  return { sx, sz, x0, x1, y0, y1, start: v.cx + (-TRK.w / 2 + v.allow) * sx, finish: v.cx + TRK.fin * sx, lane: (r) => y0 + (r + .5) * (y1 - y0) / 5 }; };
+/* a plate's place in the still, in % of the stage, measured from the inline start (the race runs from the start side) */
+const platePos = (v, r, n) => { const g = trackGeo(v), x = g.start + (g.finish - g.start) * n / SAMPLE.items[0][3]; return [x / v.w * 100, g.lane(r) / v.h * 100]; };
+function insStill(k) {
+  const v = VIEWS[k], g = trackGeo(v), hMax = Math.max(...SAMPLE.hours);
+  const bars = SAMPLE.hours.map((val, h) => { const a = h / 24 * Math.PI * 2, x = v.cx + Math.sin(a) * v.rx * 1.13, y = v.cy - Math.cos(a) * v.ry * 1.13, q = val / hMax, len = 10 + q * v.bar;
+    const c = q >= .999 ? 'url(#ins-pk-' + k + ')' : q > .75 ? '#F06B6E' : q > .5 ? '#FF8A55' : q > .25 ? '#F5B120' : q > .05 ? '#F1D49A' : 'rgba(22,18,14,.12)';
+    return [y, `<rect x="${(x - v.bw / 2).toFixed(1)}" y="${(y - len).toFixed(1)}" width="${v.bw}" height="${len.toFixed(1)}" rx="${v.bw / 3}" fill="${c}"/>`]; });
+  const back = bars.filter((b) => b[0] < v.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join(''), front = bars.filter((b) => b[0] >= v.cy).sort((a, b) => a[0] - b[0]).map((b) => b[1]).join('');
+  const lanes = [1, 2, 3, 4].map((r) => `<path d="M${(g.x0 + 20).toFixed(1)} ${(g.y0 + r * (g.y1 - g.y0) / 5).toFixed(1)}H${(g.x1 - 20).toFixed(1)}" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/>`).join('');
+  const fills = [0, 1, 2, 3, 4].map((r) => `<rect x="${g.x0.toFixed(1)}" y="${(g.y0 + r * (g.y1 - g.y0) / 5).toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${((g.y1 - g.y0) / 5).toFixed(1)}" fill="${r % 2 ? 'rgba(245,177,32,.1)' : 'rgba(255,236,206,.28)'}"/>`).join('');
+  const lead = platePos(v, 0, SAMPLE.items[0][3]);
+  return `<svg class="ins-svg ins-svg-${k}" viewBox="0 0 ${v.w} ${v.h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>
+    <radialGradient id="ins-glass-${k}" cx=".42" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset=".6" stop-color="#fff" stop-opacity=".66"/><stop offset="1" stop-color="#F3E7D6" stop-opacity=".72"/></radialGradient>
+    <radialGradient id="ins-core-${k}" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFD27A" stop-opacity=".8"/><stop offset=".5" stop-color="#FF7A45" stop-opacity=".22"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ins-pk-${k}" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F5B120"/><stop offset=".55" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
+    <radialGradient id="ins-sh-${k}" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#462D14" stop-opacity=".22"/><stop offset="1" stop-color="#462D14" stop-opacity="0"/></radialGradient>
+    <clipPath id="ins-trk-${k}"><rect x="${g.x0.toFixed(1)}" y="${g.y0.toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${(g.y1 - g.y0).toFixed(1)}" rx="${(g.sx * .62).toFixed(1)}"/></clipPath></defs>
+    <ellipse cx="${v.cx}" cy="${v.cy + v.ry * 1.25}" rx="${v.rx * 1.05}" ry="${v.ry * .22}" fill="url(#ins-sh-${k})"/>
+    ${back}
+    <ellipse cx="${v.cx}" cy="${v.cy + v.ry * .05}" rx="${v.rx}" ry="${v.ry}" fill="rgba(70,45,20,.08)"/>
+    <ellipse cx="${v.cx}" cy="${v.cy}" rx="${v.rx}" ry="${v.ry}" fill="url(#ins-glass-${k})" stroke="#fff" stroke-width="3"/>
+    <ellipse cx="${v.cx}" cy="${v.cy}" rx="${v.rx * .42}" ry="${v.ry * .42}" fill="url(#ins-core-${k})"/>
+    <g clip-path="url(#ins-trk-${k})"><rect x="${g.x0}" y="${g.y0}" width="${g.x1 - g.x0}" height="${g.y1 - g.y0}" fill="rgba(255,255,255,.5)"/>${fills}${lanes}</g>
+    <rect x="${g.x0.toFixed(1)}" y="${g.y0.toFixed(1)}" width="${(g.x1 - g.x0).toFixed(1)}" height="${(g.y1 - g.y0).toFixed(1)}" rx="${(g.sx * .62).toFixed(1)}" fill="none" stroke="#fff" stroke-width="4"/>
+    <g class="trk-dir"><path d="M${g.start.toFixed(1)} ${(g.y0 + 22).toFixed(1)}V${(g.y1 - 22).toFixed(1)}" stroke="rgba(22,18,14,.32)" stroke-width="5"/><path d="M${g.finish.toFixed(1)} ${(g.y0 + 22).toFixed(1)}V${(g.y1 - 22).toFixed(1)}" stroke="#16120E" stroke-opacity=".55" stroke-width="12" stroke-dasharray="12 12"/>
+      <ellipse cx="${(lead[0] / 100 * v.w).toFixed(1)}" cy="${(lead[1] / 100 * v.h).toFixed(1)}" rx="${(g.sx * .9).toFixed(1)}" ry="${(g.sz * .9).toFixed(1)}" fill="url(#ins-core-${k})"/></g>
+    ${front}
+  </svg>`;
 }
-/* busy hours in 3D: the owner app's own breakdown (my_stats: opens per hour of the day, over 30 days), 24 bars standing in a row */
-function hoursField() {
-  const hMax = Math.max(...SAMPLE.hours);
-  const v = [SAMPLE.hours.map((hv) => hv / hMax)];
-  const peak = Math.max(...v.flat()); let bars = '';
-  v.forEach((row, y) => row.forEach((n, x) => {
-    const k = n / peak, lvl = k >= .999 ? 'pk' : k > .75 ? 'v4' : k > .5 ? 'v3' : k > .25 ? 'v2' : k > .05 ? 'v1' : 'v0';
-    bars += `<i class="b ${lvl}" style="--x:${x};--y:${y};--h:${Math.max(.04, k).toFixed(3)};--d:${(x * 40)}ms"><b class="t"></b><b class="f"></b><b class="s"></b></i>`;
-  }));
-  return `<div class="hf-wrap" aria-hidden="true"><div class="hfield">${bars}</div><i class="hf-sweep"></i></div>`;
-}
-const ring = (val, id) => `<svg class="ring" viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-bg" cx="50" cy="50" r="42" pathLength="100"/><circle class="ring-v" cx="50" cy="50" r="42" pathLength="100" style="--v:${val}"/></svg>`;
-const dashboard = () => `<figure class="dash glass sheen" data-reveal data-live aria-labelledby="dash-cap">
-        <figcaption class="dash-top" id="dash-cap"><b class="dash-name">${t('אוליאה', 'Olea')}</b><span class="dash-sample">${t('דוגמה · מספרים להמחשה', 'Example · sample numbers')}</span></figcaption>
-        <div class="dash-grid">
-          <div class="tile t-views">
-            <h3>${t('צפיות השבוע', 'Views this week')}</h3>
-            <p class="dash-big num"><span data-count="${views7}">${views7}</span><small class="up"><bdi dir="ltr">+<span data-count="${delta}">${delta}</span>%</bdi></small></p>
-            ${sparkline(SAMPLE.days)}
+const insights = () => `<figure class="ins glass" id="ins" data-ins="still" data-reveal aria-labelledby="ins-cap">
+        <figcaption class="ins-top" id="ins-cap"><b class="dash-name">${t('אוליאה', 'Olea')}</b><span class="ins-day" aria-hidden="true"></span><span class="dash-sample">${t('דוגמה · מספרים להמחשה', 'Example · sample numbers')}</span></figcaption>
+        <div class="ins-stage">
+          <div class="ins-still">${insStill('wide')}${insStill('narrow')}</div>
+          <div class="ins-gl" id="ins-gl"></div>
+          <div class="ins-layer" aria-hidden="true">
+            ${SAMPLE.items.map(([id, he, en, n], r) => { const [x, y] = platePos(VIEWS.wide, r, n), [mx, my] = platePos(VIEWS.narrow, r, n); return `<span class="ip${r ? '' : ' lead'}" data-id="${id}" style="--x:${x.toFixed(1)}%;--y:${y.toFixed(1)}%;--mx:${mx.toFixed(1)}%;--my:${my.toFixed(1)}%"><img src="./img/dishes/${id}.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">${r + 1}</b><span class="ip-w">${t(he, en)}<b class="num">${n}</b></span></span>`; }).join('')}
+            <span class="ic ic-views" style="--x:12%;--y:14%;--mx:27%;--my:77%"><small>${t('צפיות השבוע', 'Views this week')}</small><b class="num" data-v="views">${views7}</b><i class="up num"><bdi dir="ltr">+${delta}%</bdi></i></span>
+            <span class="ic ic-qr" style="--x:8%;--y:60%;--mx:17%;--my:91%"><b class="num"><bdi dir="ltr">${SAMPLE.qr}%</bdi></b><small>${t('מקוד ה־QR', 'From the QR')}</small></span>
+            <span class="ic ic-en" style="--x:92%;--y:54%;--mx:50%;--my:91%"><b class="num"><bdi dir="ltr">${SAMPLE.en}%</bdi></b><small>${t('תיירים', 'Tourists')}</small></span>
+            <span class="ic ic-adds" style="--x:88%;--y:86%;--mx:83%;--my:91%"><b class="num">${SAMPLE.adds}</b><small>${t('ל״שולחן שלי״', 'To “my table”')}</small></span>
+            <span class="ic ic-peak" style="--x:86%;--y:14%;--mx:73%;--my:77%"><small>${t('הכי עמוס', 'Busiest')}</small><b class="num"><bdi dir="ltr">${peaks.map(hh).join(' · ')}</bdi></b></span>
           </div>
-          <div class="tile t-hours">
-            <h3>${t('שעות עמוסות', 'Busy hours')}</h3>
-            ${hoursField()}
-          </div>
-          <div class="tile t-dishes">
-            <h3>${t('מנות מובילות', 'Top dishes')}</h3>
-            <ol class="tops">${SAMPLE.items.map(([id, he, en, n], i) => `<li style="--w:${Math.round(n / SAMPLE.items[0][3] * 100)}%;--d:${200 + i * 110}ms"><img src="./img/dishes/${id}.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="tn">${t(he, en)}</span><span class="tb"><i></i></span><b class="num" data-count="${n}">${n}</b></li>`).join('')}</ol>
-          </div>
-          <div class="tile t-ring">${ring(SAMPLE.en)}<p class="dash-mid num"><bdi dir="ltr"><span data-count="${SAMPLE.en}">${SAMPLE.en}</span>%</bdi></p><h3>${t('תיירים', 'Tourists')}</h3></div>
-          <div class="tile t-ring">${ring(SAMPLE.qr)}<p class="dash-mid num"><bdi dir="ltr"><span data-count="${SAMPLE.qr}">${SAMPLE.qr}</span>%</bdi></p><h3>${t('מקוד ה־QR', 'From the QR')}</h3></div>
-          <div class="tile t-adds"><span class="adds-ico">${ico.plus}</span><p class="dash-mid num"><span data-count="${SAMPLE.adds}">${SAMPLE.adds}</span></p><h3>${t('ל״שולחן שלי״', 'To “my table”')}</h3></div>
         </div>
+        <ul class="vh">
+          <li>${t(`צפיות השבוע: ${views7}, ${delta}% יותר מהשבוע הקודם.`, `Views this week: ${views7}, ${delta}% more than the week before.`)}</li>
+          <li>${t(`השעות העמוסות: ${peaks.map(hh).join(' ו־')}.`, `Busiest hours: ${peaks.map(hh).join(' and ')}.`)}</li>
+          <li>${t('מנות מובילות: ', 'Top dishes: ')}${SAMPLE.items.map(([, he, en, n]) => t(`${he} ${n}`, `${en} ${n}`)).join(', ')}.</li>
+          <li>${t(`מקוד ה־QR: ${SAMPLE.qr}%. תיירים: ${SAMPLE.en}%. ל״שולחן שלי״: ${SAMPLE.adds}.`, `From the QR: ${SAMPLE.qr}%. Tourists: ${SAMPLE.en}%. To “my table”: ${SAMPLE.adds}.`)}</li>
+        </ul>
+        <script type="application/json" id="ins-data">${JSON.stringify(INS)}</script>
         <p class="ai-tag dash-tag">${AI_DISHES()}</p>
       </figure>`;
 
@@ -200,25 +226,6 @@ const learn = [
   ['clock', 'רואים מתי הכי עמוס.', 'See your busy hours.'],
   ['globe', 'רואים כמה קוראים באנגלית.', 'See how many read in English.'],
   ['shield', 'בלי עוגיות, בלי לשמור דבר על הסועדים.', 'No cookies, nothing stored about guests.']
-];
-const PLANS = [
-  ['p50', 'עד <b>50</b> מנות', 'Up to <b>50</b> dishes', 50],
-  ['p100', 'עד <b>100</b> מנות', 'Up to <b>100</b> dishes', 100],
-  ['pAll', 'מנות <b>ללא הגבלה</b>', '<b>Unlimited</b> dishes', 0]
-];
-const INCLUDED = [
-  ['תפריט QR עם תבליטים או איורים', 'A QR menu with reliefs or illustrations'],
-  ['עברית ואנגלית', 'Hebrew and English'],
-  ['״אזל״ בנגיעה אחת', 'Sold out in one tap'],
-  ['קוד QR להדפסה, שלא משתנה', 'A printable QR that never changes'],
-  ['נתוני צפייה, בלי עוגיות', 'Views data, no cookies']
-];
-const COMING = [
-  ['מפת ישיבה ושעון לכל שולחן', 'A seat map and a clock for every table'],
-  ['אתר למסעדה', 'A restaurant website'],
-  ['רילסים', 'Reels'],
-  ['מראות לבחירה', 'Looks to choose from'],
-  ['תשלום ליד השולחן', 'Pay at the table']
 ];
 const faq = [
   ['אילו תמונות עובדות?', 'Which photos work?',
@@ -235,7 +242,13 @@ const faq = [
     'You choose a plan. If you stop, the link stays yours and shows “This menu is not available right now”. Nothing is deleted.'],
   ['מי עשה את זה?', 'Who made it?',
     '<a href="https://halom.io">Halom</a>, סטודיו קריאייטיב מתל אביב. את המסעדות הראשונות אנחנו מקימים יחד איתכם.',
-    '<a href="https://halom.io">Halom</a>, a creative studio in Tel Aviv. We set up the first restaurants together with you.']
+    '<a href="https://halom.io">Halom</a>, a creative studio in Tel Aviv. We set up the first restaurants together with you.'],
+  ['מה עובד כבר היום?', 'What works today?',
+    'התפריט: תבליטים, עברית ואנגלית, ״אזל״, ״השולחן שלי״ ונתונים כל שבוע. המקום בתלת־ממד, השעונים לשולחנות, ההצעות על שולחנות, האתר, הרילסים והדמות המארחת מסומנים ״בקרוב״, ואפשר לראות חלק מהם בהדגמה.',
+    'The menu: reliefs, Hebrew and English, sold out, “my table” and insights every week. Your place in 3D, the table clocks, the bids for a table, the site, the reels and the host are marked “coming”, and you can see some of them in the demo.'],
+  ['מה זה גישה מוקדמת?', 'What is early access?',
+    'קבוצה קטנה של מסעדות שמתחילות עם מנה עכשיו, יחד איתנו. משאירים פרטים או כותבים בוואטסאפ, ואדם מהצוות חוזר אליכם. 30 הימים הראשונים חינם, בלי כרטיס אשראי.',
+    'A small group of restaurants that start with Mana now, together with us. Leave your details or write on WhatsApp, and a person from the team gets back to you. The first 30 days are free, no card.']
 ];
 
 /* ------------------------------------------------------------------------------------------------ the page */
@@ -252,6 +265,7 @@ const top = () => `<header class="top" id="top">
 </header>`;
 
 const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" data-live>
+  <div class="lev" aria-hidden="true">${LEV.map(([f, x, y, d, ph]) => `<span class="lv d${d}${ph ? '' : ' lv-wide'}" data-depth="${d}" style="--x:${x}%;--y:${y}%${ph ? `;--mx:${ph[0]}%;--my:${ph[1]}%` : ''}">${d >= 2 ? '<i class="lv-sh"></i>' : ''}<img src="./img/float/${f}.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"${ph ? '' : ' loading="lazy"'}></span>`).join('')}</div>
   <div class="hero-in wrap">
     <div class="hero-words">
       <p class="eyebrow">${t('מָנָה · כוח החיים שבאוכל', 'Mana · the life force in food')}</p>
@@ -265,7 +279,6 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
     <figure class="hero-stage" id="hero-stage" data-hero="still" data-dish="0">
       <div class="hero-box">
         <div class="halo" aria-hidden="true"><i class="halo-ring"></i><i class="halo-orbit"><b></b></i><i class="halo-disc"></i><i class="halo-shadow"></i></div>
-        <div class="floaters" aria-hidden="true">${FLOAT.map(([f, top, start, size, depth, phone]) => `<span class="fl${phone ? '' : ' fl-wide'}" style="--top:${top}%;--start:${start}%;--size:${size}%;--z:${depth}"><img src="./img/float/${f}.webp" width="360" height="360" alt="" decoding="async"${phone ? '' : ' loading="lazy"'}></span>`).join('')}</div>
         <div class="stills" aria-hidden="true">${DISHES.map(([id], i) => `<img style="--i:${i}" src="./img/dishes/${id}.webp" width="640" height="640" alt="" decoding="async"${i ? ' loading="lazy" fetchpriority="low"' : ' fetchpriority="high"'}>`).join('')}</div>
         <div class="hero-gl" id="hero-gl"></div>
       </div>
@@ -277,15 +290,41 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
   </div>
 </section>`;
 
-const how = () => `<section class="sec how" id="how" aria-labelledby="how-h" data-live>
+/* one story instead of three steps (round two): what the whole package does for a restaurant, in one movement. A light runs
+   through the three chapters; each says plainly whether it is here today or coming. */
+const CHAPTERS = [
+  ['menu', true, 'התפריט שלכם מתעורר.', 'Your menu comes alive.', 'כל מנה בתבליט מתמונה אחת, בעברית ובאנגלית, עם ״אזל״ חי ונתונים כל שבוע.', 'Every dish a relief from one photo, in Hebrew and English, with live sold out and insights every week.'],
+  ['place', false, 'המקום שלכם על המפה.', 'Your place on the map.', 'המקום בתלת־ממד, בקשות ישיבה, שעון לכל שולחן, ובשעות העומס: הצעות על שולחנות.', 'Your place in 3D, seat requests, a clock on every table and, at peak hours, bids for a table.'],
+  ['creative', false, 'הקריאטיב שלכם נוצר.', 'Your creative, made.', 'אתר משלכם, רילסים ודמות מארחת למותג, מבית הסטודיו של Halom.', 'Your own site, reels and a host character for your brand, from the Halom studio.']
+];
+const chArt = {
+  /* a dish lifts off its line on a printed menu, in relief, and settles back; then the next one */
+  menu: `<div class="ch-art ch-menu" aria-hidden="true"><div class="ch-card">${[0, 1, 2, 3].map((i) => `<i class="ch-line l${i}"><b></b><s></s></i>`).join('')}
+    <img class="ch-dish d1" src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><img class="ch-dish d2" src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-sh"></i></div></div>`,
+  /* a small floor in three-quarter view; its tables light up one after another; one is held by a bid (violet) */
+  place: `<div class="ch-art ch-place" aria-hidden="true"><div class="ch-plane"><i class="ch-bar"></i>${['free', 'seated', 'ending', 'bid', 'seated', 'free', 'reserved', 'seated'].map((st, i) => `<i class="ch-t ${st}" style="--i:${i}"></i>`).join('')}</div></div>`,
+  /* a phone whose creative changes: a reel, a post, the site */
+  creative: `<div class="ch-art ch-creative" aria-hidden="true"><div class="ch-phone2"><div class="ch-slides">
+    <div class="ch-s s-reel"><i class="ch-prog"></i><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-play"></i></div>
+    <div class="ch-s s-post"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-tl"></i><i class="ch-tl s"></i><i class="ch-heart"></i></div>
+    <div class="ch-s s-site"><i class="ch-dots"></i><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-btn"></i></div>
+  </div></div></div>`
+};
+const how = () => `<section class="sec story" id="how" aria-labelledby="how-h" data-live>
   <div class="wrap">
-    <h2 class="sec-h center" id="how-h">${t('שלושה צעדים', 'Three steps')}</h2>
-    <ol class="steps" data-reveal>
-      <li class="step glass sheen"><div class="step-art"><span class="if-scan">${stepScan}</span><span class="if-noscan">${stepType}</span></div>
-        <p><span class="if-scan">${t('סורקים את התפריט המודפס', 'Scan your printed menu')}</span><span class="if-noscan">${t('מדביקים או מקלידים תפריט', 'Paste or type your menu')}</span></p></li>
-      <li class="step glass sheen"><div class="step-art">${stepRelief}</div><p>${t('מוסיפים תמונות או איורים', 'Add photos or illustrations')}</p></li>
-      <li class="step glass sheen"><div class="step-art">${stepCard}</div><p>${t('מדפיסים קוד QR', 'Print the QR')}</p></li>
+    <p class="eyebrow story-eye">${t('פלטפורמה אחת למסעדה', 'One platform for your restaurant')}</p>
+    <h2 class="sec-h center" id="how-h">${t('מנה היא יותר מתפריט.', 'Mana is more than a menu.')}</h2>
+    <div class="story-thread" aria-hidden="true"><i class="st-line"></i><i class="st-node"></i><i class="st-node"></i><i class="st-node"></i><i class="st-orb"></i></div>
+    <ol class="chapters" data-reveal>
+      ${CHAPTERS.map(([id, today, th, te, ph, pe], i) => `<li class="chapter glass sheen c-${id}${today ? ' today' : ''}" style="--i:${i}">
+        ${chArt[id]}
+        <span class="chip ${today ? 'chip-today' : 'chip-soon'}">${today ? t('היום', 'Today') : t('בקרוב', 'Coming')}</span>
+        <h3>${t(th, te)}</h3>
+        ${p(ph, pe, 'ch-p')}
+      </li>`).join('\n      ')}
     </ol>
+    ${p('מתחילים היום בתפריט. כל השאר מצטרף לאותה חבילה, כשהוא מוכן.', 'Start with the menu today. Everything else joins the same package as it is ready.', 'story-foot center')}
+    <p class="ai-tag center">${AI_DISHES()}</p>
   </div>
 </section>`;
 
@@ -318,6 +357,9 @@ const place = () => `<section class="sec place" id="place" aria-labelledby="plac
       </div>
       <figcaption><ul class="floor-key">${FLOOR_KEY.map(([k, he, en]) => `<li class="${k}"><i aria-hidden="true"></i>${t(he, en)}</li>`).join('')}</ul></figcaption>
     </figure>
+    <!-- a slot for a second link under the floor (for example a real place's 3D proof of concept): hidden until it has a link;
+         put one <a class="btn btn-glass"> with both languages inside and remove "hidden" -->
+    <p class="floor-more" id="floor-more" hidden></p>
   </div>
 </section>`;
 
@@ -327,53 +369,101 @@ const numbers = () => `<section class="sec numbers" id="numbers" aria-labelledby
       <h2 class="sec-h" id="nums-h">${t('מה תדעו על הסועדים', 'What you learn about guests')}</h2>
       <ul class="learn">${learn.map(([i, he, en]) => `<li>${ico[i]}${t(he, en)}</li>`).join('')}</ul>
     </div>
-    ${dashboard()}
+    ${insights()}
   </div>
 </section>`;
 
+/* "your dream, our creative" (round two): the studio's side of the package, and the AI host's mini-ad. A phone plays one mood,
+   then, with a burst of light and a whip of colour, the next: the same invented woman in another place. The chips name the
+   mood as it plays; a tap switches. Muted, inline, only while on screen; the poster first; never with reduced motion or
+   Save-Data (then the chips switch the posters). The films are 480p drafts; finals keep the same names. */
+const MOODS = [
+  ['eat', 'בוקר שטוף שמש', 'A sunlit brunch'],
+  ['paris', 'ג׳אז בקפה פריזאי', 'Jazz in a Paris café'],
+  ['orbit', 'ערב במסעדה לבנה', 'Evening in a white room']
+];
+const MADE = [
+  ['globe', 'אתר משלכם, מתוך אותו תפריט', 'Your own site, from the same menu'],
+  ['play', 'רילסים ותוכן לרשתות', 'Reels and social creative'],
+  ['tap', 'דמות מארחת למותג, בכל אווירה', 'A host for your brand, in any mood'],
+  ['dish', 'מראה שנבנה למותג שלכם', 'A look designed for your brand']
+];
 const reels = () => `<section class="sec reels" id="reels" aria-labelledby="reels-h" data-live>
   <div class="wrap split split-rev">
     <div class="split-words">
-      <span class="chip chip-soon">${t('בקרוב', 'Coming')}</span>
-      <h2 class="sec-h" id="reels-h">${t('האתר שלכם, הרילסים שלכם', 'Your site, your reels')}</h2>
-      ${p('אתר למסעדה מתוך אותו תפריט, ורילסים כדי להתחיל לפרסם.', 'A website made from the same menu, and reels to start posting.', 'sec-p')}
+      <span class="chip chip-soon">${t('בקרוב · מהסטודיו של Halom', 'Coming · from the Halom studio')}</span>
+      <h2 class="sec-h" id="reels-h">${t('החלום שלכם, הקריאטיב שלנו', 'Your dream, our creative')}</h2>
+      ${p('הסטודיו של Halom בונה את כל מה שסביב התפריט: אתר, רילסים, תוכן לרשתות ודמות שמארחת את המותג שלכם. אתם מספרים מה החלום, אנחנו מביאים אותו למסך.', 'The Halom studio makes everything around the menu: a site, reels, social creative and a host for your brand. You tell us the dream; we bring it to the screen.', 'sec-p')}
+      <ul class="marks">${MADE.map(([i, he, en]) => `<li>${ico[i]}${t(he, en)}</li>`).join('')}</ul>
     </div>
-    <div class="reels-art">
+    <div class="ad" id="ad" data-mood="eat">
       <div class="site-card glass" aria-hidden="true">
         <div class="site-bar"><i></i><i></i><i></i><span class="site-url"></span></div>
         <div class="site-hero"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><div class="site-words"><b class="site-name">${t('אוליאה', 'Olea')}</b><span class="site-l"></span><span class="site-l short"></span><span class="site-book">${t('להזמין שולחן', 'Book a table')}</span></div></div>
         <div class="site-row">${['pizza', 'ramen', 'gelato'].map((d) => `<img src="./img/dishes/${d}.webp" width="640" height="640" alt="" loading="lazy" decoding="async">`).join('')}</div>
       </div>
-      <p class="ai-tag site-tag">${AI_DISHES()}</p>
       <figure class="reel">
         <div class="phone"><div class="phone-screen">
-          <img class="reel-still" src="./img/host/host-orbit.jpg" width="720" height="1280" alt="" loading="lazy" decoding="async">
-          <!-- the film plays (muted, looping) only while the phone is on screen; no source here, so nothing is fetched before then -->
-          <video class="reel-video" muted playsinline loop preload="none" width="720" height="1280" tabindex="-1" aria-hidden="true" data-src="./img/host/host-orbit.mp4"></video>
+          ${MOODS.map(([id], i) => `<img class="reel-still m-${id}${i ? '' : ' on'}" src="./img/host/host-${id}.jpg" width="${id === 'orbit' ? 720 : 480}" height="${id === 'orbit' ? 1280 : 854}" alt="" loading="lazy" decoding="async">`).join('')}
+          <!-- each film plays (muted) only while the phone is on screen; no source here, so nothing is fetched before then -->
+          ${MOODS.map(([id]) => `<video class="reel-video m-${id}" muted playsinline preload="none" width="480" height="854" tabindex="-1" aria-hidden="true" data-src="./img/host/host-${id}.mp4"></video>`).join('')}
+          <i class="boom" aria-hidden="true"></i>
         </div></div>
         <figcaption class="ai-tag">${t('דמות שנוצרה בבינה מלאכותית', 'A person made with AI')}</figcaption>
       </figure>
+      <div class="moods" role="group" aria-label="${'אווירה'}" data-label-he="אווירה" data-label-en="Mood">${MOODS.map(([id, he, en], i) => `<button class="mood" type="button" data-mood="${id}" aria-pressed="${i ? 'false' : 'true'}"><i class="mood-p" aria-hidden="true"></i>${t(he, en)}</button>`).join('')}</div>
     </div>
   </div>
 </section>`;
 
+/* packages (round two): three, by what a restaurant gets, not by dishes alone. Each: what it is for, what is in it today, what is
+   coming (marked), one button. No prices until Rami sets them (PRICES). Above them the early-access offer; its facts come from
+   EARLY only (while null the words stay general). */
+const PLANS = [
+  ['menu', 'pMenu', 'תפריט', 'Menu', 'התפריט החי, מוכן לשולחן.', 'The living menu, ready for the table.', 'עד 50 מנות', 'Up to 50 dishes',
+    [['תבליט מכל תמונה, ואיור עד שיש תמונה', 'A relief from every photo, an illustration until there is one'], ['עברית ואנגלית', 'Hebrew and English'], ['״אזל״ בנגיעה אחת', 'Sold out in one tap'], ['״השולחן שלי״ לסועדים', '“My table” for guests'], ['נתונים כל שבוע, בלי עוגיות', 'Insights every week, no cookies'], ['אפליקציה לבעלים', 'The owner app'], ['קוד QR להדפסה שלא משתנה', 'A printable QR that never changes'], ['אנחנו מקימים איתכם: מעבירים את התפריט ומכוונים לצילום', 'We set it up with you: we bring your menu in and guide your photos']],
+    [['מראות לבחירה', 'Looks to choose from']]],
+  ['place', 'pPlace', 'מקום', 'Place', 'כל המקום, לא רק התפריט.', 'The whole place, not just the menu.', 'עד 100 מנות', 'Up to 100 dishes',
+    [['כל מה שב״תפריט״', 'Everything in Menu']],
+    [['המקום שלכם בתלת־ממד, מהתמונות שלכם', 'Your place in 3D, from your photos'], ['בקשות ישיבה מהסועדים', 'Seat requests from guests'], ['שעון לכל שולחן והתראות למנהל', 'A clock on every table, alerts for the manager'], ['צפצוף ״ההזמנה מוכנה״ לשירות עצמי', 'An “order ready” beep for self-service'], ['חדרי משקאות: יין, בירה, קוקטיילים', 'Drink rooms: wine, beer, cocktails']]],
+  ['dream', 'pDream', 'חלום', 'Dream', 'המסעדה כמותג, מהשולחן ועד הרשתות.', 'Your restaurant as a brand, from the table to the feeds.', 'מנות ללא הגבלה', 'Unlimited dishes',
+    [['כל מה שב״מקום״', 'Everything in Place'], ['סטודיו שעונה לכם ראשונים', 'A studio that answers you first']],
+    [['הצעות על שולחנות בשעות העומס', 'Peak-time bids for a table'], ['אתר משלכם מהסטודיו של Halom', 'Your own site by the Halom studio'], ['קריאטיב לרשתות: רילסים ודמות מארחת למותג', 'Social creative: reels and a host for your brand'], ['מראה שנבנה למותג שלכם', 'A look designed for your brand']]]
+];
+const EARLY_PERKS = [
+  ['הקמה אישית יחד עם הסטודיו', 'Set up in person, with the studio'],
+  ['ראשונים לכל מה שמסומן ״בקרוב״', 'First to everything marked “coming”'],
+  ['קו ישיר לאנשים שבונים את מנה', 'A direct line to the people who build Mana']
+];
 const price = (k) => PRICES[k] ? `<p class="plan-price num">${t(PRICES[k].he, PRICES[k].en)}</p>` : '';
+const earlyFacts = () => [EARLY.spots ? t(`${EARLY.spots} מקומות בקבוצה`, `${EARLY.spots} places in the group`) : '', EARLY.until ? t(EARLY.until.he, EARLY.until.en) : ''].filter(Boolean).map((x) => `<span class="chip">${x}</span>`).join('');
 const plans = () => `<section class="sec plans" id="plans" aria-labelledby="plans-h" data-live>
   <div class="wrap">
     <h2 class="sec-h center" id="plans-h">${t('חבילות', 'Plans')}</h2>
-    ${p('כל חבילה כוללת הכול. ההבדל הוא מספר המנות.', 'Every plan includes everything. The difference is the number of dishes.', 'sec-p center')}
+    ${p('שלוש חבילות, לפי מה שהמסעדה צריכה: תפריט חי, מקום שלם, או החלום כולו.', 'Three plans, by what your restaurant needs: a living menu, the whole place, or the whole dream.', 'sec-p center')}
+    <div class="early" data-reveal>
+      <div class="early-in">
+        <div class="early-words">
+          <span class="chip chip-new">${t('גישה מוקדמת', 'Early access')}</span>${earlyFacts()}
+          <h3>${t('המסעדות המייסדות', 'The founding restaurants')}</h3>
+          ${p('אנחנו פותחים את מנה לקבוצה קטנה של מסעדות מייסדות. מקימים איתכם הכול, יד ביד, ואתם הראשונים לקבל כל חלק חדש כשהוא מוכן.', 'We are opening Mana to a small group of founding restaurants. We set everything up with you, hand in hand, and you are the first to get each new piece as it is ready.', 'early-p')}
+          <ul class="early-perks">${EARLY_PERKS.map(([he, en]) => `<li>${ico.check}${t(he, en)}</li>`).join('')}</ul>
+        </div>
+        <p class="early-cta"><a class="btn btn-energy btn-lg" href="#talk-sec" data-early="any">${t('בקשת גישה מוקדמת', 'Request early access')}</a></p>
+      </div>
+    </div>
     <ol class="plan-row" data-reveal>
-      ${PLANS.map(([k, he, en, n], i) => `<li class="plan glass sheen plan-${k}" style="--i:${i}">
-        <i class="plan-dots" aria-hidden="true" style="--n:${n || 150}"></i>
-        <h3>${t(he, en)}</h3>
-        ${price(k)}<a class="btn ${i === 2 ? 'btn-ink' : 'btn-glass'}" href="#talk-sec">${t('לקבל הצעה', 'Get an offer')}</a>
+      ${PLANS.map(([id, k, nh, ne, wh, we, dh, de, today, soon], i) => `<li class="plan glass sheen plan-${id}" style="--i:${i}">
+        <i class="plan-mark" aria-hidden="true"></i>
+        <h3>${t(nh, ne)}</h3>
+        ${p(wh, we, 'plan-for')}
+        <p class="plan-n">${t(dh, de)}</p>
+        <div class="plan-group"><h4>${t('כלול היום', 'Included today')}</h4><ul>${today.map(([he, en]) => `<li>${ico.check}${t(he, en)}</li>`).join('')}</ul></div>
+        ${soon.length ? `<div class="plan-group soon"><h4>${t('בקרוב', 'Coming')}</h4><ul>${soon.map(([he, en]) => `<li>${ico.soon}${t(he, en)}</li>`).join('')}</ul></div>` : ''}
+        ${price(k)}<a class="btn ${i === 2 ? 'btn-ink' : 'btn-glass'} plan-btn" href="#talk-sec" data-early="${id}">${t(`בוחרים ב״${nh}״`, `Choose ${ne}`)}</a>
       </li>`).join('\n      ')}
     </ol>
-    <div class="plan-all glass">
-      <div class="plan-group"><h3>${t('כלול היום', 'Included today')}</h3><ul>${INCLUDED.map(([he, en]) => `<li>${ico.check}${t(he, en)}</li>`).join('')}</ul></div>
-      <div class="plan-group soon"><h3>${t('בקרוב לכל החבילות', 'Coming to every plan')}</h3><ul>${COMING.map(([he, en]) => `<li>${ico.soon}${t(he, en)}</li>`).join('')}</ul></div>
-      <div class="plan-free">${p('בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.', 'Every plan: the first 30 days free, no card.')}<a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a></div>
-    </div>
+    <div class="plan-free">${p('בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.', 'Every plan: the first 30 days free, no card.')}<a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a></div>
   </div>
 </section>`;
 
@@ -398,6 +488,7 @@ const talk = (preview) => `<section class="sec talk" id="talk-sec" aria-labelled
         <p class="preview-off">${t('זאת תצוגה מקדימה: הטופס כבוי ולא שולח דבר. אפשר לכתוב לנו בוואטסאפ.', 'This is a preview: the form is off and sends nothing. You can write to us on WhatsApp.')}</p>` : ''}
         <div class="field"><label for="f-place">${t('שם המסעדה', 'Restaurant name')}</label><input id="f-place" name="place" type="text" autocomplete="organization" maxlength="120" required aria-describedby="e-place"${preview ? ' disabled' : ''}><p class="err" id="e-place">${t('כתבו את שם המסעדה.', 'Please write the restaurant’s name.')}</p></div>
         <div class="field"><label for="f-contact">${t('טלפון או אימייל', 'Phone or e-mail')}</label><input id="f-contact" name="contact" type="text" inputmode="email" autocomplete="email" maxlength="200" dir="ltr" required aria-describedby="e-contact"${preview ? ' disabled' : ''}><p class="err" id="e-contact">${t('צריך מספר טלפון או כתובת אימייל כדי שנוכל לחזור אליכם.', 'We need a phone number or an e-mail address to get back to you.')}</p></div>
+        <fieldset class="field plan-pick"><legend>${t('חבילה', 'Plan')}</legend><div class="pick">${[['any', 'עוד לא יודעים', 'Not sure yet'], ['menu', 'תפריט', 'Menu'], ['place', 'מקום', 'Place'], ['dream', 'חלום', 'Dream']].map(([v, he, en], i) => `<label class="pick-o"><input type="radio" name="plan" value="${v}"${i ? '' : ' checked'}${preview ? ' disabled' : ''}>${t(he, en)}</label>`).join('')}</div><input type="hidden" id="f-early" name="early" value=""></fieldset>
         <div class="field"><label for="f-msg">${t('שאלה <span class="opt">(לא חובה)</span>', 'Question <span class="opt">(optional)</span>')}</label><textarea id="f-msg" name="msg" maxlength="3500" rows="2"${preview ? ' disabled' : ''}></textarea></div>
         <div class="hp" aria-hidden="true"><label for="f-site">Website</label><input id="f-site" name="website" type="text" tabindex="-1" autocomplete="off"></div>
         <label class="check"><input id="f-news" type="checkbox">${t('אפשר לשלוח לי עדכונים על מנה בוואטסאפ או באימייל. אפשר לבטל בכל רגע.', 'You may send me updates about Mana by WhatsApp or e-mail. I can stop them at any time.')}</label>

@@ -4,6 +4,8 @@
    this file. Nothing heavy is fetched before the page has painted, and never on Save-Data. */
 import { initDialog } from './dialog.js';
 import { initForm } from './form.js';
+import { mountLevitate } from './levitate.js';
+import { initMoods } from './moods.js';
 
 const doc = document, root = doc.documentElement, qs = new URLSearchParams(location.search);
 const $ = (s, el) => (el || doc).querySelector(s);
@@ -71,6 +73,23 @@ function main() {
     $$('[data-live]').forEach((el) => lio.observe(el));
   }
 
+  /* ---------------------------------------------------------------- one story: the light follows the reader. The chapter nearest the
+     middle of the screen is lit (its little scene plays); on a wide screen an orb runs along the thread above them with the scroll */
+  const story = $('#how'), chapters = story ? $$('.chapter', story) : [];
+  if (story && motion && chapters.length) {
+    let pend = false;
+    const upd = () => {
+      pend = false; const r = story.getBoundingClientRect(), vh = window.innerHeight || root.clientHeight; if (r.bottom < -100 || r.top > vh + 100) return;
+      const sp = Math.max(0, Math.min(1, .5 + (vh / 2 - (r.top + r.height / 2)) / (vh * .6))); story.style.setProperty('--sp', sp.toFixed(3));
+      const row = Math.abs(chapters[0].getBoundingClientRect().top - chapters[chapters.length - 1].getBoundingClientRect().top) < 8;      // side by side: the orb decides
+      let best = Math.round(sp * (chapters.length - 1));
+      if (!row) { let bd = 1e9; chapters.forEach((c, i) => { const b = c.getBoundingClientRect(), d = Math.abs(b.top + b.height / 2 - vh * .5); if (d < bd) { bd = d; best = i; } }); }
+      if (story.getAttribute('data-lit') !== String(best)) { story.setAttribute('data-lit', String(best)); chapters.forEach((c, i) => c.classList.toggle('lit', i === best)); }
+    };
+    const ask = () => { if (!pend) { pend = true; requestAnimationFrame(upd); } };
+    window.addEventListener('scroll', ask, { passive: true }); window.addEventListener('resize', ask); upd();
+  }
+
   /* ---------------------------------------------------------------- the hero: the stills first; the shape-shifting dish after paint */
   const stage = $('#hero-stage'), heroHost = $('#hero-gl'), heroSec = $('#hero');
   let hero = null, heroVisible = true;
@@ -96,15 +115,11 @@ function main() {
     if (doc.readyState === 'complete') go(); else window.addEventListener('load', go, { once: true });
   }
 
-  /* the ingredients drift on their own (CSS); here a little parallax with the pointer and the scroll */
-  if (motion && heroSec) {
-    let px = 0, py = 0, pending = false, inView = true;
-    const apply = () => { pending = false; if (!inView) return; const sy = Math.min(1.2, (window.pageYOffset || 0) / (window.innerHeight || 800));
-      heroSec.style.setProperty('--px', px.toFixed(3)); heroSec.style.setProperty('--py', py.toFixed(3)); heroSec.style.setProperty('--sy', sy.toFixed(3)); };
-    const ask = () => { if (!pending) { pending = true; requestAnimationFrame(apply); } };
-    new IntersectionObserver((es) => { inView = es[0].isIntersecting; }, { threshold: 0 }).observe(heroSec);
-    window.addEventListener('scroll', ask, { passive: true });
-    if (mq('(hover: hover) and (pointer: fine)')) heroSec.addEventListener('pointermove', (e) => { px = e.clientX / window.innerWidth * 2 - 1; py = e.clientY / window.innerHeight * 2 - 1; ask(); });
+  /* the ingredients levitate (levitate.js): only while the hero is on screen, the tab is visible and the demo dialog is closed */
+  let lev = null, levVisible = true;
+  if (motion && heroSec && qs.get('lev') !== 'off') {
+    lev = mountLevitate(heroSec, { lowPower });
+    if (lev) { lev.resume(); new IntersectionObserver((es) => { levVisible = es[0].isIntersecting; settle(); }, { threshold: 0 }).observe(heroSec); }
   }
 
   /* the specular sheen on glass cards follows the pointer (a mouse only) */
@@ -129,33 +144,36 @@ function main() {
   }
   doc.addEventListener('mana:lang', (e) => { if (floor3d && floor3d.setLang) floor3d.setLang(e.detail); });
   const covered = () => doc.hidden || root.classList.contains('dlg-open');      // the tab is hidden, or the demo dialog covers the page
-  const settle = () => {
+  function settle() {
+    if (lev) covered() || !levVisible ? lev.pause() : lev.resume();
     if (hero) covered() || !heroVisible ? hero.pause() : hero.resume();
     if (floor3d) covered() || !floorVisible ? floor3d.pause() : floor3d.resume();
-    const v = $('.reel video'); if (v && v.getAttribute('src') && covered()) v.pause();
-  };
+    if (insScene) covered() || !insVisible ? insScene.pause() : insScene.resume();
+    doc.dispatchEvent(new CustomEvent('mana:settle', { detail: covered() }));
+  }
   doc.addEventListener('visibilitychange', settle);
   doc.addEventListener('mana:dialog', settle);
 
-  /* ---------------------------------------------------------------- the sample numbers count up once, in view */
-  const dash = $('.dash');
-  if (dash && motion) onReveal.set(dash, () => {
-    const els = $$('[data-count]', dash), t0 = performance.now() + 250, dur = 1500;
-    els.forEach((el) => { el.textContent = '0'; });
-    const step = (now) => { const k = Math.max(0, Math.min(1, (now - t0) / dur)), e = 1 - Math.pow(1 - k, 3);
-      els.forEach((el) => { el.textContent = String(Math.round(+el.getAttribute('data-count') * e)); });
-      if (k < 1) requestAnimationFrame(step); };
-    requestAnimationFrame(step);
-  });
+  /* ---------------------------------------------------------------- what you learn: the living scene, loaded when it comes near */
+  const ins = $('#ins'), insHost = $('#ins-gl');
+  let insScene = null, insVisible = false, insAsked = false;
+  function startIns() {
+    if (insAsked || !insHost) return; insAsked = true;
+    let data = null; try { data = JSON.parse($('#ins-data').textContent); } catch (e) { return; }
+    const fail = () => { if (insScene && insScene.destroy) try { insScene.destroy(); } catch (e) { /* gone */ } insScene = null; insHost.textContent = ''; ins.setAttribute('data-ins', 'still'); };
+    import('./insights3d.js').then((m) => m.mountInsights(insHost, { data, layer: $('.ins-layer', ins), lang: lang(), reduced, lowPower, speed: +qs.get('ins-speed') || 1,
+      onReady: () => { ins.setAttribute('data-ins', 'live'); if (insScene && !insVisible) insScene.pause(); },
+      onOrder: (o) => ins.setAttribute('data-order', o), onDay: (d) => { const el = $('.ins-day', ins); if (el) el.textContent = d; }, onFail: () => fail() }))
+      .then((h) => { if (!h) return; insScene = h; if (insVisible && !covered()) h.resume(); }).catch(() => fail());
+  }
+  if (ins && hasIO) {
+    new IntersectionObserver((es) => { insVisible = es[0].isIntersecting; settle(); }, { threshold: 0 }).observe(ins);
+    if (!saveData && qs.get('ins') !== 'off') new IntersectionObserver((es, io) => { if (es[0].isIntersecting) { io.disconnect(); idle(startIns, 50); } }, { rootMargin: '500px 0px' }).observe(ins);
+  }
+  doc.addEventListener('mana:lang', (e) => { if (insScene && insScene.setLang) insScene.setLang(e.detail); });
 
-  /* ---------------------------------------------------------------- the host film: plays (muted, looping) only while on screen */
-  const reel = $('.reel'), video = reel && $('video', reel);
-  if (video && hasIO && !saveData && !reduced) new IntersectionObserver((es) => {
-    if (es[0].isIntersecting) {
-      if (!video.getAttribute('src')) { video.muted = true; video.loop = true; video.addEventListener('playing', () => reel.setAttribute('data-film', 'on'), { once: true }); video.setAttribute('src', video.getAttribute('data-src')); }
-      const p = video.play(); if (p && p.catch) p.catch(() => { /* refused: the still stays */ });
-    } else if (video.getAttribute('src')) video.pause();
-  }, { threshold: 0.35 }).observe(video);
+  /* ---------------------------------------------------------------- the host's mini-ad: one mood, a burst of light, the next */
+  initMoods({ $, $$, doc, hasIO, saveData, reduced, covered });
 
   /* ---------------------------------------------------------------- glass: blur only while the page keeps up (ten frames sampled on the first scroll; under 30 a second the glass goes solid) */
   if (!mq('(prefers-reduced-transparency: reduce)')) {
