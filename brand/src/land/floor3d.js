@@ -56,6 +56,7 @@ export async function mountFloor(host, opts = {}) {
     renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: low ? 'low-power' : 'default' });
     if (!renderer.getContext()) throw new Error('no WebGL context');
   } catch (e) { return fail(e); }
+  try {                                                                       // anything that breaks while building: null, onFail, nothing left behind
   if (!styleRefs++) { styleEl = document.createElement('style'); styleEl.textContent = CSS; document.head.appendChild(styleEl); }
   renderer.setClearColor(0x000000, 0); renderer.outputEncoding = sRGBEncoding; renderer.toneMapping = ACESFilmicToneMapping; renderer.toneMappingExposure = .98;
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.5 : 1.75));
@@ -213,4 +214,10 @@ export async function mountFloor(host, opts = {}) {
     /* not part of the contract: numbers for the lab */
     info: () => { const iv = stats.intervals.slice().sort((a, b) => a - b); return { firstFrameMs: Math.round(stats.first), frames: stats.frames, renderMsAvg: +(stats.renderMs / Math.max(1, stats.frames)).toFixed(1), frameMsMedian: iv.length ? +iv[iv.length >> 1].toFixed(1) : 0, frameMsP90: iv.length ? +iv[Math.floor(iv.length * .9)].toFixed(1) : 0, simTime: +sim.time.toFixed(1), yaw: +yaw.toFixed(3), w: W, h: H, dist: +dist.toFixed(2), aimY: +aimY.toFixed(2) }; }
   };
+  } catch (e) {
+    try { renderer.dispose(); renderer.forceContextLoss(); } catch (x) { /* fine */ }
+    canvas.remove(); const l = host.querySelector(':scope > .mf-layer'); if (l) l.remove();
+    if (styleEl && !--styleRefs) { styleEl.remove(); styleEl = null; }
+    return fail(e);
+  }
 }
