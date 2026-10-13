@@ -41,4 +41,10 @@ for p in index.html config.js view/index.html view/app.js studio/index.html ops/
   [ -s "$OUT/$p" ] || { echo "✗ _site/$p is missing"; exit 1; }
 done
 grep -q "'/mana/view/'" "$OUT/view/index.html" || { echo "✗ the guest menu's short-link base is not /mana/view/"; exit 1; }
+# night:gates — the _site checks, static (no browser, no network), so CI runs them too: the performance budgets
+# (tools/check-budgets.mjs: the first dish's bytes, the page's scripts, media) and what the site may not contain or
+# talk to (tools/check-site.mjs: source venue names, outside loads, secrets; gitleaks when it is on PATH).
+echo "· budgets";     node tools/check-budgets.mjs "$OUT"
+echo "· site checks"; node tools/check-site.mjs "$OUT"
+# /night:gates
 echo "✓ _site: $(find "$OUT" -type f | wc -l | tr -d ' ') files, $(du -sh "$OUT" | cut -f1)"

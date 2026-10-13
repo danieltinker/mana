@@ -1,0 +1,7 @@
+{
+  "name": "mana-site-kit",
+  "private": true,
+  "type": "module",
+  "description": "A menu-first one-page restaurant site from a menu snapshot: one HTML file, nothing loaded from outside.",
+  "scripts": { "build:olea": "node build.mjs ../view/demo/olea/menu.json out/olea", "test": "node --test test/*.test.mjs" }
+}

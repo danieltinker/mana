@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{TITLE}}</title>
+<meta name="description" content="{{DESCRIPTION}}">
+<meta name="theme-color" content="{{TABLE}}">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="data:,">
+{{ROBOTS}}
+<style>
+/* Mana's design tokens, inlined (design/tokens.css): colour, space, radius, type, motion. No file is loaded from anywhere. */
+:root{--m-table:{{TABLE}};--m-table-2:#15110d;--m-ivory:#fcf8f6;--m-ink:#0f0f0f;--m-ink-2:#434343;--m-yolk:#f5b120;--m-rose:#9a5238;--m-bad:#b23a3a;
+--m-line:rgba(15,15,15,.14);--m-line-dark:rgba(252,248,246,.16);--m-glass-tint:rgba(15,11,8,.74);--m-glass-edge:rgba(255,255,255,.14);
+--m-s1:4px;--m-s2:8px;--m-s3:12px;--m-s4:16px;--m-s5:24px;--m-s6:32px;--m-s7:48px;--m-s8:64px;--m-s9:96px;
+--m-r-s:6px;--m-r-m:14px;--m-r-l:28px;--m-r-pill:999px;--m-target:44px;
+--m-t-xs:.78rem;--m-t-s:.88rem;--m-t-m:1rem;--m-t-l:1.25rem;--m-t-xl:1.7rem;--m-t-display-he:clamp(2.75rem,10.5vw,7rem);--m-t-display-en:clamp(2.5rem,9.5vw,6.25rem);
+--m-ease:cubic-bezier(.2,.8,.2,1);--m-d1:240ms;--m-d2:600ms;--accent:{{ACCENT}};
+--serif:"Frank Ruhl Libre","David Libre",Georgia,"Times New Roman",serif;--sans:"IBM Plex Sans Hebrew","IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Arial,sans-serif}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--m-ivory);color:var(--m-ink);font:var(--m-t-m)/1.5 var(--sans);font-variant-numeric:tabular-nums}
+html[lang=he] .en,html[lang=en] .he{display:none}
+a{color:inherit}img{display:block;max-width:100%}
+.wrap{width:min(100% - 2*var(--m-s4),960px);margin-inline:auto}
+.skip{position:absolute;inset-inline-start:var(--m-s4);top:-3rem;background:var(--m-ink);color:var(--m-ivory);padding:var(--m-s2) var(--m-s4);border-radius:var(--m-r-s);z-index:9}.skip:focus{top:var(--m-s4)}
+/* the hero: the table, one dish, the name */
+.hero{background:var(--m-table);color:var(--m-ivory);position:relative;overflow:hidden}
+.hero .wrap{display:grid;gap:var(--m-s5);padding:var(--m-s6) 0 var(--m-s6);align-items:center}
+@media(min-width:720px){.hero .wrap{grid-template-columns:1.1fr 1fr;padding:var(--m-s8) 0;min-height:70vh}}
+.hero-dish{position:relative;aspect-ratio:1;border-radius:var(--m-r-l);overflow:hidden;background:var(--m-table-2);box-shadow:0 40px 80px -30px rgba(0,0,0,.8)}
+.hero-dish img{width:100%;height:100%;object-fit:cover}
+.hero-dish::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 60% at 50% 40%,transparent 55%,rgba(11,9,7,.55) 100%)}
+.lamp{position:absolute;inset:-20% -10% auto;height:70%;background:radial-gradient(50% 60% at 50% 30%,rgba(245,177,32,.22),transparent 70%);pointer-events:none}
+.eyebrow{font-size:var(--m-t-s);letter-spacing:.02em;color:rgba(252,248,246,.72);margin:0 0 var(--m-s2)}
+h1{font:400 clamp(2.4rem,8vw,4.5rem)/1.08 var(--serif);margin:0 0 var(--m-s3);text-wrap:balance}
+html[lang=en] h1{font-size:clamp(2.2rem,7vw,4rem)}
+.lede{color:rgba(252,248,246,.8);margin:0 0 var(--m-s5);max-width:38ch;font-size:var(--m-t-l)}
+.dish-name{font:400 var(--m-t-l)/1.2 var(--serif);margin:var(--m-s3) 0 0;color:rgba(252,248,246,.9)}
+.actions{display:flex;flex-wrap:wrap;gap:var(--m-s3)}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:var(--m-target);padding:var(--m-s2) var(--m-s5);border-radius:var(--m-r-pill);text-decoration:none;font-weight:500;border:1px solid transparent;transition:transform var(--m-d1) var(--m-ease)}
+.btn:hover{transform:translateY(-1px)}.btn:focus-visible{outline:3px solid var(--m-yolk);outline-offset:3px}
+.btn-yolk{background:var(--m-yolk);color:var(--m-ink)}.btn-glass{background:var(--m-glass-tint);color:var(--m-ivory);border-color:var(--m-glass-edge);box-shadow:inset 0 1px 0 var(--m-glass-edge)}
+.btn-line{border-color:var(--m-line);color:var(--m-ink);background:transparent}
+.demo-tag{display:inline-block;font-size:var(--m-t-xs);color:rgba(252,248,246,.7);margin-top:var(--m-s4);padding:var(--m-s1) var(--m-s3);border:1px solid var(--m-line-dark);border-radius:var(--m-r-pill)}
+/* the top bar: the name and the language pill */
+.top{position:sticky;top:0;z-index:5;background:var(--m-glass-tint);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);color:var(--m-ivory);box-shadow:inset 0 -1px 0 var(--m-glass-edge)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;min-height:56px;gap:var(--m-s3)}
+.top .name{font:400 var(--m-t-l)/1 var(--serif);margin:0}
+.top nav{display:flex;gap:var(--m-s2);overflow-x:auto;scrollbar-width:none;font-size:var(--m-t-s)}.top nav::-webkit-scrollbar{display:none}
+.top nav a{text-decoration:none;color:rgba(252,248,246,.8);padding:var(--m-s2) var(--m-s3);border-radius:var(--m-r-pill);white-space:nowrap;min-height:var(--m-target);display:inline-flex;align-items:center}
+.top nav a:hover,.top nav a:focus-visible{background:rgba(255,255,255,.1);color:var(--m-ivory);outline:none}
+.lang{min-width:5.2em;justify-content:center;background:transparent;border:1px solid var(--m-glass-edge);color:var(--m-ivory);font:inherit;cursor:pointer;min-height:36px;padding:0 var(--m-s3);border-radius:var(--m-r-pill)}
+.lang:focus-visible{outline:3px solid var(--m-yolk);outline-offset:2px}
+@media(prefers-reduced-transparency:reduce){.top{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--m-table)}}
+/* the menu */
+.menu{padding:var(--m-s7) 0 var(--m-s8)}
+.menu h2{font:400 var(--m-t-xl)/1.15 var(--serif);margin:var(--m-s7) 0 var(--m-s4);padding-bottom:var(--m-s2);border-bottom:1px solid var(--m-line);scroll-margin-top:72px}
+.menu section:first-of-type h2{margin-top:0}
+.menu h2 .ai{display:block;font:400 var(--m-t-xs)/1.4 var(--sans);color:var(--m-ink-2);margin-top:var(--m-s1)}
+.dish{display:grid;grid-template-columns:auto 1fr auto;gap:var(--m-s3) var(--m-s4);padding:var(--m-s4) 0;border-bottom:1px solid var(--m-line);align-items:start}
+.dish:last-child{border-bottom:0}
+.thumb{width:64px;height:64px;border-radius:var(--m-r-m);object-fit:cover;background:linear-gradient(135deg,rgba(15,15,15,.06),rgba(15,15,15,.12))}
+.no-thumb{width:64px;height:64px;border-radius:var(--m-r-m);background:linear-gradient(135deg,rgba(15,15,15,.06),rgba(15,15,15,.12))}
+@media(max-width:480px){.thumb,.no-thumb{width:56px;height:56px}}
+.dish h3{font:500 var(--m-t-l)/1.25 var(--serif);margin:0 0 var(--m-s1)}
+.dish p{margin:0;color:var(--m-ink-2);font-size:var(--m-t-s)}
+.meta{display:flex;flex-wrap:wrap;gap:var(--m-s1) var(--m-s3);margin-top:var(--m-s2);font-size:var(--m-t-xs);color:var(--m-ink-2)}
+.meta .allergens::before{content:"⚠ ";color:var(--m-rose)}
+.tag{padding:1px var(--m-s2);border:1px solid var(--m-line);border-radius:var(--m-r-pill)}
+.price{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:500;text-align:end}.price small{display:block;font-weight:400;color:var(--m-ink-2);font-size:var(--m-t-xs)}
+.sold{opacity:.55}.sold .badge{display:inline-block;color:var(--m-bad);border:1px solid currentColor;border-radius:var(--m-r-pill);padding:0 var(--m-s2);font-size:var(--m-t-xs);font-weight:500;margin-inline-start:var(--m-s2);vertical-align:middle}
+.sold .price{text-decoration:line-through}
+/* the foot: where, when, who */
+.info{background:var(--m-table);color:var(--m-ivory);padding:var(--m-s7) 0}
+.info .wrap{display:grid;gap:var(--m-s5)}@media(min-width:720px){.info .wrap{grid-template-columns:repeat(3,1fr)}}
+.info h2{font:400 var(--m-t-l)/1.2 var(--serif);margin:0 0 var(--m-s2);color:rgba(252,248,246,.7)}
+.info p{margin:0;font-size:var(--m-t-l)}.info a{text-decoration:none}
+.foot{background:var(--m-table);color:rgba(252,248,246,.6);font-size:var(--m-t-s);padding:0 0 var(--m-s6)}
+.foot .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--m-s3);border-top:1px solid var(--m-line-dark);padding-top:var(--m-s4)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+{{JSONLD}}
+</head>
+<body>
+<a class="skip" href="#menu"><span class="he" lang="he">דילוג לתפריט</span><span class="en" lang="en">Skip to the menu</span></a>
+<header class="top">
+  <div class="wrap">
+    <p class="name">{{NAME_SPANS}}</p>
+    <nav aria-label="menu sections">{{NAV}}</nav>
+    <button class="lang" type="button" id="lang" aria-label="English"><span class="he" lang="he">English</span><span class="en" lang="en">עברית</span></button>
+  </div>
+</header>
+<main id="main">
+<section class="hero">
+  <i class="lamp" aria-hidden="true"></i>
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">{{CUISINE_SPANS}}</p>
+      <h1>{{NAME_SPANS}}</h1>
+      <p class="lede"><span class="he" lang="he">התפריט, מנה אחר מנה. רואים את המנה לפני שמזמינים.</span><span class="en" lang="en">The menu, dish by dish. See the dish before you order.</span></p>
+      <div class="actions">
+        <a class="btn btn-yolk" href="{{MENU_URL}}"><span class="he" lang="he">לפתוח את התפריט</span><span class="en" lang="en">Open the menu</span></a>
+        {{BOOK_BTN}}
+        {{ORDER_BTN}}
+      </div>
+      {{DEMO_TAG}}
+    </div>
+    <figure class="hero-dish-wrap" style="margin:0">
+      <div class="hero-dish">{{HERO_IMG}}</div>
+      <figcaption class="dish-name">{{HERO_CAPTION}}</figcaption>
+    </figure>
+  </div>
+</section>
+<div class="menu wrap" id="menu">
+{{MENU}}
+</div>
+</main>
+<footer>
+  {{INFO}}
+  <div class="foot"><div class="wrap">
+    <span>{{NAME_SPANS}}{{DEMO_FOOT}}</span>
+    <span><span class="he" lang="he">תפריט על ידי</span><span class="en" lang="en">Menu by</span> <a href="https://halom.io/mana/">Mana · Halom</a></span>
+  </div></div>
+</footer>
+<script>
+/* the language pill: Hebrew first; English on request, remembered in this browser only */
+(function(){var h=document.documentElement,b=document.getElementById('lang');function set(l){h.lang=l;h.dir=l==='en'?'ltr':'rtl';b.setAttribute('aria-label',l==='en'?'עברית':'English');try{localStorage.setItem('mana-site-lang',l)}catch(e){}}
+var q=new URLSearchParams(location.search).get('lang'),s=null;try{s=localStorage.getItem('mana-site-lang')}catch(e){}if(q==='en'||q==='he')set(q);else if(s==='en')set('en');
+b.addEventListener('click',function(){set(h.lang==='en'?'he':'en')});})();
+</script>
+</body>
+</html>
