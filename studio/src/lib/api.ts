@@ -6,7 +6,7 @@ export type Provider = 'google' | 'apple' | 'facebook';
 export type Config = {
   supabaseUrl: string; supabaseKey: string; shortBase: string; shortLive: boolean;
   viewPath: string; genPath: string; stockPath: string; sitePath: string;
-  auth: { providers: Provider[] }; features: { scan?: boolean };
+  auth: { providers: Provider[] }; features: { scan?: boolean; bookUrl?: boolean };   // bookUrl: on once db/proposed/0003 is applied (businesses.book_url)
 };
 const raw = (window as any).HALOM_MENUS_CONFIG;
 const PROVIDERS: Provider[] = ['google', 'apple', 'facebook'];

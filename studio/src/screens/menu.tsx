@@ -1,5 +1,6 @@
-// The menu: empty → three ways to fill it (scan a photo, paste a list, type). With dishes → the editor, as a list or as
-// the pictures grid. Before the first publish these are steps one and two of the path, with one button that leads on.
+// The menu: empty → two ways to fill it (scan a photo, type). With dishes → the editor, as a list or as the pictures
+// grid. Before the first publish these are steps one and two of the path, with one button that leads on.
+// "Paste a list" stays reachable from "Add and arrange" → "Import" only: Rami took it off the first screen (13 Oct 2026).
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal } from '@preact/signals';
 import { t, tn, errText, lang } from '../lib/i18n.ts';
@@ -9,10 +10,10 @@ import { parsePrice, formatPrice } from '../lib/money.ts';
 import { parsePasted, guessKind, type PastedCategory } from '../lib/paste.ts';
 import { jobs, unfinished, resumeUnfinished, discardUnfinished } from '../lib/pictures.ts';
 import { illus, initIllus, setIllus, loadStock, stockForNew } from '../lib/stock.ts';
-import { aiOn, askAi } from '../lib/ai.ts';
+import { askAi } from '../lib/ai.ts';
 import { startScan } from '../lib/scan.ts';
 import { Btn, IconBtn, Field, Note, Dialog, Confirm, Sheet, Seg, Sticky, Switch, Icon, Ltr, go, route } from '../ui.tsx';
-import { DishPic, PicSheet, StudioLine, picState, phaseText, nameOf, coarse } from '../pic.tsx';
+import { DishPic, PicSheet, StudioLine, picState, phaseText, nameOf } from '../pic.tsx';
 import { ItemSheet } from './item.tsx';
 
 export const KINDS = ['food', 'dessert', 'drinks', 'wine', 'beer'];
@@ -20,40 +21,22 @@ export const entryLang = () => (D.value!.biz.default_lang === 'en' ? 'en' : 'he'
 export const langsOf = () => { const b = D.value!.biz; const l: ('he' | 'en')[] = (b.langs || ['he', 'en']).filter((x: string) => x === 'he' || x === 'en'); return l.sort((a, c) => (a === b.default_lang ? -1 : c === b.default_lang ? 1 : 0)); };
 const noPhoto = (i: Item) => { const s = picState(i).state; return s === 'none' || s === 'stock' || s === 'failed'; };
 
-// ---------------------------------------------------------------- starting a scan (inputs live once, here)
-const scanAsk = signal<'' | 'choose' | 'off'>('');
-let scanPick: HTMLInputElement | null = null, scanCam: HTMLInputElement | null = null;
-export async function startScanFlow() {
-  if (aiOn.value === 'unknown') await askAi();
-  if (aiOn.value !== 'on') { scanAsk.value = 'off'; return; }
-  if (coarse()) scanAsk.value = 'choose'; else scanPick?.click();
+// ---------------------------------------------------------------- starting a scan
+// The scan is one screen (screens/scan.tsx): "Scan" goes there, the photo is chosen there, the rows appear under it. No sheet
+// over the menu. The hidden inputs stay here too, so a file set on the menu screen (tests, the film) starts the same scan.
+export const typeNext = signal(false);                         // set by the scan screen's "type it for now": the menu opens the first section
+export function startScanFlow() { go('scan'); }
+export function onScanFiles(e: Event) {
+  const input = e.target as HTMLInputElement, files = Array.from(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  startScan(files); go('scan');
 }
-function ScanInputs({ onPaste, onType }: { onPaste: () => void; onType: () => void }) {
+function ScanInputs() {
   useEffect(() => { askAi(); loadStock(); }, []);
-  const onFiles = (e: Event) => {
-    const input = e.target as HTMLInputElement, files = Array.from(input.files || []);
-    input.value = ''; scanAsk.value = '';
-    if (!files.length) return;
-    startScan(files); go('scan');
-  };
-  const ask = scanAsk.value;
   return <>
-    <input ref={(el) => { scanPick = el; }} class="sr" type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" data-scan-input="pick" onChange={onFiles} />
-    <input ref={(el) => { scanCam = el; }} class="sr" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" data-scan-input="camera" onChange={onFiles} />
-    <Sheet open={ask === 'choose'} onClose={() => { scanAsk.value = ''; }} title={t('scan.title')} name="scan-choose">
-      <div class="actlist">
-        <Btn kind="primary" icon="camera" onClick={() => scanCam?.click()}>{t('scan.take')}</Btn>
-        <Btn icon="image" onClick={() => scanPick?.click()}>{t('scan.choose')}</Btn>
-      </div>
-      <p class="hint">{t('scan.pagesHint')}</p>
-    </Sheet>
-    <Sheet open={ask === 'off'} onClose={() => { scanAsk.value = ''; }} title={t('scan.off.title')} name="scan-off">
-      <p data-scan-off>{t('scan.off.body')}</p>
-      <div class="actlist">
-        <Btn kind="primary" icon="paste" onClick={() => { scanAsk.value = ''; onPaste(); }}>{t('menu.paste')}</Btn>
-        <Btn icon="keys" onClick={() => { scanAsk.value = ''; onType(); }}>{t('menu.type')}</Btn>
-      </div>
-    </Sheet>
+    <input class="sr" type="file" accept="image/*" multiple tabIndex={-1} aria-hidden="true" data-scan-input="pick" onChange={onScanFiles} />
+    <input class="sr" type="file" accept="image/*" capture="environment" tabIndex={-1} aria-hidden="true" data-scan-input="camera" onChange={onScanFiles} />
   </>;
 }
 
@@ -67,6 +50,7 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
   const [pic, setPic] = useState<string | null>(null), [focusCat, setFocusCat] = useState<string | null>(null), [live, setLive] = useState('');
   const sheetId = route.value[0] === 'menu' && route.value[1] === 'i' ? route.value[2] : null;
   useEffect(() => { initIllus(); }, [d.biz.id]);
+  useEffect(() => { if (typeNext.value) { typeNext.value = false; typeIt(); } }, []);
 
   const doMove = (table: 'categories' | 'items', row: any, dir: -1 | 1) => {
     if (!move(table, row.id, dir)) return;
@@ -80,7 +64,7 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
 
   return (
     <div class={'page page-menu' + (path ? ' has-sticky' : '')} data-view={view}>
-      <ScanInputs onPaste={() => setPaste(true)} onType={typeIt} />
+      <ScanInputs />
       <p class="sr" aria-live="polite">{live}</p>
 
       {empty && (
@@ -90,9 +74,6 @@ export function MenuScreen({ view }: { view: 'list' | 'grid' }) {
             <button type="button" class="way way-main" data-way="scan" onClick={() => startScanFlow()}>
               <span class="way-ico"><Icon name="scan" size={30} /></span>
               <span class="way-text"><span class="way-title">{t('menu.way.scan')}</span><span class="chip chip-dark">{t('menu.way.fastest')}</span></span>
-            </button>
-            <button type="button" class="way" data-way="paste" onClick={() => setPaste(true)}>
-              <span class="way-ico"><Icon name="paste" size={28} /></span><span class="way-text"><span class="way-title">{t('menu.paste')}</span></span>
             </button>
             <button type="button" class="way" data-way="type" onClick={typeIt}>
               <span class="way-ico"><Icon name="keys" size={28} /></span><span class="way-text"><span class="way-title">{t('menu.type')}</span></span>

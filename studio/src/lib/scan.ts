@@ -17,10 +17,12 @@ export type Scan = {
   truncated: boolean; cut: boolean;               // the page was too long / the connection dropped: what arrived is kept
   error: string;                                   // a code from ai.ts SCAN_CODES when a page could not be read
   errorPage: number; skipDup: boolean; addError: string;
+  images: string[];                                // one object URL per chosen page: the screen shows the photo beside its rows
 };
 export const scan = signal<Scan | null>(null);
 let ctl: AbortController | null = null, keys = 0, files: Blob[] = [];
-onReset(() => { ctl?.abort(); scan.value = null; files = []; });
+const dropImages = () => { for (const u of scan.value?.images || []) { try { URL.revokeObjectURL(u); } catch { /* already gone */ } } };
+onReset(() => { ctl?.abort(); dropImages(); scan.value = null; files = []; });
 
 const set = (p: Partial<Scan>) => { if (scan.value) scan.value = { ...scan.value, ...p }; };
 export { norm };
@@ -47,8 +49,10 @@ export const toAdd = (s: Scan) => s.sections.reduce((n, c) => n + c.rows.filter(
 
 export function startScan(chosen: Blob[]) {
   ctl?.abort();
+  dropImages();
   files = chosen.slice(0, 8);
-  scan.value = { status: 'reading', pages: files.length, page: 1, sections: [], lang: '', truncated: false, cut: false, error: '', errorPage: 0, skipDup: true, addError: '' };
+  const images = files.map((f) => { try { return URL.createObjectURL(f); } catch { return ''; } });
+  scan.value = { status: 'reading', pages: files.length, page: 1, sections: [], lang: '', truncated: false, cut: false, error: '', errorPage: 0, skipDup: true, addError: '', images };
   void run(0);
 }
 /** Read the pages from `from` on, one after another. A page that fails stops the run; what earlier pages gave is kept. */
@@ -100,7 +104,7 @@ async function run(from: number) {
 }
 /** "Try again": read the page that failed (and the ones after it) once more. */
 export function retryScan() { const s = scan.value; if (!s || !files.length) return; void run(Math.max(0, (s.errorPage || 1) - 1)); }
-export function cancelScan() { ctl?.abort(); scan.value = null; files = []; }
+export function cancelScan() { ctl?.abort(); dropImages(); scan.value = null; files = []; }
 
 // ---------------------------------------------------------------- corrections before adding
 const mapRow = (secKey: number, rowKey: number, fn: (r: Row, c: Sec) => Row) => { const s = scan.value; if (!s) return; scan.value = { ...s, sections: s.sections.map((c) => (c.key === secKey ? { ...c, rows: c.rows.map((r) => (r.key === rowKey ? fn(r, c) : r)) } : c)) }; };
@@ -137,7 +141,7 @@ export async function addScanned(): Promise<number> {
   const before = d.items.length;
   try {
     const n = await bulkAdd(sections);
-    scan.value = null; files = [];
+    dropImages(); scan.value = null; files = [];
     return n;
   } catch (e) {
     const done = (D.value ? D.value.items.length : before) - before;

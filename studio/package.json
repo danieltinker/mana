@@ -10,7 +10,8 @@
     "check": "tsc --noEmit",
     "test:unit": "node --test test/unit/*.test.mjs",
     "stack": "node test/stack/start.mjs",
-    "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.mjs"
+    "test:e2e": "node --test --test-concurrency=1 test/e2e/*.test.mjs",
+    "test:proposed": "node --test test/proposed.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/frank-ruhl-libre": "^5.3.0",
