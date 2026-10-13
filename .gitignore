@@ -20,6 +20,8 @@ brand/.scratch/
 # the guest menu's build output: made by `cd view && npm run build` (CI builds it in tools/build-site.sh)
 view/app.js
 view/seat.js
+# timers: the host board's build
+view/host.js
 view/chunks/
 # the product page's bundled scripts: made by node brand/tools/build-land.mjs (CI builds them in tools/build-site.sh)
 brand/site/land/
