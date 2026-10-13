@@ -63,7 +63,7 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .alert{display:flex;gap:10px;align-items:baseline;font-size:.82rem;padding:6px 8px;border-radius:14px;background:rgba(255,255,255,.5)}
 .alert time{flex:none;color:var(--muted);font-variant-numeric:tabular-nums;direction:ltr}
 /* the stage: the 3D place or the plan */
-.stage{position:relative;border-radius:28px;overflow:hidden;min-height:420px;background:linear-gradient(160deg,rgba(255,255,255,.55),rgba(255,255,255,.2))}
+.stage{position:relative;border-radius:28px;overflow:hidden;min-height:420px;background:linear-gradient(180deg,#F4EEE4 0%,#EFE6D8 46%,#E3D7C4 100%)}
 .stage-in{position:absolute;inset:0}
 .pl-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;outline:none}
 .pl-canvas:active{cursor:grabbing}
@@ -100,14 +100,19 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .pl-plan .pp-t.sel .pp-ring,.pl-plan .pp-t:focus-visible .pp-ring{stroke:var(--ink)!important;stroke-width:.08}
 .pl-plan.pp-edit .pp-t{cursor:move}
 /* the edit bar */
-.editbar{position:absolute;inset-inline:12px;bottom:12px;z-index:3;border-radius:24px;padding:10px;display:grid;gap:8px;max-height:58%;overflow-y:auto}
+.editbar{position:relative;z-index:3;border-radius:24px;padding:8px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
 .editbar .line{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
-.editbar .line>b{font:500 .95rem/1.2 var(--display);margin-inline-end:6px}
+.editbar .line>b{font:500 .95rem/1.2 var(--display);margin-inline-end:4px}
 .editbar .pill{min-height:44px;padding:0 12px;font-size:.82rem}
 .editbar .pill:disabled{opacity:.4;cursor:default}
-.editbar .warns{font-size:.8rem;color:var(--rose-ink)}
+.editbar .warns{flex-basis:100%;font-size:.8rem;color:var(--rose-ink);margin:0}
 .editbar .warns.ok{color:var(--sage-ink)}
+.editbar .note{margin:0}
 .editbar select{min-height:44px;border-radius:999px;border:1px solid rgba(22,18,14,.12);background:#fff;padding:0 12px}
+.editbar .stepper-row{display:inline-flex;align-items:center;gap:6px;padding:0}
+.editbar .stepper-row .lbl small{display:none}
+.editbar .stepper-row .lbl span{font-size:.8rem;color:var(--ink-2)}
+.editbar .val{min-width:2.2ch;font-size:1rem}
 .editing .views{top:12px}
 /* the phone frame inside the board */
 .phone{position:fixed;z-index:30;bottom:16px;inset-inline-end:16px;width:300px;height:620px;border-radius:44px;padding:10px;box-shadow:inset 0 1px 0 #fff,0 40px 80px -30px rgba(70,45,20,.45)}
@@ -129,7 +134,7 @@ html[lang="he"] .olane h3{letter-spacing:0;text-transform:none;font-size:.8rem}
 .guest .gpage.page{max-width:100%;padding:0;gap:0;width:100%}
 .guest .gstage canvas,.guest .gstage svg{max-width:100%}
 .guest .gpage{position:relative;min-height:100dvh;display:flex;flex-direction:column}
-.guest .gstage{position:relative;height:52dvh;min-height:300px}
+.guest .gstage{position:relative;height:52dvh;min-height:300px;background:linear-gradient(180deg,#F4EEE4 0%,#EFE6D8 46%,#E3D7C4 100%)}
 .guest .ghead{position:absolute;z-index:3;top:calc(10px + env(safe-area-inset-top,0px));inset-inline:12px;display:flex;align-items:flex-start;gap:8px}
 .guest .ghead .who{flex:1;border-radius:22px;padding:10px 14px}
 .guest .ghead h1{font:500 1.15rem/1.2 var(--display)}

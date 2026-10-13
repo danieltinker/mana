@@ -16,7 +16,7 @@ import { GSTR, makeT, itemName } from './i18n.js';
 import { createLive, DEMOS, loadLayout, demoClock, clockNow, loadRules } from './live.js';
 
 const Q = new URLSearchParams(location.search), $ = (id) => document.getElementById(id);
-const TEST = Q.get('test') === '1', GL = Q.get('gl'), EMBED = Q.get('embed') === '1';
+const TEST = Q.get('test') === '1', GL = Q.get('gl'), EMBED = Q.get('embed') === '1', FILM = Q.get('film') === '1', LOW = Q.get('quality') === 'low';
 const reduce = Q.get('motion') === 'reduce' || (Q.get('motion') !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches);
 const storage = (() => { try { return window.localStorage; } catch (e) { return null; } })();
 const sess = (() => { try { return window.sessionStorage; } catch (e) { return null; } })();
@@ -124,10 +124,11 @@ function flash(msg) { const f = $('flash'); f.textContent = msg; f.hidden = fals
 async function mountStage() {
   const host = $('gstage'); let s = null;
   if (GL !== 'off') {
-    try { const { createPlace } = await import('../room/place.js'); s = createPlace(host, L, { reduced: reduce, test: TEST, start: 'above', forceGL: GL === 'on', slowMs: 4000, label: t('youAt', { n: tableNo(L, tableId), zone: zoneName(tableById(L, tableId).zone) }), onTable: () => {}, onSlow: () => { if (stage) stage.dispose(); stage = createPlan(host, L, { lang }); paintStage(); window.__guest.stageKind = '2d'; } }); } catch (e) { s = null; }
+    try { const { createPlace } = await import('../room/place.js'); s = createPlace(host, L, { reduced: reduce, test: TEST, lowPower: LOW, start: 'above', forceGL: GL === 'on', slowMs: 4000, label: t('youAt', { n: tableNo(L, tableId), zone: zoneName(tableById(L, tableId).zone) }), onTable: () => {}, onSlow: () => { if (stage) stage.dispose(); stage = createPlan(host, L, { lang }); paintStage(); window.__guest.stageKind = '2d'; } }); } catch (e) { s = null; }
   }
   stage = s || createPlan(host, L, { lang }); window.__guest.stageKind = s ? '3d' : '2d';
   paintStage();
+  if (FILM) { window.__guest.landed = true; return; }                  /* a film drives the camera itself (stage.film) */
   if (!flown) { flown = true; await new Promise((r) => setTimeout(r, reduce || TEST ? 0 : 500)); await stage.flyTo(tableId, { ms: reduce ? 0 : 2600 }); await stage.setTable(tableId, true, { instant: reduce }); window.__guest.landed = true; }
 }
 function paintStage() {

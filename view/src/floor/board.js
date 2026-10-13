@@ -81,7 +81,7 @@ async function mountStage(kind) {
   if (kind === '3d') {
     try {
       const { createPlace } = await import('../room/place.js');
-      stage = createPlace(host, L, Object.assign({}, common, { reduced: reduce, test: TEST, forceGL: GL === 'on', slowMs: 4000, label: t('placeLabel', { n: L.tables.length }), onSlow: (why) => { fbWhy = why; mountStage('2d'); } }));
+      stage = createPlace(host, L, Object.assign({}, common, { reduced: reduce, test: TEST, lowPower: Q.get('quality') === 'low', forceGL: GL === 'on', slowMs: 4000, label: t('placeLabel', { n: L.tables.length }), onSlow: (why) => { fbWhy = why; mountStage('2d'); } }));
     } catch (e) { stage = null; fbWhy = String(e && e.message || e); }
     if (!stage) { if (!fbWhy) fbWhy = 'no WebGL'; return mountStage('2d'); }
   } else stage = createPlan(host, L, Object.assign({}, common, { label: t('planLabel', { n: L.tables.length }) }));
