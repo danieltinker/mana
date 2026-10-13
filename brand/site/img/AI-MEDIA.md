@@ -1,0 +1,11 @@
+# Generated media on the product page
+
+These files were made with generative tools on Higgsfield (13 Oct 2026, approved by Daniel). Wherever the page shows them it
+says so ("made with AI"). They show no real restaurant, dish or person.
+
+| Files | What | How |
+|---|---|---|
+| `dishes/*.webp` | six dishes (pizza, burger, ramen, croissant, shakshuka, gelato) on a transparent background | GPT Image 2.5 |
+| `dishes/*.glb` | the same six dishes as textured meshes, for the shape-shifting dish in the hero | Tripo H3.1 image-to-3D, then glTF-Transform (meshopt, WebP 1024) |
+| `float/*.webp` | six ingredients (basil, cherry tomato, lemon slice, chili, rosemary, olives) that float around the hero | GPT Image 2.5 |
+| `host/host-orbit.mp4`, `host/host-orbit.jpg` | an invented person (Mana's AI host) in an invented white restaurant, one 360° orbit | AI Influencer sheet, then Seedance 2.5 (omni reference), 720p web cut |

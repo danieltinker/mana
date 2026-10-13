@@ -21,3 +21,5 @@ brand/.scratch/
 view/app.js
 view/seat.js
 view/chunks/
+# the product page's bundled scripts: made by node brand/tools/build-land.mjs (CI builds them in tools/build-site.sh)
+brand/site/land/
