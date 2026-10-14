@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { PRODUCT } from '../product.ts';
 import { cfg, sb, signUp, toAppError, sibling, ownAddress } from '../lib/api.ts';
-import { t, errText } from '../lib/i18n.ts';
+import { t, errText, lang } from '../lib/i18n.ts';
 import { cleanEmail, emailProblem } from '../lib/email.ts';
 import { Btn, Field, Note, Icon } from '../ui.tsx';
 import { Brand, LangToggle, DishRise, ProviderMark } from '../brand.tsx';
@@ -94,7 +94,7 @@ export function StartScreen({ notice }: { notice?: string }) {
 
         <nav class="start-links" aria-label={t('auth.links')}>
           <LangToggle plain />
-          <a class="linkbtn" href={sibling(cfg!.sitePath || '../')} data-link="site"><Icon name="chev" size={15} back /><bdi dir="ltr">{PRODUCT.en}</bdi></a>
+          <a class="linkbtn" href={sibling(cfg!.sitePath || '../')} data-link="site"><Icon name="chev" size={15} back /><bdi>{lang.value === 'he' ? PRODUCT.he : PRODUCT.en.toLowerCase()}</bdi></a>
           <a class="linkbtn" href={sibling(cfg!.viewPath || '../view/', '?demo=olea')} target="_blank" rel="noopener noreferrer" data-link="demo"><Icon name="eye" size={16} /><span>{t('auth.demo')}</span></a>
           <a class="linkbtn" href={PRODUCT.whatsapp} target="_blank" rel="noopener noreferrer" data-link="forgot"><Icon name="chat" size={16} /><span>{t('auth.forgot')}</span></a>
         </nav>

@@ -16,6 +16,13 @@ const text = (v) => isObj(v) && str(v.he, 80) && str(v.en, 80) && (v.he.trim() |
 export const SHAPES = ['round', 'square', 'long', 'bar'];
 export const WALLS = ['wall', 'window', 'door'];
 export const STATUS = ['pending', 'approved', 'declined'];
+/* optional, round two (Café Lima): how a table looks, and the room's fixed things */
+export const TOPS = ['marble', 'wood', 'iron', 'glass'];
+export const SEATS = ['chairs', 'bench', 'stools', 'velvet', 'sofa'];
+export const FIXTURES = ['walkway', 'closed', 'kitchen', 'hatch', 'counter', 'vitrine', 'espresso', 'fridge', 'shelf', 'bench', 'banquette', 'post', 'planter', 'tree', 'awning', 'lamp'];
+/* a point kind stands at one spot (`at`); every other kind covers an area (`rect`) */
+export const POINT_FIXTURES = ['espresso', 'post', 'planter', 'tree', 'lamp'];
+const rectOk = (r) => Array.isArray(r) && r.length === 4 && r.every((n) => isNum(n, -1000, 1000)) && r[2] > r[0] && r[3] > r[1];
 
 /* ---------- layout.v1 ---------- */
 /* → { ok: true, layout } (a normalised copy: defaults filled, nothing else kept) | { ok: false, errors: [string] } */
@@ -45,7 +52,10 @@ export function validateLayout(raw) {
     if (!text(z.name)) err('zones[' + i + '].name needs he and en');
     const r = z.rect;
     if (!(Array.isArray(r) && r.length === 4 && r.every((n) => isNum(n, 0, 200)) && r[2] > r[0] && r[3] > r[1] && r[2] <= W && r[3] <= D)) err('zones[' + i + '].rect must be [x1, z1, x2, z2] inside the room');
-    return { id: z.id, name: { he: String(z.name && z.name.he || ''), en: String(z.name && z.name.en || '') }, rect: Array.isArray(r) && r.length === 4 ? r.map(Number) : [0, 0, 1, 1] };
+    if (z.outdoor != null && typeof z.outdoor !== 'boolean') err('zones[' + i + '].outdoor must be true or false');
+    const oz = { id: z.id, name: { he: String(z.name && z.name.he || ''), en: String(z.name && z.name.en || '') }, rect: Array.isArray(r) && r.length === 4 ? r.map(Number) : [0, 0, 1, 1] };
+    if (typeof z.outdoor === 'boolean') oz.outdoor = z.outdoor;          // optional: kept only when the file says it
+    return oz;
   }).filter(Boolean);
   if (!outZones.length) err('at least one zone');
   const tables = Array.isArray(raw.tables) ? raw.tables : (err('tables must be an array'), []);
@@ -61,14 +71,43 @@ export function validateLayout(raw) {
     else if (isInt(t.seats, 1, 40) && t.maxParty > t.seats) err('tables[' + i + '].maxParty exceeds its seats');
     if (typeof t.bookable !== 'boolean') err('tables[' + i + '].bookable must be true or false');
     if (t.name != null && !str(t.name, 40)) err('tables[' + i + '].name must be a short string');
-    return { id: t.id, zone: String(t.zone), x: Number(t.x), z: Number(t.z), rot: isNum(t.rot, -360, 360) ? t.rot : 0, shape: SHAPES.includes(t.shape) ? t.shape : 'square',
+    let look = null;
+    if (t.look != null) {
+      const k = t.look;
+      if (!isObj(k)) err('tables[' + i + '].look must be an object');
+      else {
+        if (!TOPS.includes(k.top)) err('tables[' + i + '].look.top must be one of ' + TOPS.join('|'));
+        if (!SEATS.includes(k.seat)) err('tables[' + i + '].look.seat must be one of ' + SEATS.join('|'));
+        if (!isNum(k.w, .3, 4)) err('tables[' + i + '].look.w must be metres between 0.3 and 4');
+        if (k.d != null && !isNum(k.d, .3, 4)) err('tables[' + i + '].look.d must be metres between 0.3 and 4');
+        look = { top: k.top, seat: k.seat, w: k.w }; if (k.d != null) look.d = k.d;
+      }
+    }
+    const ot = { id: t.id, zone: String(t.zone), x: Number(t.x), z: Number(t.z), rot: isNum(t.rot, -360, 360) ? t.rot : 0, shape: SHAPES.includes(t.shape) ? t.shape : 'square',
       seats: isInt(t.seats, 1, 40) ? t.seats : 1, minParty: isInt(t.minParty, 1, 40) ? t.minParty : 1, maxParty: isInt(t.maxParty, 1, 40) ? t.maxParty : 1, bookable: t.bookable === true, name: typeof t.name === 'string' ? t.name : null };
+    if (look) ot.look = look;                                           // optional: kept only when the file says it
+    return ot;
   }).filter(Boolean);
   if (!outTables.length) err('at least one table');
+  /* fixtures: optional; the room's fixed things (the counter, the awnings, a tree). A rect or a point, in metres; they may
+     reach past the room (a tree on the pavement, an awning over the kerb) by up to 2 m. Unknown kinds are refused. */
+  const fixtures = raw.fixtures == null ? [] : Array.isArray(raw.fixtures) ? raw.fixtures : (err('fixtures must be an array'), []);
+  const near = (x, z) => isNum(x, -2, W + 2) && isNum(z, -2, D + 2);
+  const outFixtures = fixtures.map((f, i) => {
+    if (!isObj(f)) { err('fixtures[' + i + '] must be an object'); return null; }
+    if (!FIXTURES.includes(f.kind)) { err('fixtures[' + i + '].kind ' + JSON.stringify(f.kind) + ' is not a known kind (' + FIXTURES.join('|') + ')'); return null; }
+    const o = { kind: f.kind };
+    if (f.rect != null) { if (!rectOk(f.rect) || !near(f.rect[0], f.rect[1]) || !near(f.rect[2], f.rect[3])) err('fixtures[' + i + '].rect must be [x1, z1, x2, z2] at the room'); else o.rect = f.rect.map(Number); }
+    if (f.at != null) { if (!pt(f.at) || !near(f.at[0], f.at[1])) err('fixtures[' + i + '].at must be [x, z] at the room'); else o.at = [f.at[0], f.at[1]]; }
+    if (POINT_FIXTURES.includes(f.kind)) { if (f.at == null) err('fixtures[' + i + '] (' + f.kind + ') needs at: [x, z]'); }
+    else if (f.rect == null) err('fixtures[' + i + '] (' + f.kind + ') needs rect: [x1, z1, x2, z2]');
+    if (f.name != null) { if (!text(f.name)) err('fixtures[' + i + '].name needs he and en'); else o.name = { he: String(f.name.he), en: String(f.name.en) }; }
+    return o;
+  }).filter(Boolean);
   if (raw.tableChoice != null && typeof raw.tableChoice !== 'boolean') err('tableChoice must be true or false');
   if (raw.note != null && !str(raw.note, 300)) err('note must be a short string');
   if (errors.length) return { ok: false, errors };
-  return { ok: true, layout: { v: 1, venue: raw.venue, note: typeof raw.note === 'string' ? raw.note : '', room: { w: W, d: D }, walls: outWalls, zones: outZones, tables: outTables, tableChoice: raw.tableChoice !== false } };
+  return { ok: true, layout: { v: 1, venue: raw.venue, note: typeof raw.note === 'string' ? raw.note : '', room: { w: W, d: D }, walls: outWalls, zones: outZones, tables: outTables, tableChoice: raw.tableChoice !== false, fixtures: outFixtures } };
 }
 
 /* ---------- who fits where ---------- */

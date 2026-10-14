@@ -30,11 +30,12 @@ const W = Math.round(1080 * scale / 2) * 2, H = Math.round(1920 * scale / 2) * 2
 for (const need of [join(VIEW, 'demo/olea/menu.json'), join(VIEW, 'themes/oak.jpg'), THREE]) if (!existsSync(need)) { console.error('missing: ' + need); process.exit(1); }
 mkdirSync(OUT, { recursive: true });
 
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.woff2': 'font/woff2' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.jpg': 'image/jpeg', '.png': 'image/png', '.woff2': 'font/woff2' };
 const server = http.createServer(async (req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   let file = null;
   if (p === '/three.module.js') file = THREE;
+  else if (p === '/mark.mjs') file = join(HERE, '..', 'mark.mjs');
   else if (p.startsWith('/lift/')) file = join(HERE, normalize(p.slice(6)));
   else if (p.startsWith('/view/')) file = join(VIEW, normalize(p.slice(6)));
   const st = file && await stat(file).catch(() => null);

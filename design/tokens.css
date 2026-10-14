@@ -33,4 +33,20 @@
   --m-ease: cubic-bezier(.2, .8, .2, 1);
   --m-ease-spring: cubic-bezier(.34, 1.36, .64, 1);
   --m-d1: 240ms; --m-d2: 600ms; --m-d3: 1600ms;
+  /* the product page's family (brand/site/land.css, the remaster): white liquid glass on warm porcelain. Added 14 Oct 2026
+     for the owner app's chrome; the values are the product page's own. */
+  --m-porcelain: #f7f4ee;
+  --m-ink-warm: #16120e;
+  --m-ink-warm-2: #4a433c;
+  --m-ember: #ff7a45;
+  --m-pink: #e25c7a;
+  --m-energy: linear-gradient(120deg, #f5b120 0%, #ff7a45 45%, #e25c7a 100%);   /* once on a screen at most */
+  --m-glass-white: linear-gradient(135deg, rgba(255, 255, 255, .74), rgba(255, 255, 255, .42));   /* panels over a still background */
+  --m-glass-white-bar: rgba(255, 255, 255, .92);     /* bars that content scrolls under: text keeps 4.5:1 over the darkest content */
+  --m-glass-white-sheet: rgba(255, 255, 255, .96);   /* sheets and dialogs: forms sit on them, so nearly solid */
+  --m-glass-white-edge: rgba(255, 255, 255, .78);
+  --m-glass-white-blur: 24px;
+  --m-glass-hi: inset 0 1px 0 rgba(255, 255, 255, .95);   /* the 1 px top highlight */
+  --m-shadow-warm: 0 30px 60px -28px rgba(70, 45, 20, .22), 0 2px 8px rgba(70, 45, 20, .05);
+  --m-shadow-warm-s: 0 12px 28px -16px rgba(70, 45, 20, .38);
 }

@@ -1,3 +1,5 @@
+import { cleanTaste } from './drinks/taste.js';
+import { ROOM_IDS } from './scenes/rooms.js';
 /* Where the menu comes from (CONTRACT.md, "How the viewer gets a snapshot") and making it safe to render.
    Pure apart from the injected fetch / window, so it is unit-tested against a stub server. */
 
@@ -79,8 +81,8 @@ function details(d) {
   if (!isObj(d)) return {};
   const out = {};
   if (isObj(d.wine)) { const w = d.wine, n = isObj(w.notes) ? w.notes : {}; out.wine = { producer: text(w.producer), name: text(w.name), vintage: text(w.vintage), region: text(w.region), grape: text(w.grape), serving: text(w.serving), color: str(w.color), bottle: str(w.bottle),
-    notes: { sweetness: text(n.sweetness), acidity: text(n.acidity), body: text(n.body), fruit: text(n.fruit), minerality: text(n.minerality), pairings: text(n.pairings) } }; }
-  if (isObj(d.beer)) { const b = d.beer; out.beer = { brewery: text(b.brewery), style: text(b.style), abv: text(b.abv), serving: str(b.serving), color: str(b.color) }; }
+    notes: { sweetness: text(n.sweetness), acidity: text(n.acidity), body: text(n.body), fruit: text(n.fruit), minerality: text(n.minerality), pairings: text(n.pairings) }, taste: cleanTaste(w.taste, 'wine') }; }      // taste: optional, see drinks/taste.js
+  if (isObj(d.beer)) { const b = d.beer; out.beer = { brewery: text(b.brewery), style: text(b.style), abv: text(b.abv), serving: str(b.serving), color: str(b.color), taste: cleanTaste(b.taste, 'beer') }; }
   return out;
 }
 
@@ -94,7 +96,7 @@ export function normalise(raw, baseUrl) {
   const categories = raw.categories.filter(isObj).map((c, ci) => {
     let id = str(c.id) || 'c' + ci; while (seenC.has(id)) id += '_'; seenC.add(id);
     return {
-      id, name: text(c.name), kind: KINDS.includes(c.kind) ? c.kind : 'food', scene: SCENES.includes(c.scene) ? c.scene : 'auto',
+      id, name: text(c.name), kind: KINDS.includes(c.kind) ? c.kind : 'food', scene: SCENES.includes(c.scene) ? c.scene : 'auto', room: ROOM_IDS.includes(c.room) ? c.room : null,      // room: optional, the owner's choice of room (scenes/rooms.js); unknown → from the kind
       items: (Array.isArray(c.items) ? c.items : []).filter(isObj).map((it, ii) => {
         let iid = str(it.id) || id + '-' + ii; while (seenI.has(iid)) iid += '_'; seenI.add(iid);
         const p = isObj(it.price) ? it.price : {}, amount = Number.isInteger(p.amount) && p.amount >= 0 ? p.amount : null;
@@ -109,7 +111,8 @@ export function normalise(raw, baseUrl) {
   });
   return {
     v: 1, slug: str(raw.slug), revision: num(raw.revision, 0), publishedAt: str(raw.publishedAt),
-    business: { name: text(b.name), area: text(b.area), cuisine: text(b.cuisine), kind: str(b.kind), logo: assetUrl(b.logo, baseUrl), orderUrl: httpsUrl(b.orderUrl), /* night:seating */ bookUrl: httpsUrl(b.bookUrl) /* /night:seating */, phone: b.phone ? str(b.phone) : null },
+    business: { name: text(b.name), area: text(b.area), cuisine: text(b.cuisine), kind: str(b.kind), logo: assetUrl(b.logo, baseUrl), orderUrl: httpsUrl(b.orderUrl), /* night:seating */ bookUrl: httpsUrl(b.bookUrl) /* /night:seating */, phone: b.phone ? str(b.phone) : null,
+      soldOut: b.soldOut === 'hide' ? 'hide' : 'bottom' },      // sold out: at the end of its section ('bottom', the default) or not shown ('hide')
     locale: { default: langs.includes(loc.default) ? loc.default : (langs[0] || 'he'), langs: langs.length ? langs : ['he', 'en'], currency },
     theme: { accent: /^#[0-9a-f]{6}$/i.test(str(th.accent)) ? th.accent : '#ff8a5c', surface: str(th.surface) || 'oak', tableImg: th.surface === 'custom' ? assetUrl(th.tableImg, baseUrl) : null,
       /* night:templates */ template: typeof th.template === 'string' && /^[a-z0-9-]{1,40}$/.test(th.template) ? th.template : null /* /night:templates */ },      // a look's id (templates/templates.v1.json); unknown → today's theme; the snapshot stays v:1

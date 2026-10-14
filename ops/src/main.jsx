@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import * as api from './api.js';
 import { PRODUCT, derive, fmtClock, fmtInt, ago } from './model.js';
 import { Icon, Notice, T } from './ui.jsx';
+import { MARK_SMALL } from './mark-shapes.js';
 import { DayColumns, Funnel } from './charts.jsx';
 import { Businesses } from './businesses.jsx';
 import { Leads } from './leads.jsx';
@@ -56,11 +57,16 @@ function App() {
 }
 
 function Center({ children }) { return <main class="gate"><div class="gate-card">{children}</div></main>; }
+// The mark, version 2 (Cloche), small cut. Source: brand/tools/mark.mjs; ./mark-shapes.js is written from it by
+// brand/tools/sync-mark.mjs (the site build fails if it drifts). Ink arches (currentColor), the yolk light.
+function Mark() {
+  return <svg class="brand-mark" viewBox={MARK_SMALL.viewBox} aria-hidden="true" focusable="false" dangerouslySetInnerHTML={{ __html: MARK_SMALL.html }} />;
+}
 function Brand() {
   return (
     <div class="brand brand-lg">
-      <span class="brand-mark" aria-hidden="true" />
-      <div><strong>{PRODUCT.name} <span lang="he" dir="rtl">{PRODUCT.nameHe}</span></strong><span>Back office · {PRODUCT.by}</span></div>
+      <Mark />
+      <div><strong>{PRODUCT.name}</strong><span>back office · {PRODUCT.by}</span></div>
     </div>
   );
 }
@@ -205,8 +211,8 @@ function Shell({ user, onLeave, onNotStaff }) {
       <header class="top">
         <div class="top-in">
           <a class="brand" href="#/overview" aria-label={`${PRODUCT.name} back office, overview`}>
-            <span class="brand-mark" aria-hidden="true" />
-            <div><strong>{PRODUCT.name} <span lang="he" dir="rtl">{PRODUCT.nameHe}</span></strong><span>Back office</span></div>
+            <Mark />
+            <div><strong>{PRODUCT.name}</strong><span>back office</span></div>
           </a>
           <nav class="tabs" aria-label="Sections">
             {tabs.map((t) => (

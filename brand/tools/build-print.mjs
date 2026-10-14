@@ -6,6 +6,7 @@
      print/preview/*.png                     150 dpi pictures for checking on screen
    A real restaurant's card:  node tools/build-print.mjs --slug olea --he "אוליאה" --en "Olea" [--base https://halom.io/m/]
      → print/cards/<slug>/table-card-a6.pdf, qr-sticker-60mm.pdf (+ svg)                                        */
+import { placed } from './mark.mjs';
 import { createRequire } from 'node:module';
 import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -33,7 +34,7 @@ function line(text, x, y, size, { serif = false, fill = C.black, tracking = 0, i
   return { w: w.w, svg: `<path${id ? ` id="${id}"` : ''} transform="translate(${r(x - w.w / 2)} ${r(y)})" fill="${fill}" d="${w.d}"/>` };
 }
 const fit = (text, max, size, o) => { let l = line(text, 0, 0, size, o); return l.w > max ? size * max / l.w : size; };
-const markSvg = (x, y, w, plate) => { const s = w / 59.4; return `<g transform="translate(${r(x - 2.3 * s)} ${r(y - 16.8 * s)}) scale(${r(s)})"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="${plate}" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="${C.yolk}"/></g>`; };
+const markSvg = (x, y, w, plate) => placed({ x, y, w, ink: plate, light: C.yolk, small: w < 5 });   // Cloche (./mark.mjs); x, y = the ink box's top-left
 function qr(x, y, size, { pad = 0.09, fg = C.black } = {}) {         // white tile with the code inside; x,y = top-left of the tile
   const { n, d } = qrPath(url, { ecc: 'Q' }), inner = size * (1 - 2 * pad), m = inner / n;
   return `<g id="qr"><rect x="${r(x)}" y="${r(y)}" width="${size}" height="${size}" rx="${r(size * 0.045)}" fill="#FFFFFF"/><path transform="translate(${r(x + size * pad)} ${r(y + size * pad)}) scale(${r(m)})" fill="${fg}" shape-rendering="crispEdges" d="${d}"/></g>`;
@@ -52,8 +53,8 @@ function tableCard(dark, bleed = 0) {
   b += line('Scan to see the dishes on the table', cx, y + 5.6, 3.5, { fill: sub }).svg;
   const q = 56; b += qr(cx - q / 2, 57, q);
   b += `<g id="short-link">` + line(shown, cx, 122.5, fit(shown, 80, 3.7), { fill: sub, tracking: 0.02 }).svg + `</g>`;
-  const by = line('Menu by Mana', 0, 0, 3.1, { fill: sub }), mw = 7.2, total = mw + 1.8 + by.w, x0 = cx - total / 2;
-  b += markSvg(x0, 136.2, mw, ink) + line('Menu by Mana', x0 + mw + 1.8 + by.w / 2, 140.4, 3.1, { fill: sub }).svg;
+  const by = line('Menu by mana', 0, 0, 3.1, { fill: sub }), mw = 7.2, total = mw + 1.8 + by.w, x0 = cx - total / 2;
+  b += markSvg(x0, 136.2, mw, ink) + line('Menu by mana', x0 + mw + 1.8 + by.w / 2, 140.4, 3.1, { fill: sub }).svg;
   return doc(W, H, b, bleed, ground);
 }
 /* ---- round sticker, 60 mm */

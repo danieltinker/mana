@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>קפה לימה</title>
+<meta name="theme-color" content="#F7F4EE">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%20width='64'%20height='64'%20role='img'%3E%3Ctitle%3Emana%3C/title%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230F0F0F'/%3E%3Cg%20transform='translate(6.76%203.33)%20scale(0.79)'%3E%3Cellipse%20cx='45.5'%20cy='44.6'%20rx='11.5'%20ry='3.6'%20fill='%23F5B120'/%3E%3Cpath%20d='M3%2050.7H61'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M7%2048C7%2022%2031%2022%2031%2048'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M33%2041.5C33%2015.5%2057%2015.5%2057%2041.5'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="../host/host.css">
+<link rel="stylesheet" href="floor.css">
+</head>
+<body class="guest">
+<div class="sky" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<div class="gpage page" id="page">
+  <div class="gstage" id="gstage">
+    <header class="ghead">
+      <div class="who glass"><h1 id="youAt"></h1><p><span id="hello"></span></p></div>
+      <button class="tool lang glass" id="glang" type="button"></button>
+    </header>
+  </div>
+  <main class="gcards">
+    <section class="gcard glass" id="orderCard"></section>
+    <section class="gcard glass" id="bidCard" hidden></section>
+    <p class="sr-only" id="gStatus" role="status" aria-live="polite"></p>
+    <p class="note" id="gdemo"></p>
+  </main>
+</div>
+<p class="flash glass" id="flash" role="status" hidden></p>
+<noscript><p style="padding:24px;font:16px sans-serif;color:#16120E;background:#F7F4EE">This page needs JavaScript. / הדף הזה צריך JavaScript.</p></noscript>
+<script type="module" src="../floor-guest.js"></script>
+</body>
+</html>

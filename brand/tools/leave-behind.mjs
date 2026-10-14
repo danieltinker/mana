@@ -1,12 +1,13 @@
 /* The A5 leave-behind for the field team: Hebrew on the front, English on the back. Written as HTML (live text), printed to PDF
    by build-print.mjs. No prices, no testimonials, no client names: only what the product does today. */
+import { inline as markInline } from './mark.mjs';
 import { qrSvg } from './qr.mjs';
 export const PAGE = 'https://halom.io/mana/';
-const mark = (plate, w) => `<svg viewBox="0 14 64 39" width="${w}" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="${plate}" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg>`;
+const mark = (plate, w) => markInline(plate, w);   // Cloche (./mark.mjs)
 const side = (l) => {
   const he = l === 'he', T = (a, b) => (he ? a : b);
   return `<section class="sheet" id="${l}" lang="${l}" dir="${he ? 'rtl' : 'ltr'}">
-  <header><span class="brand">${mark('#0F0F0F', '11mm')}<b>${T('מנה', 'Mana')}</b></span><span class="by">${T('מבית Halom', 'by Halom')}</span></header>
+  <header><span class="brand">${mark('#0F0F0F', '11mm')}<b>${T('מנה', 'mana')}</b></span><span class="by">${T('מבית חלום', 'by Halom')}</span></header>
   <h1>${T('מצלמים כל מנה פעם אחת.<br>הסועדים רואים אותה על השולחן.', 'One photo per dish.<br>Your guests see it on the table.')}</h1>
   <figure><img src="../../site/img/table-${l}.jpg" alt=""><figcaption>${T('צילום מסך מתפריט הדגמה. המסעדה והתמונות בהדגמה אינן אמיתיות; בתפריט שלכם מופיעים הצילומים שלכם.', 'A screenshot of a demo menu. The restaurant and pictures in the demo are not real; your menu shows your own photos.')}</figcaption></figure>
   <ol>

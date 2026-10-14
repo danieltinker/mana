@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lab · the floating floor</title>
+<!-- The floor helper's lab: the section's glass card on the porcelain page, so the floor is judged in its setting.
+     Build: node brand/lab/build-floor.mjs  ·  serve brand/ on a local port  ·  open lab/floor.html
+     Query: lang=he|en · t=<seconds> (sets the demo clock) · freeze (no orbit, no clock) · yaw=<radians> · reduced · low -->
+<style>
+@font-face{font-family:"Frank Ruhl Libre";font-weight:300 900;font-display:swap;src:url(../site/fonts/frank-ruhl-libre-hebrew-wght-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+FB1D-FB4F}
+@font-face{font-family:"Fraunces";font-weight:100 900;font-display:swap;src:url(../site/fonts/fraunces-latin-standard-normal.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:400;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-latin-400-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:500;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-latin-500-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:600;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-hebrew-600-normal.woff2) format("woff2");unicode-range:U+0590-05FF,U+200C-2010,U+FB1D-FB4F}
+@font-face{font-family:"IBM Plex Sans Hebrew";font-weight:600;font-display:swap;src:url(../site/fonts/ibm-plex-sans-hebrew-latin-600-normal.woff2) format("woff2");unicode-range:U+0000-00FF,U+2000-206F}
+:root{--ink:#16120E;--ink2:#4A433C;--muted:#8A8178;--bg:#F7F4EE}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans Hebrew",system-ui,sans-serif}
+body{min-height:100vh;overflow-x:hidden;position:relative}
+.fields{position:fixed;inset:0;z-index:0;pointer-events:none;filter:blur(60px);opacity:.85}
+.fields i{position:absolute;border-radius:50%}
+.fields i:nth-child(1){width:46vw;height:46vw;left:-8vw;top:-6vw;background:#FBE3B0}
+.fields i:nth-child(2){width:40vw;height:40vw;right:-6vw;top:18vh;background:#FFD9C7}
+.fields i:nth-child(3){width:38vw;height:38vw;left:24vw;bottom:-12vw;background:#DDEFE4}
+.fields i:nth-child(4){width:30vw;height:30vw;right:16vw;bottom:-8vw;background:#DCE8F6}
+main{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:72px 32px}
+.card{display:grid;grid-template-columns:1fr 640px;gap:40px;align-items:center;padding:36px;border-radius:28px;
+ background:linear-gradient(135deg,rgba(255,255,255,.74),rgba(255,255,255,.42));-webkit-backdrop-filter:blur(24px) saturate(170%);backdrop-filter:blur(24px) saturate(170%);
+ border:1px solid rgba(255,255,255,.78);box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 30px 60px -28px rgba(70,45,20,.22),0 2px 8px rgba(70,45,20,.05)}
+.chip{display:inline-block;padding:4px 12px;border-radius:999px;background:rgba(245,177,32,.14);color:#8a5b00;font-size:13px;font-weight:500}
+h2{font-family:"Frank Ruhl Libre",serif;font-weight:500;font-size:44px;line-height:1.1;margin:14px 0 12px}
+html[lang=en] h2{font-family:"Fraunces",serif}
+p{color:var(--ink2);font-size:17px;line-height:1.6;margin:0;max-width:34ch}
+.stage{position:relative;width:640px;height:480px;border-radius:22px;overflow:hidden;background:radial-gradient(120% 90% at 50% 38%,rgba(255,255,255,.75),rgba(255,255,255,0) 70%)}
+.he,.en{display:none}html[lang=he] .he,html[lang=en] .en{display:block}
+.keys{display:flex;gap:14px;flex-wrap:wrap;margin-top:22px;font-size:13px;color:var(--muted)}
+.keys span{display:inline-flex;align-items:center;gap:6px}.keys i{width:8px;height:8px;border-radius:50%}
+@media (max-width:900px){
+ main{padding:24px 15px}
+ .card{grid-template-columns:1fr;gap:16px;padding:18px 0 0;}
+ .card>div:first-child{padding:0 18px}
+ h2{font-size:34px}
+ .stage{width:100%;height:320px;border-radius:0 0 28px 28px}
+}
+</style>
+</head>
+<body>
+<div class="fields"><i></i><i></i><i></i><i></i></div>
+<main>
+  <section class="card">
+    <div>
+      <span class="chip he">חדש · בהדגמה</span><span class="chip en">New · in demo</span>
+      <h2 class="he">המקום שלכם</h2><h2 class="en">Your place</h2>
+      <p class="he">(טקסט הסקשן — של עוזר העמוד. כאן רק כדי לשפוט את הרצפה בהקשר.)</p>
+      <p class="en">(The section's copy belongs to the page helper; here only to judge the floor in its setting.)</p>
+      <div class="keys">
+        <span><i style="background:#6FAE8E"></i>free</span><span><i style="background:#F5B120"></i>seated</span><span><i style="background:#FF7A45"></i>ending soon</span><span><i style="background:#E25C7A"></i>time up</span><span><i style="background:#7FA9DB"></i>reserved</span>
+      </div>
+    </div>
+    <div class="stage" id="stage"></div>
+  </section>
+</main>
+<script type="module" src="../.scratch/lab/floor-lab.js"></script>
+</body>
+</html>

@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="he" dir="rtl" data-title-he="מנה · רואים את המנה לפני שמזמינים" data-title-en="Mana · See the dish before you order" data-desc-he="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom." data-desc-en="A QR menu that shows your dishes on the table, in relief. You build it yourself; guests open it with no app. Free for 30 days from your first publish. By Halom.">
+<html lang="he" dir="rtl" data-title-he="מנה · השולחן הוא רק ההתחלה" data-title-en="Mana · The table is just the beginning" data-desc-he="מסעדנות פוגשת טכנולוגיה: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום." data-desc-en="Hospitality meets technology: a menu where every dish you photograph stands on the guest’s table, a relief from one photo. Coming: a seat map, bids for tables, your site and reels. The first 30 days free, no card. By Halom.">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>מנה · רואים את המנה לפני שמזמינים</title>
-<meta name="description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
+<title>מנה · השולחן הוא רק ההתחלה</title>
+<meta name="description" content="מסעדנות פוגשת טכנולוגיה: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום.">
 <!-- Pilot: not for search engines yet. The founder removes this line at launch. -->
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#0B0907">
-<meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
+<meta name="theme-color" content="#F7F4EE">
+<meta http-equiv="Content-Security-Policy" content="connect-src 'self' blob: https://zemdhczqlhkabfwxccqq.supabase.co; frame-src 'self'">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Mana · מנה">
-<meta property="og:title" content="מנה · רואים את המנה לפני שמזמינים">
-<meta property="og:description" content="תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בונים לבד, והסועדים פותחים בלי אפליקציה. חינם ל־30 יום מהפרסום הראשון. מבית Halom.">
+<meta property="og:title" content="מנה · השולחן הוא רק ההתחלה">
+<meta property="og:description" content="מסעדנות פוגשת טכנולוגיה: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום.">
 <meta property="og:url" content="https://halom.io/mana/">
 <meta property="og:image" content="https://halom.io/mana/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -24,276 +24,332 @@
 <link rel="icon" href="./img/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="./img/favicon-180.png">
 <link rel="preload" href="./fonts/frank-ruhl-libre-hebrew-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="./tokens.css">
-<link rel="stylesheet" href="./mana.css">
+<link rel="stylesheet" href="./land.css">
 <script>/* language before first paint: ?lang=, then the last choice, then Hebrew */
 (function(){try{var l=new URLSearchParams(location.search).get('lang')||localStorage.getItem('mana-lang');if(l==='en'){document.documentElement.lang='en';document.documentElement.dir='ltr';}}catch(e){}})();</script>
 <script src="./config.js"></script>
 <script>/* what the product can do today, before first paint: the menu scanner is named only when it is switched on */
 (function(){var c=window.HALOM_MENUS_CONFIG;if(c&&c.features&&c.features.scan===true)document.documentElement.setAttribute('data-scan','1');})();</script>
 </head>
-<body class="on-table">
-<div class="page-table" aria-hidden="true"></div><div class="page-lamp" id="page-lamp" aria-hidden="true"></div>
+<body class="land">
+<div class="aura" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i><i class="a4"></i><i class="a5"></i></div>
+<svg class="defs" width="0" height="0" aria-hidden="true" focusable="false"><defs>
+  <symbol id="mana-qr" viewBox="-2 -2 33 33"><rect x="-2" y="-2" width="33" height="33" rx="2" fill="#fff"/><path fill="#16120E" d="M0 0h7v1h-7zM8 0h1v1h-1zM13 0h4v1h-4zM22 0h7v1h-7zM0 1h1v1h-1zM6 1h1v1h-1zM8 1h1v1h-1zM11 1h4v1h-4zM16 1h2v1h-2zM19 1h1v1h-1zM22 1h1v1h-1zM28 1h1v1h-1zM0 2h1v1h-1zM2 2h3v1h-3zM6 2h1v1h-1zM8 2h2v1h-2zM12 2h1v1h-1zM14 2h2v1h-2zM17 2h1v1h-1zM19 2h2v1h-2zM22 2h1v1h-1zM24 2h3v1h-3zM28 2h1v1h-1zM0 3h1v1h-1zM2 3h3v1h-3zM6 3h1v1h-1zM8 3h3v1h-3zM12 3h1v1h-1zM15 3h2v1h-2zM18 3h2v1h-2zM22 3h1v1h-1zM24 3h3v1h-3zM28 3h1v1h-1zM0 4h1v1h-1zM2 4h3v1h-3zM6 4h1v1h-1zM9 4h2v1h-2zM12 4h1v1h-1zM14 4h5v1h-5zM20 4h1v1h-1zM22 4h1v1h-1zM24 4h3v1h-3zM28 4h1v1h-1zM0 5h1v1h-1zM6 5h1v1h-1zM8 5h3v1h-3zM18 5h2v1h-2zM22 5h1v1h-1zM28 5h1v1h-1zM0 6h7v1h-7zM8 6h1v1h-1zM10 6h1v1h-1zM12 6h1v1h-1zM14 6h1v1h-1zM16 6h1v1h-1zM18 6h1v1h-1zM20 6h1v1h-1zM22 6h7v1h-7zM10 7h2v1h-2zM13 7h1v1h-1zM15 7h1v1h-1zM17 7h2v1h-2zM0 8h2v1h-2zM4 8h3v1h-3zM10 8h1v1h-1zM12 8h2v1h-2zM15 8h1v1h-1zM17 8h1v1h-1zM19 8h2v1h-2zM23 8h1v1h-1zM25 8h4v1h-4zM0 9h2v1h-2zM4 9h1v1h-1zM7 9h2v1h-2zM13 9h4v1h-4zM18 9h1v1h-1zM22 9h7v1h-7zM3 10h5v1h-5zM9 10h2v1h-2zM15 10h1v1h-1zM17 10h2v1h-2zM24 10h1v1h-1zM28 10h1v1h-1zM0 11h3v1h-3zM7 11h3v1h-3zM12 11h1v1h-1zM14 11h1v1h-1zM17 11h4v1h-4zM22 11h1v1h-1zM24 11h2v1h-2zM27 11h2v1h-2zM0 12h2v1h-2zM4 12h1v1h-1zM6 12h2v1h-2zM11 12h1v1h-1zM13 12h3v1h-3zM17 12h1v1h-1zM20 12h1v1h-1zM27 12h1v1h-1zM0 13h1v1h-1zM2 13h2v1h-2zM7 13h1v1h-1zM9 13h2v1h-2zM12 13h1v1h-1zM15 13h2v1h-2zM22 13h7v1h-7zM0 14h2v1h-2zM3 14h2v1h-2zM6 14h1v1h-1zM8 14h1v1h-1zM11 14h5v1h-5zM18 14h1v1h-1zM20 14h1v1h-1zM23 14h1v1h-1zM25 14h2v1h-2zM28 14h1v1h-1zM0 15h2v1h-2zM3 15h3v1h-3zM11 15h1v1h-1zM13 15h1v1h-1zM15 15h1v1h-1zM17 15h2v1h-2zM21 15h1v1h-1zM24 15h1v1h-1zM27 15h2v1h-2zM6 16h5v1h-5zM12 16h2v1h-2zM15 16h7v1h-7zM27 16h1v1h-1zM0 17h1v1h-1zM4 17h2v1h-2zM9 17h1v1h-1zM13 17h3v1h-3zM17 17h2v1h-2zM22 17h4v1h-4zM27 17h2v1h-2zM2 18h2v1h-2zM6 18h3v1h-3zM10 18h1v1h-1zM15 18h1v1h-1zM18 18h1v1h-1zM20 18h2v1h-2zM26 18h1v1h-1zM28 18h1v1h-1zM4 19h1v1h-1zM10 19h1v1h-1zM12 19h1v1h-1zM14 19h1v1h-1zM17 19h2v1h-2zM20 19h1v1h-1zM22 19h2v1h-2zM27 19h2v1h-2zM0 20h3v1h-3zM6 20h6v1h-6zM13 20h3v1h-3zM17 20h2v1h-2zM20 20h6v1h-6zM28 20h1v1h-1zM8 21h1v1h-1zM12 21h1v1h-1zM15 21h3v1h-3zM19 21h2v1h-2zM24 21h1v1h-1zM28 21h1v1h-1zM0 22h7v1h-7zM11 22h5v1h-5zM18 22h3v1h-3zM22 22h1v1h-1zM24 22h3v1h-3zM28 22h1v1h-1zM0 23h1v1h-1zM6 23h1v1h-1zM8 23h1v1h-1zM10 23h2v1h-2zM13 23h1v1h-1zM15 23h1v1h-1zM17 23h4v1h-4zM24 23h1v1h-1zM28 23h1v1h-1zM0 24h1v1h-1zM2 24h3v1h-3zM6 24h1v1h-1zM8 24h3v1h-3zM12 24h2v1h-2zM15 24h1v1h-1zM17 24h1v1h-1zM19 24h7v1h-7zM27 24h1v1h-1zM0 25h1v1h-1zM2 25h3v1h-3zM6 25h1v1h-1zM9 25h2v1h-2zM13 25h4v1h-4zM18 25h1v1h-1zM21 25h1v1h-1zM28 25h1v1h-1zM0 26h1v1h-1zM2 26h3v1h-3zM6 26h1v1h-1zM10 26h1v1h-1zM15 26h1v1h-1zM17 26h5v1h-5zM25 26h4v1h-4zM0 27h1v1h-1zM6 27h1v1h-1zM8 27h1v1h-1zM12 27h1v1h-1zM14 27h2v1h-2zM17 27h1v1h-1zM20 27h1v1h-1zM23 27h1v1h-1zM25 27h1v1h-1zM27 27h2v1h-2zM0 28h7v1h-7zM8 28h1v1h-1zM10 28h2v1h-2zM13 28h2v1h-2zM17 28h1v1h-1zM19 28h4v1h-4zM25 28h1v1h-1zM27 28h1v1h-1z"/></symbol>
+  <linearGradient id="g-energy" x1="0" y1="0" x2="1" y2=".4"><stop offset="0" stop-color="#F5B120"/><stop offset=".45" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
+  <linearGradient id="g-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF7A45" stop-opacity=".28"/><stop offset="1" stop-color="#F5B120" stop-opacity="0"/></linearGradient>
+</defs></svg>
 <a class="skip" href="#main"><span class="he" lang="he">דילוג לתוכן</span><span class="en" lang="en">Skip to content</span></a>
-<header class="top">
-  <div class="pill">
-    <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg viewBox="0 14 64 39" width="36" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
+<header class="top" id="top">
+  <div class="top-pill glass">
+    <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי"><svg class="mana-mark" viewBox="-0.7 18.3 65.4 36.1" width="34" aria-hidden="true" focusable="false"><ellipse cx="45.5" cy="44.6" rx="11.5" ry="3.6" fill="#F5B120"/><path d="M3 50.7H61" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M7 48C7 22 31 22 31 48" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M33 41.5C33 15.5 57 15.5 57 41.5" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">mana</span></b></a>
+    <nav class="top-nav"><a href="#how"><span class="he" lang="he">איך זה עובד</span><span class="en" lang="en">How it works</span></a><a href="#plans"><span class="he" lang="he">חבילות</span><span class="en" lang="en">Plans</span></a><a href="#faq"><span class="he" lang="he">שאלות</span><span class="en" lang="en">Questions</span></a></nav>
     <div class="top-tools">
       <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
-      <a class="btn btn-sm" href="./studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
+      <a class="btn btn-glass btn-sm top-demo" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-open><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 6v12l10-6z" fill="currentColor"/></svg><span class="he" lang="he">הדגמה</span><span class="en" lang="en">Demo</span></a>
+      <a class="btn btn-ink btn-sm" href="./studio/"><span class="he" lang="he">כניסה</span><span class="en" lang="en">Sign in</span></a>
     </div>
   </div>
 </header>
 <main id="main">
-
-<section class="hero" aria-labelledby="hero-h" data-lamp="object">
-  <div class="hero-grid">
+<section class="hero" id="hero" aria-labelledby="hero-h" data-live>
+  <div class="lev" aria-hidden="true"><span class="lv d0" data-depth="0" style="--x:47%;--y:9%;--mx:88%;--my:62%"><img src="./img/float/coffee.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d0 lv-wide" data-depth="0" style="--x:60%;--y:88%"><img src="./img/float/garlic.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low" loading="lazy"></span><span class="lv d0 lv-wide" data-depth="0" style="--x:97%;--y:64%"><img src="./img/float/rosemary.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low" loading="lazy"></span><span class="lv d1" data-depth="1" style="--x:3%;--y:91%;--mx:8%;--my:98%"><img src="./img/float/olive.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d1 lv-wide" data-depth="1" style="--x:95%;--y:19%"><img src="./img/float/chili.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low" loading="lazy"></span><span class="lv d1 lv-wide" data-depth="1" style="--x:50%;--y:60%"><img src="./img/float/parmesan.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low" loading="lazy"></span><span class="lv d2" data-depth="2" style="--x:63%;--y:10%;--mx:10%;--my:60%"><i class="lv-sh"></i><img src="./img/float/basil.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d2" data-depth="2" style="--x:87%;--y:87%;--mx:14%;--my:93%"><i class="lv-sh"></i><img src="./img/float/lemon.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d2" data-depth="2" style="--x:41%;--y:92%;--mx:88%;--my:95%"><i class="lv-sh"></i><img src="./img/float/raspberry.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d2 lv-wide" data-depth="2" style="--x:76%;--y:6%"><i class="lv-sh"></i><img src="./img/float/strawberry.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low" loading="lazy"></span><span class="lv d3" data-depth="3" style="--x:101%;--y:44%;--mx:92%;--my:70%"><i class="lv-sh"></i><img src="./img/float/tomato.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span><span class="lv d3" data-depth="3" style="--x:54%;--y:101%;--mx:6%;--my:82%"><i class="lv-sh"></i><img src="./img/float/mint.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"></span></div>
+  <div class="hero-in wrap">
     <div class="hero-words">
-      <h1 id="hero-h"><span class="he" lang="he">רואים את המנה לפני שמזמינים.</span><span class="en" lang="en">See the dish before you order.</span></h1>
-      <p class="he lead" lang="he">תפריט QR שמראה את המנות שלכם על השולחן.</p><p class="en lead" lang="en">A QR menu that shows your dishes on the table.</p>
-    </div>
-    <figure class="hero-stage" id="hero-stage" data-hero="still" data-src-he="./view/?demo=solo&amp;embed=hero&amp;lang=he" data-src-en="./view/?demo=solo&amp;embed=hero&amp;lang=en" data-title-he="המנה על השולחן: תבליט חי, אפשר לסובב" data-title-en="The dish on the table: a live relief you can turn">
-      <!-- The dish's flat photo paints first. mana.js places it where the live dish will stand (the same framing the guest view
-           uses), then, after the page has painted and never on Save-Data, adds the guest view in hero mode as an iframe here;
-           the live relief rises in the same place. Off screen the page tells the frame to stop its clock. -->
-      <img class="hero-poster" src="./img/hero-dish.webp" width="640" height="640" alt="" data-alt="1" fetchpriority="high" decoding="async">
+      <p class="eyebrow"><span class="he" lang="he">מסעדנות פוגשת טכנולוגיה</span><span class="en" lang="en">Hospitality meets technology</span></p>
+      <h1 id="hero-h"><span class="he" lang="he"><em>השולחן</em> הוא רק ההתחלה.</span><span class="en" lang="en"><em>The table</em> is just the beginning.</span></h1>
+      <p class="he lead" lang="he">היום: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות בשעות עומס, אתר ורילסים.</p><p class="en lead" lang="en">Today: a menu where every dish you photograph stands on the guest’s table, from one photo. Coming: a seat map, peak-time bids for tables, your site and reels.</p>
       <div class="cta">
-        <a class="btn btn-primary" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a>
-        <a class="btn" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-link><span class="he" lang="he">לנסות את ההדגמה</span><span class="en" lang="en">Try the demo</span></a>
+        <a class="btn btn-ink btn-lg" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a>
+        <a class="btn btn-glass btn-lg" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-open><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 6v12l10-6z" fill="currentColor"/></svg><span class="he" lang="he">לנסות את ההדגמה</span><span class="en" lang="en">Try the demo</span></a>
       </div>
-      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b><span class="hero-hint" hidden> · <span class="he" lang="he">גוררים כדי לסובב</span><span class="en" lang="en">Drag to turn</span></span></figcaption>
+    </div>
+    <figure class="hero-stage" id="hero-stage" data-hero="still" data-dish="0">
+      <div class="hero-box">
+        <div class="halo" aria-hidden="true"><i class="halo-ring"></i><i class="halo-orbit"><b></b></i><i class="halo-disc"></i><i class="halo-shadow"></i></div>
+        <div class="stills" aria-hidden="true"><img style="--i:0" src="./img/dishes/pizza.webp" width="640" height="640" alt="" decoding="async" fetchpriority="high"><img style="--i:1" src="./img/dishes/burger.webp" width="640" height="640" alt="" decoding="async" loading="lazy" fetchpriority="low"><img style="--i:2" src="./img/dishes/ramen.webp" width="640" height="640" alt="" decoding="async" loading="lazy" fetchpriority="low"><img style="--i:3" src="./img/dishes/croissant.webp" width="640" height="640" alt="" decoding="async" loading="lazy" fetchpriority="low"><img style="--i:4" src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" decoding="async" loading="lazy" fetchpriority="low"><img style="--i:5" src="./img/dishes/gelato.webp" width="640" height="640" alt="" decoding="async" loading="lazy" fetchpriority="low"></div>
+        <div class="hero-gl" id="hero-gl"></div>
+      </div>
+      <figcaption class="hero-cap">
+        <span class="dish-names" aria-hidden="true"><span class="dn-stack"><span class="dn" style="--i:0"><span class="he" lang="he">מרגריטה</span><span class="en" lang="en">Margherita</span></span><span class="dn" style="--i:1"><span class="he" lang="he">המבורגר</span><span class="en" lang="en">Burger</span></span><span class="dn" style="--i:2"><span class="he" lang="he">ראמן</span><span class="en" lang="en">Ramen</span></span><span class="dn" style="--i:3"><span class="he" lang="he">קרואסון</span><span class="en" lang="en">Croissant</span></span><span class="dn" style="--i:4"><span class="he" lang="he">שקשוקה</span><span class="en" lang="en">Shakshuka</span></span><span class="dn" style="--i:5"><span class="he" lang="he">גלידה</span><span class="en" lang="en">Gelato</span></span></span></span>
+        <span class="ai-tag"><span class="he" lang="he">המחשה · נוצרה בבינה מלאכותית</span><span class="en" lang="en">Illustration · made with AI</span></span>
+      </figcaption>
     </figure>
   </div>
 </section>
-
-<section class="flow glass-sec reveal" id="how" aria-labelledby="how-h">
-  <div class="wrap"><div class="glass">
-    <h2 id="how-h"><span class="he" lang="he">שלושה צעדים</span><span class="en" lang="en">Three steps</span></h2>
-    <div class="flow-rail">
-      <svg class="flow-line" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><path class="straight" pathLength="1" d="M0 12H100"/><path class="wave" pathLength="1" d="M0 12C9 3 17 3 25 12s16 9 25 0 16-9 25 0 16 9 25 0"/></svg>
-      <svg class="flow-chev c1" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4"/></svg>
-      <svg class="flow-chev c2" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2l4 4-4 4"/></svg>
-      <ol class="flow-row">
-        <li class="flow-step">
-          <div class="flow-disc"><span class="flow-n num" aria-hidden="true">1</span><span class="if-scan"><svg viewBox="0 0 96 96" aria-hidden="true">
-  <g transform="rotate(-9 38 54)"><rect x="17" y="27" width="42" height="54" rx="4" fill="#fff" stroke="#0F0F0F" stroke-width="1.7"/><path d="M25 38h18M25 46h26M25 54h22M25 62h26M25 70h14" stroke="#0F0F0F" stroke-width="1.7" stroke-linecap="round" opacity=".4"/></g>
-  <g transform="rotate(8 63 44)"><rect x="46" y="13" width="34" height="62" rx="7.5" fill="#0F0F0F"/><rect x="49.5" y="18.5" width="27" height="51" rx="4" fill="#FCF8F6"/>
-    <path d="M54 29h13M54 37h18M54 45h11M54 53h18" stroke="#0F0F0F" stroke-width="1.6" stroke-linecap="round" opacity=".5"/>
-    <rect class="scan" x="49.5" y="21" width="27" height="2.6" rx="1.3" fill="#F5B120"/></g>
-</svg></span><span class="if-noscan"><svg viewBox="0 0 96 96" aria-hidden="true">
-  <rect x="23" y="16" width="50" height="64" rx="5" fill="#fff" stroke="#0F0F0F" stroke-width="1.7"/>
-  <path d="M32 30h20M32 41h24M32 52h17" stroke="#0F0F0F" stroke-width="1.7" stroke-linecap="round" opacity=".4"/>
-  <path d="M60 30h5M60 41h5M60 52h5" stroke="#9A5238" stroke-width="1.7" stroke-linecap="round"/>
-  <path d="M32 63h11" stroke="#0F0F0F" stroke-width="1.7" stroke-linecap="round"/>
-  <rect class="caret" x="46" y="57.5" width="2.4" height="11" rx="1.2" fill="#F5B120"/>
-</svg></span></div>
-          <p><span class="if-scan"><span class="he" lang="he">סורקים את התפריט המודפס</span><span class="en" lang="en">Scan your printed menu</span></span><span class="if-noscan"><span class="he" lang="he">מדביקים או מקלידים תפריט</span><span class="en" lang="en">Paste or type your menu</span></span></p>
-        </li>
-        <li class="flow-step">
-          <div class="flow-disc"><span class="flow-n num" aria-hidden="true">2</span><svg viewBox="0 0 96 96" aria-hidden="true">
-  <path d="M12 64 38 47l46 10-26 20z" fill="#fff" stroke="#0F0F0F" stroke-width="1.7" stroke-linejoin="round"/>
-  <ellipse cx="48" cy="62" rx="19" ry="7.5" fill="none" stroke="#0F0F0F" stroke-width="1.4" opacity=".3"/>
-  <path d="M26 50v10M70 50v10" stroke="#0F0F0F" stroke-width="1.4" stroke-linecap="round" stroke-dasharray="1.5 3.5" opacity=".55"/>
-  <g class="lift"><ellipse cx="48" cy="42" rx="24" ry="10.5" fill="#FCF8F6" stroke="#0F0F0F" stroke-width="1.7"/><ellipse cx="48" cy="38.5" rx="13" ry="6" fill="#F5B120"/></g>
-</svg></div>
-          <p><span class="he" lang="he">מוסיפים תמונות או איורים</span><span class="en" lang="en">Add photos or illustrations</span></p>
-        </li>
-        <li class="flow-step">
-          <div class="flow-disc"><span class="flow-n num" aria-hidden="true">3</span><svg viewBox="0 0 96 96" aria-hidden="true">
-  <path d="M18 80h60" stroke="#0F0F0F" stroke-width="1.4" stroke-linecap="round" opacity=".3"/>
-  <g transform="rotate(-4 48 48)"><rect x="27" y="13" width="42" height="62" rx="4.5" fill="#fff" stroke="#0F0F0F" stroke-width="1.7"/>
-    <g fill="#0F0F0F"><path fill-rule="evenodd" d="M34 21h10v10H34zm2.6 2.6v4.8h4.8v-4.8zM52 21h10v10H52zm2.6 2.6v4.8h4.8v-4.8zM34 39h10v10H34zm2.6 2.6v4.8h4.8v-4.8z"/>
-      <path d="M38 25h2v2h-2zM56 25h2v2h-2zM38 43h2v2h-2zM46.5 21h3v3h-3zM46.5 27h3v3h-3zM34 33.5h3v3h-3zM40 33.5h3v3h-3zM46.5 33.5h3v3h-3zM53 33.5h3v3h-3zM59 33.5h3v3h-3zM46.5 40h3v3h-3zM53 40h3v3h-3zM59 46h3v3h-3zM46.5 46h3v3h-3zM53 46h3v3h-3zM59 40h3v3h-3z"/></g>
-    <ellipse cx="48" cy="63" rx="9.5" ry="5" fill="none" stroke="#0F0F0F" stroke-width="1.4"/><ellipse cx="48" cy="61.8" rx="5" ry="2.7" fill="#F5B120"/></g>
-</svg></div>
-          <p><span class="he" lang="he">מדפיסים קוד QR</span><span class="en" lang="en">Print the QR</span></p>
-        </li>
-      </ol>
-    </div>
-  </div></div>
-</section>
-
-<section class="stop looks reveal" id="looks" aria-labelledby="looks-h" data-lamp="object">
-  <div class="wrap stop-grid">
-    <div class="stop-words glass">
-      <h2 id="looks-h"><span class="he" lang="he">התפריט שלכם, המראה שלכם</span><span class="en" lang="en">Your menu, your look</span></h2>
-      <p class="he" lang="he">בונים לבד. הסועדים לא צריכים אפליקציה. המראה של המקום שלכם.</p><p class="en" lang="en">Build it yourself. Guests need no app. Your place’s look.</p>
-    </div>
-    <figure class="looks-row stop-object">
-      <a class="look" style="--i:0" href="./view/?demo=olea&amp;template=album-side&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=album-side&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=album-side&amp;lang=en"><img src="./img/looks/album-side.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="3"><span class="look-name"><span class="he" lang="he">צד א׳</span><span class="en" lang="en">Album Side</span></span></a>
-      <a class="look" style="--i:1" href="./view/?demo=olea&amp;template=casablanca-white&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=casablanca-white&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=casablanca-white&amp;lang=en"><img src="./img/looks/casablanca-white.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="4"><span class="look-name"><span class="he" lang="he">לבן קזבלנקה</span><span class="en" lang="en">Casablanca White</span></span></a>
-      <a class="look" style="--i:2" href="./view/?demo=olea&amp;template=back-door&amp;lang=he" data-href-he="./view/?demo=olea&amp;template=back-door&amp;lang=he" data-href-en="./view/?demo=olea&amp;template=back-door&amp;lang=en"><img src="./img/looks/back-door.webp" width="390" height="844" loading="lazy" decoding="async" alt="" data-alt="5"><span class="look-name"><span class="he" lang="he">הדלת האחורית</span><span class="en" lang="en">Back Door</span></span></a>
-      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b></figcaption>
-    </figure>
+<section class="sec story" id="how" aria-labelledby="how-h" data-live>
+  <div class="wrap">
+    <p class="eyebrow story-eye"><span class="he" lang="he">פלטפורמה אחת למסעדה</span><span class="en" lang="en">One platform for your restaurant</span></p>
+    <h2 class="sec-h center" id="how-h"><span class="he" lang="he">מנה היא יותר מתפריט.</span><span class="en" lang="en">Mana is more than a menu.</span></h2>
+    <div class="story-thread" aria-hidden="true"><i class="st-line"></i><i class="st-node"></i><i class="st-node"></i><i class="st-node"></i><i class="st-orb"></i></div>
+    <ol class="chapters" data-reveal>
+      <li class="chapter glass sheen c-menu today" style="--i:0">
+        <div class="ch-art ch-menu" aria-hidden="true"><div class="ch-card"><i class="ch-line l0"><b></b><s></s></i><i class="ch-line l1"><b></b><s></s></i><i class="ch-line l2"><b></b><s></s></i><i class="ch-line l3"><b></b><s></s></i>
+    <img class="ch-dish d1" src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><img class="ch-dish d2" src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-sh"></i></div></div>
+        <span class="chip chip-today"><span class="he" lang="he">היום</span><span class="en" lang="en">Today</span></span>
+        <h3><span class="he" lang="he">התפריט שלכם מתעורר.</span><span class="en" lang="en">Your menu comes alive.</span></h3>
+        <p class="he ch-p" lang="he">כל מנה בתבליט מתמונה אחת, בעברית ובאנגלית, עם ״אזל״ חי ונתונים כל שבוע.</p><p class="en ch-p" lang="en">Every dish a relief from one photo, in Hebrew and English, with live sold out and insights every week.</p>
+      </li>
+      <li class="chapter glass sheen c-place" style="--i:1">
+        <div class="ch-art ch-place" aria-hidden="true"><div class="ch-plane"><i class="ch-bar"></i><i class="ch-t free" style="--i:0"></i><i class="ch-t seated" style="--i:1"></i><i class="ch-t ending" style="--i:2"></i><i class="ch-t bid" style="--i:3"></i><i class="ch-t seated" style="--i:4"></i><i class="ch-t free" style="--i:5"></i><i class="ch-t reserved" style="--i:6"></i><i class="ch-t seated" style="--i:7"></i></div></div>
+        <span class="chip chip-soon"><span class="he" lang="he">בקרוב</span><span class="en" lang="en">Coming</span></span>
+        <h3><span class="he" lang="he">המקום שלכם על המפה.</span><span class="en" lang="en">Your place on the map.</span></h3>
+        <p class="he ch-p" lang="he">המקום בתלת־ממד, בקשות ישיבה, שעון לכל שולחן, ובשעות העומס: הצעות על שולחנות.</p><p class="en ch-p" lang="en">Your place in 3D, seat requests, a clock on every table and, at peak hours, bids for a table.</p>
+      </li>
+      <li class="chapter glass sheen c-creative" style="--i:2">
+        <div class="ch-art ch-creative" aria-hidden="true"><div class="ch-phone2"><div class="ch-slides">
+    <div class="ch-s s-reel"><i class="ch-prog"></i><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-play"></i></div>
+    <div class="ch-s s-post"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-tl"></i><i class="ch-tl s"></i><i class="ch-heart"></i></div>
+    <div class="ch-s s-site"><i class="ch-dots"></i><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="ch-btn"></i></div>
+  </div></div></div>
+        <span class="chip chip-soon"><span class="he" lang="he">בקרוב</span><span class="en" lang="en">Coming</span></span>
+        <h3><span class="he" lang="he">הקריאטיב שלכם נוצר.</span><span class="en" lang="en">Your creative, made.</span></h3>
+        <p class="he ch-p" lang="he">אתר משלכם, רילסים ודמות מארחת למותג, מבית הסטודיו של Halom.</p><p class="en ch-p" lang="en">Your own site, reels and a host character for your brand, from the Halom studio.</p>
+      </li>
+    </ol>
+    <p class="he story-foot center" lang="he">מתחילים היום בתפריט. כל השאר מצטרף לחבילות כשהוא מוכן.</p><p class="en story-foot center" lang="en">Start with the menu today. Everything else joins the plans as it is ready.</p>
+    <p class="ai-tag center"><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></p>
   </div>
 </section>
-
-<section class="demo glass-sec" id="demo" aria-labelledby="demo-h">
-  <div class="wrap"><div class="glass demo-grid">
-    <div class="demo-words">
-      <h2 id="demo-h"><span class="he" lang="he">נסו בעצמכם</span><span class="en" lang="en">Try it yourself</span></h2>
-      <ul class="gest">
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V6M7.5 10.5L12 6l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="20" r="1.6" fill="currentColor"/></svg><span class="he" lang="he">מחליקים</span><span class="en" lang="en">Swipe</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".45"/></svg><span class="he" lang="he">נוגעים</span><span class="en" lang="en">Tap</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="6.5" ry="3.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 9.5c0 2.5 0 5 1.8 7.3M3 9.5l-1.3 2.3M3 9.5l2.2 1.3M21 9.5c0 2.5 0 5-1.8 7.3M21 9.5l1.3 2.3M21 9.5l-2.2 1.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">מטים</span><span class="en" lang="en">Tilt</span></li>
-      </ul>
-      <p class="demo-film"><a class="btn" href="./img/film-16x9.mp4" data-film data-film-wide="./img/film-16x9.mp4" data-film-tall="./img/film-9x16.mp4" data-film-wide-en="./img/film-16x9-en.mp4" data-film-tall-en="./img/film-9x16-en.mp4"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg><span class="he" lang="he">לצפות בסרט</span><span class="en" lang="en">Watch the film</span></a></p>
-    </div>
-    <div class="demo-stage" id="phone" data-state="still">
-      <div class="phone">
-        <div class="phone-screen">
-          <img class="phone-poster" src="./img/demo-poster.jpg" width="720" height="1560" loading="lazy" decoding="async" alt="" data-alt="2">
-          <a class="btn btn-primary demo-play" href="./view/?demo=olea&amp;lang=he" data-href-he="./view/?demo=olea&amp;lang=he" data-href-en="./view/?demo=olea&amp;lang=en" data-demo-start><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg><span class="he" lang="he">לשחק עם זה</span><span class="en" lang="en">Play with it</span></a>
-        </div>
-      </div>
-    </div>
-  </div></div>
-</section>
-
-<section class="stop seat reveal" id="seat" aria-labelledby="seat-h" data-lamp="object">
-  <div class="wrap stop-grid">
-    <div class="stop-words glass">
-      <h2 id="seat-h"><span class="he" lang="he">המקום שלכם</span><span class="en" lang="en">Your seat</span></h2>
-      <p class="he" lang="he">הסועדים בוחרים אזור או שולחן. אתם מאשרים.</p><p class="en" lang="en">Guests pick an area or a table. You approve.</p>
-      <p class="stop-link"><a class="btn" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en"><span class="he" lang="he">לנסות את מפת הישיבה</span><span class="en" lang="en">Try the seat map</span></a></p>
-    </div>
-    <div class="stop-object"><div class="sheet-stage"><div class="sheet" role="img" data-label-he="תוכנית קומה עם שולחן אחד נבחר" data-label-en="A floor plan with one table chosen" aria-label="תוכנית קומה עם שולחן אחד נבחר">
-        <div class="sheet-far"><svg viewBox="0 0 14 5" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="14" height="10" fill="#f4efe5"/><rect x="10.25" y="0.25" width="3.5" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="2.75" width="6" height="7" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="0.25" width="6" height="2" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="0.25" y="0.25" width="3" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><path d="M0,0 L14,0" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M14,0 L14,10" stroke="rgba(60,44,28,.78)" stroke-width="0.05" stroke-linecap="round" stroke-dasharray=".5 .18"/><path d="M14,10 L0,10" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M0,10 L0,6 M0,4 L0,0" stroke="rgba(60,44,28,.78)" stroke-width=".09" stroke-linecap="round"/><path d="M0,6 L0,4" stroke="rgba(60,44,28,.78)" stroke-width=".04" stroke-dasharray=".12 .12"/><g transform="translate(12.4 1.6) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 4) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 6.4) rotate(0)"><rect x="-0.46" y="-0.46" width="0.92" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/><circle class="plan-lit" r=".22" fill="#F5B120"/><circle class="plan-lit plan-glow" r=".6" fill="#F5B120" opacity=".2"/></g><g transform="translate(12.4 8.6) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.6 9) rotate(0)"><rect x="-1.74" y="-0.46" width="3.48" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.75 1) rotate(0)"><rect x="-1.7399999999999998" y="-0.25" width="3.4799999999999995" height="0.5" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 2) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 8) rotate(0)"><circle r="0.435" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g></svg><i class="sheet-back" aria-hidden="true"></i></div>
-        <div class="sheet-near"><svg viewBox="0 5 14 5" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="14" height="10" fill="#f4efe5"/><rect x="10.25" y="0.25" width="3.5" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="2.75" width="6" height="7" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="3.75" y="0.25" width="6" height="2" rx=".3" fill="rgba(60,44,28,.1)"/><rect x="0.25" y="0.25" width="3" height="9.5" rx=".3" fill="rgba(60,44,28,.1)"/><path d="M0,0 L14,0" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M14,0 L14,10" stroke="rgba(60,44,28,.78)" stroke-width="0.05" stroke-linecap="round" stroke-dasharray=".5 .18"/><path d="M14,10 L0,10" stroke="rgba(60,44,28,.78)" stroke-width="0.09" stroke-linecap="round"/><path d="M0,10 L0,6 M0,4 L0,0" stroke="rgba(60,44,28,.78)" stroke-width=".09" stroke-linecap="round"/><path d="M0,6 L0,4" stroke="rgba(60,44,28,.78)" stroke-width=".04" stroke-dasharray=".12 .12"/><g transform="translate(12.4 1.6) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 4) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(12.4 6.4) rotate(0)"><rect x="-0.46" y="-0.46" width="0.92" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/><circle class="plan-lit" r=".22" fill="#F5B120"/><circle class="plan-lit plan-glow" r=".6" fill="#F5B120" opacity=".2"/></g><g transform="translate(12.4 8.6) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 4.2) rotate(0)"><circle r="0.48" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(5.2 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(8 6.8) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.6 9) rotate(0)"><rect x="-1.74" y="-0.46" width="3.48" height="0.92" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(6.75 1) rotate(0)"><rect x="-1.7399999999999998" y="-0.25" width="3.4799999999999995" height="0.5" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 2) rotate(0)"><rect x="-0.36" y="-0.36" width="0.72" height="0.72" rx=".08" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g><g transform="translate(1.7 8) rotate(0)"><circle r="0.435" fill="#fbf7ef" stroke="rgba(60,44,28,.78)" stroke-width=".05"/></g></svg></div>
-      </div></div></div>
-  </div>
-</section>
-
-<section class="nums glass-sec" id="numbers" aria-labelledby="nums-h">
-  <div class="wrap"><div class="glass nums-grid">
-    <div class="nums-words">
-      <h2 id="nums-h"><span class="he" lang="he">מה תדעו על הסועדים</span><span class="en" lang="en">What you learn about guests</span></h2>
-      <ul class="learn">
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="14" rx="9" ry="4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="12" cy="12.3" rx="4.6" ry="2.4" fill="currentColor"/></svg><span class="he" lang="he">יודעים אילו מנות הסועדים פותחים.</span><span class="en" lang="en">Know which dishes guests open.</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">רואים מתי הכי עמוס.</span><span class="en" lang="en">See your busy hours.</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5s-1.3 6.1-3.9 8.5c-2.6-2.4-3.9-5.2-3.9-8.5S9.4 5.9 12 3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">רואים כמה קוראים באנגלית.</span><span class="en" lang="en">See how many read in English.</span></li>
-        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 2.8v5.4c0 4.4-3 7.9-7.5 9.8-4.5-1.9-7.5-5.4-7.5-9.8V5.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.8 12.2l2.3 2.3 4.2-4.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">בלי עוגיות, בלי לשמור דבר על הסועדים.</span><span class="en" lang="en">No cookies, nothing stored about guests.</span></li>
-      </ul>
-    </div>
-    <div class="nums-dash">
-      <figure class="dash reveal" aria-labelledby="dash-cap">
-        <figcaption class="dash-top" id="dash-cap"><b class="dash-name"><span class="he" lang="he">אוליאה</span><span class="en" lang="en">Olea</span></b><span class="dash-sample"><span class="he" lang="he">דוגמה, מספרים להמחשה</span><span class="en" lang="en">Example, sample numbers</span></span></figcaption>
-        <div class="dash-grid">
-          <div class="tile tile-views">
-            <div><h3><span class="he" lang="he">צפיות השבוע</span><span class="en" lang="en">Views this week</span></h3><p class="dash-big num">212<small class="up"><bdi dir="ltr">+18%</bdi></small></p></div>
-            <div class="spark" aria-hidden="true"><svg viewBox="0 0 132 40" preserveAspectRatio="none"><path class="spark-area" d="M3 35.9L7.3 32.5L11.7 33.6L16 30.2L20.4 22.3L24.7 17.7L29.1 37L33.4 32.5L37.8 30.2L42.1 31.3L46.4 26.8L50.8 17.7L55.1 12.1L59.5 34.7L63.8 30.2L68.2 27.9L72.5 26.8L76.9 24.5L81.2 25.7L85.6 20L89.9 9.8L94.2 4.1L98.6 31.3L102.9 22.3L107.3 25.7L111.6 20L116 16.6L120.3 10.9L124.7 3L129 7.5L129 40L3 40z"/><path class="spark-line" d="M3 35.9L7.3 32.5L11.7 33.6L16 30.2L20.4 22.3L24.7 17.7L29.1 37L33.4 32.5L37.8 30.2L42.1 31.3L46.4 26.8L50.8 17.7L55.1 12.1L59.5 34.7L63.8 30.2L68.2 27.9L72.5 26.8L76.9 24.5L81.2 25.7L85.6 20L89.9 9.8L94.2 4.1L98.6 31.3L102.9 22.3L107.3 25.7L111.6 20L116 16.6L120.3 10.9L124.7 3L129 7.5"/></svg><i class="spark-dot" style="left:97.73%;top:18.75%"></i></div>
-          </div>
-          <div class="tile tile-dishes">
-            <h3><span class="he" lang="he">מנות מובילות</span><span class="en" lang="en">Top dishes</span></h3>
-            <ol class="bars"><li><span class="he" lang="he">שקשוקה</span><span class="en" lang="en">Shakshuka</span><i style="--w:100%;--d:0ms"></i></li><li><span class="he" lang="he">מרגריטה</span><span class="en" lang="en">Margherita</span><i style="--w:84%;--d:70ms"></i></li><li><span class="he" lang="he">שרימפס</span><span class="en" lang="en">Shrimp</span><i style="--w:67%;--d:140ms"></i></li><li><span class="he" lang="he">קבב</span><span class="en" lang="en">Kebab</span><i style="--w:54%;--d:210ms"></i></li><li><span class="he" lang="he">כנאפה</span><span class="en" lang="en">Knafeh</span><i style="--w:43%;--d:280ms"></i></li></ol>
-          </div>
-          <div class="tile tile-hours">
-            <h3><span class="he" lang="he">שעות עמוסות</span><span class="en" lang="en">Busy hours</span></h3>
-            <div class="hours" dir="ltr" aria-hidden="true"><i style="--h:4%;--d:0ms"></i><i style="--h:4%;--d:18ms"></i><i style="--h:4%;--d:36ms"></i><i style="--h:4%;--d:54ms"></i><i style="--h:4%;--d:72ms"></i><i style="--h:4%;--d:90ms"></i><i style="--h:4%;--d:108ms"></i><i style="--h:4%;--d:126ms"></i><i style="--h:8%;--d:144ms"></i><i style="--h:14%;--d:162ms"></i><i style="--h:17%;--d:180ms"></i><i style="--h:25%;--d:198ms"></i><i style="--h:61%;--d:216ms"></i><i style="--h:83%;--d:234ms"></i><i style="--h:64%;--d:252ms"></i><i style="--h:28%;--d:270ms"></i><i style="--h:19%;--d:288ms"></i><i style="--h:25%;--d:306ms"></i><i style="--h:44%;--d:324ms"></i><i style="--h:75%;--d:342ms"></i><i class="peak" style="--h:100%;--d:360ms"></i><i style="--h:83%;--d:378ms"></i><i style="--h:47%;--d:396ms"></i><i style="--h:17%;--d:414ms"></i></div>
-            <div class="hours-ticks num" dir="ltr" aria-hidden="true"><span style="--x:12">12</span><span style="--x:20">20</span></div>
-          </div>
-          <div class="tile tile-s"><p class="dash-mid num"><bdi dir="ltr">31%</bdi></p><h3><span class="he" lang="he">תיירים</span><span class="en" lang="en">Tourists</span></h3><span class="share" style="--w:31%"></span></div>
-          <div class="tile tile-s"><p class="dash-mid num"><bdi dir="ltr">78%</bdi></p><h3><span class="he" lang="he">מקוד ה־QR</span><span class="en" lang="en">From the QR</span></h3><span class="share" style="--w:78%"></span></div>
-          <div class="tile tile-s"><p class="dash-mid num">64</p><h3><span class="he" lang="he">ל״שולחן שלי״</span><span class="en" lang="en">To “my table”</span></h3></div>
-        </div>
-      </figure>
-    </div>
-  </div></div>
-</section>
-
-<section class="stop reels reveal" id="reels" aria-labelledby="reels-h" data-lamp="object" data-dim="0.8">
-  <div class="wrap stop-grid">
-    <div class="stop-words glass">
-      <h2 id="reels-h"><span class="he" lang="he">האתר שלכם, הרילסים שלכם</span><span class="en" lang="en">Your site, your reels</span></h2>
-      <p class="he" lang="he">תפריט אחד, אתר אחד, רילסים כדי להתחיל.</p><p class="en" lang="en">One menu, one site, reels to start.</p>
-    </div>
-    <figure class="reel stop-object">
-      <div class="reel-phone phone">
-        <div class="phone-screen">
-          <!-- the still is the picture under the film (lazy: it is far below the fold); the film plays once when the phone is on screen, from script:
-               no source, no poster and no autoplay here, so nothing is fetched before then -->
-          <img class="phone-poster" src="./img/hero-poster-480.jpg" srcset="./img/hero-poster-480.jpg 480w, ./img/hero-poster.jpg 720w" sizes="230px" width="720" height="1560" loading="lazy" decoding="async" alt="" aria-hidden="true">
-          <video class="reel-video" muted playsinline preload="none" width="390" height="844" tabindex="-1" data-mp4="./img/hero.mp4" data-mp4-en="./img/hero-en.mp4" data-label-he="התפריט של אוליאה בטלפון של סועד" data-label-en="The Olea menu on a guest’s phone" aria-label="התפריט של אוליאה בטלפון של סועד"></video>
-        </div>
-      </div>
-      <img class="reel-reflect" src="./img/hero-poster-480.jpg" width="480" height="1040" loading="lazy" decoding="async" alt="" aria-hidden="true">
-      <figcaption class="demo-tag"><b><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></b></figcaption>
-    </figure>
-  </div>
-</section>
-
-<section class="perks glass-sec" aria-labelledby="perks-h">
-  <div class="wrap"><div class="glass">
-    <h2 class="vh" id="perks-h"><span class="he" lang="he">מה מקבלים</span><span class="en" lang="en">What you get</span></h2>
-    <ul>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.8" width="10" height="18.4" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 18h3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.8 9.3l4.4 4.4M14.2 9.3l-4.4 4.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">בלי אפליקציה לסועדים</span><span class="en" lang="en">No app for guests</span></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><text x="6.5" y="16.5" font-family="Frank Ruhl Libre,serif" font-size="13" font-weight="500" text-anchor="middle" fill="currentColor">א</text><text x="17.2" y="16.5" font-family="Frank Ruhl Libre,serif" font-size="13" font-weight="500" text-anchor="middle" fill="currentColor">A</text><path d="M12 6v12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".35"/></svg><span class="he" lang="he">עברית ואנגלית</span><span class="en" lang="en">Hebrew and English</span></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.8" y="7" width="18.4" height="10" rx="5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7.8" cy="12" r="2.6" fill="currentColor"/></svg><span class="he" lang="he">״אזל״ בנגיעה אחת</span><span class="en" lang="en">Sold out in one tap</span></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 14h2.5v2.5H14zM18 18h2.5v2.5H18zM18 14h2.5M14 18v2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">קוד QR שלא משתנה</span><span class="en" lang="en">Your QR never changes</span></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="10.5" cy="15" rx="8" ry="4.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.2 2.6"/><path d="M14.5 10.5l5.3-5.3 1.9 1.9-5.3 5.3-2.5.6z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">איורים עד שיש תמונות</span><span class="en" lang="en">Illustrations until you have photos</span></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 9.5h17M8 3v3.5M16 3v3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="17.6" font-family="Frank Ruhl Libre,serif" font-size="7.5" font-weight="500" text-anchor="middle" fill="currentColor">30</text></svg><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">Free for 30 days</span></li>
+<section class="sec simple" id="simple" aria-labelledby="simple-h" data-live>
+  <div class="wrap">
+    <h2 class="sec-h center" id="simple-h"><span class="he" lang="he">פשוט לסועדים. פשוט לכם.</span><span class="en" lang="en">Simple for guests. Simple for you.</span></h2>
+    <ul class="bento" data-reveal>
+      <li class="tile-b b-noapp glass sheen"><div class="viz v-noapp" aria-hidden="true"><div class="v-phone"><i class="v-notch"></i><div class="v-screen">
+    <svg class="qr v-qr" viewBox="-2 -2 33 33" shape-rendering="crispEdges" aria-hidden="true"><use href="#mana-qr"/></svg><i class="v-scan"></i>
+    <div class="v-menu"><img src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><i class="v-l1"></i><i class="v-l2"></i><i class="v-l3"></i></div>
+  </div></div><i class="v-cam"></i></div><div class="b-words"><h3><span class="he" lang="he">בלי אפליקציה לסועדים</span><span class="en" lang="en">No app for guests</span></h3><p class="he b-sub" lang="he">מצלמה, קוד, תפריט.</p><p class="en b-sub" lang="en">Camera, code, menu.</p></div></li>
+      <li class="tile-b b-lang glass sheen"><div class="viz v-lang" aria-hidden="true">
+    <div class="v-toggle"><i class="v-knob"></i><i class="v-k v-k-en"></i><i class="v-k v-k-he"></i></div>
+    <div class="v-dish"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-names"><i class="v-n v-n-he"></i><i class="v-n v-n-en"></i></span></div>
+  </div><div class="b-words"><h3><span class="he" lang="he">עברית ואנגלית</span><span class="en" lang="en">Hebrew and English</span></h3><p class="he b-sub" lang="he">בנגיעה אחת, לכל סועד.</p><p class="en b-sub" lang="en">One tap, for every guest.</p></div></li>
+      <li class="tile-b b-sold glass sheen"><div class="viz v-sold" aria-hidden="true">
+    <div class="v-row v-row-a"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-sw on"></i></div>
+    <div class="v-row v-row-b"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-sw"></i><i class="v-chip"></i></div>
+    <div class="v-row v-row-c"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-sw on"></i></div>
+  </div><div class="b-words"><h3><span class="he" lang="he">״אזל״ בנגיעה אחת</span><span class="en" lang="en">Sold out in one tap</span></h3><p class="he b-sub" lang="he">המנה נשארת, הסועד יודע.</p><p class="en b-sub" lang="en">The dish stays; the guest knows.</p></div></li>
+      <li class="tile-b b-qr glass sheen"><div class="viz v-qrs" aria-hidden="true">
+    <div class="v-tent"><div class="v-qrcard"><svg class="qr" viewBox="-2 -2 33 33" shape-rendering="crispEdges" aria-hidden="true"><use href="#mana-qr"/></svg></div><i class="v-stand"></i><i class="v-pulse"></i></div>
+    <i class="v-beam"></i>
+    <div class="v-live"><i class="v-notch"></i><div class="v-lscreen">
+      <div class="v-lrow v-new"><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-tag v-tag-new"></i></div>
+      <div class="v-lrow v-r1"><img src="./img/dishes/burger.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-price"></i></div>
+      <div class="v-lrow v-r2"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-tag v-tag-out"></i></div>
+      <div class="v-lrow v-r3"><img src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><span class="v-lines"><i></i><i></i></span><i class="v-price"></i></div>
+    </div></div>
+  </div><div class="b-words"><h3><span class="he" lang="he">קוד אחד. תפריט חי.</span><span class="en" lang="en">One code. A living menu.</span></h3><p class="he b-sub" lang="he">הקוד המודפס נשאר. התפריט, המראה, המחירים ו״אזל״ משתנים מתי שרוצים.</p><p class="en b-sub" lang="en">The printed code stays. The menu, the look, the prices and sold out change whenever you like.</p></div></li>
+      <li class="tile-b b-draw glass sheen"><div class="viz v-draw" aria-hidden="true"><div class="v-art">
+    <svg viewBox="0 0 120 120"><g fill="none" stroke="#16120E" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle class="d1" pathLength="1" cx="58" cy="62" r="40"/><circle class="d2" pathLength="1" cx="58" cy="62" r="33" opacity=".45"/>
+      <path class="d3" pathLength="1" d="M95 46l20-13"/>
+      <path class="d4" pathLength="1" d="M38 52c3-7 13-8 16-1 2 6-4 11-10 10-5 0-8-4-6-9z"/><circle class="d5" pathLength="1" cx="45" cy="56" r="3.6"/>
+      <path class="d6" pathLength="1" d="M62 70c3-7 13-8 16-1 2 6-4 11-10 10-5 0-8-4-6-9z"/><circle class="d7" pathLength="1" cx="69" cy="74" r="3.6"/>
+      <path class="d8" pathLength="1" d="M64 40c4-5 12-4 13 2 1 5-4 9-9 8-4-1-6-6-4-10z"/>
+      <path class="d9" pathLength="1" d="M36 76l3 2M48 84l2-3M80 54l3-1M54 44l-2-3M30 64l-3 1"/></g></svg>
+    <img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async">
+  </div></div><div class="b-words"><h3><span class="he" lang="he">איורים עד שיש תמונות</span><span class="en" lang="en">Illustrations until you have photos</span></h3><p class="he b-sub" lang="he">מתחילים היום, מצלמים מחר.</p><p class="en b-sub" lang="en">Start today, shoot tomorrow.</p></div></li>
+      <li class="tile-b b-looks glass sheen"><div class="viz v-looks" aria-hidden="true">
+    <div class="v-surf"><i class="v-mat m-album-side" style="--i:0"></i><i class="v-mat m-casablanca-white" style="--i:1"></i><i class="v-mat m-back-door" style="--i:2"></i><i class="v-wipe"></i></div>
+    <div class="v-hero"><i class="v-shadow"></i><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"></div>
+    <div class="v-screens"><img style="--i:0" src="./img/looks/album-side.webp" width="390" height="844" alt="" decoding="async" fetchpriority="low"><img style="--i:1" src="./img/looks/casablanca-white.webp" width="390" height="844" alt="" decoding="async" fetchpriority="low"><img style="--i:2" src="./img/looks/back-door.webp" width="390" height="844" alt="" decoding="async" fetchpriority="low"></div>
+    <ul class="v-names"><li class="n-album-side" style="--i:0"><i></i></li><li class="n-casablanca-white" style="--i:1"><i></i></li><li class="n-back-door" style="--i:2"><i></i></li></ul>
+  </div><div class="b-words"><h3><span class="he" lang="he">המראה של המקום שלכם</span><span class="en" lang="en">Your place’s look</span></h3><p class="he b-sub" lang="he">אותה מנה, על אבן, על פשתן לבן, על עץ כהה. בוחרים את המראה שמרגיש כמו המקום.</p><p class="en b-sub" lang="en">The same dish on stone, on white linen, on dark wood. Choose the look that feels like your place.</p><span class="chip chip-soon"><span class="he" lang="he">בקרוב לכל החבילות</span><span class="en" lang="en">Coming to every plan</span></span></div></li>
     </ul>
-  </div></div>
-</section>
-
-<section class="start stop reveal" id="price" aria-labelledby="price-h" data-lamp="object">
-  <div class="wrap start-grid">
-    <div class="start-words">
-      <h2 class="big" id="price-h"><span class="he" lang="he">30 יום חינם</span><span class="en" lang="en">30 days free</span></h2>
-      <p class="he" lang="he">מהפרסום הראשון, בלי כרטיס אשראי. את ההמשך מסכמים איתנו ישירות, במהלך הפיילוט.</p><p class="en" lang="en">From your first publish, no card. What follows is agreed directly, during the pilot.</p>
-      <div class="cta">
-        <a class="btn btn-primary" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a>
-        <span class="soon"><i aria-hidden="true"></i><span class="he" lang="he">תשלום ליד השולחן · בקרוב</span><span class="en" lang="en">Pay at the table · coming</span></span>
-      </div>
-    </div>
-    <figure class="start-card" role="img" data-label-he="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור" data-label-en="An empty name card standing on the table, in a ring of light" aria-label="כרטיס שם ריק עומד על השולחן, בתוך טבעת אור">
-      <svg viewBox="0 0 320 230" aria-hidden="true">
-  <defs><linearGradient id="cardFace" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6f1e7"/><stop offset="1" stop-color="#e3dccf"/></linearGradient>
-    <linearGradient id="cardBack" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfc8bb"/><stop offset="1" stop-color="#b9b2a5"/></linearGradient>
-    <radialGradient id="cardShadow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#000" stop-opacity=".55"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient></defs>
-  <ellipse cx="166" cy="176" rx="96" ry="22" fill="url(#cardShadow)"/>
-  <path d="M104 68 L216 68 L212 74 L108 74 Z" fill="url(#cardBack)"/>
-  <path d="M100 74 L220 74 L230 170 L90 170 Z" fill="url(#cardFace)"/>
-  <path d="M110 86 L210 86 L218 158 L102 158 Z" fill="none" stroke="rgba(60,44,28,.55)" stroke-width="1.6"/>
-  <path d="M114 91 L206 91 L213.5 153 L106.5 153 Z" fill="none" stroke="rgba(60,44,28,.35)" stroke-width=".8"/>
-  <path d="M90 170 L230 170 L229 172 L91 172 Z" fill="#a89f91"/>
-  <path class="card-ring" pathLength="1" d="M160 206 A132 38 0 1 1 160 130 A132 38 0 1 1 160 206"/>
-</svg>
-    </figure>
+    <p class="ai-tag center"><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></p>
   </div>
 </section>
-
-<div class="ivory-tail">
-<section class="qa" id="faq" aria-labelledby="faq-h">
-  <div class="wrap qa-grid">
-    <h2 id="faq-h"><span class="he" lang="he">שאלות</span><span class="en" lang="en">Questions</span></h2>
-    <div class="faq">
+<section class="sec place" id="place" aria-labelledby="place-h" data-live>
+  <div class="wrap split">
+    <div class="split-words">
+      <span class="chip chip-new"><span class="he" lang="he">בקרוב · אפשר לנסות בהדגמה</span><span class="en" lang="en">Coming · try the demo</span></span>
+      <h2 class="sec-h" id="place-h"><span class="he" lang="he">המקום שלכם</span><span class="en" lang="en">Your place</span></h2>
+      <p class="he sec-p" lang="he">מפת הישיבה של המסעדה, חיה. הסועדים בוחרים אזור או שולחן, אתם מאשרים, ולכל שולחן יש שעון.</p><p class="en sec-p" lang="en">Your restaurant’s seat map, alive. Guests pick an area or a table, you approve, and every table has a clock.</p>
+      <ul class="marks">
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">זמן ישיבה לכל שולחן. אתם קובעים את ברירת המחדל.</span><span class="en" lang="en">A seating time for every table. You set the default.</span></li>
+        <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.8H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">כשהזמן נגמר, השולחן מתפנה והמנהל מקבל התראה.</span><span class="en" lang="en">When time is up, the table frees up and the manager is alerted.</span></li>
+      </ul>
+      <p class="split-cta"><a class="btn btn-glass btn-lg" href="./view/seat/?demo=olea&amp;lang=he" data-href-he="./view/seat/?demo=olea&amp;lang=he" data-href-en="./view/seat/?demo=olea&amp;lang=en" data-demo-open="seat"><span class="he" lang="he">לנסות את מפת הישיבה</span><span class="en" lang="en">Try the seat map</span></a> <a class="btn btn-glass btn-lg" href="./view/host/?demo=olea&amp;speed=60&amp;lang=he" data-href-he="./view/host/?demo=olea&amp;speed=60&amp;lang=he" data-href-en="./view/host/?demo=olea&amp;speed=60&amp;lang=en" data-demo-open="tables"><span class="he" lang="he">שעון לשולחן</span><span class="en" lang="en">Table clocks</span></a></p>
+    </div>
+    <figure class="floor glass" id="floor" data-floor="still">
+      <div class="floor-stage">
+        <div class="floor-still" aria-hidden="true"><div class="fl-scene"><div class="fl-plane"><svg class="fl-plan" viewBox="-.3 -.3 14.6 10.6" preserveAspectRatio="none"><rect x="-.3" y="-.3" width="14.6" height="10.6" rx=".5" fill="rgba(255,253,249,.7)"/><rect x="10.22" y="0.22" width="3.56" height="9.56" rx=".35" fill="rgba(255,255,255,.55)" stroke="rgba(22,18,14,.08)" stroke-width=".04"/><rect x="3.72" y="2.72" width="6.06" height="7.06" rx=".35" fill="rgba(255,255,255,.55)" stroke="rgba(22,18,14,.08)" stroke-width=".04"/><rect x="3.72" y="0.22" width="6.06" height="2.06" rx=".35" fill="rgba(255,255,255,.55)" stroke="rgba(22,18,14,.08)" stroke-width=".04"/><rect x="0.22" y="0.22" width="3.06" height="9.56" rx=".35" fill="rgba(255,255,255,.55)" stroke="rgba(22,18,14,.08)" stroke-width=".04"/><path d="M0,0 L14,0" stroke="rgba(22,18,14,.55)" stroke-width="0.12" stroke-linecap="round"/><path d="M14,0 L14,10" stroke="#7FA9DB" stroke-width="0.14" stroke-linecap="round" stroke-dasharray=".6 .2"/><path d="M14,10 L0,10" stroke="rgba(22,18,14,.55)" stroke-width="0.12" stroke-linecap="round"/><path d="M0,10 L0,6 M0,4 L0,0" stroke="rgba(22,18,14,.55)" stroke-width=".12" stroke-linecap="round"/></svg><i class="fl-t seated" style="left:86.00%;top:12.40%;width:5.14%;height:7.20%;--i:0"><b></b></i><i class="fl-t free" style="left:86.00%;top:36.40%;width:5.14%;height:7.20%;--i:1"><b></b></i><i class="fl-t ending" style="left:85.29%;top:59.40%;width:6.57%;height:9.20%;--i:2"><b></b></i><i class="fl-t seated round" style="left:85.14%;top:81.20%;width:6.86%;height:9.60%;--i:3"><b></b></i><i class="fl-t reserved round" style="left:33.71%;top:37.20%;width:6.86%;height:9.60%;--i:4"><b></b></i><i class="fl-t seated round" style="left:53.71%;top:37.20%;width:6.86%;height:9.60%;--i:5"><b></b></i><i class="fl-t free" style="left:34.57%;top:64.40%;width:5.14%;height:7.20%;--i:6"><b></b></i><i class="fl-t up" style="left:54.57%;top:64.40%;width:5.14%;height:7.20%;--i:7"><b></b></i><i class="fl-t free" style="left:34.71%;top:85.40%;width:24.86%;height:9.20%;--i:8"><b></b></i><i class="fl-t seated" style="left:35.79%;top:7.50%;width:24.86%;height:5.00%;--i:9"><b></b></i><i class="fl-t reserved" style="left:9.57%;top:16.40%;width:5.14%;height:7.20%;--i:10"><b></b></i><i class="fl-t seated round" style="left:9.04%;top:75.65%;width:6.21%;height:8.70%;--i:11"><b></b></i></div></div></div>
+        <div class="floor-gl" id="floor-gl"></div>
+      </div>
+      <figcaption><ul class="floor-key"><li class="free"><i aria-hidden="true"></i><span class="he" lang="he">פנוי</span><span class="en" lang="en">Free</span></li><li class="seated"><i aria-hidden="true"></i><span class="he" lang="he">יושבים</span><span class="en" lang="en">Seated</span></li><li class="ending"><i aria-hidden="true"></i><span class="he" lang="he">עוד מעט מתפנה</span><span class="en" lang="en">Ending soon</span></li><li class="up"><i aria-hidden="true"></i><span class="he" lang="he">הזמן נגמר</span><span class="en" lang="en">Time is up</span></li><li class="reserved"><i aria-hidden="true"></i><span class="he" lang="he">שמור</span><span class="en" lang="en">Reserved</span></li></ul></figcaption>
+    </figure>
+    <!-- the first real place: Café Lima, drawn from six photos (a first draft): the counter's board (same tab, like every link here) and the guest's phone in the demo -->
+    <p class="floor-more" id="floor-more"><span class="floor-more-t"><span class="he" lang="he">המקום הראשון שצויר מתמונות: קפה לימה, בתלת־ממד. טיוטה ראשונה.</span><span class="en" lang="en">The first place drawn from photos: Café Lima, in 3D. A first draft.</span></span>
+      <a class="btn btn-glass" href="./view/floor/?demo=lima&amp;lang=he" data-href-he="./view/floor/?demo=lima&amp;lang=he" data-href-en="./view/floor/?demo=lima&amp;lang=en"><span class="he" lang="he">הלוח של הדלפק</span><span class="en" lang="en">The counter’s board</span></a> <a class="btn btn-glass" href="./view/floor/guest.html?demo=lima&amp;table=t3&amp;lang=he" data-href-he="./view/floor/guest.html?demo=lima&amp;table=t3&amp;lang=he" data-href-en="./view/floor/guest.html?demo=lima&amp;table=t3&amp;lang=en" data-demo-open="lima"><span class="he" lang="he">הטלפון של האורח</span><span class="en" lang="en">The guest’s phone</span></a></p>
+  </div>
+</section>
+<section class="sec numbers" id="numbers" aria-labelledby="nums-h" data-live>
+  <div class="wrap">
+    <div class="nums-head">
+      <h2 class="sec-h" id="nums-h"><span class="he" lang="he">מה תדעו על הסועדים</span><span class="en" lang="en">What you learn about guests</span></h2>
+      <ul class="learn"><li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="14" rx="9" ry="4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="12" cy="12.3" rx="4.6" ry="2.4" fill="currentColor"/></svg><span class="he" lang="he">יודעים אילו מנות הסועדים פותחים.</span><span class="en" lang="en">Know which dishes guests open.</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">רואים מתי הכי עמוס.</span><span class="en" lang="en">See your busy hours.</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5s-1.3 6.1-3.9 8.5c-2.6-2.4-3.9-5.2-3.9-8.5S9.4 5.9 12 3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">רואים כמה קוראים באנגלית.</span><span class="en" lang="en">See how many read in English.</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 2.8v5.4c0 4.4-3 7.9-7.5 9.8-4.5-1.9-7.5-5.4-7.5-9.8V5.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.8 12.2l2.3 2.3 4.2-4.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">בלי עוגיות, בלי לשמור דבר על הסועדים.</span><span class="en" lang="en">No cookies, nothing stored about guests.</span></li></ul>
+    </div>
+    <figure class="ins glass" id="ins" data-ins="still" data-reveal aria-labelledby="ins-cap">
+        <figcaption class="ins-top" id="ins-cap"><b class="dash-name"><span class="he" lang="he">אוליאה</span><span class="en" lang="en">Olea</span></b><span class="ins-day" aria-hidden="true"></span><span class="dash-sample"><span class="he" lang="he">דוגמה · מספרים להמחשה</span><span class="en" lang="en">Example · sample numbers</span></span></figcaption>
+        <div class="ins-stage">
+          <div class="ins-still"><svg class="ins-svg ins-svg-wide" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>
+    <radialGradient id="ins-glass-wide" cx=".42" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset=".6" stop-color="#fff" stop-opacity=".66"/><stop offset="1" stop-color="#F3E7D6" stop-opacity=".72"/></radialGradient>
+    <radialGradient id="ins-core-wide" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFD27A" stop-opacity=".8"/><stop offset=".5" stop-color="#FF7A45" stop-opacity=".22"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ins-pk-wide" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F5B120"/><stop offset=".55" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
+    <radialGradient id="ins-sh-wide" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#462D14" stop-opacity=".22"/><stop offset="1" stop-color="#462D14" stop-opacity="0"/></radialGradient>
+    <clipPath id="ins-trk-wide"><rect x="455.3" y="217.0" width="689.3" height="506.0" rx="97.1"/></clipPath></defs>
+    <ellipse cx="800" cy="882.5" rx="493.5" ry="72.6" fill="url(#ins-sh-wide)"/>
+    <rect x="792.0" y="87.1" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="929.5" y="99.8" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="654.5" y="74.8" width="16" height="35.0" rx="5.333333333333333" fill="#F1D49A"/><rect x="1057.5" y="137.1" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="526.4" y="66.2" width="16" height="80.8" rx="5.333333333333333" fill="#F5B120"/><rect x="1167.5" y="196.3" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="416.5" y="71.3" width="16" height="135.0" rx="5.333333333333333" fill="#F06B6E"/><rect x="1251.9" y="273.5" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="332.1" y="123.5" width="16" height="160.0" rx="5.333333333333333" fill="url(#ins-pk-wide)"/><rect x="1305.0" y="363.5" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="279.0" y="251.0" width="16" height="122.5" rx="5.333333333333333" fill="#FF8A55"/>
+    <ellipse cx="800" cy="486.5" rx="470" ry="330" fill="rgba(70,45,20,.08)"/>
+    <ellipse cx="800" cy="470" rx="470" ry="330" fill="url(#ins-glass-wide)" stroke="#fff" stroke-width="3"/>
+    <ellipse cx="800" cy="470" rx="197.4" ry="138.6" fill="url(#ins-core-wide)"/>
+    <g clip-path="url(#ins-trk-wide)"><rect x="455.3333333333333" y="217.00000000000003" width="689.3333333333335" height="506" fill="rgba(255,255,255,.5)"/><rect x="455.3" y="217.0" width="689.3" height="101.2" fill="rgba(255,236,206,.28)"/><rect x="455.3" y="318.2" width="689.3" height="101.2" fill="rgba(245,177,32,.1)"/><rect x="455.3" y="419.4" width="689.3" height="101.2" fill="rgba(255,236,206,.28)"/><rect x="455.3" y="520.6" width="689.3" height="101.2" fill="rgba(245,177,32,.1)"/><rect x="455.3" y="621.8" width="689.3" height="101.2" fill="rgba(255,236,206,.28)"/><path d="M475.3 318.2H1124.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M475.3 419.4H1124.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M475.3 520.6H1124.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M475.3 621.8H1124.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/></g>
+    <rect x="455.3" y="217.0" width="689.3" height="506.0" rx="97.1" fill="none" stroke="#fff" stroke-width="4"/>
+    <g class="trk-dir"><path d="M635.5 239.0V701.0" stroke="rgba(22,18,14,.32)" stroke-width="5"/><path d="M1066.3 239.0V701.0" stroke="#16120E" stroke-opacity=".55" stroke-width="12" stroke-dasharray="12 12"/>
+      <ellipse cx="1066.3" cy="267.6" rx="141.0" ry="99.0" fill="url(#ins-core-wide)"/></g>
+    <rect x="1323.1" y="460.0" width="16" height="10.0" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="260.9" y="393.3" width="16" height="76.7" rx="5.333333333333333" fill="#F5B120"/><rect x="1305.0" y="552.3" width="16" height="14.2" rx="5.333333333333333" fill="rgba(22,18,14,.12)"/><rect x="279.0" y="519.0" width="16" height="47.5" rx="5.333333333333333" fill="#F1D49A"/><rect x="1251.9" y="633.9" width="16" height="22.5" rx="5.333333333333333" fill="#F1D49A"/><rect x="332.1" y="617.3" width="16" height="39.2" rx="5.333333333333333" fill="#F1D49A"/><rect x="1167.5" y="702.8" width="16" height="30.8" rx="5.333333333333333" fill="#F1D49A"/><rect x="416.5" y="682.0" width="16" height="51.7" rx="5.333333333333333" fill="#F5B120"/><rect x="1057.5" y="757.9" width="16" height="35.0" rx="5.333333333333333" fill="#F1D49A"/><rect x="526.5" y="687.1" width="16" height="105.8" rx="5.333333333333333" fill="#FF8A55"/><rect x="929.5" y="782.7" width="16" height="47.5" rx="5.333333333333333" fill="#F1D49A"/><rect x="654.5" y="695.2" width="16" height="135.0" rx="5.333333333333333" fill="#F06B6E"/><rect x="792.0" y="741.2" width="16" height="101.7" rx="5.333333333333333" fill="#FF8A55"/>
+  </svg><svg class="ins-svg ins-svg-narrow" viewBox="0 0 1000 1500" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><defs>
+    <radialGradient id="ins-glass-narrow" cx=".42" cy=".3" r=".8"><stop offset="0" stop-color="#fff" stop-opacity=".96"/><stop offset=".6" stop-color="#fff" stop-opacity=".66"/><stop offset="1" stop-color="#F3E7D6" stop-opacity=".72"/></radialGradient>
+    <radialGradient id="ins-core-narrow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFD27A" stop-opacity=".8"/><stop offset=".5" stop-color="#FF7A45" stop-opacity=".22"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
+    <linearGradient id="ins-pk-narrow" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#F5B120"/><stop offset=".55" stop-color="#FF7A45"/><stop offset="1" stop-color="#E25C7A"/></linearGradient>
+    <radialGradient id="ins-sh-narrow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#462D14" stop-opacity=".22"/><stop offset="1" stop-color="#462D14" stop-opacity="0"/></radialGradient>
+    <clipPath id="ins-trk-narrow"><rect x="177.3" y="294.0" width="645.3" height="571.9" rx="90.9"/></clipPath></defs>
+    <ellipse cx="500" cy="1046.25" rx="462" ry="82.06" fill="url(#ins-sh-narrow)"/>
+    <rect x="493.0" y="148.5" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="621.7" y="162.9" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="364.3" y="142.9" width="14" height="30.0" rx="4.666666666666667" fill="#F1D49A"/><rect x="741.6" y="205.0" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="244.4" y="148.3" width="14" height="66.7" rx="4.666666666666667" fill="#F5B120"/><rect x="844.6" y="272.0" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="141.4" y="172.0" width="14" height="110.0" rx="4.666666666666667" fill="#F06B6E"/><rect x="923.6" y="359.3" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="62.4" y="239.3" width="14" height="130.0" rx="4.666666666666667" fill="url(#ins-pk-narrow)"/><rect x="973.3" y="460.9" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="12.7" y="370.9" width="14" height="100.0" rx="4.666666666666667" fill="#FF8A55"/>
+    <ellipse cx="500" cy="598.65" rx="440" ry="373" fill="rgba(70,45,20,.08)"/>
+    <ellipse cx="500" cy="580" rx="440" ry="373" fill="url(#ins-glass-narrow)" stroke="#fff" stroke-width="3"/>
+    <ellipse cx="500" cy="580" rx="184.79999999999998" ry="156.66" fill="url(#ins-core-narrow)"/>
+    <g clip-path="url(#ins-trk-narrow)"><rect x="177.33333333333331" y="294.03333333333336" width="645.3333333333335" height="571.9333333333334" fill="rgba(255,255,255,.5)"/><rect x="177.3" y="294.0" width="645.3" height="114.4" fill="rgba(255,236,206,.28)"/><rect x="177.3" y="408.4" width="645.3" height="114.4" fill="rgba(245,177,32,.1)"/><rect x="177.3" y="522.8" width="645.3" height="114.4" fill="rgba(255,236,206,.28)"/><rect x="177.3" y="637.2" width="645.3" height="114.4" fill="rgba(245,177,32,.1)"/><rect x="177.3" y="751.6" width="645.3" height="114.4" fill="rgba(255,236,206,.28)"/><path d="M197.3 408.4H802.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M197.3 522.8H802.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M197.3 637.2H802.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/><path d="M197.3 751.6H802.7" stroke="rgba(22,18,14,.2)" stroke-width="3" stroke-dasharray="16 11"/></g>
+    <rect x="177.3" y="294.0" width="645.3" height="571.9" rx="90.9" fill="none" stroke="#fff" stroke-width="4"/>
+    <g class="trk-dir"><path d="M412.0 316.0V844.0" stroke="rgba(22,18,14,.32)" stroke-width="5"/><path d="M749.3 316.0V844.0" stroke="#16120E" stroke-opacity=".55" stroke-width="12" stroke-dasharray="12 12"/>
+      <ellipse cx="749.3" cy="351.2" rx="132.0" ry="111.9" fill="url(#ins-core-narrow)"/></g>
+    <rect x="990.2" y="570.0" width="14" height="10.0" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="-4.2" y="516.7" width="14" height="63.3" rx="4.666666666666667" fill="#F5B120"/><rect x="12.7" y="649.1" width="14" height="40.0" rx="4.666666666666667" fill="#F1D49A"/><rect x="973.3" y="675.8" width="14" height="13.3" rx="4.666666666666667" fill="rgba(22,18,14,.12)"/><rect x="923.6" y="770.7" width="14" height="20.0" rx="4.666666666666667" fill="#F1D49A"/><rect x="62.4" y="757.4" width="14" height="33.3" rx="4.666666666666667" fill="#F1D49A"/><rect x="844.6" y="851.4" width="14" height="26.7" rx="4.666666666666667" fill="#F1D49A"/><rect x="141.4" y="834.7" width="14" height="43.3" rx="4.666666666666667" fill="#F5B120"/><rect x="741.6" y="915.0" width="14" height="30.0" rx="4.666666666666667" fill="#F1D49A"/><rect x="244.4" y="858.4" width="14" height="86.7" rx="4.666666666666667" fill="#FF8A55"/><rect x="621.7" y="947.1" width="14" height="40.0" rx="4.666666666666667" fill="#F1D49A"/><rect x="364.3" y="877.1" width="14" height="110.0" rx="4.666666666666667" fill="#F06B6E"/><rect x="493.0" y="918.2" width="14" height="83.3" rx="4.666666666666667" fill="#FF8A55"/>
+  </svg></div>
+          <div class="ins-gl" id="ins-gl"></div>
+          <div class="ins-layer" aria-hidden="true">
+            <span class="ip lead" data-id="shakshuka" style="--x:66.6%;--y:29.7%;--mx:74.9%;--my:23.4%"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">1</b><span class="ip-w"><span class="he" lang="he">שקשוקה</span><span class="en" lang="en">Shakshuka</span><b class="num">96</b></span></span><span class="ip" data-id="pizza" style="--x:62.4%;--y:41.0%;--mx:69.7%;--my:31.0%"><img src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">2</b><span class="ip-w"><span class="he" lang="he">מרגריטה</span><span class="en" lang="en">Margherita</span><b class="num">81</b></span></span><span class="ip" data-id="ramen" style="--x:57.7%;--y:52.2%;--mx:63.7%;--my:38.7%"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">3</b><span class="ip-w"><span class="he" lang="he">ראמן</span><span class="en" lang="en">Ramen</span><b class="num">64</b></span></span><span class="ip" data-id="burger" style="--x:54.3%;--y:63.5%;--mx:59.5%;--my:46.3%"><img src="./img/dishes/burger.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">4</b><span class="ip-w"><span class="he" lang="he">המבורגר</span><span class="en" lang="en">Burger</span><b class="num">52</b></span></span><span class="ip" data-id="croissant" style="--x:51.2%;--y:74.7%;--mx:55.6%;--my:53.9%"><img src="./img/dishes/croissant.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><b class="ip-r num">5</b><span class="ip-w"><span class="he" lang="he">קרואסון</span><span class="en" lang="en">Croissant</span><b class="num">41</b></span></span>
+            <span class="ic ic-views" style="--x:12%;--y:14%;--mx:27%;--my:77%"><small><span class="he" lang="he">צפיות השבוע</span><span class="en" lang="en">Views this week</span></small><b class="num" data-v="views">212</b><i class="up num"><bdi dir="ltr">+18%</bdi></i></span>
+            <span class="ic ic-qr" style="--x:8%;--y:60%;--mx:17%;--my:91%"><b class="num"><bdi dir="ltr">78%</bdi></b><small><span class="he" lang="he">מקוד ה־QR</span><span class="en" lang="en">From the QR</span></small></span>
+            <span class="ic ic-en" style="--x:92%;--y:54%;--mx:50%;--my:91%"><b class="num"><bdi dir="ltr">31%</bdi></b><small><span class="he" lang="he">תיירים</span><span class="en" lang="en">Tourists</span></small></span>
+            <span class="ic ic-adds" style="--x:88%;--y:86%;--mx:83%;--my:91%"><b class="num">64</b><small><span class="he" lang="he">ל״שולחן שלי״</span><span class="en" lang="en">To “my table”</span></small></span>
+            <span class="ic ic-peak" style="--x:86%;--y:14%;--mx:73%;--my:77%"><small><span class="he" lang="he">הכי עמוס</span><span class="en" lang="en">Busiest</span></small><b class="num"><bdi dir="ltr">13:00 · 20:00</bdi></b></span>
+          </div>
+        </div>
+        <ul class="vh">
+          <li><span class="he" lang="he">צפיות השבוע: 212, 18% יותר מהשבוע הקודם.</span><span class="en" lang="en">Views this week: 212, 18% more than the week before.</span></li>
+          <li><span class="he" lang="he">השעות העמוסות: 13:00 ו־20:00.</span><span class="en" lang="en">Busiest hours: 13:00 and 20:00.</span></li>
+          <li><span class="he" lang="he">מנות מובילות: </span><span class="en" lang="en">Top dishes: </span><span class="he" lang="he">שקשוקה 96</span><span class="en" lang="en">Shakshuka 96</span>, <span class="he" lang="he">מרגריטה 81</span><span class="en" lang="en">Margherita 81</span>, <span class="he" lang="he">ראמן 64</span><span class="en" lang="en">Ramen 64</span>, <span class="he" lang="he">המבורגר 52</span><span class="en" lang="en">Burger 52</span>, <span class="he" lang="he">קרואסון 41</span><span class="en" lang="en">Croissant 41</span>.</li>
+          <li><span class="he" lang="he">מקוד ה־QR: 78%. תיירים: 31%. ל״שולחן שלי״: 64.</span><span class="en" lang="en">From the QR: 78%. Tourists: 31%. To “my table”: 64.</span></li>
+        </ul>
+        <script type="application/json" id="ins-data">{"days":[24,21,26,29,34,41,37],"hours":[0,0,0,0,0,0,0,1,3,5,6,9,22,30,23,10,7,9,16,27,36,30,17,6],"race":[{"id":"shakshuka","he":"שקשוקה","en":"Shakshuka","n":96,"d":[7,9,11,13,16,20,20]},{"id":"pizza","he":"מרגריטה","en":"Margherita","n":81,"d":[6,8,10,12,14,16,15]},{"id":"ramen","he":"ראמן","en":"Ramen","n":64,"d":[9,14,12,9,8,6,6]},{"id":"burger","he":"המבורגר","en":"Burger","n":52,"d":[4,6,7,8,9,9,9]},{"id":"croissant","he":"קרואסון","en":"Croissant","n":41,"d":[12,10,6,4,3,3,3]}],"views":212,"delta":18,"qr":78,"en":31,"adds":64,"peaks":[13,20]}</script>
+        <p class="ai-tag dash-tag"><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></p>
+      </figure>
+  </div>
+</section>
+<section class="sec reels" id="reels" aria-labelledby="reels-h" data-live>
+  <div class="wrap split split-rev">
+    <div class="split-words">
+      <span class="chip chip-soon"><span class="he" lang="he">בקרוב · מהסטודיו של Halom</span><span class="en" lang="en">Coming · from the Halom studio</span></span>
+      <h2 class="sec-h" id="reels-h"><span class="he" lang="he">החלום שלכם, הקריאטיב שלנו</span><span class="en" lang="en">Your dream, our creative</span></h2>
+      <p class="he sec-p" lang="he">הסטודיו של Halom בונה את כל מה שסביב התפריט: אתר, רילסים, תוכן לרשתות ודמות שמארחת את המותג שלכם. אתם מספרים מה החלום, אנחנו מביאים אותו למסך.</p><p class="en sec-p" lang="en">The Halom studio makes everything around the menu: a site, reels, social creative and a host for your brand. You tell us the dream; we bring it to the screen.</p>
+      <ul class="marks"><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 12h17M12 3.5c2.6 2.4 3.9 5.2 3.9 8.5s-1.3 6.1-3.9 8.5c-2.6-2.4-3.9-5.2-3.9-8.5S9.4 5.9 12 3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">אתר משלכם, מתוך אותו תפריט</span><span class="en" lang="en">Your own site, from the same menu</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 6v12l10-6z" fill="currentColor"/></svg><span class="he" lang="he">רילסים ותוכן לרשתות</span><span class="en" lang="en">Reels and social creative</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".45"/></svg><span class="he" lang="he">דמות מארחת למותג, בכל אווירה</span><span class="en" lang="en">A host for your brand, in any mood</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="14" rx="9" ry="4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="12" cy="12.3" rx="4.6" ry="2.4" fill="currentColor"/></svg><span class="he" lang="he">מראה שנבנה למותג שלכם</span><span class="en" lang="en">A look designed for your brand</span></li></ul>
+    </div>
+    <div class="ad" id="ad" data-mood="eat">
+      <div class="site-card glass" aria-hidden="true">
+        <div class="site-bar"><i></i><i></i><i></i><span class="site-url"></span></div>
+        <div class="site-hero"><img src="./img/dishes/shakshuka.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><div class="site-words"><b class="site-name"><span class="he" lang="he">אוליאה</span><span class="en" lang="en">Olea</span></b><span class="site-l"></span><span class="site-l short"></span><span class="site-book"><span class="he" lang="he">להזמין שולחן</span><span class="en" lang="en">Book a table</span></span></div></div>
+        <div class="site-row"><img src="./img/dishes/pizza.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><img src="./img/dishes/ramen.webp" width="640" height="640" alt="" loading="lazy" decoding="async"><img src="./img/dishes/gelato.webp" width="640" height="640" alt="" loading="lazy" decoding="async"></div>
+      </div>
+      <figure class="reel">
+        <div class="phone"><div class="phone-screen">
+          <img class="reel-still m-eat on" src="./img/host/host-eat.jpg" width="480" height="854" alt="" loading="lazy" decoding="async"><img class="reel-still m-paris" src="./img/host/host-paris.jpg" width="480" height="854" alt="" loading="lazy" decoding="async"><img class="reel-still m-orbit" src="./img/host/host-orbit.jpg" width="720" height="1280" alt="" loading="lazy" decoding="async">
+          <!-- each film plays (muted) only while the phone is on screen; no source here, so nothing is fetched before then -->
+          <video class="reel-video m-eat" muted playsinline preload="none" width="480" height="854" tabindex="-1" aria-hidden="true" data-src="./img/host/host-eat.mp4"></video><video class="reel-video m-paris" muted playsinline preload="none" width="480" height="854" tabindex="-1" aria-hidden="true" data-src="./img/host/host-paris.mp4"></video><video class="reel-video m-orbit" muted playsinline preload="none" width="480" height="854" tabindex="-1" aria-hidden="true" data-src="./img/host/host-orbit.mp4"></video>
+          <i class="boom" aria-hidden="true"></i>
+        </div></div>
+        <figcaption class="ai-tag"><span class="he" lang="he">דמות שנוצרה בבינה מלאכותית</span><span class="en" lang="en">A person made with AI</span></figcaption>
+      </figure>
+      <div class="moods" role="group" aria-label="אווירה" data-label-he="אווירה" data-label-en="Mood"><button class="mood" type="button" data-mood="eat" aria-pressed="true"><i class="mood-p" aria-hidden="true"></i><span class="he" lang="he">בוקר שטוף שמש</span><span class="en" lang="en">A sunlit brunch</span></button><button class="mood" type="button" data-mood="paris" aria-pressed="false"><i class="mood-p" aria-hidden="true"></i><span class="he" lang="he">ג׳אז בקפה פריזאי</span><span class="en" lang="en">Jazz in a Paris café</span></button><button class="mood" type="button" data-mood="orbit" aria-pressed="false"><i class="mood-p" aria-hidden="true"></i><span class="he" lang="he">ערב במסעדה לבנה</span><span class="en" lang="en">Evening in a white room</span></button></div>
+    </div>
+  </div>
+</section>
+<section class="sec plans" id="plans" aria-labelledby="plans-h" data-live>
+  <div class="wrap">
+    <h2 class="sec-h center" id="plans-h"><span class="he" lang="he">חבילות</span><span class="en" lang="en">Plans</span></h2>
+    <p class="he sec-p center" lang="he">שלוש חבילות, לפי מה שהמסעדה צריכה: תפריט חי, מקום שלם, או החלום כולו.</p><p class="en sec-p center" lang="en">Three plans, by what your restaurant needs: a living menu, the whole place, or the whole dream.</p>
+    <div class="early" data-reveal>
+      <div class="early-in">
+        <div class="early-words">
+          <span class="chip chip-new"><span class="he" lang="he">גישה מוקדמת</span><span class="en" lang="en">Early access</span></span>
+          <h3><span class="he" lang="he">המסעדות המייסדות</span><span class="en" lang="en">The founding restaurants</span></h3>
+          <p class="he early-p" lang="he">אנחנו פותחים את מנה לקבוצה קטנה של מסעדות מייסדות. מקימים איתכם הכול, יד ביד, ואתם הראשונים לקבל כל חלק חדש כשהוא מוכן.</p><p class="en early-p" lang="en">We are opening Mana to a small group of founding restaurants. We set everything up with you, hand in hand, and you are the first to get each new piece as it is ready.</p>
+          <ul class="early-perks"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">הקמה אישית יחד עם הסטודיו</span><span class="en" lang="en">Set up in person, with the studio</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">ראשונים לכל מה שמסומן ״בקרוב״</span><span class="en" lang="en">First to everything marked “coming”</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">קו ישיר לאנשים שבונים את מנה</span><span class="en" lang="en">A direct line to the people who build Mana</span></li></ul>
+        </div>
+        <p class="early-cta"><a class="btn btn-energy btn-lg" href="#talk-sec" data-early="any"><span class="he" lang="he">בקשת גישה מוקדמת</span><span class="en" lang="en">Request early access</span></a></p>
+      </div>
+    </div>
+    <ol class="plan-row" data-reveal>
+      <li class="plan glass sheen plan-menu" style="--i:0">
+        <i class="plan-mark" aria-hidden="true"></i>
+        <h3><span class="he" lang="he">תפריט</span><span class="en" lang="en">Menu</span></h3>
+        <p class="he plan-for" lang="he">התפריט החי, מוכן לשולחן.</p><p class="en plan-for" lang="en">The living menu, ready for the table.</p>
+        <p class="plan-n"><span class="he" lang="he">עד 50 מנות</span><span class="en" lang="en">Up to 50 dishes</span></p>
+        <div class="plan-group"><h4><span class="he" lang="he">כלול היום</span><span class="en" lang="en">Included today</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">תבליט מכל תמונה, ואיור עד שיש תמונה</span><span class="en" lang="en">A relief from every photo, an illustration until there is one</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">עברית ואנגלית</span><span class="en" lang="en">Hebrew and English</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">״אזל״ בנגיעה אחת</span><span class="en" lang="en">Sold out in one tap</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">״השולחן שלי״ לסועדים</span><span class="en" lang="en">“My table” for guests</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">נתונים כל שבוע, בלי עוגיות</span><span class="en" lang="en">Insights every week, no cookies</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">אפליקציה לבעלים</span><span class="en" lang="en">The owner app</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">קוד QR להדפסה שלא משתנה</span><span class="en" lang="en">A printable QR that never changes</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">חדרים למשקאות ולקינוחים: מרתף יין, ברזי בירה, בר קוקטיילים וויטרינה</span><span class="en" lang="en">Rooms for drinks and desserts: a wine cellar, beer taps, a cocktail bar and a vitrine</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">אנחנו מקימים איתכם: מעבירים את התפריט ומכוונים לצילום</span><span class="en" lang="en">We set it up with you: we bring your menu in and guide your photos</span></li></ul></div>
+        <div class="plan-group soon"><h4><span class="he" lang="he">בקרוב</span><span class="en" lang="en">Coming</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">מראות לבחירה</span><span class="en" lang="en">Looks to choose from</span></li></ul></div>
+        <a class="btn btn-glass plan-btn" href="#talk-sec" data-early="menu"><span class="he" lang="he">בוחרים ב״תפריט״</span><span class="en" lang="en">Choose Menu</span></a>
+      </li>
+      <li class="plan glass sheen plan-place" style="--i:1">
+        <i class="plan-mark" aria-hidden="true"></i>
+        <h3><span class="he" lang="he">מקום</span><span class="en" lang="en">Place</span></h3>
+        <p class="he plan-for" lang="he">כל המקום, לא רק התפריט.</p><p class="en plan-for" lang="en">The whole place, not just the menu.</p>
+        <p class="plan-n"><span class="he" lang="he">עד 100 מנות</span><span class="en" lang="en">Up to 100 dishes</span></p>
+        <div class="plan-group"><h4><span class="he" lang="he">כלול היום</span><span class="en" lang="en">Included today</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">כל מה שב״תפריט״</span><span class="en" lang="en">Everything in Menu</span></li></ul></div>
+        <div class="plan-group soon"><h4><span class="he" lang="he">בקרוב</span><span class="en" lang="en">Coming</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">המקום שלכם בתלת־ממד, מהתמונות שלכם</span><span class="en" lang="en">Your place in 3D, from your photos</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">בקשות ישיבה מהסועדים</span><span class="en" lang="en">Seat requests from guests</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">שעון לכל שולחן והתראות למנהל</span><span class="en" lang="en">A clock on every table, alerts for the manager</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">צפצוף ״ההזמנה מוכנה״ לשירות עצמי</span><span class="en" lang="en">An “order ready” beep for self-service</span></li></ul></div>
+        <a class="btn btn-glass plan-btn" href="#talk-sec" data-early="place"><span class="he" lang="he">בוחרים ב״מקום״</span><span class="en" lang="en">Choose Place</span></a>
+      </li>
+      <li class="plan glass sheen plan-dream" style="--i:2">
+        <i class="plan-mark" aria-hidden="true"></i>
+        <h3><span class="he" lang="he">חלום</span><span class="en" lang="en">Dream</span></h3>
+        <p class="he plan-for" lang="he">המסעדה כמותג, מהשולחן ועד הרשתות.</p><p class="en plan-for" lang="en">Your restaurant as a brand, from the table to the feeds.</p>
+        <p class="plan-n"><span class="he" lang="he">מנות ללא הגבלה</span><span class="en" lang="en">Unlimited dishes</span></p>
+        <div class="plan-group"><h4><span class="he" lang="he">כלול היום</span><span class="en" lang="en">Included today</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">כל מה שב״מקום״</span><span class="en" lang="en">Everything in Place</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 12.5l4.2 4.2L18.5 7.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg><span class="he" lang="he">סטודיו שעונה לכם ראשונים</span><span class="en" lang="en">A studio that answers you first</span></li></ul></div>
+        <div class="plan-group soon"><h4><span class="he" lang="he">בקרוב</span><span class="en" lang="en">Coming</span></h4><ul><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">הצעות על שולחנות בשעות העומס</span><span class="en" lang="en">Peak-time bids for a table</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">אתר משלכם מהסטודיו של Halom</span><span class="en" lang="en">Your own site by the Halom studio</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">קריאטיב לרשתות: רילסים ודמות מארחת למותג</span><span class="en" lang="en">Social creative: reels and a host for your brand</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2.4 2.6"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg><span class="he" lang="he">מראה שנבנה למותג שלכם</span><span class="en" lang="en">A look designed for your brand</span></li></ul></div>
+        <a class="btn btn-ink plan-btn" href="#talk-sec" data-early="dream"><span class="he" lang="he">בוחרים ב״חלום״</span><span class="en" lang="en">Choose Dream</span></a>
+      </li>
+    </ol>
+    <div class="plan-free"><p class="he" lang="he">בכל חבילה: 30 הימים הראשונים חינם, בלי כרטיס אשראי.</p><p class="en" lang="en">Every plan: the first 30 days free, no card.</p><a class="btn btn-ink btn-lg" href="./studio/"><span class="he" lang="he">מתחילים בחינם</span><span class="en" lang="en">Start free</span></a></div>
+  </div>
+</section>
+<section class="sec qa" id="faq" aria-labelledby="faq-h">
+  <div class="wrap qa-in">
+    <h2 class="sec-h" id="faq-h"><span class="he" lang="he">שאלות</span><span class="en" lang="en">Questions</span></h2>
+    <div class="faq glass">
       <details><summary><span class="he" lang="he">אילו תמונות עובדות?</span><span class="en" lang="en">Which photos work?</span></summary><div class="a"><p class="he" lang="he">מנה אחת, כולה בתוך הפריים, על רקע חלק ובאור רך. תמונת טלפון מספיקה, ולא כל תמונה מצליחה. <a href="./guide/">מדריך הצילום</a></p><p class="en" lang="en">One dish, all of it in the frame, on a plain background in soft light. A phone photo is enough, and not every photo works. <a href="./guide/">Photo guide</a></p></div></details>
       <details><summary><span class="he" lang="he">זה תלת־ממד אמיתי?</span><span class="en" lang="en">Is it real 3D?</span></summary><div class="a"><p class="he" lang="he">זה תבליט: התמונה שלכם מקבלת עומק, ואפשר להטות את המנה מעט. זה לא מודל שמסובבים מכל הכיוונים.</p><p class="en" lang="en">It is a relief: your photo gets depth and the dish tilts a little. It is not a model you turn all the way round.</p></div></details>
       <details><summary><span class="he" lang="he">אפשר להזמין דרכו?</span><span class="en" lang="en">Can guests order?</span></summary><div class="a"><p class="he" lang="he">לא. מנה היא תפריט. אם יש לכם עמוד הזמנות משלכם, מוסיפים קישור אליו.</p><p class="en" lang="en">No. Mana is a menu. If you have your own ordering page, you add a link to it.</p></div></details>
-      <details><summary><span class="he" lang="he">מה קורה אחרי 30 יום?</span><span class="en" lang="en">After 30 days?</span></summary><div class="a"><p class="he" lang="he">את ההמשך מסכמים איתנו ישירות. אם לא ממשיכים, הקישור נשאר שלכם ומציג "התפריט לא זמין כרגע". שום דבר לא נמחק.</p><p class="en" lang="en">What follows is agreed with us directly. If you stop, the link stays yours and shows “This menu is not available right now”. Nothing is deleted.</p></div></details>
-      <details><summary><span class="he" lang="he">מי עשה את זה?</span><span class="en" lang="en">Who made it?</span></summary><div class="a"><p class="he" lang="he"><a href="https://halom.io">Halom</a>, סטודיו קריאייטיב מתל אביב. מנה נמצאת בפיילוט, ואת המסעדות הראשונות אנחנו מלווים בעצמנו.</p><p class="en" lang="en"><a href="https://halom.io">Halom</a>, a creative studio in Tel Aviv. Mana is in pilot, and we look after the first restaurants ourselves.</p></div></details>
+      <details><summary><span class="he" lang="he">מה קורה אחרי 30 יום?</span><span class="en" lang="en">After 30 days?</span></summary><div class="a"><p class="he" lang="he">בוחרים חבילה. אם לא ממשיכים, הקישור נשאר שלכם ומציג ״התפריט לא זמין כרגע״. שום דבר לא נמחק.</p><p class="en" lang="en">You choose a plan. If you stop, the link stays yours and shows “This menu is not available right now”. Nothing is deleted.</p></div></details>
+      <details><summary><span class="he" lang="he">מי עשה את זה?</span><span class="en" lang="en">Who made it?</span></summary><div class="a"><p class="he" lang="he"><a href="https://halom.io">Halom</a>, סטודיו קריאייטיב מתל אביב. את המסעדות הראשונות אנחנו מקימים יחד איתכם.</p><p class="en" lang="en"><a href="https://halom.io">Halom</a>, a creative studio in Tel Aviv. We set up the first restaurants together with you.</p></div></details>
+      <details><summary><span class="he" lang="he">מה עובד כבר היום?</span><span class="en" lang="en">What works today?</span></summary><div class="a"><p class="he" lang="he">התפריט: תבליטים, עברית ואנגלית, ״אזל״, ״השולחן שלי״ ונתונים כל שבוע. המקום בתלת־ממד, השעונים לשולחנות, ההצעות על שולחנות, האתר, הרילסים והדמות המארחת מסומנים ״בקרוב״, ואפשר לראות חלק מהם בהדגמה.</p><p class="en" lang="en">The menu: reliefs, Hebrew and English, sold out, “my table” and insights every week. Your place in 3D, the table clocks, the bids for a table, the site, the reels and the host are marked “coming”, and you can see some of them in the demo.</p></div></details>
+      <details><summary><span class="he" lang="he">מה זה גישה מוקדמת?</span><span class="en" lang="en">What is early access?</span></summary><div class="a"><p class="he" lang="he">קבוצה קטנה של מסעדות שמתחילות עם מנה עכשיו, יחד איתנו. משאירים פרטים או כותבים בוואטסאפ, ואדם מהצוות חוזר אליכם. 30 הימים הראשונים חינם, בלי כרטיס אשראי.</p><p class="en" lang="en">A small group of restaurants that start with Mana now, together with us. Leave your details or write on WhatsApp, and a person from the team gets back to you. The first 30 days are free, no card.</p></div></details>
     </div>
   </div>
 </section>
-
-<section class="talk" id="talk-sec" aria-labelledby="talk-h">
-  <div class="wrap talk-grid">
+<section class="sec talk" id="talk-sec" aria-labelledby="talk-h">
+  <div class="wrap"><div class="talk-card glass">
     <div class="talk-words">
-      <h2 id="talk-h"><span class="he" lang="he">דברו איתנו</span><span class="en" lang="en">Talk to us</span></h2>
-      <p class="talk-wa"><a class="btn btn-ink" href="https://wa.me/972542022269"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg><span class="he" lang="he">לכתוב בוואטסאפ</span><span class="en" lang="en">Write on WhatsApp</span></a></p>
+      <h2 class="sec-h" id="talk-h"><span class="he" lang="he">דברו איתנו</span><span class="en" lang="en">Talk to us</span></h2>
+      <p class="talk-wa"><a class="btn btn-ink btn-lg" href="https://wa.me/972542022269"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg><span class="he" lang="he">לכתוב בוואטסאפ</span><span class="en" lang="en">Write on WhatsApp</span></a></p>
     </div>
     <details class="talk-form" id="talk-more">
       <summary><span class="he" lang="he">או להשאיר פרטים</span><span class="en" lang="en">Or leave details</span></summary>
-      <form class="form" id="talk" novalidate>
+      <form class="form" id="talk" method="post" novalidate>
         <div class="field"><label for="f-place"><span class="he" lang="he">שם המסעדה</span><span class="en" lang="en">Restaurant name</span></label><input id="f-place" name="place" type="text" autocomplete="organization" maxlength="120" required aria-describedby="e-place"><p class="err" id="e-place"><span class="he" lang="he">כתבו את שם המסעדה.</span><span class="en" lang="en">Please write the restaurant’s name.</span></p></div>
         <div class="field"><label for="f-contact"><span class="he" lang="he">טלפון או אימייל</span><span class="en" lang="en">Phone or e-mail</span></label><input id="f-contact" name="contact" type="text" inputmode="email" autocomplete="email" maxlength="200" dir="ltr" required aria-describedby="e-contact"><p class="err" id="e-contact"><span class="he" lang="he">צריך מספר טלפון או כתובת אימייל כדי שנוכל לחזור אליכם.</span><span class="en" lang="en">We need a phone number or an e-mail address to get back to you.</span></p></div>
+        <fieldset class="field plan-pick"><legend><span class="he" lang="he">חבילה</span><span class="en" lang="en">Plan</span></legend><div class="pick"><label class="pick-o"><input type="radio" name="plan" value="any" checked><span class="he" lang="he">עוד לא יודעים</span><span class="en" lang="en">Not sure yet</span></label><label class="pick-o"><input type="radio" name="plan" value="menu"><span class="he" lang="he">תפריט</span><span class="en" lang="en">Menu</span></label><label class="pick-o"><input type="radio" name="plan" value="place"><span class="he" lang="he">מקום</span><span class="en" lang="en">Place</span></label><label class="pick-o"><input type="radio" name="plan" value="dream"><span class="he" lang="he">חלום</span><span class="en" lang="en">Dream</span></label></div><input type="hidden" id="f-early" name="early" value=""></fieldset>
         <div class="field"><label for="f-msg"><span class="he" lang="he">שאלה <span class="opt">(לא חובה)</span></span><span class="en" lang="en">Question <span class="opt">(optional)</span></span></label><textarea id="f-msg" name="msg" maxlength="3500" rows="2"></textarea></div>
         <div class="hp" aria-hidden="true"><label for="f-site">Website</label><input id="f-site" name="website" type="text" tabindex="-1" autocomplete="off"></div>
         <label class="check"><input id="f-news" type="checkbox"><span class="he" lang="he">אפשר לשלוח לי עדכונים על מנה בוואטסאפ או באימייל. אפשר לבטל בכל רגע.</span><span class="en" lang="en">You may send me updates about Mana by WhatsApp or e-mail. I can stop them at any time.</span></label>
         <div class="notice notice-bad" id="talk-bad" role="alert" tabindex="-1" hidden><p id="talk-bad-text"></p><p><a class="wa" id="talk-wa" href="https://wa.me/972542022269"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg><span class="he" lang="he">לשלוח בוואטסאפ</span><span class="en" lang="en">Send on WhatsApp</span></a></p></div>
         <div class="form-foot">
-          <button class="btn btn-primary" id="f-send" type="submit"><span class="lbl"><span class="he" lang="he">לשלוח</span><span class="en" lang="en">Send</span></span><span class="busy" hidden></span></button>
+          <button class="btn btn-ink" id="f-send" type="submit"><span class="lbl"><span class="he" lang="he">לשלוח</span><span class="en" lang="en">Send</span></span><span class="busy" hidden></span></button>
           <a class="small" href="./privacy/"><span class="he" lang="he">מה נשמר: דף הפרטיות</span><span class="en" lang="en">What we keep: the privacy page</span></a>
         </div>
         <noscript><p class="small"><span class="he" lang="he">הטופס צריך JavaScript. אפשר לכתוב לנו בוואטסאפ.</span><span class="en" lang="en">The form needs JavaScript. You can write to us on WhatsApp.</span></p></noscript>
@@ -305,14 +361,13 @@
         <p><button class="lang" id="talk-again" type="button"><span class="he" lang="he">לשלוח פנייה נוספת</span><span class="en" lang="en">Send another message</span></button></p>
       </div>
     </details>
-  </div>
+  </div></div>
 </section>
-
 </main>
 <footer class="foot">
   <div class="wrap">
     <div class="foot-row">
-      <a class="brand" href="./" aria-label="Mana"><svg viewBox="0 14 64 39" width="36" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="#FCF8F6" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">Mana</span></b></a>
+      <a class="brand" href="./" aria-label="Mana"><svg class="mana-mark" viewBox="-0.7 18.3 65.4 36.1" width="36" aria-hidden="true" focusable="false"><ellipse cx="45.5" cy="44.6" rx="11.5" ry="3.6" fill="#F5B120"/><path d="M3 50.7H61" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M7 48C7 22 31 22 31 48" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M33 41.5C33 15.5 57 15.5 57 41.5" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/></svg><b><span class="he" lang="he">מנה</span><span class="en" lang="en">mana</span></b></a>
       <ul class="foot-links">
         <li><a href="./guide/"><span class="he" lang="he">מדריך צילום</span><span class="en" lang="en">Photo guide</span></a></li>
         <li><a href="./privacy/"><span class="he" lang="he">פרטיות</span><span class="en" lang="en">Privacy</span></a></li>
@@ -322,15 +377,23 @@
     <p class="foot-fine"><a href="https://halom.io" lang="en" dir="ltr">Mana by Halom</a><bdi dir="ltr" lang="en">Dreams, realized · חלומות מתגשמים</bdi></p>
   </div>
 </footer>
-</div>
-<dialog class="film" id="film" aria-labelledby="film-t">
-  <h2 class="vh" id="film-t"><span class="he" lang="he">הסרט של מנה</span><span class="en" lang="en">The Mana film</span></h2>
-  <video controls playsinline preload="none"></video>
-  <button class="film-x" type="button" data-film-close data-label-he="לסגור" data-label-en="Close" aria-label="לסגור"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+<dialog class="dlg" id="demo" aria-labelledby="dlg-h" data-film-wide="./img/film-16x9.mp4" data-film-tall="./img/film-9x16.mp4" data-film-wide-en="./img/film-16x9-en.mp4" data-film-tall-en="./img/film-9x16-en.mp4">
+  <div class="dlg-sheet">
+    <div class="dlg-top">
+      <h2 class="vh" id="dlg-h"><span class="he" lang="he">הדגמה</span><span class="en" lang="en">Demo</span></h2>
+      <span class="dlg-mark" aria-hidden="true"><svg class="mana-mark" viewBox="-0.7 18.3 65.4 36.1" width="30" aria-hidden="true" focusable="false"><ellipse cx="45.5" cy="44.6" rx="11.5" ry="3.6" fill="#F5B120"/><path d="M3 50.7H61" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M7 48C7 22 31 22 31 48" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/><path d="M33 41.5C33 15.5 57 15.5 57 41.5" stroke="#16120E" stroke-width="5.4" stroke-linecap="round" fill="none"/></svg></span>
+      <div class="dlg-tabs"><button class="dlg-tab" type="button" data-tab="menu" aria-pressed="true"><span class="he" lang="he">התפריט</span><span class="en" lang="en">The menu</span></button><button class="dlg-tab" type="button" data-tab="looks" aria-pressed="false"><span class="he" lang="he">מראות</span><span class="en" lang="en">Looks</span></button><button class="dlg-tab" type="button" data-tab="seat" aria-pressed="false"><span class="he" lang="he">מפת ישיבה</span><span class="en" lang="en">Seat map</span></button><button class="dlg-tab" type="button" data-tab="tables" aria-pressed="false"><span class="he" lang="he">שעון לשולחן</span><span class="en" lang="en">Table clocks</span></button><button class="dlg-tab" type="button" data-tab="lima" aria-pressed="false"><span class="he" lang="he">קפה לימה</span><span class="en" lang="en">Café Lima</span></button><button class="dlg-tab" type="button" data-tab="film" aria-pressed="false"><span class="he" lang="he">הסרט</span><span class="en" lang="en">The film</span></button></div>
+      <button class="dlg-x" type="button" data-dlg-close data-label-he="לסגור" data-label-en="Close" aria-label="לסגור"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg></button>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-looks" hidden><button class="dlg-look" type="button" data-look="album-side" aria-pressed="true"><img src="./img/looks/album-side.webp" width="390" height="844" alt="" loading="lazy" decoding="async"><span><span class="he" lang="he">צד א׳</span><span class="en" lang="en">Album Side</span></span></button><button class="dlg-look" type="button" data-look="casablanca-white" aria-pressed="false"><img src="./img/looks/casablanca-white.webp" width="390" height="844" alt="" loading="lazy" decoding="async"><span><span class="he" lang="he">לבן קזבלנקה</span><span class="en" lang="en">Casablanca White</span></span></button><button class="dlg-look" type="button" data-look="back-door" aria-pressed="false"><img src="./img/looks/back-door.webp" width="390" height="844" alt="" loading="lazy" decoding="async"><span><span class="he" lang="he">הדלת האחורית</span><span class="en" lang="en">Back Door</span></span></button></div>
+      <div class="dlg-stage"><div class="dlg-phone"><div class="dlg-screen" id="dlg-screen"></div></div>
+        <ul class="dlg-gest"><li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V6M7.5 10.5L12 6l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="20" r="1.6" fill="currentColor"/></svg><span class="he" lang="he">מחליקים</span><span class="en" lang="en">Swipe</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><circle cx="12" cy="12" r="5.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" opacity=".45"/></svg><span class="he" lang="he">נוגעים</span><span class="en" lang="en">Tap</span></li><li><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="13" rx="6.5" ry="3.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 9.5c0 2.5 0 5 1.8 7.3M3 9.5l-1.3 2.3M3 9.5l2.2 1.3M21 9.5c0 2.5 0 5-1.8 7.3M21 9.5l1.3 2.3M21 9.5l-2.2 1.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="he" lang="he">מטים</span><span class="en" lang="en">Tilt</span></li></ul></div>
+      <div class="dlg-film" hidden><video controls playsinline preload="none"></video></div>
+    </div>
+    <p class="ai-tag dlg-tag"><span class="he" lang="he">מנות לדוגמה · נוצרו בבינה מלאכותית</span><span class="en" lang="en">Demo dishes · made with AI</span></p>
+  </div>
 </dialog>
-<script src="./mana.js"></script>
-<script>/* picture descriptions, per language */
-(function(){var A={he:{1:'צלחת חומוס חם על שולחן עץ כהה, תחת מנורה אחת',2:'תפריט ההדגמה: שבע מנות מונחות על שולחן עץ',3:'תפריט ההדגמה במראה צד א׳: מנות על בטון, ממוספרות כמו שירים בתקליט',4:'תפריט ההדגמה במראה לבן קזבלנקה: מנות על שיש לבן',5:'תפריט ההדגמה במראה הדלת האחורית: מנות על אגוז, באור ענבר נמוך'},en:{1:'A plate of warm hummus on a dark wooden table, under one lamp',2:'The demo menu: seven dishes lying on a wooden table',3:'The demo menu in the Album Side look: dishes on concrete, numbered like tracks',4:'The demo menu in the Casablanca White look: dishes on white marble',5:'The demo menu in the Back Door look: dishes on walnut, in low amber light'}};
-function f(){var l=document.documentElement.lang==='en'?'en':'he';[].forEach.call(document.querySelectorAll('img[data-alt]'),function(i){i.alt=A[l][i.getAttribute('data-alt')];});}f();document.addEventListener('mana:lang',f);})();</script>
+<script type="module" src="./land/main.js"></script>
 </body>
 </html>

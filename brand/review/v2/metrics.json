@@ -1,223 +1,5 @@
 {
- "before": {
-  "height390": 7876,
-  "words390": 556
- },
  "after": {
-  "390-he": {
-   "words": 237,
-   "height": 5403,
-   "sections": [
-    [
-     "top",
-     50
-    ],
-    [
-     "hero",
-     844
-    ],
-    [
-     "how",
-     253
-    ],
-    [
-     "looks",
-     507
-    ],
-    [
-     "demo",
-     404
-    ],
-    [
-     "seat",
-     527
-    ],
-    [
-     "numbers",
-     568
-    ],
-    [
-     "reels",
-     752
-    ],
-    [
-     "perks",
-     224
-    ],
-    [
-     "price",
-     530
-    ],
-    [
-     "foot",
-     130
-    ]
-   ]
-  },
-  "390-he-scan": {
-   "words": 237,
-   "height": 5403,
-   "sections": [
-    [
-     "top",
-     50
-    ],
-    [
-     "hero",
-     844
-    ],
-    [
-     "how",
-     253
-    ],
-    [
-     "looks",
-     507
-    ],
-    [
-     "demo",
-     404
-    ],
-    [
-     "seat",
-     527
-    ],
-    [
-     "numbers",
-     568
-    ],
-    [
-     "reels",
-     752
-    ],
-    [
-     "perks",
-     224
-    ],
-    [
-     "price",
-     530
-    ],
-    [
-     "foot",
-     130
-    ]
-   ]
-  },
-  "390-en": {
-   "words": 261,
-   "height": 5414,
-   "sections": [
-    [
-     "top",
-     50
-    ],
-    [
-     "hero",
-     844
-    ],
-    [
-     "how",
-     251
-    ],
-    [
-     "looks",
-     522
-    ],
-    [
-     "demo",
-     402
-    ],
-    [
-     "seat",
-     524
-    ],
-    [
-     "numbers",
-     614
-    ],
-    [
-     "reels",
-     750
-    ],
-    [
-     "perks",
-     240
-    ],
-    [
-     "price",
-     476
-    ],
-    [
-     "foot",
-     130
-    ]
-   ]
-  },
-  "390-en-scan": {
-   "words": 260,
-   "height": 5414,
-   "sections": [
-    [
-     "top",
-     50
-    ],
-    [
-     "hero",
-     844
-    ],
-    [
-     "how",
-     251
-    ],
-    [
-     "looks",
-     522
-    ],
-    [
-     "demo",
-     402
-    ],
-    [
-     "seat",
-     524
-    ],
-    [
-     "numbers",
-     614
-    ],
-    [
-     "reels",
-     750
-    ],
-    [
-     "perks",
-     240
-    ],
-    [
-     "price",
-     476
-    ],
-    [
-     "foot",
-     130
-    ]
-   ]
-  },
-  "heroContrast": {
-   "390-he-h1": 17.15,
-   "390-he-.hero .lead": 11.93,
-   "390-he-.hero .demo-tag": 9.78,
-   "390-en-h1": 17.22,
-   "390-en-.hero .lead": 12.05,
-   "390-en-.hero .demo-tag": 9.78,
-   "1440-he-h1": 14.52,
-   "1440-he-.hero .lead": 10.61,
-   "1440-he-.hero .demo-tag": 9.43,
-   "1440-en-h1": 14.84,
-   "1440-en-.hero .lead": 10.62,
-   "1440-en-.hero .demo-tag": 9.42
-  },
   "media": {
    "hero.mp4": {
     "MB": 1.21,
@@ -230,31 +12,32 @@
     "size": "390×844"
    },
    "film-16x9.mp4": {
-    "MB": 7.41,
+    "MB": 7.12,
     "seconds": 41,
     "size": "1920×1080"
    },
    "film-9x16.mp4": {
-    "MB": 7.45,
+    "MB": 7.04,
     "seconds": 41,
     "size": "1080×1920"
    },
    "film-16x9-en.mp4": {
-    "MB": 7.42,
+    "MB": 7.11,
     "seconds": 41,
     "size": "1920×1080"
    },
    "film-9x16-en.mp4": {
-    "MB": 7.45,
+    "MB": 7.04,
     "seconds": 41,
     "size": "1080×1920"
    }
   },
-  "requestsOnLoad390": 18,
+  "requestsOnLoad390": 30,
   "bytesGzipBeforeHero": {
-   "scripts": 8494,
-   "css": 11094,
-   "html": 11479
+   "mainRaw": 24695,
+   "scripts": 10178,
+   "css": 19664,
+   "html": 18489
   }
  }
 }

@@ -2,8 +2,27 @@ import { PRODUCT } from './product.ts';
 import { lang, setLang, t } from './lib/i18n.ts';
 import { Icon } from './ui.tsx';
 
+import { MARK_FULL, MARK_SMALL } from './mark-shapes.ts';
+
+/** The mark, version 2 (Cloche). Source: brand/tools/mark.mjs; ./mark-shapes.ts is written from it by
+ *  brand/tools/sync-mark.mjs (the site build fails if it drifts). Two cuts: small (16–32 px: the bars) and full (40 px and
+ *  up). The arches and the table line are ink (currentColor), never yolk, never filled; the light is the only yolk. */
+export function Mark({ full }: { full?: boolean }) {
+  const m = full ? MARK_FULL : MARK_SMALL;
+  return <svg class={'mana-mark' + (full ? ' mana-mark-full' : '')} viewBox={m.viewBox} aria-hidden="true" focusable="false" dangerouslySetInnerHTML={{ __html: m.html }} />;
+}
+
+/** The lockup: the mark, then the wordmark ("מנה" in Hebrew, "mana" lowercase in English, the display serif), the mark at the
+ *  start of the line as on the product page. Large (the start screen): the full cut, and the credit under it ("מבית חלום" /
+ *  "by Halom"). */
 export function Brand({ small, big }: { small?: boolean; big?: boolean }) {
-  return <span class={'brand' + (small ? ' brand-sm' : '') + (big ? ' brand-lg' : '')} dir="ltr"><span class="brand-mark" lang="en">{PRODUCT.en}</span><span class="brand-dot" aria-hidden="true">·</span><span class="brand-mark" lang="he">{PRODUCT.he}</span></span>;
+  return (
+    <span class={'brand' + (small ? ' brand-sm' : '') + (big ? ' brand-lg' : '')}>
+      <Mark full={big} />
+      <span class="brand-word" lang={lang.value}>{lang.value === 'he' ? PRODUCT.he : PRODUCT.en}</span>
+      {big && <span class="brand-by" lang={lang.value}>{t('app.by')}</span>}
+    </span>
+  );
 }
 export function LangToggle({ plain }: { plain?: boolean }) {
   return <button type="button" class={plain ? 'linkbtn' : 'langbtn'} onClick={() => setLang(lang.value === 'he' ? 'en' : 'he')} aria-label={t('app.langSwitchLabel')} lang={lang.value === 'he' ? 'en' : 'he'}><Icon name="globe" size={17} /><span>{t('app.langSwitch')}</span></button>;

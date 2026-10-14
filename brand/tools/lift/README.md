@@ -8,7 +8,7 @@ its relief map from Mana's generator, becomes a 10-second vertical film:
 | 0–2 | The dish lies flat on oak, like a print. A low light from behind crosses the boards. |
 | 2–5 | The camera pushes in and comes down to the photo's own angle; the dish rises into its relief and its shadow grows. |
 | 5–8 | It turns toward the light and back (17° at most) while the light passes over it; a highlight slides on what is wet. |
-| 8–10 | It is set down. "See the dish before you order." and the mark with "Menu by Mana". |
+| 8–10 | It is set down. "See the dish before you order." and the mark with "Menu by mana". |
 
 Nothing is added to the food: the colour is the photo's own. Code moves the camera, the light and the plate, never the
 food, and never tilts past 20°.

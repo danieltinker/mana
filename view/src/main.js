@@ -35,6 +35,7 @@ const cfg = () => window.HALOM_MENUS_CONFIG || {};
    'pull' = the next dish is further up the table and is pulled towards the guest. One switch: ?walk= or config.walk. */
 const walkOf = () => ((Q.get('walk') || cfg().walk) === 'pull' ? 1 : -1);
 let WALK = walkOf();
+const ROOMS_ON = Q.get('rooms') !== 'off';      // ?rooms=off: the two rooms of before (the table and one bar), for comparison
 const NO_GL = Q.get('gl') === 'off', SKIP_GL = Q.get('gl') === 'skip';      // off: as on a phone without WebGL (the list is the menu) · skip: tests of the DOM alone, the table simply is not drawn
 const stageMod = NO_GL || SKIP_GL || Q.get('view') === 'list' ? null : import('./gl/stage.js').catch(() => null);      // on its way while the menu loads
 
@@ -54,7 +55,7 @@ const flying = () => glide.state.mode === 'settle' && Math.abs(glide.state.targe
 function depthAt(f, y) {
   if (!f) return y / 300;
   const e = f.E * Math.PI / 180, k = f.ppu * f.D, t = Math.max(y - f.cy, -.8 * k * Math.tan(e));
-  return t * f.D / (Math.sin(e) * k + t * Math.cos(e)) / f.S;
+  return t * f.D / (Math.sin(e) * k + t * Math.cos(e)) / f.S / Math.cos(f.yaw || 0);      // a room seen from one side: the walk crosses the screen at a slant
 }
 
 function loadConfig() {                                                // ../config.js holds the Supabase settings; a demo does not need it
@@ -104,7 +105,7 @@ function open(snapshot) {
   const look = applyLook(snapshot.theme, PRESETS);                      // the look's surface, accent and lamp (an owner's own table photo still wins); null = today's theme
   if (look && look.motion === 'none' && !stage) reduce = true;
   /* /night:templates */
-  const model = buildModel(snapshot);
+  const model = buildModel(snapshot, { rooms: ROOMS_ON });
   if (!model.cats.length) return showStatus('empty', { lang: snapshot.locale.default });
   applyTheme(snapshot.theme);
   /* night:templates */ applyLookDom(document.documentElement, $('app'), look); /* /night:templates */

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lab · the shape-shifting dish</title>
+<!-- Lab only (never published): the hero dish on the page's porcelain + glass, to judge it in its real setting.
+     Build: node brand/lab/build-hero-lab.mjs, then serve brand/ (e.g. python3 -m http.server 7411 -d brand) and open
+     /lab/hero.html. Query: ?dish=<i> (rest frame) · ?shift=<i>&t=<0..1> (frozen shift i → i+1) · &angle=<deg>
+     · &low=1 (lowPower) · &reduced=1 · &label=0 -->
+<style>
+  @font-face{font-family:"Fraunces";font-weight:100 900;src:url(../site/fonts/fraunces-latin-standard-normal.woff2) format("woff2")}
+  :root{--ink:#16120E;--ink2:#4A433C;--muted:#8A8178}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:#F7F4EE;color:var(--ink);font:15px/1.5 system-ui,sans-serif;overflow:hidden}
+  .fields{position:fixed;inset:-10%;pointer-events:none;filter:blur(60px);opacity:.9}
+  .fields i{position:absolute;border-radius:50%;display:block}
+  .fields i:nth-child(1){width:48vw;height:48vw;left:8%;top:6%;background:#FCE7B8}
+  .fields i:nth-child(2){width:40vw;height:40vw;right:4%;top:22%;background:#FFD9C7}
+  .fields i:nth-child(3){width:36vw;height:36vw;left:30%;bottom:-4%;background:#F8D7DF}
+  .fields i:nth-child(4){width:28vw;height:28vw;right:22%;bottom:6%;background:#D7EEE3}
+  .fields i:nth-child(5){width:26vw;height:26vw;left:-2%;bottom:18%;background:#D9E7F7}
+  main{position:relative;min-height:100%;display:grid;place-items:center;padding:24px}
+  .stage{position:relative;width:min(92vw,720px);aspect-ratio:1/1;max-height:84vh}
+  .disc{position:absolute;inset:9%;border-radius:50%;
+    background:linear-gradient(135deg,rgba(255,255,255,.74),rgba(255,255,255,.42));
+    backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);
+    border:1px solid rgba(255,255,255,.78);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.95),0 30px 60px -28px rgba(70,45,20,.22),0 2px 8px rgba(70,45,20,.05)}
+  #hero{position:absolute;inset:0}
+  .label{position:absolute;left:0;right:0;bottom:2%;text-align:center;font-family:Fraunces,serif;font-size:22px;color:var(--ink)}
+  .label small{display:block;font:12px/1.4 system-ui,sans-serif;color:var(--muted);letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="fields" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<main>
+  <div class="stage">
+    <div class="disc"></div>
+    <div id="hero"></div>
+    <p class="label"><span id="name">&nbsp;</span><small class="ai-tag">Illustration · made with AI</small></p>
+  </div>
+</main>
+<script type="module" src="../.scratch/lab/hero-lab.js"></script>
+</body>
+</html>

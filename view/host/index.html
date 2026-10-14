@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ניהול שולחנות</title>
+<meta name="theme-color" content="#F7F4EE">
+<meta name="color-scheme" content="light">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%20width='64'%20height='64'%20role='img'%3E%3Ctitle%3Emana%3C/title%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230F0F0F'/%3E%3Cg%20transform='translate(6.76%203.33)%20scale(0.79)'%3E%3Cellipse%20cx='45.5'%20cy='44.6'%20rx='11.5'%20ry='3.6'%20fill='%23F5B120'/%3E%3Cpath%20d='M3%2050.7H61'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M7%2048C7%2022%2031%2022%2031%2048'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M33%2041.5C33%2015.5%2057%2015.5%2057%2041.5'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="host.css">
+</head>
+<body>
+<div class="sky" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><filter id="dglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter></svg>
+<div class="page" id="page">
+  <header class="bar glass">
+    <div class="brand"><h1 id="title"></h1><p class="sub"><span id="venue"></span><span class="dot" aria-hidden="true">·</span><time id="clock"></time></p></div>
+    <div class="seg" id="viewSeg" role="group"><button type="button" id="vFloor" aria-pressed="true"></button><button type="button" id="vList" aria-pressed="false"></button></div>
+    <div class="tools">
+      <button class="tool alerts" id="alertsBtn" type="button" aria-pressed="false"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2.6c-2.7 0-4.6 2-4.6 4.7v2.6c0 .9-.4 1.8-1 2.4l-.7.7c-.4.4-.1 1.1.5 1.1h11.6c.6 0 .9-.7.5-1.1l-.7-.7c-.6-.6-1-1.5-1-2.4V7.3c0-2.7-1.9-4.7-4.6-4.7zM8.1 16.1a2 2 0 0 0 3.8 0" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg><span id="alertsLbl"></span></button>
+      <button class="tool" id="gearBtn" type="button"><svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 5.5h8.2M14.8 5.5H17M3 10h2.6M9.2 10H17M3 14.5h6.2M12.8 14.5H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="13" cy="5.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="7.4" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="11" cy="14.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button>
+      <button class="tool lang" id="langBtn" type="button"></button>
+    </div>
+  </header>
+  <div class="status-row"><div class="sum" id="sum"></div></div>
+  <div class="strip glass" id="strip" hidden></div>
+  <main class="main" id="main">
+    <section class="floor glass" id="floorView"><svg class="plan" id="floor" role="group"></svg></section>
+    <section class="list" id="listView" hidden></section>
+  </main>
+  <footer class="foot"><p id="demoLine"></p><p class="credit" id="credit"></p></footer>
+</div>
+<div class="toasts" id="toasts"></div>
+<p class="flash glass" id="flash" role="status" hidden></p>
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet glass" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
+<noscript><p style="padding:24px;font:16px sans-serif;color:#16120E;background:#F7F4EE">This page needs JavaScript. / הדף הזה צריך JavaScript.</p></noscript>
+<script type="module" src="../host.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+[
+  { "name": "rooms-vitrine", "url": "?demo=olea&lang=en&hint=0#c=oven&i=bianca", "width": 390, "height": 844, "fps": 24, "seconds": 4,
+    "steps": [ { "at": 0.3, "click": ".chip[data-id=\"sweet\"]" }, { "at": 3.0, "key": "ArrowDown" } ] },
+  { "name": "rooms-cellar", "url": "?demo=olea&lang=en&hint=0#c=wine&i=wine-red", "width": 390, "height": 844, "fps": 24, "seconds": 4.5,
+    "steps": [ { "at": 0.3, "lift": true } ] },
+  { "name": "rooms-taps", "url": "?demo=olea&lang=en&hint=0#c=beer&i=beer-lager", "width": 390, "height": 844, "fps": 24, "seconds": 4.5,
+    "steps": [ { "at": 0.3, "lift": true } ] },
+  { "name": "rooms-cocktail", "url": "?demo=olea&lang=en&hint=0#c=cold&i=orange-juice", "width": 390, "height": 844, "fps": 24, "seconds": 3.5, "finger": true,
+    "steps": [ { "at": 0.4, "drag": [[195, 560], [195, 330]], "ms": 300, "ease": "linear" }, { "at": 2.2, "key": "ArrowDown" } ] },
+  { "name": "rooms-tray", "url": "?demo=olea&lang=en&hint=0#c=starters&i=hummus", "width": 390, "height": 844, "fps": 24, "seconds": 2.8,
+    "steps": [ { "at": 0.0, "click": "#addBtn" }, { "at": 0.05, "goTo": "kebab" }, { "at": 0.1, "click": "#addBtn" }, { "at": 0.15, "goTo": "wine-red" }, { "at": 0.2, "click": "#addBtn" }, { "at": 0.3, "click": "#trayBtn" } ],
+    "sheet": { "from": 0.3, "every": 0.2, "count": 12, "cols": 6, "width": 1560 } }
+]

@@ -9,7 +9,7 @@
 
 :root {
   color-scheme: light;
-  --page: var(--m-ivory); --card: #FFFFFF; --sunk: #F6F0EC;
+  --page: var(--m-porcelain); --card: #FFFFFF; --sunk: #F6F0EC;
   --ink: var(--m-ink); --ink2: var(--m-ink-2); --muted: #6B645F; --faint: #A39A94;
   --line: #EADFD9; --line2: #D9CBC3;
   --blush: #FAD9D5; --peach: #FFC9B6; --accent: var(--m-rose); --accent-soft: #FBEDE7;
@@ -80,17 +80,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .gate-card { width: 100%; max-width: 380px; display: grid; gap: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 28px 24px; box-shadow: var(--shadow); }
 .gate-card form { display: grid; gap: 12px; }
 .gate-card h1 { font-size: 20px; font-weight: 600; }
+/* the brand line: the mark (small cut, ink arches, the yolk light), the lowercase wordmark, "back office" */
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); }
-.brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--ink); position: relative; flex: none; }
-.brand-mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; border: 2.5px solid var(--peach); }
+.brand-mark { display: block; width: 30px; height: auto; flex: none; }
 .brand div { display: grid; line-height: 1.15; }
-.brand strong { font-weight: 600; font-size: 15px; }
+.brand strong { font-weight: 600; font-size: 16px; text-transform: lowercase; letter-spacing: -.01em; }
 .brand div > span { font-size: 11.5px; color: var(--muted); }
-.brand-lg .brand-mark { width: 36px; height: 36px; } .brand-lg .brand-mark::after { inset: 9px; }
-.brand-lg strong { font-size: 18px; }
+.brand-lg .brand-mark { width: 38px; }
+.brand-lg strong { font-size: 19px; }
 
 /* shell */
-.top { position: sticky; top: 0; z-index: 20; background: rgba(252, 248, 246, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.top { position: sticky; top: 0; z-index: 20; background: rgba(247, 244, 238, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
 .top-in { max-width: 1680px; margin: 0 auto; padding: 8px 20px; display: flex; align-items: center; gap: 20px; }
 .tabs { display: flex; gap: 2px; flex: 1; min-width: 0; }
 .tab { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px; color: var(--ink2); text-decoration: none; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; }

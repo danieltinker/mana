@@ -276,3 +276,24 @@ rest is icons, pictures and the controls themselves. No paragraph of instruction
   `/projects/menus/view/`), so the live routes `/m/:slug -> view/index.html` and `/mana/(.*)` are both required.
 - **Published settings** (`projects/menus/config.js`): `auth.providers: []` and `features.scan: false` until the founder
   registers a sign-in provider and adds the scanner's key; then the lead flips them, after one real test each.
+
+---
+# Amendments r2 (13 Oct 2026, round two of the remaster) — optional snapshot fields; still `v: 1`, readers ignore what they do not know
+Nothing in the backend changes: every field below is optional and the viewer infers what is missing. The viewer validates them
+in `view/src/snapshot.js`; an invalid value is treated as absent.
+
+- `category.room`: `table | vitrine | cellar | taps | cocktail`. The room of the place the category is shown in (see
+  `view/README.md`, "The rooms of the place"). Absent or unknown → from `kind`: food → `table`, dessert → `vitrine`, wine →
+  `cellar`, beer → `taps`, drinks → `cocktail`. `scene` keeps its meaning (`table` keeps the table, `bar` → the drinks room of
+  the kind, `holo` → the projector) and `theme.surface = 'holo'` still makes every category a projection.
+- `business.soldOut`: `bottom` (default) | `hide`. `bottom`: an item with `available: false` is shown at the end of its section,
+  greyed and labelled sold out (this changes the rule above, "shown as sold out, not hidden": it is still shown, last). `hide`: it
+  is not shown at all; a section with nothing left is not shown.
+- `item.details.wine.taste`: `{ sweet?: 0..3 (dry, off-dry, medium sweet, sweet), body?: 1..3 (light, medium, full),
+  acid?: 1..3 (soft, fresh, crisp), notes?: [mineral | citrus | redfruit | stonefruit | floral | oak | spice | earthy] }`
+  (integers; unknown notes dropped; at most six).
+- `item.details.beer.taste`: `{ style?: lager | wheat | pale | ipa | amber | stout | sour, bitter?: 1..3 (mild, balanced, bitter),
+  notes?: [citrus | malt | roast | hop | sour | fruit | spice] }`.
+  Without `taste`, the viewer reads the existing fields (`wine.color`, `wine.notes.*`, `beer.style`, `beer.abv`) and, marked as
+  suggested, the merchant's own description words (`view/src/drinks/taste.js`). Nothing is ever shown that the merchant did not
+  enter or write.

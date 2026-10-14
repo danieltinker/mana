@@ -22,7 +22,7 @@ import { resolve, dirname, join, relative, extname, basename } from 'node:path';
 import { gzipSync } from 'node:zlib';
 
 const SITE = resolve(process.argv[2] || '_site');
-const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB };
+const KB = 1024, BUDGET = { first: 800 * KB, page: 60 * KB, seat: 150 * KB, seat3d: 2.5 * KB * KB, file: 3 * KB * KB, /* timers */ host: 175 * KB /* /timers */, /* lima */ floor: 340 * KB /* /lima */ };
 const TEXT = /\.(html?|css|m?js|json|svg|txt|md|xml|webmanifest)$/i;
 if (!existsSync(SITE)) { console.error('✗ no built site at ' + SITE + ' (run tools/build-site.sh first)'); process.exit(2); }
 
@@ -124,7 +124,7 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     const html = read(page).toString(); let inline = '', n = 0;
     for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) { const src = attr('<script' + m[1] + '>', 'src'); if (src) rows.push(need(local(src, page), 'script the page names')); else { inline += m[2] + '\n'; n++; } }
     rows.push({ file: 'index.html <script> (inline, ' + n + ')', why: 'inline scripts', raw: Buffer.byteLength(inline), sent: gzipSync(Buffer.from(inline), { level: 9 }).length });
-    if (!rows.some((r) => r && /mana\.js$/.test(r.file))) notes.push('index.html does not name mana.js');
+    if (!rows.some((r) => r && /(mana|land\/main)\.js$/.test(r.file))) notes.push('index.html does not name mana.js or land/main.js');      /* remaster: the page's script is land/main.js */
   }
   section("(b) product page, scripts before the hero", rows, BUDGET.page);
 }
@@ -146,6 +146,45 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
   }
 }
 
+/* timers */
+/* (e) the host board, when present (view/host/index.html: the page, its scripts and their own chunks, its stylesheet and
+   the fonts the stylesheet declares; a manager's screen, so its fonts count), ≤ 175 kB */
+{
+  const host = join(SITE, 'view/host/index.html'), rows = [];
+  if (!existsSync(host)) notes.push('(e) no host board at view/host/index.html: nothing to measure');
+  else {
+    rows.push(row(host, 'the page'));
+    const html = read(host).toString();
+    for (const { tag } of tags(html, 'script')) { const p = local(attr(tag, 'src'), host); if (!p || !existsSync(p)) continue; rows.push(row(p, 'script')); for (const c of staticImports(p)) if (existsSync(c)) rows.push(row(c, 'its own chunk')); }
+    for (const { tag } of tags(html, 'link')) if (/stylesheet/i.test(attr(tag, 'rel') || '')) { const p = local(attr(tag, 'href'), host); if (!p || !existsSync(p)) continue; rows.push(row(p, 'style'));
+      for (const u of cssUrls(p).filter((x) => /\.woff2?$/i.test(x))) { const q = local(u, p); if (q && existsSync(q)) rows.push(row(q, 'font host.css declares')); } }
+    section('(e) host board page', rows, BUDGET.host);
+  }
+}
+/* /timers */
+
+/* lima */
+/* (f) Café Lima's board and the guest's phone, when present (view/floor/index.html, view/floor/guest.html): each page,
+   its scripts and their own chunks, its stylesheets and the fonts they declare, AND the 3D place (three.js and the room:
+   imported on demand in the code, but both pages mount it at start unless ?gl=off, so it is part of the first load),
+   ≤ 340 kB sent each. The floor build carries its own copy of three.js (a separate esbuild build from the guest menu's). */
+for (const [name, file] of [['board', 'view/floor/index.html'], ['phone', 'view/floor/guest.html']]) {
+  const page = join(SITE, file), rows = [];
+  if (!existsSync(page)) { notes.push('(f) no ' + file + ': nothing to measure'); continue; }
+  rows.push(row(page, 'the page'));
+  const html = read(page).toString(), later = new Set();
+  for (const { tag } of tags(html, 'script')) { const p = local(attr(tag, 'src'), page); if (!p || !existsSync(p)) continue; rows.push(row(p, 'script'));
+    for (const c of staticImports(p)) if (existsSync(c)) rows.push(row(c, 'its own chunk'));
+    for (const c of dynamicImports(p)) if (existsSync(c)) later.add(c); }
+  for (const { tag } of tags(html, 'link')) if (/stylesheet/i.test(attr(tag, 'rel') || '')) { const p = local(attr(tag, 'href'), page); if (!p || !existsSync(p)) continue; rows.push(row(p, 'style'));
+    for (const u of cssUrls(p).filter((x) => /\.woff2?$/i.test(x))) { const q = local(u, p); if (q && existsSync(q) && !rows.some((r) => r && r.file === rel(q))) rows.push(row(q, 'font the stylesheet declares')); } }
+  const seenRows = new Set(rows.filter(Boolean).map((r) => r.file));
+  for (const c of later) { if (!seenRows.has(rel(c))) { rows.push(row(c, 'the 3D place (mounted at start unless ?gl=off)')); seenRows.add(rel(c)); }
+    for (const d of staticImports(c)) if (existsSync(d) && !seenRows.has(rel(d))) { rows.push(row(d, 'a chunk the 3D place imports')); seenRows.add(rel(d)); } }
+  section('(f) Café Lima, the ' + name + ' page with its 3D place', rows, BUDGET.floor);
+}
+/* /lima */
+
 /* (d) media */
 {
   const page = join(SITE, 'index.html');
@@ -163,6 +202,22 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
   for (const h of walk(SITE)) for (const [p, why] of firstPaint(h)) { const n = statSync(p).size; if (n > BUDGET.file) { big.push({ file: rel(p), why: why + ' of ' + rel(h), raw: n, sent: n }); breaches.push('(d) ' + rel(h) + ' loads ' + rel(p) + ' (' + kb(n) + ' kB, ' + why + ') at first paint: over 3 MB'); } }
   sections.push({ title: '(d) files over 3 MB at first paint', rows: big, total: big.reduce((n, r) => n + r.raw, 0), budget: null });
 }
+
+/* remaster: (e) the product page's own pieces (brand/src/land, bundled into land/; the generated media in img/). Raw bytes:
+   the page's first script (land/main.js, minified) ≤ 40 kB; each on-demand chunk (three.js and the 3D modules) ≤ 750 kB;
+   each dish mesh (img/dishes/*.glb) ≤ 700 kB; the host film (img/host/host-orbit.mp4) ≤ 2 MB. */
+{
+  const LAND = { main: 40 * KB, chunk: 750 * KB, glb: 700 * KB, host: 2 * KB * KB }, rows = [];
+  const cap = (p, max, why) => { if (!existsSync(p)) { breaches.push('missing: ' + rel(p) + ' (' + why + ')'); return; } const r = row(p, why + ' ≤ ' + kb(max) + ' kB raw'); rows.push(r); if (r.raw > max) breaches.push('(e) ' + rel(p) + ' is ' + kb(r.raw) + ' kB raw > ' + kb(max) + ' kB (' + why + ')'); };
+  if (existsSync(join(SITE, 'index.html')) && /land\/main\.js/.test(read(join(SITE, 'index.html')).toString())) {
+    cap(join(SITE, 'land/main.js'), LAND.main, "the page's first script");
+    const ch = join(SITE, 'land/chunks'); if (existsSync(ch)) for (const f of readdirSync(ch)) if (/\.js$/.test(f)) cap(join(ch, f), LAND.chunk, 'an on-demand chunk');
+  } else notes.push('(e) index.html does not load land/main.js: the page\'s own budgets were not measured');
+  const dishes = join(SITE, 'img/dishes'); if (existsSync(dishes)) for (const f of readdirSync(dishes)) if (/\.glb$/.test(f)) cap(join(dishes, f), LAND.glb, 'a dish mesh');
+  if (existsSync(join(SITE, 'img/host/host-orbit.mp4'))) cap(join(SITE, 'img/host/host-orbit.mp4'), LAND.host, 'the host film');
+  sections.push({ title: "(e) the product page's script, chunks, dish meshes and host film", rows, total: rows.reduce((n, r) => n + r.raw, 0), budget: null });
+}
+/* /remaster */
 
 /* the table */
 for (const s of sections) {

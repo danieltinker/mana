@@ -1,5 +1,6 @@
 /* Four ready post frames (1080 × 1350), Hebrew and English, rendered from HTML with the page's own fonts and real product pictures.
    Output: social/frames/<n>-<name>-<lang>.png   Source kept in social/src/frames.html   Run: node tools/build-social.mjs */
+import { inline as markInline } from './mark.mjs';
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -7,8 +8,8 @@ import { dirname, join } from 'node:path';
 const require = createRequire('/opt/npm-tools/node_modules/');
 const { chromium } = require('playwright');
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const mark = (plate, w) => `<svg viewBox="0 14 64 39" width="${w}"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="${plate}" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg>`;
-const brand = (l, ink) => `<div class="brand">${mark(ink, 84)}<b>${l === 'he' ? 'מנה' : 'Mana'}</b><span>${l === 'he' ? 'מבית Halom' : 'by Halom'}</span></div>`;
+const mark = (plate, w) => markInline(plate, w);   // Cloche (./mark.mjs)
+const brand = (l, ink) => `<div class="brand">${mark(ink, 84)}<b>${l === 'he' ? 'מנה' : 'mana'}</b><span>${l === 'he' ? 'מבית חלום' : 'by Halom'}</span></div>`;
 const F = {
   '01-one-photo': (l, T) => `<section class="f ivory">${brand(l, '#0F0F0F')}<h1>${T('תמונה אחת מהטלפון.<br>ככה היא נראית בתפריט.', 'One phone photo.<br>This is how it looks on the menu.')}</h1>
     <div class="pair"><img src="../../site/img/howto-photo.jpg"><img src="../../site/img/howto-table-${l}.jpg"></div>

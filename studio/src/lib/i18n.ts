@@ -47,6 +47,7 @@ const S: Record<string, [string, string]> = {
   'app.configMissing': ['חסר קובץ ההגדרות (config.js), ולכן אי אפשר להתחבר. כתבו לנו ונסדר.', 'The settings file (config.js) is missing, so the app cannot connect. Message us and we will fix it.'],
   'app.loadFailed': ['לא הצלחנו לטעון את הנתונים', 'We could not load your data'],
   'app.skip': ['דילוג לתוכן', 'Skip to content'],
+  'app.by': ['מבית חלום', 'by Halom'],
 
   'nav.home': ['בית', 'Home'],
   'nav.menu': ['תפריט', 'Menu'],
