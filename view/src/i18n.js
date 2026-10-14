@@ -21,7 +21,7 @@ export const STR = {
     wineColor: { red: 'Red', white: 'White', rose: 'Rosé', sparkling: 'Sparkling', orange: 'Orange' },
     beer: { brewery: 'Brewery', style: 'Style', abv: 'Alcohol', serving: 'Served', color: 'Colour' },
     beerServing: { bottle: 'Bottle', can: 'Can', tap: 'On tap' }, beerColor: { pale: 'Pale', amber: 'Amber', dark: 'Dark' },
-    stageLabel: 'The dishes on a table. Every dish is also in the menu list.', credit: 'Menu by {name}', demo: 'Demo menu · invented restaurant', demoShort: 'Demo', backTo: 'Back to {name}',
+    stageLabel: 'The dishes on a table. Every dish is also in the menu list.', credit: 'Menu by mana', demo: 'Demo menu · invented restaurant', demoShort: 'Demo', backTo: 'Back to {name}',
     /* night:templates */ demoAi: 'Demo dishes · made with AI' /* /night:templates */,
     /* night:seating */ bookTable: 'Book a table' /* /night:seating */,
     /* r2:menu */

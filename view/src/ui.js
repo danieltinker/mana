@@ -103,7 +103,7 @@ export function createUI(store, env) {
     $('trayEmpty').textContent = t('trayEmpty'); $('trayTotalLbl').textContent = t('total'); $('trayNote').textContent = t('trayNote'); $('trayClear').textContent = t('clear');
     $('closeBtn').setAttribute('aria-label', t('close')); $('openBtn').setAttribute('aria-label', t('details')); $('pourLbl').textContent = t('pour'); $('dAllergensLbl').textContent = t('allergens') + ':'; $('dNotesTitle').textContent = t('notes');
     const pn = PRODUCT.name[s.lang] || PRODUCT.name.en;
-    $('credit').textContent = t('credit', { name: pn }); $('credit').href = PRODUCT.url;
+    $('creditTxt').textContent = t('credit', { name: pn }); $('credit').href = PRODUCT.url;      // the mark sits before the words (index.html)
     /* only ever on a demo, never on a merchant's menu: the way back to the product page, and the word "demo" */
     $('home').hidden = !env.demo; $('demoNote').hidden = !env.demo; $('demoLine').hidden = !env.demo;
     if (env.demo) { $('home').href = env.sitePath; $('homeLbl').textContent = pn; $('home').setAttribute('aria-label', t('backTo', { name: pn })); $('demoNote').textContent = t('demoShort'); $('demoNote').title = t('demo'); $('demoLine').textContent = t('demo'); }

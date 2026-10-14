@@ -10,6 +10,7 @@
      node tools/build-site.mjs --poster-from-video[=s] also take the hero poster from hero.mp4 (frame at s seconds, default 0)
      node tools/build-site.mjs --demo-still-from-clip[=s] also take the still behind "Play with it" (img/demo-poster.jpg) from
                                          tools/film/clips/guest-glide.mp4 (frame at s seconds, default 1.7: the second dish in focus)  */
+import { inline as markInline } from './mark.mjs';
 import { writeFileSync, mkdirSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +29,8 @@ export const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
 /* t(he, en, tag): the same element once per language. Text is trusted HTML written in this file. */
 export const t = (he, en, tag = 'span', attrs = '') => `<${tag} class="he" lang="he"${attrs ? ' ' + attrs : ''}>${he}</${tag}><${tag} class="en" lang="en"${attrs ? ' ' + attrs : ''}>${en}</${tag}>`;
 export const p = (he, en, cls = '') => `<p class="he${cls ? ' ' + cls : ''}" lang="he">${he}</p><p class="en${cls ? ' ' + cls : ''}" lang="en">${en}</p>`;
-export const mark = (plate, w = 44) => `<svg viewBox="0 14 64 39" width="${w}" aria-hidden="true"><ellipse cx="32" cy="33.5" rx="28" ry="15" fill="none" stroke="${plate}" stroke-width="3.4"/><ellipse cx="32" cy="30" rx="15" ry="8" fill="#F5B120"/></svg>`;
+/* the mark (Cloche, ./mark.mjs): the small cut under 40 px, the full cut above */
+export const mark = (plate, w = 44) => markInline(plate, w, { small: w < 40 });
 export const waIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H10l-5 4v-4H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>';
 const LINE = 'fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"';
 
@@ -76,7 +78,7 @@ ${styles.map((s) => `<link rel="stylesheet" href="${base}${s}">`).join('\n')}
 
 const header = (base = './') => `<header class="top">
   <div class="pill">
-    <a class="brand" href="${base}" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark('#FCF8F6', 36)}<b>${t('מנה', 'Mana')}</b></a>
+    <a class="brand" href="${base}" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark('#FCF8F6', 36)}<b>${t('מנה', 'mana')}</b></a>
     <div class="top-tools">
       <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
       <a class="btn btn-sm" href="${base}studio/">${t('כניסה', 'Sign in')}</a>
@@ -87,7 +89,7 @@ const header = (base = './') => `<header class="top">
 export const footer = (base = './', plate = '#FCF8F6') => `<footer class="foot">
   <div class="wrap">
     <div class="foot-row">
-      <a class="brand" href="${base}" aria-label="Mana">${mark(plate, 36)}<b>${t('מנה', 'Mana')}</b></a>
+      <a class="brand" href="${base}" aria-label="Mana">${mark(plate, 36)}<b>${t('מנה', 'mana')}</b></a>
       <ul class="foot-links">
         <li><a href="${base}guide/">${t('מדריך צילום', 'Photo guide')}</a></li>
         <li><a href="${base}privacy/">${t('פרטיות', 'Privacy')}</a></li>
@@ -237,11 +239,11 @@ ${footer('../')}
 
 export function renderPrivacy() {
   return docPage({
-    titleHe: 'פרטיות · מנה מבית Halom', titleEn: 'Privacy · Mana by Halom', path: 'privacy/',
+    titleHe: 'פרטיות · מנה מבית חלום', titleEn: 'Privacy · Mana by Halom', path: 'privacy/',
     descHe: 'מה מנה שומרת על בעלי עסקים, מה היא לא שומרת על סועדים, איפה המידע נמצא ואיך מוחקים אותו.',
     descEn: 'What Mana keeps about business owners, what it does not keep about guests, where the data is and how to have it deleted.',
     h1He: 'פרטיות', h1En: 'Privacy',
-    leadHe: 'מנה היא תפריט שמסעדות בונות לבד, מבית Halom. כאן כתוב במילים פשוטות מה נשמר, איפה, ואיך מוחקים.',
+    leadHe: 'מנה היא תפריט שמסעדות בונות לבד, מבית חלום. כאן כתוב במילים פשוטות מה נשמר, איפה, ואיך מוחקים.',
     leadEn: 'Mana is a menu that restaurants build themselves, by Halom. This page says in plain words what is kept, where, and how to have it deleted.',
     body: [
       sec('guests', 'סועדים: מי שפותח תפריט', 'Guests: anyone who opens a menu',
@@ -289,7 +291,7 @@ export function renderPrivacy() {
 
 export function renderTerms() {
   return docPage({
-    titleHe: 'תנאי שימוש · מנה מבית Halom', titleEn: 'Terms · Mana by Halom', path: 'terms/',
+    titleHe: 'תנאי שימוש · מנה מבית חלום', titleEn: 'Terms · Mana by Halom', path: 'terms/',
     descHe: 'התנאים של מנה במילים פשוטות: מה השירות, תקופת הניסיון, האחריות לתוכן, איורים, זמינות בפיילוט.',
     descEn: 'Mana’s terms in plain words: what the service is, the free period, responsibility for content, illustrations, availability during the pilot.',
     h1He: 'תנאי שימוש', h1En: 'Terms',

@@ -35,9 +35,9 @@
   "requestsOnLoad390": 30,
   "bytesGzipBeforeHero": {
    "mainRaw": 24695,
-   "scripts": 10177,
+   "scripts": 10178,
    "css": 19664,
-   "html": 18257
+   "html": 18469
   }
  }
 }

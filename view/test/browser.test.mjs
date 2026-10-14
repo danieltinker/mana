@@ -214,7 +214,7 @@ test('the list sheet: the whole menu over the scene; a row flies to its dish and
   await page.click('#listBtn'); let s = await st(page); assert.equal(s.open, 'list'); assert.equal(new URL(page.url()).hash, '#c=starters&i=labaneh&o=list');
   const openS = await page.evaluate(() => { const l = document.getElementById('list'), r = l.getBoundingClientRect(); return { top: r.top, role: l.getAttribute('role'), tab: [...l.querySelectorAll('.row')].every((a) => !a.hasAttribute('tabindex')), cur: l.querySelector('.row[aria-current="true"]').dataset.id, focus: document.activeElement.id, topInert: document.getElementById('top').inert, credit: document.getElementById('credit').textContent, demo: document.getElementById('demoLine').textContent }; });
   assert.ok(openS.top < 20); assert.equal(openS.role, 'dialog'); assert.ok(openS.tab); assert.equal(openS.cur, 'labaneh'); assert.equal(openS.focus, 'listClose'); assert.equal(openS.topInert, true);
-  assert.equal(openS.credit, 'Menu by Mana'); assert.equal(openS.demo, 'Demo menu · invented restaurant\nDemo dishes · made with AI');      /* night:templates: the demo line now carries the AI label */
+  assert.equal(openS.credit, 'Menu by mana'); assert.equal(openS.demo, 'Demo menu · invented restaurant\nDemo dishes · made with AI');      /* night:templates: the demo line now carries the AI label */
   await page.click('.row[data-id="kebab"]'); s = await st(page); assert.equal(s.open, null); assert.equal(s.itemId, 'kebab'); assert.equal(s.categoryId, 'mains'); assert.equal(await text(page, '#dName'), 'Lamb kebab');
   await settle(page, 90); let i = await info(page); assert.equal(i.p, 6); assert.ok(i.actors.find((a) => a.id === 'kebab').vis > .9); assert.equal(await page.evaluate(() => document.getElementById('list').classList.contains('open')), false);
   await page.click('#listBtn'); await page.keyboard.press('Escape'); assert.equal((await st(page)).open, null);
@@ -300,7 +300,7 @@ test('demo and preview are never counted; the demo says so and leads back to the
   assert.equal(await page.evaluate(() => document.getElementById('standin').hidden), true, 'and it leaves when the dish is sharp');
   assert.equal(await text(page, '#demoNote'), 'Demo'); assert.equal(await page.getAttribute('#demoNote', 'title'), 'Demo menu · invented restaurant'); assert.equal(await text(page, '#homeLbl'), 'Mana');
   assert.equal(await page.evaluate(() => document.getElementById('home').href), srv.origin + '/projects/menus/'); assert.equal(await page.getAttribute('#home', 'aria-label'), 'Back to Mana');
-  const credit = await page.evaluate(() => { const a = document.getElementById('credit'); return [a.textContent, a.href, a.target, a.rel]; }); assert.deepEqual(credit, ['Menu by Mana', 'https://halom.io/mana/', '_blank', 'noopener']);
+  const credit = await page.evaluate(() => { const a = document.getElementById('credit'); return [a.textContent, a.href, a.target, a.rel]; }); assert.deepEqual(credit, ['Menu by mana', 'https://halom.io/mana/', '_blank', 'noopener']);
   await d(page, { type: 'open', what: 'dish' }); await page.click('#addBtn2'); await d(page, { type: 'close' }); await d(page, { type: 'setLang', lang: 'he' });
   assert.equal(await text(page, '#demoNote'), 'הדגמה'); assert.equal(await text(page, '#homeLbl'), 'מנה'); assert.equal(await page.evaluate(() => document.getElementById('credit').textContent), 'תפריט של מנה');
   /* walk a few dishes, then: the link leads to the product page, and the browser's Back from the menu leaves it in ONE press */

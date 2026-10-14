@@ -138,7 +138,7 @@ await check('language switch: text, direction, title, the demo links and the lab
   await o.page.click('.top [data-lang-toggle]');
   const r = await o.page.evaluate(() => ({ l: document.documentElement.lang, d: document.documentElement.dir, t: document.title, h: document.querySelector('.hero [data-demo-open]').getAttribute('href'), seat: document.querySelector('#place [data-demo-open]').getAttribute('href'),
     x: document.querySelector('.dlg-x').getAttribute('aria-label'), h1: document.querySelector('h1').innerText.trim(), shown: [...document.querySelectorAll('.he,.en')].filter((e) => e.checkVisibility()).every((e) => e.classList.contains('en')) }));
-  assert.equal(r.l, 'en'); assert.equal(r.d, 'ltr'); assert.match(r.t, /^Mana · See the dish/); assert.match(r.h, /lang=en$/); assert.match(r.seat, /seat\/\?demo=olea&lang=en$/); assert.equal(r.x, 'Close'); assert.equal(r.h1, 'See the dish before you order.'); assert.equal(r.shown, true);
+  assert.equal(r.l, 'en'); assert.equal(r.d, 'ltr'); assert.match(r.t, /^Mana · The table is just the beginning/); assert.match(r.h, /lang=en$/); assert.match(r.seat, /seat\/\?demo=olea&lang=en$/); assert.equal(r.x, 'Close'); assert.equal(r.h1, 'The table is just the beginning.'); assert.equal(r.shown, true);
   await o.page.reload(); assert.equal(await o.page.evaluate(() => document.documentElement.lang), 'en');
   await o.ctx.close();
 });
@@ -148,7 +148,7 @@ await check('hero: the words as written; the stills stand first; the shape-shift
   const r = await o.page.evaluate(() => ({ eyebrow: document.querySelector('.eyebrow').innerText.trim(), h1: document.querySelector('h1').innerText.trim(), lead: document.querySelector('.hero .lead').innerText.trim(),
     stills: [...document.querySelectorAll('.stills img')].map((i) => i.getAttribute('src')), first: (() => { const i = document.querySelector('.stills img'); return i.complete && i.naturalWidth > 0 && +getComputedStyle(i).opacity > 0; })(),
     names: [...document.querySelectorAll('.dn .he')].map((e) => e.textContent), floats: document.querySelectorAll('.lev .lv[data-depth] img').length, host: (() => { const h = document.getElementById('hero-gl'); return [getComputedStyle(h).position, h.children.length]; })() }));
-  assert.equal(r.eyebrow, 'מָנָה · כוח החיים שבאוכל'); assert.equal(r.h1, 'רואים את המנה לפני שמזמינים.'); assert.equal(r.lead, 'תפריט QR שמראה את המנות שלכם על השולחן. בקרוב: אתר, רילסים ומפת ישיבה.');
+  assert.equal(r.eyebrow, 'מסעדנות פוגשת טכנולוגיה'); assert.equal(r.h1, 'השולחן הוא רק ההתחלה.'); assert.equal(r.lead, 'היום: תפריט שבו האורח רואה כל מנה על השולחן, מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות בשעות עומס, אתר ורילסים.');
   assert.deepEqual(r.stills, ['pizza', 'burger', 'ramen', 'croissant', 'shakshuka', 'gelato'].map((d) => `./img/dishes/${d}.webp`)); assert.equal(r.first, true, 'the first still is not there');
   assert.deepEqual(r.names, ['מרגריטה', 'המבורגר', 'ראמן', 'קרואסון', 'שקשוקה', 'גלידה']); assert.equal(r.floats, 12); assert.deepEqual(r.host, ['relative', 0]);
   await o.page.waitForFunction(() => performance.getEntriesByType('resource').some((e) => /\/land\/chunks\/hero-morph/.test(e.name)), null, { timeout: 25000 });

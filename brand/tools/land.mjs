@@ -256,7 +256,7 @@ const faq = [
 /* ------------------------------------------------------------------------------------------------ the page */
 const top = () => `<header class="top" id="top">
   <div class="top-pill glass">
-    <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark(INK, 34)}<b>${t('מנה', 'Mana')}</b></a>
+    <a class="brand" href="./" data-label-he="מנה, לעמוד הראשי" data-label-en="Mana, home" aria-label="מנה, לעמוד הראשי">${mark(INK, 34)}<b>${t('מנה', 'mana')}</b></a>
     <nav class="top-nav"><a href="#how">${t('איך זה עובד', 'How it works')}</a><a href="#plans">${t('חבילות', 'Plans')}</a><a href="#faq">${t('שאלות', 'Questions')}</a></nav>
     <div class="top-tools">
       <button class="lang" type="button" data-lang-toggle><span class="he" lang="en">English</span><span class="en" lang="he">עברית</span></button>
@@ -270,9 +270,9 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
   <div class="lev" aria-hidden="true">${LEV.map(([f, x, y, d, ph]) => `<span class="lv d${d}${ph ? '' : ' lv-wide'}" data-depth="${d}" style="--x:${x}%;--y:${y}%${ph ? `;--mx:${ph[0]}%;--my:${ph[1]}%` : ''}">${d >= 2 ? '<i class="lv-sh"></i>' : ''}<img src="./img/float/${f}.webp" width="360" height="360" alt="" decoding="async" fetchpriority="low"${ph ? '' : ' loading="lazy"'}></span>`).join('')}</div>
   <div class="hero-in wrap">
     <div class="hero-words">
-      <p class="eyebrow">${t('מָנָה · כוח החיים שבאוכל', 'Mana · the life force in food')}</p>
-      <h1 id="hero-h">${t('רואים את <em>המנה</em> לפני שמזמינים.', 'See <em>the dish</em> before you order.')}</h1>
-      ${p('תפריט QR שמראה את המנות שלכם על השולחן. בקרוב: אתר, רילסים ומפת ישיבה.', 'A QR menu that shows your dishes on the table. Coming: a website, reels and a seat map.', 'lead')}
+      <p class="eyebrow">${t('מסעדנות פוגשת טכנולוגיה', 'Hospitality meets technology')}</p>
+      <h1 id="hero-h">${t('<em>השולחן</em> הוא רק ההתחלה.', '<em>The table</em> is just the beginning.')}</h1>
+      ${p('היום: תפריט שבו האורח רואה כל מנה על השולחן, מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות בשעות עומס, אתר ורילסים.', 'Today: a menu where guests see every dish on the table, from one photo. Coming: a seat map, peak-time bids for tables, your site and reels.', 'lead')}
       <div class="cta">
         <a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
         <a class="btn btn-glass btn-lg" ${DEMO} data-demo-open>${ico.play}${t('לנסות את ההדגמה', 'Try the demo')}</a>
@@ -540,9 +540,9 @@ function dialog(media) {
 export function renderLand(media = mediaFound(), opts = {}) {
   const preview = opts.preview != null ? !!opts.preview : PREVIEW;
   return head({
-    titleHe: 'מנה · רואים את המנה לפני שמזמינים', titleEn: 'Mana · See the dish before you order',
-    descHe: 'תפריט QR שמראה את המנות שלכם על השולחן, בתבליט. בקרוב: אתר, רילסים ומפת ישיבה. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית Halom.',
-    descEn: 'A QR menu that shows your dishes on the table, in relief. Coming: a website, reels and a seat map. The first 30 days free, no card. By Halom.',
+    titleHe: 'מנה · השולחן הוא רק ההתחלה', titleEn: 'Mana · The table is just the beginning',
+    descHe: 'מסעדנות פוגשת טכנולוגיה: תפריט שבו האורח רואה כל מנה על השולחן, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום.',
+    descEn: 'Hospitality meets technology: a menu where guests see every dish on the table, a relief from one photo. Coming: a seat map, bids for tables, your site and reels. The first 30 days free, no card. By Halom.',
     config: true, styles: ['land.css'], theme: '#F7F4EE'
   }) + `
 <body class="land">
