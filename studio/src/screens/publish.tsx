@@ -92,7 +92,7 @@ export function QrSheet({ open, onClose }: { open: boolean; onClose: () => void 
           <p class="tcard-name">{d.biz.name_he && d.biz.name_en ? <><span lang="he" dir="rtl">{d.biz.name_he}</span><span lang="en" dir="ltr" class="tcard-name2">{d.biz.name_en}</span></> : <span>{d.biz.name_he || d.biz.name_en}</span>}</p>
           {svg && <img class="tcard-qr" src={svgSrc(svg)} alt="" />}
           <p class="tcard-scan"><span lang="he" dir="rtl">{t('pub.cardScanHe')}</span><span lang="en" dir="ltr">{t('pub.cardScanEn')}</span></p>
-          <p class="tcard-foot" dir="ltr">Menu by {PRODUCT.en} · {PRODUCT.site}</p>
+          <p class="tcard-foot" dir="ltr">Menu by {PRODUCT.en.toLowerCase()} · {PRODUCT.site}</p>
         </div>
         <div class="actgrid">
           <Btn icon="print" onClick={() => printCard('A6')} data-print="A6">{t('pub.cardA6')}</Btn>

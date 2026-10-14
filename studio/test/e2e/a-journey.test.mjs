@@ -364,7 +364,7 @@ test('6h · the QR code (PNG and SVG) carries ?t=1; the table card prints on one
   });
   assert.equal(jsQR(new Uint8ClampedArray(shown), 600, 600)?.data, want);
   const card = await page.locator('[data-table-card]').innerText();
-  assert.match(card, /זית ירוק/); assert.match(card, /סרקו לתפריט/); assert.match(card, /Scan for the menu/); assert.match(card, /Menu by Mana · halom\.io/);
+  assert.match(card, /זית ירוק/); assert.match(card, /סרקו לתפריט/); assert.match(card, /Scan for the menu/); assert.match(card, /Menu by mana · halom\.io/);
   await shot(page, '10-qr-sheet-he-390', { fullPage: false });
   // the real button: the app leaves the print layout, a copy of the card fills one A6 sheet (105 × 148 mm), then everything goes back
   await page.evaluate(() => { window.print = () => { window.__printed = document.documentElement.dataset.print; }; });
