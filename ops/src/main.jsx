@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import * as api from './api.js';
 import { PRODUCT, derive, fmtClock, fmtInt, ago } from './model.js';
 import { Icon, Notice, T } from './ui.jsx';
+import { MARK_SMALL } from './mark-shapes.js';
 import { DayColumns, Funnel } from './charts.jsx';
 import { Businesses } from './businesses.jsx';
 import { Leads } from './leads.jsx';
@@ -56,17 +57,10 @@ function App() {
 }
 
 function Center({ children }) { return <main class="gate"><div class="gate-card">{children}</div></main>; }
-// The mark, version 2 (Cloche), small cut. Source: brand/tools/mark.mjs (shapes(), the path data copied exactly; the viewBox
-// is the ink box plus 1 unit, as inline() crops it). Ink arches (currentColor), the yolk light.
+// The mark, version 2 (Cloche), small cut. Source: brand/tools/mark.mjs; ./mark-shapes.js is written from it by
+// brand/tools/sync-mark.mjs (the site build fails if it drifts). Ink arches (currentColor), the yolk light.
 function Mark() {
-  return (
-    <svg class="brand-mark" viewBox="-0.7 18.3 65.4 36.1" aria-hidden="true" focusable="false">
-      <ellipse cx="45.5" cy="44.6" rx="11.5" ry="3.6" fill="#F5B120" />
-      <path d="M3 50.7H61" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
-      <path d="M7 48C7 22 31 22 31 48" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
-      <path d="M33 41.5C33 15.5 57 15.5 57 41.5" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
-    </svg>
-  );
+  return <svg class="brand-mark" viewBox={MARK_SMALL.viewBox} aria-hidden="true" focusable="false" dangerouslySetInnerHTML={{ __html: MARK_SMALL.html }} />;
 }
 function Brand() {
   return (

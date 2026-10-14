@@ -272,7 +272,7 @@ const hero = () => `<section class="hero" id="hero" aria-labelledby="hero-h" dat
     <div class="hero-words">
       <p class="eyebrow">${t('מסעדנות פוגשת טכנולוגיה', 'Hospitality meets technology')}</p>
       <h1 id="hero-h">${t('<em>השולחן</em> הוא רק ההתחלה.', '<em>The table</em> is just the beginning.')}</h1>
-      ${p('היום: תפריט שבו האורח רואה כל מנה על השולחן, מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות בשעות עומס, אתר ורילסים.', 'Today: a menu where guests see every dish on the table, from one photo. Coming: a seat map, peak-time bids for tables, your site and reels.', 'lead')}
+      ${p('היום: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות בשעות עומס, אתר ורילסים.', 'Today: a menu where every dish you photograph stands on the guest’s table, from one photo. Coming: a seat map, peak-time bids for tables, your site and reels.', 'lead')}
       <div class="cta">
         <a class="btn btn-ink btn-lg" href="./studio/">${t('מתחילים בחינם', 'Start free')}</a>
         <a class="btn btn-glass btn-lg" ${DEMO} data-demo-open>${ico.play}${t('לנסות את ההדגמה', 'Try the demo')}</a>
@@ -541,8 +541,8 @@ export function renderLand(media = mediaFound(), opts = {}) {
   const preview = opts.preview != null ? !!opts.preview : PREVIEW;
   return head({
     titleHe: 'מנה · השולחן הוא רק ההתחלה', titleEn: 'Mana · The table is just the beginning',
-    descHe: 'מסעדנות פוגשת טכנולוגיה: תפריט שבו האורח רואה כל מנה על השולחן, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום.',
-    descEn: 'Hospitality meets technology: a menu where guests see every dish on the table, a relief from one photo. Coming: a seat map, bids for tables, your site and reels. The first 30 days free, no card. By Halom.',
+    descHe: 'מסעדנות פוגשת טכנולוגיה: תפריט שבו כל מנה שצילמתם עומדת על השולחן של האורח, בתבליט מתמונה אחת. בקרוב: מפת ישיבה, הצעות על שולחנות, אתר ורילסים. 30 הימים הראשונים חינם, בלי כרטיס אשראי. מבית חלום.',
+    descEn: 'Hospitality meets technology: a menu where every dish you photograph stands on the guest’s table, a relief from one photo. Coming: a seat map, bids for tables, your site and reels. The first 30 days free, no card. By Halom.',
     config: true, styles: ['land.css'], theme: '#F7F4EE'
   }) + `
 <body class="land">

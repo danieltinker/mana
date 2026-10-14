@@ -36,7 +36,7 @@ export const STR = {
     ownerTitle: 'Table requests', pending: 'Pending', decided: 'Decided', empty: 'No requests yet.', emptyHint: 'Send one from the guests’ seat map.', guestLink: 'The guest’s screen',
     approve: 'Approve', swap: 'Swap table', decline: 'Decline', reason: 'Reason (the guest will see it)', confirmDecline: 'Decline with this reason', cancel: 'Cancel', keepTable: 'Keep', chooseTable: 'Which table?',
     statusPending: 'Pending', statusApproved: 'Approved', statusDeclined: 'Declined', area: 'Area', table: 'Table', anyTableShort: 'Any table', inZone: 'in {zone}',
-    noLayout: 'There is no seat map here.', noLayoutBody: 'The link needs to lead to a restaurant with a map.', credit: 'Seat map by {name}', bar: 'The bar · no booking'
+    noLayout: 'There is no seat map here.', noLayoutBody: 'The link needs to lead to a restaurant with a map.', credit: 'Seat map by mana', bar: 'The bar · no booking'
   }
 };
 export function makeT(getLang) {

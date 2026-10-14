@@ -48,7 +48,7 @@ function word(font, text, size, { tracking = 0, rtl = false } = {}) {
 
 /* The mark: Cloche (version 2, 14 Oct 2026), drawn once in ./mark.mjs. MARK is its ink box on the 64 × 64 field (full cut).
    mark() keeps its old signature so the lockups below did not change: plate = the ink, dish = the light. */
-import { placed, BOX, file as markFile } from './mark.mjs';
+import { placed, BOX, file as markFile, centred, favicon as faviconSvg } from './mark.mjs';
 export const MARK = { x0: BOX.full.x0, x1: BOX.full.x1, y0: BOX.full.y0, y1: BOX.full.y1, cy: (BOX.full.y0 + BOX.full.y1) / 2 };
 let glowN = 0;
 export function mark({ plate = C.black, dish = C.yolk, x = 0, y = 0, s = 1, small = false, glow = false } = {}) {
@@ -84,7 +84,7 @@ function lockup(kind, t, withBg) {
   const body = kind === 'latin'
     ? mark({ plate: k.ink, x: PAD + mx, y: my, s: ms }) + `<path transform="translate(${r(PAD + mw + GAP)} ${r(base)})" fill="${k.ink}" d="${w.d}"/>`
     : `<path transform="translate(${PAD} ${r(base)})" fill="${k.ink}" d="${w.d}"/>` + mark({ plate: k.ink, x: PAD + w.w + GAP + mx, y: my, s: ms });
-  return svg(total, height, `<title>${kind === 'latin' ? 'Mana' : 'מנה'}</title>` + body, withBg ? k.bg : null);
+  return svg(total, height, `<title>${kind === 'latin' ? 'mana' : 'מנה'}</title>` + body, withBg ? k.bg : null);
 }
 for (const kind of ['latin', 'hebrew']) for (const t of ['light', 'dark']) {
   save(`mana-lockup-${kind}-${t}.svg`, lockup(kind, t, false));
@@ -102,7 +102,7 @@ function endorsed(kind, t) {
   const body = (kind === 'latin' ? mark({ plate: k.ink, x: PAD + mx, y: my, s: ms }) : mark({ plate: k.ink, x: PAD + w.w + GAP + mx, y: my, s: ms })) +
     `<path transform="translate(${r(wordX)} ${r(base)})" fill="${k.ink}" d="${w.d}"/>` +
     `<path transform="translate(${r(byX)} ${r(byBase)})" fill="${k.sub}" d="${by.d}"/>`;
-  return svg(total, height, `<title>${kind === 'latin' ? 'Mana by Halom' : 'מנה מבית חלום'}</title>` + body);
+  return svg(total, height, `<title>${kind === 'latin' ? 'mana by Halom' : 'מנה מבית חלום'}</title>` + body);
 }
 for (const kind of ['latin', 'hebrew']) for (const t of ['light', 'dark']) save(`mana-by-halom-${kind}-${t}.svg`, endorsed(kind, t));
 
@@ -112,14 +112,14 @@ function bilingual(t) {
   const total = PAD * 2 + lat.w + GAP + mw + GAP + heb.w;
   const body = `<path transform="translate(${PAD} ${r(base)})" fill="${k.ink}" d="${lat.d}"/>` + mark({ plate: k.ink, x: PAD + lat.w + GAP + mx, y: my, s: ms }) +
     `<path transform="translate(${r(PAD + lat.w + GAP + mw + GAP)} ${r(base)})" fill="${k.ink}" d="${heb.d}"/>`;
-  return svg(total, base + PAD + 6, '<title>Mana · מנה</title>' + body);
+  return svg(total, base + PAD + 6, '<title>mana · מנה</title>' + body);
 }
 for (const t of ['light', 'dark']) save(`mana-lockup-bilingual-${t}.svg`, bilingual(t));
 
 /* ---- favicon (the mark on its own field, readable at 16 px: heavier plate line) and app icons */
 /* the small cut, centred on the field: 16 and 32 px need the heavier line */
-const centred = (W, w, o) => { const b = o.small ? BOX.small : BOX.full, h = w * (b.y1 - b.y0) / (b.x1 - b.x0); return placed({ x: (W - w) / 2, y: (W - h) / 2, w, ...o }); };
-save('favicon.svg', svg(64, 64, '<title>mana</title><rect width="64" height="64" rx="14" fill="' + C.black + '"/>' + centred(64, 50, { ink: C.ivory, light: C.yolk, small: true })));
+/* centred() is in ./mark.mjs */
+save('favicon.svg', faviconSvg({ plate: C.black, ink: C.ivory, light: C.yolk }) + '\n');      // the same file is every page's data-URI favicon (tools/sync-mark.mjs)
 const icon = (bg, plate, rx) => svg(512, 512, `<title>mana</title><rect width="512" height="512" rx="${rx}" fill="${bg}"/>` + centred(512, 340, { ink: plate, light: C.yolk, glow: `icon-glow` }));
 save('app-icon-dark.svg', icon(C.black, C.ivory, 0));         // full bleed: the platform rounds it
 save('app-icon-light.svg', icon(C.ivory, C.black, 0));

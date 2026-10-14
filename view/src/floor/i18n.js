@@ -74,7 +74,7 @@ export const STR = {
     dup: 'Duplicate', del: 'Delete', rotate: 'Rotate 15°', seats: 'Seats', minParty: 'Fewest', maxParty: 'Most', zone: 'Zone', redo: 'Redo',
     save: 'Save', saved: 'Saved', resetLima: 'Reset to Lima’s draft', export: 'Export JSON', top: 'Top view', pick: 'Pick a table: tap it, drag it, or use the arrows to move and R to rotate.',
     wOverlap: '{a} touches {b}', wOutside: '{a} is outside the café', wOk: 'The floor has no problems.', notSaved: 'Not saved: {why}', unsaved: 'Unsaved changes',
-    flash_set: 'The table is set', credit: 'Mana · the place system',
+    flash_set: 'The table is set', credit: 'mana · the place system',
     discardQ: 'Discard changes?', discardHint: 'The floor goes back to what was saved.', discard: 'Discard changes', keepEditing: 'Keep editing', noLongerOpen: 'this time is no longer open',
     err_refused: 'That cannot be done now.', err_seated: 'The table is seated until its time is up. Extend it or free it.', 'err_not-seated': 'The table is not seated.',
     err_items: 'Pick at least one item.', 'err_queue-full': '99 orders are waiting. Hand some out first.', err_already: 'The order is already past that step.', 'err_not-ready': 'The order is not ready yet.', 'err_cannot-back': 'That step cannot be undone.', 'err_no-order': 'The order was not found.',

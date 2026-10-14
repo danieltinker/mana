@@ -24,7 +24,7 @@ for (const k of ['latin', 'hebrew', 'bilingual']) for (const t of ['light', 'dar
 }
 for (const k of ['latin', 'hebrew']) for (const t of ['light', 'dark']) await png(`mana-by-halom-${k}-${t}.svg`, `mana-by-halom-${k}-${t}-on-ground.png`, { width: 1200, bg: t === 'light' ? C.ivory : C.black, pad: 120 });
 for (const t of ['light', 'dark']) await png(`mana-mark-${t}.svg`, `mana-mark-${t}.png`, { width: 1024 });
-await png('favicon.svg', 'favicon-32.png', { width: 32 }); await png('favicon.svg', 'favicon-16.png', { width: 16 }); await png('favicon.svg', 'favicon-180.png', { width: 180 });
+await png('favicon.svg', 'favicon-32.png', { width: 32 }); await png('favicon.svg', 'favicon-16.png', { width: 16 }); await png('app-icon-dark.svg', 'favicon-180.png', { width: 180 });      // the home-screen icon is 180 px: the full cut on its plate (the small cut is for 16–32 px)
 await png('app-icon-dark.svg', 'app-icon-512.png', { width: 512 }); await png('app-icon-dark.svg', 'app-icon-192.png', { width: 192 }); await png('app-icon-light.svg', 'app-icon-light-512.png', { width: 512 });
 await png('avatar-instagram.svg', 'avatar-instagram-1080.png', { width: 1080 });
 /* contact sheet */

@@ -52,6 +52,7 @@ grep -q "'/mana/view/'" "$OUT/view/index.html" || { echo "✗ the guest menu's s
 # night:gates — the _site checks, static (no browser, no network), so CI runs them too: the performance budgets
 # (tools/check-budgets.mjs: the first dish's bytes, the page's scripts, media) and what the site may not contain or
 # talk to (tools/check-site.mjs: source venue names, outside loads, secrets; gitleaks when it is on PATH).
+echo "· the mark";    node brand/tools/sync-mark.mjs --check      # every copy of the mark matches brand/tools/mark.mjs
 echo "· budgets";     node tools/check-budgets.mjs "$OUT"
 echo "· site checks"; node tools/check-site.mjs "$OUT"
 # /night:gates

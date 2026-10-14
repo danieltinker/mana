@@ -44,12 +44,28 @@ export function placed({ x = 0, y = 0, w = 59.4, ...o } = {}) {
 }
 export const height = (w, small = false) => { const b = small ? BOX.small : BOX.full; return w * (b.y1 - b.y0) / (b.x1 - b.x0); };
 
+/* The viewBox that crops a cut to its ink box plus pad units (what inline() and the apps' copies use). */
+export function viewBox(small = false, pad = 1) {
+  const b = small ? BOX.small : BOX.full;
+  return `${n(b.x0 - pad)} ${n(b.y0 - pad)} ${n(b.x1 - b.x0 + 2 * pad)} ${n(b.y1 - b.y0 + 2 * pad)}`;
+}
+
 /* An inline <svg>, cropped to the ink box (for page chrome: the nav, the footer, the dialog). w = width in px or a CSS length. */
 export function inline(ink = '#16120E', w = 40, { small = false, light = YOLK, label = '' } = {}) {
-  const b = small ? BOX.small : BOX.full, pad = 1;
-  const vb = `${n(b.x0 - pad)} ${n(b.y0 - pad)} ${n(b.x1 - b.x0 + 2 * pad)} ${n(b.y1 - b.y0 + 2 * pad)}`;
   const a11y = label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"';
-  return `<svg class="mana-mark" viewBox="${vb}" width="${w}" ${a11y} focusable="false">${shapes({ ink, light, small })}</svg>`;
+  return `<svg class="mana-mark" viewBox="${viewBox(small)}" width="${w}" ${a11y} focusable="false">${shapes({ ink, light, small })}</svg>`;
+}
+
+/* The mark w wide, centred on a W × W field (icons, avatars, the favicon). */
+export function centred(W, w, o = {}) {
+  return placed({ x: (W - w) / 2, y: (W - height(w, o.small)) / 2, w, ...o });
+}
+
+/* The favicon: the small cut, 50 of 64 units wide, on a dark rounded plate (readable at 16 px). brand/assets/favicon.svg and
+   every page's data-URI favicon are this file (tools/sync-mark.mjs writes the copies). */
+export function favicon({ plate = '#0F0F0F', ink = '#FCF8F6', light = YOLK } = {}) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img"><title>mana</title>` +
+    `<rect width="64" height="64" rx="14" fill="${plate}"/>` + centred(64, 50, { ink, light, small: true }) + '</svg>';
 }
 
 /* A whole 64 × 64 file (the assets folder, the round-two proofs). */

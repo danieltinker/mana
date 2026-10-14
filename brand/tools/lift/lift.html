@@ -39,13 +39,15 @@ canvas{display:block}
   <div class="end" id="end">
     <p class="line" id="line"></p>
     <div class="credit" id="credit">
-      <svg viewBox="0 0 64 64" aria-hidden="true"><ellipse cx="45.8" cy="45.4" rx="10.6" ry="2.5" fill="#F5B120"/><path d="M4 50H60" stroke="#FCF8F6" stroke-width="3.4" stroke-linecap="round" fill="none"/><path d="M8 48C8 24 31 24 31 48" stroke="#FCF8F6" stroke-width="3.4" stroke-linecap="round" fill="none"/><rect x="16.9" y="25.7" width="5.2" height="2.8" rx="1.4" fill="#FCF8F6"/><g transform="translate(0 -4.2) rotate(-5 34 48)"><path d="M34 48C34 24 57 24 57 48" stroke="#FCF8F6" stroke-width="3.4" stroke-linecap="round" fill="none"/><rect x="42.9" y="25.7" width="5.2" height="2.8" rx="1.4" fill="#FCF8F6"/></g></svg>
-      <span>Menu by Mana</span>
+      <svg></svg>
+      <span>Menu by mana</span>
     </div>
   </div>
 </div>
 <script type="module">
 import * as THREE from '/three.module.js';
+import { inline } from '/mark.mjs';      // the mark lives in one place (render.mjs serves tools/mark.mjs here)
+document.querySelector('#credit svg').outerHTML = inline('#FCF8F6', 44);
 
 const Q = new URLSearchParams(location.search);
 const W = +Q.get('w') || 1080, H = +Q.get('h') || 1920, LANG = Q.get('lang') === 'he' ? 'he' : 'en', DISH = Q.get('dish') || 'shakshuka';

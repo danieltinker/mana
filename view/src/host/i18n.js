@@ -43,7 +43,7 @@ export const STR = {
     minutes: '{n} min', less: 'less', moreMin: 'more', done: 'Done', resetDemo: 'Reset the demo',
     demoLine: 'Demo · invented restaurant · the data is fictional and stays in this browser', speedLine: 'Clock sped up ×{n}',
     notifTitle: 'Time is up · {table}', notifBody: 'Extend or free the table', floorLabel: 'Floor plan: {n} tables. Each table is a button.',
-    credit: 'Table management by Mana'
+    credit: 'Table management by mana'
   }
 };
 export function makeT(getLang) {
