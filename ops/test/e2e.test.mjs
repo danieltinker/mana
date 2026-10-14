@@ -8,7 +8,8 @@ import { derive } from '../src/model.js';
 import { HOSTILE } from './fixtures.mjs';
 
 let stub, base, browser;
-before(async () => { stub = createStub(); base = `http://127.0.0.1:${await stub.listen(0)}`; browser = await launch(); });
+// OPS_TEST_PORT pins the stub's port (a shared machine where each lane keeps to its own range); by default any free port
+before(async () => { stub = createStub(); base = `http://127.0.0.1:${await stub.listen(Number(process.env.OPS_TEST_PORT) || 0)}`; browser = await launch(); });
 after(async () => { await browser.close(); await stub.close(); });
 beforeEach(() => stub.reset('many'));
 afterEach(() => closeAll());

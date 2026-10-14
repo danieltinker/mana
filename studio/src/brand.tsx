@@ -2,8 +2,41 @@ import { PRODUCT } from './product.ts';
 import { lang, setLang, t } from './lib/i18n.ts';
 import { Icon } from './ui.tsx';
 
+/** The mark, version 2 (Cloche). Source: brand/tools/mark.mjs — the path data below is shapes() copied exactly, and the
+ *  viewBox is the ink box plus 1 unit, as inline() crops it. Two cuts: small (16–32 px: the bars) and full (40 px and up).
+ *  The arches and the table line are ink (currentColor), never yolk, never filled; the light is the only yolk. */
+const YOLK = '#F5B120';
+export function Mark({ full }: { full?: boolean }) {
+  if (full) return (
+    <svg class="mana-mark mana-mark-full" viewBox="1.3 19.3 61.4 33.4" aria-hidden="true" focusable="false">
+      <ellipse cx="45.8" cy="45.4" rx="10.6" ry="2.5" fill={YOLK} />
+      <path d="M4 50H60" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none" />
+      <path d="M8 48C8 24 31 24 31 48" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none" />
+      <rect x="16.9" y="25.7" width="5.2" height="2.8" rx="1.4" fill="currentColor" />
+      <g transform="translate(0 -4.2) rotate(-5 34 48)"><path d="M34 48C34 24 57 24 57 48" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none" />
+        <rect x="42.9" y="25.7" width="5.2" height="2.8" rx="1.4" fill="currentColor" /></g>
+    </svg>
+  );
+  return (
+    <svg class="mana-mark" viewBox="-0.7 18.3 65.4 36.1" aria-hidden="true" focusable="false">
+      <ellipse cx="45.5" cy="44.6" rx="11.5" ry="3.6" fill={YOLK} />
+      <path d="M3 50.7H61" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
+      <path d="M7 48C7 22 31 22 31 48" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
+      <path d="M33 41.5C33 15.5 57 15.5 57 41.5" stroke="currentColor" stroke-width="5.4" stroke-linecap="round" fill="none" />
+    </svg>
+  );
+}
+
+/** The lockup: the mark, then the wordmark "mana" (lowercase, the display serif), left to right in both languages. Large (the
+ *  start screen): the full cut, and the credit under it ("מבית חלום" / "by Halom"). */
 export function Brand({ small, big }: { small?: boolean; big?: boolean }) {
-  return <span class={'brand' + (small ? ' brand-sm' : '') + (big ? ' brand-lg' : '')} dir="ltr"><span class="brand-mark" lang="en">{PRODUCT.en}</span><span class="brand-dot" aria-hidden="true">·</span><span class="brand-mark" lang="he">{PRODUCT.he}</span></span>;
+  return (
+    <span class={'brand' + (small ? ' brand-sm' : '') + (big ? ' brand-lg' : '')} dir="ltr">
+      <Mark full={big} />
+      <span class="brand-word" lang="en">{PRODUCT.en}</span>
+      {big && <span class="brand-by" lang={lang.value} dir={lang.value === 'he' ? 'rtl' : 'ltr'}>{t('app.by')}</span>}
+    </span>
+  );
 }
 export function LangToggle({ plain }: { plain?: boolean }) {
   return <button type="button" class={plain ? 'linkbtn' : 'langbtn'} onClick={() => setLang(lang.value === 'he' ? 'en' : 'he')} aria-label={t('app.langSwitchLabel')} lang={lang.value === 'he' ? 'en' : 'he'}><Icon name="globe" size={17} /><span>{t('app.langSwitch')}</span></button>;
