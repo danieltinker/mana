@@ -31,3 +31,6 @@ brand/site/land/
 
 # Private demo seeds (real venues), never committed
 private/
+
+# Claude Code worktrees and local state
+.claude/
