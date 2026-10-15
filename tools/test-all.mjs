@@ -4,11 +4,13 @@
    them and prints one line per suite.
 
      npm test                  (= node tools/test-all.mjs)       every suite, the browser ones included (about 40 min)
-     npm run test:fast         (= node tools/test-all.mjs --fast) no browser and no app stack: types, units, contracts, the schema's database tests (about 1 min)
+     npm run test:fast         (= node tools/test-all.mjs --fast) no browser and no app stack: types, units, contracts, the schema's database tests,
+                               and on Linux x64 the simulator's scenarios on its own small stack (about 2 min)
      node tools/test-all.mjs view-unit studio-e2e …               only the suites named
 
    Needs: `npm ci` at the root (the three apps), Chromium for the browser suites (CHROME, default
-   /opt/pw-browsers/chromium-1194/chrome-linux/chrome), and for studio-e2e the local stack's binaries (apps/studio/test/README.md).
+   /opt/pw-browsers/chromium-1194/chrome-linux/chrome), and for studio-e2e the local stack's binaries (apps/studio/test/README.md);
+   sim and e2e use the same binaries, or fetch them once into sim/.stack/bin (sim/README.md).
    The brand suite (the product page) needs `npm ci` in brand/ and a built brand/site/land (node brand/tools/build-land.mjs).
    Exit 1 if any suite fails. Logs: test-results/<suite>.log (ignored by git). */
 import { spawn } from 'node:child_process';
@@ -22,6 +24,9 @@ const SUITES = [
   ['contracts-check', 'packages/contracts', 'npm run -s check', false],
   ['contracts', 'packages/contracts', 'npm test', false],
   ['db', 'supabase', 'npm test', false],        // a throwaway local PostgreSQL 16 (/usr/lib/postgresql/16/bin), about 15 s
+  // the simulator on its local stack (PostgreSQL 16 + GoTrue + PostgREST), about 35 s: fast on Linux x64; elsewhere
+  // heavy, because the GoTrue release is a Linux binary (sim/README.md)
+  ['sim', 'sim', 'npm test', !(process.platform === 'linux' && process.arch === 'x64')],
   ['studio-check', 'apps/studio', 'npm run -s check', false],
   ['view-unit', 'apps/view', 'npm test', false],
   ['studio-unit', 'apps/studio', 'npm run -s test:unit', false],
@@ -35,6 +40,7 @@ const SUITES = [
   ['ops-e2e', 'apps/ops', 'npm run -s build && npm run -s test:e2e', true],
   ['studio-e2e', 'apps/studio', 'npm run -s build && npm run -s test:e2e', true],
   ['brand', 'brand', 'node tools/test-site.mjs', true],
+  ['e2e', 'e2e', 'npm test', true],             // the browser on the simulator's stack (phase 0: one smoke test)
 ];
 /* the seating contracts' tests run inside view-unit (apps/view/package.json names them) */
 
