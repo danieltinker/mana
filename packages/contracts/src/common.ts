@@ -45,18 +45,32 @@ export function textOk(v: unknown, max: number): v is Text {
  * What counts as "blank", in one place (the database's app.blank_class() is the same list; supabase/tests compares
  * them code point by code point): ASCII whitespace and controls \t \n \v \f \r, U+0085, every Unicode space separator
  * (Zs: U+0020, U+00A0, U+1680, U+2000–U+200A, U+202F, U+205F, U+3000), the line and paragraph separators U+2028–U+2029,
- * and the invisible format characters people paste by accident: U+180E, U+200B–U+200F (zero-width, LRM, RLM),
- * U+202A–U+202E (bidi embeddings), U+2060–U+2064 (word joiner, invisible operators), U+2066–U+2069 (bidi isolates),
- * U+FEFF (BOM).
+ * the invisible format characters people paste by accident (U+00AD soft hyphen, U+061C Arabic letter mark, U+180E,
+ * U+200B–U+200F zero-width and LRM/RLM, U+202A–U+202E bidi embeddings, U+2060–U+2064 word joiner and invisible
+ * operators, U+2066–U+206F bidi isolates and the deprecated format controls, U+FEFF BOM, U+E0000–U+E007F tags), the
+ * combining grapheme joiner U+034F, the variation selectors U+FE00–U+FE0F, and the characters that draw nothing: the
+ * Hangul fillers U+115F, U+1160, U+3164, U+FFA0 and the braille blank U+2800.
  */
-export const BLANK_CLASS = '\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u180E\\u2000-\\u200F\\u2028-\\u202F\\u205F-\\u2064\\u2066-\\u2069\\u3000\\uFEFF';
-const BLANK_EDGES = new RegExp(`^[${BLANK_CLASS}]+|[${BLANK_CLASS}]+$`, 'gu');
+export const BLANK_CLASS =
+  '\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u00AD\\u034F\\u061C\\u115F\\u1160\\u1680\\u180E\\u2000-\\u200F\\u2028-\\u202F' +
+  '\\u205F-\\u2064\\u2066-\\u206F\\u2800\\u3000\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\u{E0000}-\\u{E007F}';
+/**
+ * Blank characters that belong to the character before them: a variation selector ("☕️" is U+2615 U+FE0F) and the
+ * tag characters of a subdivision flag. Stripping keeps them after the last visible character, so an emoji at the end
+ * of a name keeps its look; on their own, or at the start, they are blank like the rest.
+ */
+export const BLANK_EXTENDERS = '\\uFE00-\\uFE0F\\u{E0020}-\\u{E007F}';
+const BLANK_LEAD = new RegExp(`^[${BLANK_CLASS}]+`, 'u');
+const BLANK_TRAIL = new RegExp(`([^${BLANK_CLASS}][${BLANK_EXTENDERS}]*)[${BLANK_CLASS}]*$`, 'u');
 const BLANK_ONE = new RegExp(`^[${BLANK_CLASS}]$`, 'u');
 
 /** Is this one character blank? */
 export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
-/** Removes blank characters at both ends (names and descriptions are stored this way). */
-export const stripBlank = (s: string): string => s.replace(BLANK_EDGES, '');
+/**
+ * Removes blank characters at both ends (names and descriptions are stored this way), except the variation selectors
+ * and tags that finish the last visible character. The database's app.strip_blank() does the same.
+ */
+export const stripBlank = (s: string): string => s.replace(BLANK_LEAD, '').replace(BLANK_TRAIL, '$1');
 /** Nothing but blank characters (or nothing at all). */
 export const isBlank = (s: string): boolean => stripBlank(s) === '';
 /** Both languages' text with blank edges removed: what the client app saves. */

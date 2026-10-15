@@ -363,9 +363,12 @@ create table public.upsell_rules (
   priority integer not null default 50 check (priority between 0 and 100),
   cap integer not null default 1 check (cap between 1 and 5),
   active boolean not null default true,
+  -- why the database switched the rule off (see app.scrub_rule_refs); cleared when the rule gets a condition again
+  inactive_reason text check (inactive_reason in ('basket_has_emptied')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (venue_id, id),
+  check (inactive_reason is null or not active),
   -- a rule whose suggestion is deleted goes with it (the activity log records the deletion)
   foreign key (venue_id, suggest_dish_id) references public.dishes (venue_id, id) on delete cascade,
   foreign key (venue_id, suggest_option_id) references public.addon_options (venue_id, id) on delete cascade,
@@ -383,10 +386,25 @@ create trigger upsell_rules_clean before insert or update on public.upsell_rules
 create trigger upsell_rules_fixed before update on public.upsell_rules for each row execute function app.guard_content();
 create trigger upsell_rules_limit before insert on public.upsell_rules for each row execute function app.guard_limit('rules', 'venue_id');
 
--- the id lists cannot carry foreign keys: check that each id is a dish or section of the same venue
+-- the id lists cannot carry foreign keys: check that each id is a dish or section of the same venue.
+-- A rule the database switched off because its "basket has" list lost its last target (inactive_reason
+-- 'basket_has_emptied') comes back on only with a new condition: switching it on with the list still empty is refused
+-- (rule_condition_emptied), since that would turn "when the basket has X" into "always". Giving it a target again
+-- clears the reason. The reason cannot be cleared by hand while the list is empty; a rule meant to have no condition is
+-- a new rule.
 create function app.guard_rule() returns trigger language plpgsql security definer set search_path = '' as $$
 declare dish_ids uuid[]; section_ids uuid[];
 begin
+  if tg_op = 'INSERT' then
+    new.inactive_reason := null;
+  elsif old.inactive_reason is not null then
+    if cardinality(new.basket_has_dishes) + cardinality(new.basket_has_sections) > 0 then
+      new.inactive_reason := null;
+    else
+      new.inactive_reason := old.inactive_reason;
+      if new.active then raise exception 'rule_condition_emptied'; end if;
+    end if;
+  end if;
   dish_ids := new.basket_has_dishes || new.basket_lacks_dishes || case when new.scope_kind = 'dish' then new.scope_ids else '{}'::uuid[] end;
   section_ids := new.basket_has_sections || new.basket_lacks_sections || case when new.scope_kind = 'section' then new.scope_ids else '{}'::uuid[] end;
   if exists (select 1 from unnest(dish_ids) x(id) where not exists (select 1 from public.dishes d where d.id = x.id and d.venue_id = new.venue_id))
@@ -423,7 +441,7 @@ begin
       and ((r.scope_kind = 'section' and old.id = any (r.scope_ids)) or old.id = any (r.basket_has_sections) or old.id = any (r.basket_lacks_sections));
   end if;
   if cardinality(emptied) > 0 then
-    update public.upsell_rules set active = false where id = any (emptied);
+    update public.upsell_rules set active = false, inactive_reason = 'basket_has_emptied' where id = any (emptied);
     perform app.log(old.venue_id, 'upsell_rules.deactivated', 'upsell_rules', emptied::text[],
                     jsonb_build_object('reason', 'basket_has_emptied', 'deleted', kind, 'deletedId', old.id), cardinality(emptied));
   end if;

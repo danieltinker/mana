@@ -8,11 +8,13 @@
 --     manager       like the owner, except the team, the support switch and plan
 --     counter       reads the menu; sets and restores availability; nothing else (cannot change a price)
 --     Halom support reads across venues; writes into a venue's menu ONLY through act_for_owner (logged, with a
---                   reason); approves venues and sets plans through ops_* functions (logged, with a reason); reads
---                   leads (personal data) only through ops_leads, which logs every read
---     Halom admin   like support, and creates staff invites (create_staff_invite)
+--                   reason); approves venues through ops_approve_venue (logged, with a reason); reads leads (personal
+--                   data) only through ops_leads, which logs every read
+--     Halom admin   like support, and creates staff invites (create_staff_invite) and sets plans (ops_set_plan)
 --                   (staff count as staff only with an MFA session when app_config.staff_require_aal2 is on)
---   service_role    edge functions (the scanner): bypasses RLS; never in a browser; reads the records, never writes them.
+--   service_role    edge functions (the scanner): bypasses RLS; never in a browser; reads everything; writes only the
+--                   import and picture tables (menu_imports, assets); never venues, members, staff, invites, plans
+--                   or the records.
 --
 -- Helpers (schema app, SECURITY DEFINER): is_member, is_owner, can_edit (owner|manager), can_operate
 -- (owner|manager|counter), can_read (member or staff), can_see_records (owner|manager or staff), is_staff.
@@ -30,17 +32,19 @@ alter default privileges in schema public revoke execute on functions from anon,
 -- which would reach other schemas. Instead each migration revokes what it creates, and supabase/tests fails when anon
 -- or authenticated can run anything beyond the RPCs granted below.)
 -- The service role (edge functions such as the scanner) bypasses RLS, so it gets only what it needs, granted explicitly
--- (newer Supabase projects do not grant new tables to the API roles by default): never TRUNCATE, TRIGGER or REFERENCES;
--- the records (activity log, revisions, events, rollups) are read-only to it; availability overrides are never deleted.
+-- (newer Supabase projects do not grant new tables to the API roles by default): it reads everything; it writes only
+-- what the scanner and the picture pipeline produce (an import's parsed result and status, a dish picture's state and
+-- paths). Never TRUNCATE, TRIGGER or REFERENCES; never a venue, a member, staff, an invite or a plan (those change
+-- only through the logged RPCs); never the records (activity log, revisions, events, rollups). Everything else a
+-- function needs to change goes through an RPC, so it is checked and logged like any other caller.
 revoke all on all tables in schema public from service_role;
 revoke all on all tables in schema app from service_role;
-grant select, insert, update, delete on all tables in schema public to service_role;
-revoke insert, update, delete on public.activity_log, public.menu_revisions, public.events, public.rollups_minute, public.rollups_day
-  from service_role;
-revoke delete on public.availability_overrides from service_role;
+grant select on all tables in schema public to service_role;
+grant insert, update on public.menu_imports, public.assets to service_role;
 grant select on all tables in schema app to service_role;
 grant usage, select on all sequences in schema public to service_role;
 alter default privileges in schema public revoke truncate, trigger, references on tables from service_role;
+alter default privileges in schema public revoke insert, update, delete on tables from service_role;
 
 -- ---------------------------------------------------------------- venues and people
 grant select on public.venues to authenticated;
@@ -216,10 +220,11 @@ grant execute on function public.slug_available(text), public.create_venue(text,
 grant execute on all functions in schema public to service_role;
 
 -- ---------------------------------------------------------------- the grant audit: run it after every migration
--- Returns every grant to anon or authenticated that is not on the intended list below (problem 'unexpected'), every
--- intended grant that is gone ('missing'), and any TRUNCATE / TRIGGER / REFERENCES or write on a record table held by
--- the service role ('unexpected'). Nothing returned = the access model is exactly the one this file describes. A
--- migration that changes access updates the list in the same change; supabase/tests asserts it returns nothing.
+-- Returns every grant to anon, authenticated or service_role that is not on the intended list below (problem
+-- 'unexpected'; for the service role, every write and every TRUNCATE / TRIGGER / REFERENCES on a table in public or
+-- app) and every intended grant that is gone ('missing'). Nothing returned = the access model is exactly the one this
+-- file describes. A migration that changes access updates the list in the same change; supabase/tests asserts it
+-- returns nothing.
 create function app.audit_grants() returns table (problem text, grantee text, object text, privilege text)
 language plpgsql stable security definer set search_path = '' as $$
 declare expected text[] := array[
@@ -362,7 +367,11 @@ declare expected text[] := array[
   'authenticated|table|public.venue_hours|UPDATE',
   'authenticated|table|public.venue_members|DELETE',
   'authenticated|table|public.venue_members|SELECT',
-  'authenticated|table|public.venues|SELECT'
+  'authenticated|table|public.venues|SELECT',
+  'service_role|table|public.assets|INSERT',
+  'service_role|table|public.assets|UPDATE',
+  'service_role|table|public.menu_imports|INSERT',
+  'service_role|table|public.menu_imports|UPDATE'
 ];
 begin
   return query
@@ -390,12 +399,9 @@ begin
     from pg_class c join pg_namespace n on n.oid = c.relnamespace
     cross join unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr(priv)
     where n.nspname in ('public', 'app') and c.relkind in ('r', 'p') and has_table_privilege('service_role', c.oid, pr.priv)
-      and (pr.priv in ('TRUNCATE', 'REFERENCES', 'TRIGGER') or n.nspname = 'app'
-           or c.relname in ('activity_log', 'menu_revisions', 'events', 'rollups_minute', 'rollups_day')
-           or (c.relname = 'availability_overrides' and pr.priv = 'DELETE'))
   )
   select 'unexpected'::text, a.grantee, a.object, a.privilege from actual a
-  where a.grantee = 'service_role' or (a.grantee || '|' || a.kind || '|' || a.object || '|' || a.privilege) <> all (expected)
+  where (a.grantee || '|' || a.kind || '|' || a.object || '|' || a.privilege) <> all (expected)
   union all
   select 'missing'::text, split_part(e, '|', 1), split_part(e, '|', 3), split_part(e, '|', 4) from unnest(expected) e
   where e not in (select a.grantee || '|' || a.kind || '|' || a.object || '|' || a.privilege from actual a)

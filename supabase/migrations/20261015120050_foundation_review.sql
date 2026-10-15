@@ -6,16 +6,26 @@
 --     names are stripped on write
 --   * the request source (Sec M1, L8): cf-connecting-ip, then x-real-ip, then the LAST X-Forwarded-For entry (never
 --     the leftmost, which the caller writes); a random salt per day, kept two days
---   * settings: lower per-source event cap, a per-(venue, source) daily cap, lead caps, the review switches
+--   * settings: lower per-source event cap, a per-(venue, source) daily cap, demo venues' caps, lead caps, the review
+--     switches
 --   * staff invites bound to an e-mail, a failure counter, optional MFA for staff (Sec M3)
 --   * venues: Halom's approval of the first publish (Sec M4); logo and table photo paths inside the venue's folder (L2)
 
 -- ---------------------------------------------------------------- blank: the same list as packages/contracts BLANK_CLASS
+-- (spaces, invisible format characters, variation selectors, tags, and the fillers that draw nothing; the list and the
+-- reasons are in packages/contracts/src/common.ts)
 create function app.blank_class() returns text language sql immutable set search_path = '' as
-$$ select '[\u0009-\u000D \u0085  ᠎ -‏ -  -⁤⁦-⁩　﻿]' $$;
+$$ select '[\u0009-\u000D\u0020\u0085\u00A0\u00AD\u034F\u061C\u115F\u1160\u1680\u180E\u2000-\u200F\u2028-\u202F\u205F-\u2064\u2066-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\U000E0000-\U000E007F]' $$;
 
-create function app.strip_blank(p text) returns text language sql immutable set search_path = '' as
-$$ select regexp_replace(p, '^' || app.blank_class() || '+|' || app.blank_class() || '+$', '', 'g') $$;
+-- the blank characters that finish the character before them (a variation selector, a flag's tags): BLANK_EXTENDERS
+create function app.blank_extenders() returns text language sql immutable set search_path = '' as
+$$ select '[\uFE00-\uFE0F\U000E0020-\U000E007F]' $$;
+
+-- blank at both ends goes, except the extenders right after the last visible character ("Coffee ☕️" keeps its look)
+create function app.strip_blank(p text) returns text language sql immutable set search_path = '' as $$
+  select regexp_replace(regexp_replace(p, '^' || app.blank_class() || '+', ''),
+                        '([^' || substr(app.blank_class(), 2) || app.blank_extenders() || '*)' || app.blank_class() || '*$', '\1')
+$$;
 
 -- BEFORE trigger: strips blank characters at both ends of the text columns named in tg_argv (names, descriptions).
 -- A name that is nothing but blanks becomes '' and the table's "a name in one language" check refuses it.
@@ -77,8 +87,12 @@ update public.app_config
  where key = 'event_caps';
 insert into public.app_config (key, value) values
   ('events_retention_months', '13'),
-  -- leads: past per_source_hour a lead is kept but marked spam; past hard_day nothing more is stored that day
-  ('lead_caps', '{"per_source_hour": 5, "hard_day": 2000}'),
+  -- leads: past per_source_hour a lead is kept but marked spam; past per_source_day one source's leads are answered
+  -- ok and not stored; past hard_day non-spam leads in 24 hours the form is refused (rate_limited)
+  ('lead_caps', '{"per_source_hour": 5, "per_source_day": 20, "hard_day": 2000}'),
+  -- demo venues (venues.is_demo) take the simulator's bots, all from one source: their own, much higher caps, on their
+  -- own counters (a busy demo never caps a real venue's guests from the same address)
+  ('event_caps_demo', '{"per_source_hour": 100000, "per_venue_source_day": 1000000, "per_venue_day": 1000000}'),
   -- staff sessions must be MFA (aal2) to count as staff; turn on once the back office has its MFA screen
   ('staff_require_aal2', 'false'),
   -- a venue's first publish waits for Halom (ops_approve_venue) before guests see it; until Daniel decides

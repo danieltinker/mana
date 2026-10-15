@@ -190,6 +190,9 @@ export type UpsellRuleRow = {
   priority: number;
   cap: number;
   active: boolean;
+  /** Why the database switched the rule off: 'basket_has_emptied' (the last dish or section its "basket has" named
+   * was deleted). Such a rule is turned on again only with a new condition. */
+  inactive_reason: 'basket_has_emptied' | null;
   created_at: Iso;
   updated_at: Iso;
 };
@@ -320,7 +323,7 @@ export const TABLE_COLUMNS = {
   addon_options: ['id', 'venue_id', 'group_id', 'position', 'name_he', 'name_en', 'price', 'max_qty', 'is_default', 'opens_group_id', 'created_at', 'updated_at'],
   dish_addon_groups: ['id', 'venue_id', 'dish_id', 'group_id', 'position', 'min_units', 'max_units', 'created_at'],
   dish_relations: ['id', 'venue_id', 'dish_id', 'related_dish_id', 'position', 'created_at'],
-  upsell_rules: ['id', 'venue_id', 'label', 'trigger', 'scope_kind', 'scope_ids', 'days', 'from_time', 'to_time', 'basket_has_dishes', 'basket_has_sections', 'basket_lacks_dishes', 'basket_lacks_sections', 'suggest_kind', 'suggest_dish_id', 'suggest_option_id', 'line_he', 'line_en', 'priority', 'cap', 'active', 'created_at', 'updated_at'],
+  upsell_rules: ['id', 'venue_id', 'label', 'trigger', 'scope_kind', 'scope_ids', 'days', 'from_time', 'to_time', 'basket_has_dishes', 'basket_has_sections', 'basket_lacks_dishes', 'basket_lacks_sections', 'suggest_kind', 'suggest_dish_id', 'suggest_option_id', 'line_he', 'line_en', 'priority', 'cap', 'active', 'inactive_reason', 'created_at', 'updated_at'],
   availability_overrides: ['id', 'venue_id', 'target_kind', 'target_id', 'starts_at', 'until_kind', 'until_spec', 'until_at', 'note', 'created_by', 'created_by_kind', 'restored_at', 'restored_by', 'created_at'],
   schedules: ['id', 'venue_id', 'kind', 'name_he', 'name_en', 'windows', 'valid_from', 'valid_to', 'created_at', 'updated_at'],
   venue_hours: ['id', 'venue_id', 'weekday', 'opens', 'closes', 'created_at'],

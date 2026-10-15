@@ -101,7 +101,9 @@ describe('owners: venue A never sees or changes venue B', () => {
     const r = await q(w.url, U.ownerA, `update public.venues set slug = 'renamed' where id = $1`, [A]);
     assert.equal(r.error?.code, '42501', 'no column grant on slug');
     const r2 = await q(w.url, 'service', `update public.venues set slug = 'renamed' where id = $1`, [A]);
-    assert.match(r2.error?.message ?? '', /slug_permanent/);
+    assert.equal(r2.error?.code, '42501', 'the service role writes no venue');
+    await assert.rejects(w.admin.query(`update public.venues set slug = 'renamed' where id = $1`, [A]), /slug_permanent/,
+      'and the trigger holds for the database owner too');
   });
 
   test('owners cannot mark their own venue as a demo or change its mode in phase 1', async () => {

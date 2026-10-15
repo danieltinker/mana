@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, count, ID, U, world } from './harness/world.mjs';
-import { isBlankChar, lintSnapshotV2, nextOpening, validateSnapshotV2 } from '../../packages/contracts/src/index.ts';
+import { isBlankChar, lintSnapshotV2, nextOpening, stripBlank, validateSnapshotV2 } from '../../packages/contracts/src/index.ts';
 import { cafeDemo, mutable } from '../../packages/contracts/test/fixtures.ts';
 
 let w;
@@ -26,13 +26,31 @@ const addUser = async (id, email, confirmed = true) =>
   w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, $2, ${confirmed ? 'now()' : 'null'})`, [id, email]);
 
 describe('M1: one definition of blank', () => {
-  test('the database and the contracts agree on every code point up to U+3100 and U+FE00–U+FFFF', async () => {
-    const { rows } = await w.admin.query(`select array_agg(cp order by cp) as cps from generate_series(1, 65533) cp
-      where (cp <= 12544 or cp >= 65024) and cp not between 55296 and 57343 and chr(cp) ~ ('^' || app.blank_class() || '$')`);
+  test('the database and the contracts agree on every code point of the BMP, the emoji blocks and the tags', async () => {
+    const ranges = [[1, 0xfffd], [0x1f000, 0x1faff], [0xe0000, 0xe01ff]];
+    const { rows } = await w.admin.query(`select array_agg(cp order by cp) as cps
+      from (select generate_series(a, b) as cp from unnest($1::int[], $2::int[]) r(a, b)) z
+      where cp not between 55296 and 57343 and chr(cp) ~ ('^' || app.blank_class() || '$')`, [ranges.map((r) => r[0]), ranges.map((r) => r[1])]);
     const ts = [];
-    for (let cp = 1; cp <= 65533; cp++) if ((cp <= 12544 || cp >= 65024) && !(cp >= 0xd800 && cp <= 0xdfff) && isBlankChar(String.fromCodePoint(cp))) ts.push(cp);
+    for (const [a, b] of ranges) for (let cp = a; cp <= b; cp++) if (!(cp >= 0xd800 && cp <= 0xdfff) && isBlankChar(String.fromCodePoint(cp))) ts.push(cp);
     assert.deepEqual(rows[0].cps, ts);
-    assert.ok(ts.length >= 40);
+    assert.ok(ts.length >= 200);
+    for (const cp of [0xad, 0x34f, 0x61c, 0x115f, 0x1160, 0x3164, 0xffa0, 0x2800, 0xfe0f, 0xe0001, 0xe007f]) assert.ok(ts.includes(cp), cp.toString(16));
+  });
+
+  test('stripping agrees too: an emoji at the end keeps its variation selector and its flag tags', async () => {
+    const england = '\u{1F3F4}\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}';
+    const cases = ['Coffee ☕\uFE0F ', 'Coffee ☕\uFE0F\u200B\uFE0F\u00A0', `Fish ${england}\u2800`, '\uFE0F\u{E0067}Tea', 'Tea\u00AD\u034F\u061C\u3164',
+      '\u3164\uFFA0\u115F\u1160', '\u200F  שקשוקה \uFEFF', 'a  b', '', '\u{E0001}x\u{E0020}', 'x\uFE0F', '\uFE0F'];
+    for (const c of cases) {
+      const sql = (await w.admin.query('select app.strip_blank($1) as s', [c])).rows[0].s;
+      assert.equal(sql, stripBlank(c), JSON.stringify(c));
+    }
+    assert.equal(stripBlank('Coffee ☕\uFE0F '), 'Coffee ☕\uFE0F');
+    const d = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.dishes (venue_id, section_id, name_he, name_en)
+      values ($1, $2, $3, $4) returning id, name_he, name_en`, [A, ID.mains, '\u3164\u2800', 'Iced tea \u{1F9CB}\uFE0F\u00AD'])).rows[0]);
+    assert.deepEqual([d.name_he, d.name_en], ['', 'Iced tea \u{1F9CB}\uFE0F']);
+    await w.admin.query(`delete from public.dishes where id = $1`, [d.id]);
   });
 
   test('names and descriptions are stripped on write; a name of blanks only is refused', async () => {
@@ -139,6 +157,26 @@ describe('M2: a "basket has" condition never becomes unconditional', () => {
     await w.admin.query(`delete from public.upsell_rules where id = any ($1)`, [[r1, r2, r3]]);
   });
 
+  test('a rule switched off for basket_has_emptied comes back on only with a new condition', async () => {
+    const d = await as(w.url, U.ownerB, async (c) => (await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Focaccia', 1400) returning id`, [w.B, w.b.section])).rows[0].id);
+    const r = await ruleWith(w.B, { dishes: [d], suggest: w.b.dish });
+    await as(w.url, U.ownerB, (c) => c.query(`delete from public.dishes where id = $1`, [d]));
+    const state = async () => (await w.admin.query(`select active, inactive_reason, basket_has_dishes from public.upsell_rules where id = $1`, [r])).rows[0];
+    assert.deepEqual(await state(), { active: false, inactive_reason: 'basket_has_emptied', basket_has_dishes: [] });
+    const on = await q(w.url, U.ownerB, `update public.upsell_rules set active = true where id = $1`, [r]);
+    assert.match(on.error?.message ?? '', /rule_condition_emptied/, 'switching it on as it is would make it "always"');
+    const sneaky = await q(w.url, U.ownerB, `update public.upsell_rules set active = true, inactive_reason = null where id = $1`, [r]);
+    assert.match(sneaky.error?.message ?? '', /rule_condition_emptied/, 'the reason cannot be cleared by hand');
+    assert.equal(await count(w.url, U.ownerB, `update public.upsell_rules set label = 'renamed', inactive_reason = null where id = $1`, [r]), 1);
+    assert.equal((await state()).inactive_reason, 'basket_has_emptied', 'still remembered while the list is empty');
+    assert.equal(await count(w.url, U.ownerB, `update public.upsell_rules set basket_has_dishes = $2, active = true where id = $1`, [r, [w.b.dish]]), 1);
+    assert.deepEqual(await state(), { active: true, inactive_reason: null, basket_has_dishes: [w.b.dish] }, 'a new condition: on again');
+    const fresh = await as(w.url, U.ownerB, async (c) => (await c.query(`insert into public.upsell_rules (venue_id, trigger, scope_kind, suggest_kind, suggest_dish_id, line_en, inactive_reason, active)
+      values ($1, 'add', 'all', 'dish', $2, 'fresh-rule', 'basket_has_emptied', false) returning id, inactive_reason`, [w.B, w.b.dish])).rows[0]);
+    assert.equal(fresh.inactive_reason, null, 'a new rule never starts with the database\'s reason');
+    await w.admin.query(`delete from public.upsell_rules where id = any ($1)`, [[r, fresh.id]]);
+  });
+
   test('both validators refuse an empty condition list', async () => {
     const s = mutable(cafeDemo());
     s.upsellRules[0].basketHas = { dishes: [], sections: [] };
@@ -210,7 +248,7 @@ describe('M1 (security): the request source and the caps', () => {
     const out = [];
     for (let i = 1; i <= 6; i++) out.push(await lead(i));
     out.push(await lead(7, { hp: 'http://spam.example' }));
-    assert.ok(out.every((r) => r.ok === true), 'a real visitor is never told no');
+    assert.ok(out.every((r) => r.ok === true), 'suspected spam is told ok, like everyone below the ceiling');
     const statuses = (await w.admin.query(`select status, count(*)::int as n from public.leads where contact like 'owner%' group by 1 order by 1`)).rows;
     assert.deepEqual(statuses, [{ status: 'new', n: 5 }, { status: 'spam', n: 2 }]);
     const def = await rpc(w.url, U.support, 'ops_leads');
@@ -218,6 +256,43 @@ describe('M1 (security): the request source and the caps', () => {
     assert.equal((await rpc(w.url, U.support, 'ops_leads', { p_status: 'spam' })).count, 2);
     await withCfg('lead_caps', { per_source_hour: 5, hard_day: 3 }, async () => {
       assert.deepEqual(await lead(8), { ok: false, code: 'rate_limited' });
+    });
+  });
+
+  test('leads: one source past per_source_day is told ok and nothing is stored; spam never counts toward the ceiling', async () => {
+    const lead = (i, ip, hp = '') => as(w.url, 'anon', async (c) => {
+      await c.query(`select set_config('request.headers', $1, true)`, [JSON.stringify({ 'cf-connecting-ip': ip })]);
+      return (await c.query(`select public.submit_lead(p_token => $1, p_message => 'We want a menu', p_contact => $2, p_elapsed_ms => 5000, p_hp => $3) as r`,
+        [`44444444-4444-4444-8444-${String(i).padStart(12, '0')}`, `flood${i}@example.invalid`, hp])).rows[0].r;
+    });
+    await withCfg('lead_caps', { per_source_hour: 100, per_source_day: 3, hard_day: 2000 }, async () => {
+      const out = [];
+      for (let i = 1; i <= 5; i++) out.push(await lead(i, '192.0.2.160'));
+      assert.deepEqual(out.map((r) => [r.ok, typeof r.ref]), [[true, 'string'], [true, 'string'], [true, 'string'], [true, 'undefined'], [true, 'undefined']]);
+      assert.equal((await w.admin.query(`select count(*)::int as n from public.leads where contact like 'flood%'`)).rows[0].n, 3);
+    });
+    const real = (await w.admin.query(`select count(*)::int as n from public.leads where status <> 'spam' and created_at > now() - interval '1 day'`)).rows[0].n;
+    await withCfg('lead_caps', { per_source_hour: 5, per_source_day: 100, hard_day: real + 1 }, async () => {
+      for (let i = 11; i <= 14; i++) assert.equal((await lead(i, '192.0.2.161', 'http://spam.example')).ok, true, 'spam is stored as spam');
+      const ok = await lead(15, '192.0.2.162');
+      assert.equal(ok.ok, true, 'four spam leads did not use up the ceiling');
+      assert.match(ok.ref, /^MN-/);
+      assert.deepEqual(await lead(16, '192.0.2.163'), { ok: false, code: 'rate_limited' }, 'the ceiling counts real-looking leads');
+    });
+  });
+
+  test('demo venues use their own, higher caps on their own counters', async () => {
+    const demo = () => ({ id: uid(), name: 'dish_viewed', venueId: A, at: iso(Date.now() - 1000), props: { dishId: ID.burger } });
+    const ip = { 'cf-connecting-ip': '198.18.0.7' };
+    await withCfg('event_caps', { per_source_hour: 2, per_venue_source_day: 1000, per_venue_day: 50000 }, async () => {
+      const bots = await track([demo(), demo(), demo(), demo(), demo()], ip);
+      assert.deepEqual([bots.accepted, bots.capped], [5, 0], 'the simulator\'s bots on the demo venue');
+      const guests = await track([view(), view(), view()], ip);
+      assert.deepEqual([guests.accepted, guests.capped], [2, 1], 'a real venue keeps its own caps, untouched by the demo traffic');
+      await withCfg('event_caps_demo', { per_source_hour: 6, per_venue_source_day: 1000000, per_venue_day: 1000000 }, async () => {
+        const more = await track([demo(), demo()], ip);
+        assert.deepEqual([more.accepted, more.capped], [1, 1], 'and the demo caps are a setting too');
+      });
     });
   });
 });
@@ -299,7 +374,33 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
     assert.equal((await w.admin.query(`select status from public.entitlements where venue_id = $1`, [v])).rows[0].status, 'trialing');
     const log = await as(w.url, O, async (c) => (await c.query(`select action, actor_kind, reason from public.activity_log where venue_id = $1 and action = 'venue.approve'`, [v])).rows);
     assert.deepEqual(log, [{ action: 'venue.approve', actor_kind: 'staff', reason: 'Menu and photos checked' }]);
+    const upd = (await w.admin.query(`select actor_kind, detail from public.activity_log where venue_id = $1 and action = 'venues.update' and detail->'columns' ? 'approved_at'`, [v])).rows;
+    assert.equal(upd.length, 1, 'the approval columns are audited like any other change');
+    assert.deepEqual([upd[0].actor_kind, upd[0].detail.columns, upd[0].detail.changes.approved_at[0]], ['staff', ['approved_at', 'approved_by'], null]);
     assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'again' }), { ok: false, code: 'already_approved' });
+  });
+
+  test('a venue has one trial: set back to pending and published again, it does not start a new one', async () => {
+    const O = '11111111-1111-4111-8111-1111111111d5';
+    await addUser(O, 'one-trial@example.invalid');
+    const v = (await rpc(w.url, O, 'create_venue', { p_slug: 'one-trial', p_name_en: 'One Trial' })).id;
+    await as(w.url, O, async (c) => {
+      const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [v])).rows[0].id;
+      await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Soup', 3000)`, [v, s]);
+    });
+    assert.equal((await rpc(w.url, O, 'publish_menu', { p_venue: v })).review, 'pending');
+    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Checked' })).ok, true);
+    const ent = async () => (await w.admin.query(`select status, trial_started_at, trial_ends_at from public.entitlements where venue_id = $1`, [v])).rows[0];
+    assert.equal((await ent()).status, 'trialing');
+    await w.admin.query(`update public.entitlements set trial_started_at = trial_started_at - interval '20 days', trial_ends_at = trial_ends_at - interval '20 days' where venue_id = $1`, [v]);
+    const aged = await ent();
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: v, p_state: 'pending', p_reason: 'Testing a reset' }), { ok: true, state: 'pending' });
+    const again = await rpc(w.url, O, 'publish_menu', { p_venue: v });
+    assert.deepEqual([again.ok, again.review], [true, 'approved']);
+    assert.deepEqual(await ent(), { ...aged, status: 'pending' }, 'no second trial: the dates are the first trial\'s');
+    assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'one-trial' })).state, 'unavailable');
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: v, p_state: 'suspended', p_reason: 'Offline on request' }), { ok: true, state: 'suspended' });
+    assert.deepEqual(await rpc(w.url, O, 'publish_menu', { p_venue: v }), { ok: false, code: 'plan_suspended' }, 'suspended is how a venue is taken offline');
   });
 
   test('with approval off, the first publish goes live at once', async () => {
@@ -444,6 +545,27 @@ describe('L4 and L9: the service role and the grant audit', () => {
     assert.ok((await q(w.url, 'service', `select 1 from public.activity_log limit 1`)).length >= 0);
   });
 
+  test('the service role writes only imports and pictures: never venues, members, staff, invites or plans', async () => {
+    for (const sql of [
+      `update public.venues set approved_at = now() where false`,
+      `insert into public.venue_members (venue_id, user_id, role) values ('${w.B}', '${U.stranger}', 'owner')`,
+      `delete from public.venue_members where false`,
+      `update public.entitlements set status = 'active' where false`,
+      `insert into public.staff (user_id, role) values ('${U.stranger}', 'admin')`,
+      `update public.staff_invites set used_at = now() where false`,
+      `update public.dishes set price = 1 where false`,
+      `insert into public.availability_overrides (venue_id, target_kind, target_id, until_kind, until_spec) values ('${w.B}', 'dish', '${w.b.dish}', 'indefinite', '{"kind":"indefinite"}')`,
+      `delete from public.menu_imports where false`,
+    ]) assert.equal((await q(w.url, 'service', sql)).error?.code, '42501', sql);
+    for (const sql of [`update public.menu_imports set status = status where false`, `update public.assets set status = status where false`, `select 1 from public.venues limit 1`]) {
+      assert.ok(!(await q(w.url, 'service', sql)).error, sql);
+    }
+    const writes = (await w.admin.query(`select c.relname || ':' || p.priv as w from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      cross join unnest(array['INSERT', 'UPDATE', 'DELETE']) p(priv)
+      where n.nspname in ('public', 'app') and c.relkind in ('r', 'p') and has_table_privilege('service_role', c.oid, p.priv) order by 1`)).rows.map((x) => x.w);
+    assert.deepEqual(writes, ['assets:INSERT', 'assets:UPDATE', 'menu_imports:INSERT', 'menu_imports:UPDATE']);
+  });
+
   test('app.audit_grants() finds nothing outside the intended access model', async () => {
     const { rows } = await w.admin.query('select * from app.audit_grants()');
     assert.deepEqual(rows, []);
@@ -452,6 +574,14 @@ describe('L4 and L9: the service role and the grant audit', () => {
     const drift = await w.admin.query('select * from app.audit_grants()');
     await w.admin.query('rollback');
     assert.deepEqual(drift.rows, [{ problem: 'unexpected', grantee: 'authenticated', object: 'public.leads', privilege: 'SELECT' }]);
+    // the service role too, both ways
+    await w.admin.query(`begin; grant update on public.venues to service_role; revoke update on public.assets from service_role`);
+    const drift2 = await w.admin.query('select * from app.audit_grants()');
+    await w.admin.query('rollback');
+    assert.deepEqual(drift2.rows, [
+      { problem: 'missing', grantee: 'service_role', object: 'public.assets', privilege: 'UPDATE' },
+      { problem: 'unexpected', grantee: 'service_role', object: 'public.venues', privilege: 'UPDATE' },
+    ]);
   });
 });
 
@@ -564,14 +694,15 @@ describe('QA m3, m4, m5 and the RPCs that must survive the cutover', () => {
     assert.deepEqual(log.slice(-4), ['menu.publish', 'menu.restore', 'menu.unpublish', 'menu.restore']);
   });
 
-  test('ops_set_plan: staff only, with a reason the owner sees; a dead plan makes the menu unavailable', async () => {
+  test('ops_set_plan: admins only, with a reason the owner sees; a dead plan makes the menu unavailable', async () => {
     assert.equal((await rpc(w.url, U.ownerB, 'ops_set_plan', { p_venue: w.B, p_state: 'active', p_reason: 'self-service' })).error?.code, '42501');
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_set_plan', { p_venue: w.B, p_state: 'active' }), { ok: false, code: 'reason_required' });
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_set_plan', { p_venue: w.B, p_state: 'free_forever', p_reason: 'x x x' }), { ok: false, code: 'state_invalid' });
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_set_plan', { p_venue: w.B, p_state: 'suspended', p_reason: 'Owner asked to pause' }), { ok: true, state: 'suspended' });
+    assert.equal((await rpc(w.url, U.support, 'ops_set_plan', { p_venue: w.B, p_state: 'active', p_reason: 'support may not' })).error?.code, '42501', 'support: no');
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: w.B, p_state: 'active' }), { ok: false, code: 'reason_required' });
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: w.B, p_state: 'free_forever', p_reason: 'x x x' }), { ok: false, code: 'state_invalid' });
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: w.B, p_state: 'suspended', p_reason: 'Owner asked to pause' }), { ok: true, state: 'suspended' });
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'bistro-test' })).state, 'unavailable');
     const until = new Date(Date.now() + 30 * 86400_000).toISOString();
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_set_plan', { p_venue: w.B, p_state: 'active', p_until: until, p_reason: 'Pilot agreed', p_plan: 'pilot' }), { ok: true, state: 'active' });
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: w.B, p_state: 'active', p_until: until, p_reason: 'Pilot agreed', p_plan: 'pilot' }), { ok: true, state: 'active' });
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'bistro-test' })).state, 'ok');
     const log = await as(w.url, U.ownerB, async (c) => (await c.query(`select reason, detail from public.activity_log where venue_id = $1 and action = 'plan.set' order by id`, [w.B])).rows);
     assert.deepEqual(log.map((x) => [x.reason, x.detail.state]), [['Owner asked to pause', 'suspended'], ['Pilot agreed', 'active']]);

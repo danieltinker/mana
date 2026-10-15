@@ -499,13 +499,16 @@ end $$;
 -- The one place a revision is made. Callers check who may publish (publish_menu: owner or manager; act_for_owner: staff).
 -- The first publish waits for Halom when app_config.publish_requires_approval is on: the revision is stored, the
 -- venue's review is "pending", guests see "unavailable" until ops_approve_venue starts the trial.
+-- A venue has one trial: it starts only while the plan is pending AND no trial ever started, so a venue that staff set
+-- back to "pending" does not get a fresh trial by publishing again. To take a venue offline, staff set it to
+-- "suspended" (ops_set_plan); "pending" is the state before the first approval.
 create function app.start_trial(p_venue uuid) returns timestamptz
 language plpgsql security definer set search_path = '' as $$
 declare ends timestamptz;
 begin
   update public.entitlements set status = 'trialing', trial_started_at = now(),
     trial_ends_at = now() + make_interval(days => coalesce((app.cfg('trial_days') #>> '{}')::integer, 30))
-  where venue_id = p_venue and status = 'pending'
+  where venue_id = p_venue and status = 'pending' and trial_started_at is null
   returning trial_ends_at into ends;
   return ends;
 end $$;
@@ -749,15 +752,16 @@ language sql security definer set search_path = '' as $$
 $$;
 
 -- Three caps, all in app_config.event_caps: per source per hour, per (venue, source) per day, per venue per (local) day.
--- Events past a cap are counted as `capped` and dropped; the day a venue passes its own cap is recorded
--- (app.event_capped_days), so the dashboards can say the day's numbers are capped instead of silently low.
+-- Demo venues (venues.is_demo, where the simulator's bots all come from one source) use app_config.event_caps_demo
+-- instead, on counters of their own. Events past a cap are counted as `capped` and dropped; the day a venue passes its
+-- own cap is recorded (app.event_capped_days), so the dashboards can say the day's numbers are capped instead of
+-- silently low.
 create function public.track_events(p_events jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   caps jsonb := app.cfg('event_caps');
-  per_source integer := coalesce((caps->>'per_source_hour')::integer, 300);
-  per_venue_source integer := coalesce((caps->>'per_venue_source_day')::integer, 1500);
-  per_venue integer := coalesce((caps->>'per_venue_day')::integer, 50000);
+  demo_caps jsonb := app.cfg('event_caps_demo');
+  per_source integer; per_venue_source integer; per_venue integer; pre text;
   src text; local_day date;
   e jsonb; i integer; code text; v record;
   accepted integer := 0; duplicates integer := 0; capped integer := 0; rejected jsonb := '[]';
@@ -785,7 +789,18 @@ begin
       continue;
     end if;
     local_day := app.local_date(now(), v.time_zone);
-    if app.bump('source:' || src, date_trunc('hour', now())) > per_source
+    if v.is_demo then
+      per_source := coalesce((demo_caps->>'per_source_hour')::integer, 100000);
+      per_venue_source := coalesce((demo_caps->>'per_venue_source_day')::integer, 1000000);
+      per_venue := coalesce((demo_caps->>'per_venue_day')::integer, 1000000);
+      pre := 'demo-';
+    else
+      per_source := coalesce((caps->>'per_source_hour')::integer, 300);
+      per_venue_source := coalesce((caps->>'per_venue_source_day')::integer, 1500);
+      per_venue := coalesce((caps->>'per_venue_day')::integer, 50000);
+      pre := '';
+    end if;
+    if app.bump(pre || 'source:' || src, date_trunc('hour', now())) > per_source
        or app.bump('venue-source:' || v.id || ':' || src, local_day::timestamp at time zone 'UTC') > per_venue_source then
       capped := capped + 1;
       continue;
@@ -1033,13 +1048,15 @@ begin
 end $$;
 
 -- Halom sets a venue's plan state by hand until billing exists (live today on halom-studio as ops_set_entitlement).
--- A live state (trialing, active) also approves the venue. Logged with the reason, which the owner sees.
+-- Admins only (support approves venues but does not change what a venue pays or how long its trial runs). A live state
+-- (trialing, active) also approves the venue; "suspended" is how a venue is taken offline. Logged with the reason,
+-- which the owner sees.
 create function public.ops_set_plan(p_venue uuid, p_state text, p_until timestamptz default null, p_reason text default null,
                                     p_plan text default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare reason text := btrim(coalesce(p_reason, '')); n integer;
 begin
-  if not app.is_staff() then raise exception 'not_staff' using errcode = '42501'; end if;
+  if app.staff_role() is distinct from 'admin' then raise exception 'not_admin' using errcode = '42501'; end if;
   if char_length(reason) < 3 or char_length(reason) > 500 then return jsonb_build_object('ok', false, 'code', 'reason_required'); end if;
   if coalesce(p_state, '') not in ('pending', 'trialing', 'active', 'expired', 'suspended') then return jsonb_build_object('ok', false, 'code', 'state_invalid'); end if;
   if p_plan is not null and p_plan not in ('trial', 'pilot', 'paid') then return jsonb_build_object('ok', false, 'code', 'plan_invalid'); end if;
@@ -1220,9 +1237,12 @@ begin
 end $$;
 
 -- ================================================================ Mana's own leads (the product page's "talk to us")
--- Real visitors are never refused: a lead that looks automated (the honeypot filled, sent too fast, more than
--- lead_caps.per_source_hour from one source) is kept with status 'spam', out of the back office's default view. Only past
--- lead_caps.hard_day leads in a day is nothing more stored (an attack, not visitors).
+-- A lead that looks automated (the honeypot filled, sent too fast, more than lead_caps.per_source_hour from one source)
+-- is kept with status 'spam', out of the back office's default view, and the sender is told ok. A source past
+-- lead_caps.per_source_day leads in 24 hours is told ok (without a reference) and nothing is stored. The form refuses
+-- (rate_limited) only past lead_caps.hard_day non-spam leads from everyone in 24 hours: a flood that got past the spam
+-- checks, when a real visitor can be refused too. Spam never counts toward that ceiling, so a spammer cannot close the
+-- form for real visitors.
 create function public.submit_lead(p_token uuid, p_message text, p_contact text, p_name text default null, p_venue_name text default null,
                                    p_locale text default null, p_source text default 'mana-landing', p_hp text default '',
                                    p_elapsed_ms integer default null) returns jsonb
@@ -1231,6 +1251,7 @@ declare v_ref text; src text; msg text := app.strip_blank(coalesce(p_message, ''
   v_source text := lower(btrim(coalesce(p_source, 'mana-landing'))); v_status text := 'new';
   caps jsonb := app.cfg('lead_caps');
   per_hour integer := coalesce((caps->>'per_source_hour')::integer, 5);
+  per_day integer := coalesce((caps->>'per_source_day')::integer, 20);
   hard integer := coalesce((caps->>'hard_day')::integer, 2000);
 begin
   if p_token is null then return jsonb_build_object('ok', false, 'code', 'invalid'); end if;
@@ -1241,10 +1262,13 @@ begin
      or v_source !~ '^[a-z0-9][a-z0-9-]{1,40}$' then
     return jsonb_build_object('ok', false, 'code', 'invalid');
   end if;
-  if (select count(*) from public.leads where created_at > now() - interval '1 day') >= hard then
+  src := app.request_source();
+  if (select count(*) from public.leads where source_hash = src and created_at > now() - interval '1 day') >= per_day then
+    return jsonb_build_object('ok', true);                                                -- one source's flood: not stored
+  end if;
+  if (select count(*) from public.leads where status <> 'spam' and created_at > now() - interval '1 day') >= hard then
     return jsonb_build_object('ok', false, 'code', 'rate_limited');
   end if;
-  src := app.request_source();
   if coalesce(p_hp, '') <> '' or (p_elapsed_ms is not null and p_elapsed_ms < 1500)
      or (select count(*) from public.leads where source_hash = src and created_at > now() - interval '1 hour') >= per_hour then
     v_status := 'spam';

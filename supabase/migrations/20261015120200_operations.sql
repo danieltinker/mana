@@ -184,11 +184,11 @@ create function app.audit_hidden(p_col text) returns boolean language sql immuta
                    'contact', 'name', 'message', 'venue_name', 'source_hash', 'client_token')
 $$;
 
--- Columns whose change alone is not an activity (publish and review bookkeeping: publish_menu and ops_approve_venue
--- log those themselves; the daily job forgetting a lead's source hash).
+-- Columns whose change alone is not an activity (publish bookkeeping, which publish_menu logs itself; the daily job
+-- forgetting a lead's source hash). A venue's approval (approved_at, approved_by) is NOT ignored: however it changes,
+-- the change is in the log, beside the venue.approve row ops_approve_venue writes.
 create function app.audit_ignored(p_col text) returns boolean language sql immutable set search_path = '' as $$
-  select p_col in ('updated_at', 'published_revision_id', 'first_published_at', 'last_published_at', 'approved_at', 'approved_by',
-                   'source_hash')
+  select p_col in ('updated_at', 'published_revision_id', 'first_published_at', 'last_published_at', 'source_hash')
 $$;
 
 -- Which values the log may copy. Numbers, booleans and nulls always; text only for columns that hold ids, codes,
