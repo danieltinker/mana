@@ -27,10 +27,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            view/package-lock.json
-            studio/package-lock.json
-            ops/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Build the site
         run: bash tools/build-site.sh
       - uses: actions/configure-pages@v5

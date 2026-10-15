@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+/* Every test suite in the repository, one after another (never two browser suites at once: software WebGL on a small
+   machine). Each suite runs in its own folder with its own command, exactly as it runs on its own; this only sequences
+   them and prints one line per suite.
+
+     npm test                  (= node tools/test-all.mjs)       every suite, the browser ones included (about 40 min)
+     npm run test:fast         (= node tools/test-all.mjs --fast) no browser and no local stack: types, units, contracts (about 30 s)
+     node tools/test-all.mjs view-unit studio-e2e …               only the suites named
+
+   Needs: `npm ci` at the root (the three apps), Chromium for the browser suites (CHROME, default
+   /opt/pw-browsers/chromium-1194/chrome-linux/chrome), and for studio-e2e the local stack's binaries (apps/studio/test/README.md).
+   The brand suite (the product page) needs `npm ci` in brand/ and a built brand/site/land (node brand/tools/build-land.mjs).
+   Exit 1 if any suite fails. Logs: test-results/<suite>.log (ignored by git). */
+import { spawn } from 'node:child_process';
+import { mkdirSync, createWriteStream } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+/* name, folder, command, browser/stack (heavy) or not */
+const SUITES = [
+  ['studio-check', 'apps/studio', 'npm run -s check', false],
+  ['view-unit', 'apps/view', 'npm test', false],
+  ['studio-unit', 'apps/studio', 'npm run -s test:unit', false],
+  ['studio-i18n', 'apps/studio', 'node test/check-i18n.mjs', false],
+  ['ops-unit', 'apps/ops', 'npm run -s test:unit', false],
+  ['payments', 'payments', 'npm test', false],
+  ['site-kit', 'site-kit', 'npm test', false],
+  ['templates', '.', 'node templates/validate.mjs', false],
+  ['mark', '.', 'node brand/tools/sync-mark.mjs --check', false],
+  ['view-browser', 'apps/view', 'npm run -s test:browser', true],
+  ['ops-e2e', 'apps/ops', 'npm run -s build && npm run -s test:e2e', true],
+  ['studio-e2e', 'apps/studio', 'npm run -s build && npm run -s test:e2e', true],
+  ['brand', 'brand', 'node tools/test-site.mjs', true],
+];
+/* the seating contracts' tests run inside view-unit (apps/view/package.json names them) */
+
+const args = process.argv.slice(2), fast = args.includes('--fast'), only = args.filter((a) => !a.startsWith('--'));
+const pick = SUITES.filter(([n, , , heavy]) => (only.length ? only.includes(n) : !(fast && heavy)));
+if (only.length) for (const n of only) if (!SUITES.some((s) => s[0] === n)) { console.error('no suite called ' + n + '; there are: ' + SUITES.map((s) => s[0]).join(', ')); process.exit(2); }
+const LOGS = join(ROOT, 'test-results'); mkdirSync(LOGS, { recursive: true });
+
+const run = (name, dir, cmd) => new Promise((done) => {
+  const log = createWriteStream(join(LOGS, name + '.log')), t0 = Date.now(); let out = '';
+  const ch = spawn('bash', ['-c', cmd], { cwd: join(ROOT, dir), env: process.env });
+  for (const s of [ch.stdout, ch.stderr]) s.on('data', (d) => { log.write(d); out += d; if (out.length > 1e6) out = out.slice(-5e5); });
+  ch.on('close', (code) => {
+    log.end();
+    const tap = (k) => { const m = [...out.matchAll(new RegExp('^# ' + k + ' (\\d+)$', 'gm'))]; return m.length ? m.reduce((a, x) => a + +x[1], 0) : null; };
+    const own = /(\d+) passed, (\d+) failed/.exec(out);
+    const counts = tap('pass') !== null ? `${tap('pass')} pass, ${tap('fail')} fail` : own ? `${own[1]} pass, ${own[2]} fail` : '';
+    done({ name, ok: code === 0, counts, s: ((Date.now() - t0) / 1000).toFixed(0) });
+  });
+});
+
+const results = [];
+for (const [name, dir, cmd] of pick) {
+  process.stdout.write(`· ${name.padEnd(13)} ${dir.padEnd(12)} ${cmd} … `);
+  const r = await run(name, dir, cmd); results.push(r);
+  console.log(`${r.ok ? 'ok' : 'FAILED'}${r.counts ? ' (' + r.counts + ')' : ''}  ${r.s} s`);
+}
+const bad = results.filter((r) => !r.ok);
+console.log(bad.length ? `✗ ${bad.length} of ${results.length} suites failed: ${bad.map((r) => r.name).join(', ')} (logs in test-results/)` : `✓ ${results.length} suites passed`);
+process.exit(bad.length ? 1 : 0);
