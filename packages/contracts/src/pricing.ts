@@ -243,26 +243,32 @@ function cheapest(group: AddonGroupV2, min: number, ctx: PricingContext, depth: 
   return units.slice(0, min).reduce((s, x) => s + x, 0);
 }
 
-/** Does a required choice of this group (or of a required group one of its options opens) cost money? */
+/**
+ * Can a required choice of this group (or of a required group one of its options opens) cost money, with what is
+ * available now? A sold-out paid option does not count, nor an opener whose own required group cannot be satisfied.
+ */
 function requiredIsPaid(group: AddonGroupV2, ctx: PricingContext, depth: number): boolean {
   return group.options.some((o) => {
-    if (o.price > 0) return true;
-    if (depth > 0 || o.opensGroupId === null) return false;
+    if (ctx.unavailable.options.has(o.id)) return false;
+    if (depth > 0 || o.opensGroupId === null) return o.price > 0;
     const nested = ctx.groups.get(o.opensGroupId);
-    return !!nested && nested.min > 0 && requiredIsPaid(nested, ctx, 1);
+    if (!nested) return false;
+    if (cheapest(nested, nested.min, ctx, 1) === null) return false;
+    return o.price > 0 || (nested.min > 0 && requiredIsPaid(nested, ctx, 1));
   });
 }
 
 export type FromPrice = {
   /** The least a guest can pay for one of this dish, VAT included: never lower than what can be ordered. */
   readonly amount: number;
-  /** Show "from …": a required group has a choice that costs money, so the price can be higher. */
+  /** Show "from …": a required group has an available choice that costs money, so the price can be higher. */
   readonly from: boolean;
 };
 
 /**
- * The price to show on the menu. A required paid group makes it "from ₪…" (price honesty): the amount is the base
- * plus the cheapest way to make every required choice, so the number shown is always payable.
+ * The price to show on the menu. A required group with an available paid choice makes it "from ₪…" (price honesty):
+ * the amount is the base plus the cheapest way to make every required choice with what is available now, so the
+ * number shown is always payable. When the only paid choices are sold out, the price is plain again.
  * null when the dish has no price, or when a required choice cannot be made now.
  */
 export function fromPrice(dish: DishV2, ctx: Pick<PricingContext, 'groups'> & { readonly unavailable?: Unavailable }): FromPrice | null {

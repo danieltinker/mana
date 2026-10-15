@@ -189,6 +189,16 @@ test('fromPrice: free options that open a required paid nested group make it "fr
   assert.deepEqual(fromPrice(DISHES.burger, { groups }), { amount: 6800, from: false });
 });
 
+test('fromPrice: a sold-out paid choice does not make the price "from"', () => {
+  const off = (...ids: string[]) => ({ groups: ctx.groups, unavailable: { dishes: new Set<string>(), options: new Set(ids) } });
+  assert.deepEqual(fromPrice(DISHES.espresso, off(ID.double)), { amount: 1200, from: false }, 'only the single is left');
+  assert.deepEqual(fromPrice(DISHES.schnitzel, off(ID.sweetFries, ID.chipotle)), { amount: 6200, from: false }, 'no paid side, no paid sauce left');
+  assert.deepEqual(fromPrice(DISHES.schnitzel, off(ID.sweetFries)), { amount: 6200, from: true }, 'fries still open a sauce with a paid chipotle');
+  assert.deepEqual(fromPrice(DISHES.schnitzel, off(ID.aioli, ID.ketchup, ID.chipotle)), { amount: 6200, from: false },
+    'every sauce gone: neither kind of fries can be ordered, only the free salad');
+  assert.deepEqual(fromPrice(DISHES.espresso, off(ID.single)), { amount: 1600, from: true }, 'the cheapest available is the double');
+});
+
 test('defaultSelection follows the owner\'s defaults and prices without errors', () => {
   const d = defaultSelection(DISHES.burger, ctx);
   assert.deepEqual(d, { quantity: 1, groups: [
