@@ -1,0 +1,63 @@
+{
+  "synthetic": true,
+  "about": "Bistro Sim: an invented menu for the scripted scenarios. It does not depend on the clock: open every day around the clock, its day part covers the whole day, no rule has hours, so the same script gives the same result at any time.",
+  "venue": {
+    "slug": "bistro-sim",
+    "name": { "he": "ביסטרו סים", "en": "Bistro Sim" },
+    "cuisine": { "he": "ביסטרו", "en": "Bistro" },
+    "kind": "restaurant",
+    "defaultLang": "he",
+    "demo": true
+  },
+  "schedules": [
+    { "key": "all-day", "kind": "day_part", "name": { "he": "כל היום", "en": "All day" }, "windows": [{ "days": [0, 1, 2, 3, 4, 5, 6], "from": "00:00", "to": "00:00" }] }
+  ],
+  "groups": [
+    { "key": "side", "label": "Side of choice", "name": { "he": "תוספת לבחירה", "en": "Side of choice" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "fries", "name": { "he": "צ׳יפס", "en": "Fries" }, "price": 0, "default": true, "opens": "sauce" },
+      { "key": "salad", "name": { "he": "סלט", "en": "Salad" }, "price": 0 },
+      { "key": "sweet-potato", "name": { "he": "בטטה", "en": "Sweet potato" }, "price": 800, "opens": "sauce" }
+    ] },
+    { "key": "sauce", "label": "Sauce for the side", "name": { "he": "רוטב", "en": "Sauce" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "aioli", "name": { "he": "איולי", "en": "Aioli" }, "price": 0, "default": true },
+      { "key": "ketchup", "name": { "he": "קטשופ", "en": "Ketchup" }, "price": 0 },
+      { "key": "harissa", "name": { "he": "חריסה", "en": "Harissa" }, "price": 300 }
+    ] },
+    { "key": "extras", "label": "Burger extras", "name": { "he": "תוספות", "en": "Extras" }, "selection": "multiple", "min": 0, "max": 3, "options": [
+      { "key": "cheese", "name": { "he": "גבינה", "en": "Cheese" }, "price": 400, "maxQty": 2 },
+      { "key": "egg", "name": { "he": "ביצה", "en": "Egg" }, "price": 500 },
+      { "key": "avocado", "name": { "he": "אבוקדו", "en": "Avocado" }, "price": 600 }
+    ] },
+    { "key": "size", "label": "Coffee size", "name": { "he": "גודל", "en": "Size" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "small", "name": { "he": "קטן", "en": "Small" }, "price": 0, "default": true },
+      { "key": "large", "name": { "he": "גדול", "en": "Large" }, "price": 400 }
+    ] }
+  ],
+  "sections": [
+    { "key": "mains", "name": { "he": "עיקריות", "en": "Mains" }, "kind": "food", "schedule": "all-day", "dishes": [
+      { "key": "burger", "name": { "he": "המבורגר", "en": "Burger" }, "desc": { "he": "המבורגר בלחמנייה", "en": "A burger in a bun" }, "price": 6800, "groups": ["side", "extras"], "related": ["lemonade"] },
+      { "key": "toast", "name": { "he": "טוסט", "en": "Toast" }, "price": 4200, "tags": ["vegetarian"], "groups": ["side"] }
+    ] },
+    { "key": "drinks", "name": { "he": "שתייה", "en": "Drinks" }, "kind": "drinks", "dishes": [
+      { "key": "espresso", "name": { "he": "אספרסו", "en": "Espresso" }, "price": 1200, "tags": ["vegan"], "groups": ["size"], "related": ["croissant"] },
+      { "key": "lemonade", "name": { "he": "לימונדה", "en": "Lemonade" }, "price": 1400, "tags": ["vegan"] }
+    ] },
+    { "key": "pastries", "name": { "he": "מאפים", "en": "Pastries" }, "kind": "dessert", "dishes": [
+      { "key": "croissant", "name": { "he": "קרואסון", "en": "Croissant" }, "price": 1400, "tags": ["vegetarian"] },
+      { "key": "cookie", "name": { "he": "עוגייה", "en": "Cookie" }, "price": 900, "tags": ["vegan"] }
+    ] }
+  ],
+  "rules": [
+    { "key": "coffee-croissant", "label": "After a coffee, a croissant", "trigger": "add", "scope": { "dishes": ["espresso"] }, "suggest": { "dish": "croissant" },
+      "line": { "he": "קרואסון ליד הקפה?", "en": "A croissant with your coffee?" }, "priority": 60, "cap": 1 },
+    { "key": "burger-cheese", "label": "Cheese on the burger", "trigger": "sheet", "scope": { "dishes": ["burger"] }, "suggest": { "option": "cheese" },
+      "line": { "he": "להוסיף גבינה?", "en": "Add cheese?" }, "priority": 40, "cap": 2 },
+    { "key": "main-drink", "label": "A drink with a main", "trigger": "checkout", "scope": { "sections": ["mains"] }, "basketLacks": { "sections": ["drinks"] },
+      "suggest": { "dish": "lemonade" }, "line": { "he": "משהו לשתות?", "en": "Something to drink?" }, "priority": 30, "cap": 1 },
+    { "key": "any-lemonade", "label": "A lemonade after anything", "trigger": "add", "scope": "all", "suggest": { "dish": "lemonade" },
+      "line": { "he": "לימונדה קרה?", "en": "A cold lemonade?" }, "priority": 10, "cap": 1 }
+  ],
+  "hours": [{ "days": [0, 1, 2, 3, 4, 5, 6], "opens": "00:00", "closes": "00:00" }],
+  "onboarding": ["menu", "review", "addons", "hours"],
+  "publish": { "note": "synthetic test seed" }
+}

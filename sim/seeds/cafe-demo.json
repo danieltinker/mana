@@ -1,0 +1,80 @@
+{
+  "synthetic": true,
+  "about": "Café Demo: the same invented menu as supabase/seed/synthetic.sql (every name and price made up), as a simulator seed. Breakfast is a day part, the Friday cake a special, the coffee rule runs 07:00-11:00, so what guests can order depends on the clock.",
+  "venue": {
+    "slug": "cafe-demo",
+    "name": { "he": "קפה דמו", "en": "Café Demo" },
+    "cuisine": { "he": "בית קפה", "en": "Café" },
+    "kind": "cafe",
+    "defaultLang": "he",
+    "accent": "#c8743c",
+    "demo": true
+  },
+  "schedules": [
+    { "key": "breakfast", "kind": "day_part", "name": { "he": "בוקר", "en": "Breakfast" }, "windows": [{ "days": [0, 1, 2, 3, 4, 5, 6], "from": "07:00", "to": "12:00" }] },
+    { "key": "friday", "kind": "special", "name": { "he": "שישי", "en": "Friday" }, "windows": [{ "days": [5], "from": "07:00", "to": "15:00" }] }
+  ],
+  "groups": [
+    { "key": "side", "label": "Side, mains", "name": { "he": "תוספת", "en": "Side" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "fries", "name": { "he": "צ׳יפס", "en": "Fries" }, "price": 0, "default": true, "opens": "sauce" },
+      { "key": "salad", "name": { "he": "סלט ירוק", "en": "Green salad" }, "price": 0 },
+      { "key": "sweet-potato", "name": { "he": "בטטה", "en": "Sweet potato fries" }, "price": 800, "opens": "sauce" }
+    ] },
+    { "key": "sauce", "label": "Sauce for fries", "name": { "he": "רוטב", "en": "Sauce" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "aioli", "name": { "he": "איולי", "en": "Aioli" }, "price": 0, "default": true },
+      { "key": "ketchup", "name": { "he": "קטשופ", "en": "Ketchup" }, "price": 0 },
+      { "key": "chipotle", "name": { "he": "צ׳יפוטלה", "en": "Chipotle" }, "price": 200 }
+    ] },
+    { "key": "extras", "label": "Burger extras", "name": { "he": "תוספות", "en": "Extras" }, "selection": "multiple", "min": 0, "max": 3, "options": [
+      { "key": "cheese", "name": { "he": "גבינה", "en": "Cheese" }, "price": 400, "maxQty": 2 },
+      { "key": "egg", "name": { "he": "ביצת עין", "en": "Fried egg" }, "price": 500 },
+      { "key": "avocado", "name": { "he": "אבוקדו", "en": "Avocado" }, "price": 600 }
+    ] },
+    { "key": "size", "label": "Coffee size", "name": { "he": "גודל", "en": "Size" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "single", "name": { "he": "קצר", "en": "Single" }, "price": 0, "default": true },
+      { "key": "double", "name": { "he": "כפול", "en": "Double" }, "price": 400 }
+    ] },
+    { "key": "milk", "label": "Milk", "name": { "he": "חלב", "en": "Milk" }, "selection": "single", "min": 0, "max": 1, "options": [
+      { "key": "regular", "name": { "he": "רגיל", "en": "Regular" }, "price": 0 },
+      { "key": "oat", "name": { "he": "שיבולת שועל", "en": "Oat" }, "price": 200 },
+      { "key": "soy", "name": { "he": "סויה", "en": "Soy" }, "price": 200 }
+    ] },
+    { "key": "bread", "label": "Bread", "name": { "he": "לחם", "en": "Bread" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "sourdough", "name": { "he": "מחמצת", "en": "Sourdough" }, "price": 0, "default": true },
+      { "key": "challah", "name": { "he": "חלה", "en": "Challah" }, "price": 0 }
+    ] }
+  ],
+  "sections": [
+    { "key": "breakfast", "name": { "he": "בוקר", "en": "Breakfast" }, "kind": "food", "schedule": "breakfast", "dishes": [
+      { "key": "shakshuka", "name": { "he": "שקשוקה", "en": "Shakshuka" }, "price": 5400, "tags": ["vegetarian"], "groups": ["bread"], "related": ["espresso"] }
+    ] },
+    { "key": "mains", "name": { "he": "עיקריות", "en": "Mains" }, "kind": "food", "dishes": [
+      { "key": "burger", "name": { "he": "המבורגר", "en": "Burger" }, "price": 6800, "groups": ["side", "extras"], "related": ["lemonade", "schnitzel"] },
+      { "key": "schnitzel", "name": { "he": "שניצל", "en": "Schnitzel" }, "price": 6200, "groups": ["side"] }
+    ] },
+    { "key": "drinks", "name": { "he": "שתייה", "en": "Drinks" }, "kind": "drinks", "dishes": [
+      { "key": "espresso", "name": { "he": "אספרסו", "en": "Espresso" }, "price": 1200, "tags": ["vegan"], "groups": ["size", "milk"], "related": ["croissant"] },
+      { "key": "lemonade", "name": { "he": "לימונדה", "en": "Lemonade" }, "price": 1600, "tags": ["vegan"] }
+    ] },
+    { "key": "pastries", "name": { "he": "מאפים", "en": "Pastries" }, "kind": "dessert", "dishes": [
+      { "key": "croissant", "name": { "he": "קרואסון", "en": "Croissant" }, "price": 1400, "tags": ["vegetarian"], "stock": "croissant" },
+      { "key": "friday-cake", "name": { "he": "עוגת שישי", "en": "Friday cake" }, "price": 3200, "schedule": "friday" }
+    ] }
+  ],
+  "rules": [
+    { "key": "coffee-croissant", "label": "Coffee → croissant, mornings", "trigger": "add", "scope": { "dishes": ["espresso"] },
+      "when": { "days": [], "from": "07:00", "to": "11:00" }, "basketLacks": { "sections": ["pastries"] }, "suggest": { "dish": "croissant" },
+      "line": { "he": "קרואסון חם ליד הקפה?", "en": "A warm croissant with your coffee?" }, "priority": 50, "cap": 1 },
+    { "key": "burger-cheese", "label": "Cheese on the burger", "trigger": "sheet", "scope": { "dishes": ["burger"] }, "suggest": { "option": "cheese" },
+      "line": { "he": "להוסיף גבינה?", "en": "Add cheese?" }, "priority": 40, "cap": 2 },
+    { "key": "main-drink", "label": "A drink with a main", "trigger": "checkout", "scope": { "sections": ["mains"] }, "basketLacks": { "sections": ["drinks"] },
+      "suggest": { "dish": "lemonade" }, "line": { "he": "משהו לשתות?", "en": "Something to drink?" }, "priority": 30, "cap": 1 }
+  ],
+  "hours": [
+    { "days": [0, 1, 2, 3, 4], "opens": "07:00", "closes": "23:00" },
+    { "days": [5], "opens": "07:00", "closes": "15:00" },
+    { "days": [6], "opens": "19:00", "closes": "01:00" }
+  ],
+  "onboarding": ["menu", "review", "addons", "photos", "hours", "style", "test"],
+  "publish": { "note": "synthetic seed" }
+}
