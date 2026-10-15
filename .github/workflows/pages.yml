@@ -9,9 +9,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# The build job only reads the code; only the deploy job may write to Pages, and only from main.
+# The build job only reads (the code, and the Pages settings configure-pages needs); only the deploy job may write to
+# Pages, and only from main.
 permissions:
   contents: read
+  pages: read
 
 concurrency:
   group: pages

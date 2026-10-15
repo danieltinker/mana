@@ -129,4 +129,4 @@ It stays as a fallback: Pages → Source "Deploy from a branch" → `pages`.
 
 The repository is public so that GitHub Pages can serve it. It is not open source: © 2026 Halom, all rights
 reserved. Third-party parts keep their own licences. See `gen/THIRD_PARTY_NOTICES.txt`,
-`studio/public/THIRD_PARTY_NOTICES.txt`, `stock/NOTICE.md` and the OFL texts beside the fonts.
+`apps/studio/public/THIRD_PARTY_NOTICES.txt`, `stock/NOTICE.md` and the OFL texts beside the fonts.
