@@ -327,10 +327,10 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
         if (m === null) continue; // no condition
         if (!isObject(m)) x.add('type', `${p}.${k}`);
         else {
-          const a = uuidList(x, m.dishes, `${p}.${k}.dishes`, dishIds);
-          const b = uuidList(x, m.sections, `${p}.${k}.sections`, sectionIds);
+          uuidList(x, m.dishes, `${p}.${k}.dishes`, dishIds);
+          uuidList(x, m.sections, `${p}.${k}.sections`, sectionIds);
           // a condition names something; "no condition" is null (never an empty list, which would read as "always")
-          if (Array.isArray(m.dishes) && Array.isArray(m.sections) && a.length + b.length === 0) x.add('rule_condition_empty', `${p}.${k}`);
+          if (Array.isArray(m.dishes) && Array.isArray(m.sections) && m.dishes.length + m.sections.length === 0) x.add('rule_condition_empty', `${p}.${k}`);
         }
       }
       const sg = r.suggest;
