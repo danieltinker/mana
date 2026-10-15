@@ -82,6 +82,7 @@ function addresses(P) {
 }
 
 export async function resolvePorts(ports = process.env.SIM_PORT_BASE || 57500) {
+  if (ports && typeof ports === 'object') return { ...ports };
   if (ports === 'auto') return { api: await freePort(), pg: await freePort(), auth: await freePort(), rest: await freePort(), web: await freePort() };
   const base = Number(ports);
   if (!Number.isInteger(base) || base < 1024 || base > 65400) throw new Error('SIM_PORT_BASE must be a port number (1024–65400), got ' + ports);
@@ -90,7 +91,7 @@ export async function resolvePorts(ports = process.env.SIM_PORT_BASE || 57500) {
 
 /**
  * Starts the stack. Options:
- *   ports       'auto' | a base port (default $SIM_PORT_BASE or 57500)
+ *   ports       'auto' | a base port (default $SIM_PORT_BASE or 57500) | { api, pg, auth, rest, web }
  *   dir         where the database and the logs live (default: a fresh temp folder, removed by stop())
  *   keep        stop() leaves `dir` in place (a later start with the same dir reuses the database)
  *   eventCaps   'auto' (default: demo caps from the schema, or raised locally when the schema has none) | 'schema'

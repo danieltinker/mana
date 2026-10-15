@@ -48,7 +48,8 @@ export function seedProblems(seed) {
   (seed.groups ?? []).forEach((g, i) => { uniq('groups', g.key, `groups[${i}]`); (g.options ?? []).forEach((o, j) => uniq('options', o.key, `groups[${i}].options[${j}]`)); });
   (seed.sections ?? []).forEach((s, i) => { uniq('sections', s.key, `sections[${i}]`); (s.dishes ?? []).forEach((d, j) => uniq('dishes', d.key, `sections[${i}].dishes[${j}]`)); });
   (seed.rules ?? []).forEach((r, i) => uniq('rules', r.key, `rules[${i}]`));
-  const ref = (kind, k, where) => { if (k != null && !keys[kind].has(k)) out.push(`${where}: unknown ${kind.slice(0, -1)} "${k}"`); };
+  const one = { schedules: 'schedule', groups: 'group', options: 'option', sections: 'section', dishes: 'dish', rules: 'rule' };
+  const ref = (kind, k, where) => { if (k != null && !keys[kind].has(k)) out.push(`${where}: unknown ${one[kind]} "${k}"`); };
   (seed.groups ?? []).forEach((g, i) => (g.options ?? []).forEach((o, j) => ref('groups', o.opens, `groups[${i}].options[${j}].opens`)));
   (seed.sections ?? []).forEach((s, i) => {
     ref('schedules', s.schedule, `sections[${i}].schedule`);
