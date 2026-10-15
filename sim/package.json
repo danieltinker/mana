@@ -1,0 +1,28 @@
+{
+  "name": "@mana/sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mana's simulator: a local Supabase-compatible stack for the clean schema, owner, Halom and guest bots that use only the public interfaces, seeds, scripted and seeded-random scenarios, and their tests.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "bin": {
+    "sim": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./stack": "./stack/start.mjs",
+    "./stack/gateway": "./stack/gateway.mjs"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "stack": "node src/cli.mjs stack",
+    "sim": "node src/cli.mjs"
+  },
+  "devDependencies": {
+    "@mana/contracts": "0.1.0",
+    "pg": "^8.23.1"
+  }
+}

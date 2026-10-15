@@ -12,6 +12,9 @@ _site/
 apps/ops/test/shots/
 # local test machinery and screenshots: never on a public branch
 apps/studio/test/.stack/
+# the simulator's binaries (PostgREST, GoTrue) and the e2e harness's screenshots
+sim/.stack/
+e2e/.out/
 apps/view/.shots/
 brand/.shots-raw/
 **/.shots*/

@@ -7,7 +7,8 @@
   "workspaces": [
     "apps/*",
     "packages/*",
-    "supabase"
+    "supabase",
+    "sim"
   ],
   "scripts": {
     "build": "bash tools/build-site.sh",
