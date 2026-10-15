@@ -2,9 +2,9 @@
 
 What this folder holds: the two contracts (`layout.v1`, `booking_request.v1`), their validator and the request state
 machine (`validate.mjs`, pure ESM, no dependencies), the demo room (`fixtures/olea.layout.json`) and the Blender bake
-(`blender/`). The pages that use them are in the guest menu: `view/seat/` (the page), `view/src/seat/` (its code),
-built into `view/seat.js` by `view/tools/build.mjs` next to `app.js`. Tests: `view/test/seat.test.mjs` (contracts, state
-machine, who fits where, the store) and `view/test/seat.browser.test.mjs` (the flows, keyboard only too, the Book button).
+(`blender/`). The pages that use them are in the guest menu: `view/seat/` (the page), `apps/view/src/seat/` (its code),
+built into `apps/view/seat.js` by `apps/view/tools/build.mjs` next to `app.js`. Tests: `apps/view/test/seat.test.mjs` (contracts, state
+machine, who fits where, the store) and `apps/view/test/seat.browser.test.mjs` (the flows, keyboard only too, the Book button).
 
 ```
 seat/?demo=olea            the guest's seat map (Hebrew; &lang=en)          seat/?demo=olea&owner=1   the owner's requests
@@ -120,7 +120,7 @@ back → "Your table is confirmed".
 2. Halom traces the plan: walls, the door, the window, zones, tables by shape, in metres (a phone LiDAR scan — Polycam
    or Scaniverse — gives the room's measures when the photos are not enough; R3 §1). The result is a `layout.v1` file,
    checked by `validateLayout`, and the plan above is drawn from it with no further work.
-3. The page's "2D / 3D" toggle (`view/src/seat/room3d.js`, loaded on the first tap) draws the same layout standing up
+3. The page's "2D / 3D" toggle (`apps/view/src/seat/room3d.js`, loaded on the first tap) draws the same layout standing up
    with three.js r128, the guest menu's own copy (esbuild puts three.js in one shared chunk; no second copy). 2D stays
    the default and the fallback: no WebGL, or a slow first frame (over 400 ms) or ten slow ones (over 70 ms on average)
    and the page is back on the plan with the toggle gone. `?view=3d` opens in 3D, `?adapt=off` keeps it in software GL.
@@ -135,7 +135,7 @@ back → "Your table is confirmed".
 
 How long a party keeps its table, when the manager hears about it, and when the table frees itself. Pure functions,
 no DOM, no clock of their own (`now` is passed in), immutable JSON state `{ v: 1, … }`; tests in `timers.test.mjs`
-(run by `cd view && npm test`).
+(run by `cd apps/view && npm test`).
 
 - The venue's default frame: 15–360 minutes in steps of 5, 90 unless the owner changes it; any table may have its own
   (in the demo the bar 45, the long table 150). A time frame changes the next seating, never a running one; the warning threshold and the grace period apply at once, to running seatings too.
@@ -173,7 +173,7 @@ empty) to the left line, with saddle stools; the entrance is wider (about 2.1 m)
 arched doorway at the back sits left of the banquette; the table by the door is closer to it; the glass-top table stands
 across the line (its long side faces the street).
 
-**The 3D place** (`view/src/room/`: `build.js` builds it, `place.js` runs it, `plan2d.js` is the plan) is built from the
+**The 3D place** (`apps/view/src/room/`: `build.js` builds it, `place.js` runs it, `plan2d.js` is the plan) is built from the
 layout with three.js r128 (the guest menu's copy, one chunk loaded only when the stage goes 3D). Walls with their openings,
 glazing, shutters, two arched doorways, the awnings, posts, the ficus and the potted fig, terrace tiles, pavers, the
 red-and-white kerb, terrazzo inside; furniture by `look`; table states as a ring and glow on the floor with the minutes

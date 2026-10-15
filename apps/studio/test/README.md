@@ -50,7 +50,7 @@ What runs behind it (`test/stack/`):
 - **GoTrue 2.180.0** (Supabase Auth, the real binary). Public sign-up is disabled, as on the pilot: accounts are made only through
   the sign-up function.
 - **`after-auth.sql`**: `auth.uid()`, `auth.role()`, `auth.jwt()` as Supabase defines them.
-- **every `../db/00*.sql`, in order, unchanged** (today `0001_core.sql` and `0002_mana_v2.sql`). One row is then edited:
+- **every `../../db/00*.sql`, in order, unchanged** (today `0001_core.sql` and `0002_mana_v2.sql`). One row is then edited:
   `app_config.public_base` points at the local storage URL.
 - **PostgREST 12.2.3** (the real binary) with the same JWT secret, so RLS, triggers and RPCs answer exactly as written.
 - **`gateway.mjs`**: the router, plus three things written for these tests:
@@ -77,7 +77,7 @@ curl -sSL https://github.com/supabase/auth/releases/download/v2.180.0/auth-v2.18
 
 `node test/stack/smoke.mjs` is a short check that the stack answers like a Supabase project, version 2 calls included.
 
-`STACK_EXTRA_SQL=1` (or a comma list of file names) loads every `../db/proposed/*.sql` after `db/00*.sql`, and the generated
+`STACK_EXTRA_SQL=1` (or a comma list of file names) loads every `../../db/proposed/*.sql` after `db/00*.sql`, and the generated
 `config.js` then says `features.bookUrl: true`. `npm run test:proposed` starts such a stack and proves the proposed migrations
 the way the app and the guest menu use them (PostgREST with the owner's JWT, the counts with the public key); no browser.
 `node test/timing.mjs` (against a running stack) times sign-up → three typed dishes → published, and with `TIMING_PHOTO=1` one

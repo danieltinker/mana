@@ -189,7 +189,7 @@ node tools/film.mjs films/guest-glide.json           → .shots/v2/guest-glide.m
 node tools/film.mjs films/rooms.json                 → .shots/v2/rooms-*.mp4       (into the vitrine, the cellar's pour, the taps, the cocktail bar; my table as a sheet)
 node tools/film.mjs films/sheets.json --only hebrew [--out dir] [--keep] [--frames-only]
 node tools/proof.mjs                                → .shots/v2/fix/<shape>.jpg   stills at four screen shapes, and a count of black pixels
-STOCK=fixture node tools/film.mjs …                 the eight test placeholders instead of ../stock (the real library, the default)
+STOCK=fixture node tools/film.mjs …                 the eight test placeholders instead of ../../stock (the real library, the default)
 ```
 
 A script: `{ name, url, width, height, fps, seconds, finger, steps: [{ at, drag: [[x,y],[x,y]], ms, ease } | { at, tap: [x,y] } |
@@ -213,9 +213,9 @@ python3 tools/build-kiosk.py   # rebuilds demo/kiosk and demo/solo
 ```
 Query switches: `lang=he|en` · `walk=feed|pull` · `rooms=off` (the table and the one bar of before) · `bloom=0` · `view=list` · `motion=reduce|full` · `pr=<pixel ratio>` · `adapt=off` ·
 `gl=off` (as a phone without WebGL) · `hint=1|0` · `finger=1` (show the scripted finger) · `test=1` · `capture=1` · demos only:
-`surface=<table id>|holo`, `template=<look id>` (templates/templates.v1.json; the gallery is `looks/`) · `embed=hero` (with `demo=solo`:
+`surface=<table id>|holo`, `template=<look id>` (../../templates/templates.v1.json; the gallery is `looks/`) · `embed=hero` (with `demo=solo`:
 the dish alone, for the product page's hero; `src/hero.js`; it talks to its page by `postMessage` `{type:'mana-hero'}`) ·
-the seat map is `seat/?demo=olea` (`src/seat/`, contracts in `../seating/`).
+the seat map is `seat/?demo=olea` (`src/seat/`, contracts in `../../seating/`).
 
 ## Why three.js r128
 The relief, table and bloom shaders were tuned on r128, which does no colour management: a dish at rest is its photo, pixel for
