@@ -112,17 +112,17 @@ export const DISHES = {
 export const RULES: UpsellRuleV2[] = [
   {
     id: ID.ruleCroissant, trigger: 'add', scope: { kind: 'dish', ids: [ID.espresso] }, when: { days: [], from: '07:00', to: '11:00' },
-    basketHas: { dishes: [], sections: [] }, basketLacks: { dishes: [], sections: [ID.pastries] },
+    basketHas: null, basketLacks: { dishes: [], sections: [ID.pastries] },
     suggest: { kind: 'dish', dishId: ID.croissant }, line: t('קרואסון חם ליד הקפה?', 'A warm croissant with your coffee?'), priority: 50, cap: 1, active: true,
   },
   {
     id: ID.ruleCheese, trigger: 'sheet', scope: { kind: 'dish', ids: [ID.burger] }, when: null,
-    basketHas: { dishes: [], sections: [] }, basketLacks: { dishes: [], sections: [] },
+    basketHas: null, basketLacks: null,
     suggest: { kind: 'option', groupId: ID.extras, optionId: ID.cheese }, line: t('להוסיף גבינה?', 'Add cheese?'), priority: 40, cap: 2, active: true,
   },
   {
     id: ID.ruleLemonade, trigger: 'checkout', scope: { kind: 'section', ids: [ID.mains] }, when: null,
-    basketHas: { dishes: [], sections: [] }, basketLacks: { dishes: [], sections: [ID.drinks] },
+    basketHas: null, basketLacks: { dishes: [], sections: [ID.drinks] },
     suggest: { kind: 'dish', dishId: ID.lemonade }, line: t('משהו לשתות?', 'Something to drink?'), priority: 30, cap: 1, active: true,
   },
 ];

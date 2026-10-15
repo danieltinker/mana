@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validateSnapshotV2 } from '../src/validate-snapshot.ts';
+import { lintSnapshotV2, validateSnapshotV2 } from '../src/validate-snapshot.ts';
 import { allDishes } from '../src/snapshot.ts';
 import { cafeDemo, ID, mutable } from './fixtures.ts';
 
@@ -88,7 +88,9 @@ test('nesting: one level only', () => {
 test('dish add-ons: known groups, no repeats, reachable minimum, single max', () => {
   assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons.push({ groupId: ID.side, min: 1, max: 1 }); }), ['addon_duplicate']);
   assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[0].groupId = '00000000-0000-4000-8000-00000000ffff'; }), ['ref_unknown']);
-  assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[1] = { groupId: ID.extras, min: 5, max: 5 }; }), ['min_unreachable']);
+  assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[1] = { groupId: ID.extras, min: 5, max: 5 }; }), ['limits_loosened', 'min_unreachable']);
+  assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[1] = { groupId: ID.extras, min: 1, max: 2 }; }), [], 'tightening is fine');
+  assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[0] = { groupId: ID.side, min: 0, max: 1 }; }), ['limits_loosened'], 'a required side made optional');
   assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[0].max = 2; }), ['single_max']);
   assert.deepEqual(broken((s) => { s.sections[1].dishes[0].addons[1] = { groupId: ID.extras, min: 2, max: 1 }; }), ['limits_invalid']);
 });
@@ -130,4 +132,44 @@ test('every error names its path', () => {
 
 test('an option in an unopened group may open one: that is still one level', () => {
   assert.deepEqual(broken((s) => { s.addonGroups[4].options[1].opensGroupId = ID.sauce; }), [], 'milk → sauce: odd, but one level');
+});
+
+test('blank names: every kind of invisible space counts as nothing', () => {
+  const blanks = [' ', '\t', '\n', ' ', ' ', ' ', '　', '﻿', '​', '‏', '‎', '⁠', ' ', '‮', '᠎', '⁦'];
+  for (const b of blanks) {
+    assert.deepEqual(broken((s) => { s.sections[1].dishes[0].name = { he: b + b, en: b }; }), ['name_missing'], `U+${b.codePointAt(0)!.toString(16)}`);
+  }
+  assert.deepEqual(broken((s) => { s.sections[1].dishes[0].name = { he: '​ שניצל﻿', en: '' }; }), [], 'text with blank edges is a name');
+  assert.deepEqual(broken((s) => { s.venue.name = { he: ' ‏', en: '﻿' }; }), ['name_missing']);
+});
+
+test('paths: relative to assetBase, no scheme, no "//", no "..", no leading "/"', () => {
+  for (const bad of ['https://evil.example/x.jpg', '//evil.example/x.jpg', '/abs/x.jpg', 'a/../b.jpg', 'a//b.jpg', 'javascript:alert(1)', 'a\\b.jpg']) {
+    assert.deepEqual(broken((s) => { s.venue.logo = bad; }), ['path_invalid'], bad);
+    assert.deepEqual(broken((s) => { s.theme.tableImg = bad; }), ['path_invalid'], bad);
+    assert.deepEqual(broken((s) => { s.sections[1].dishes[0].asset = { state: 'photo', color: bad, thumb: 'a/t.jpg' }; }), ['asset_invalid'], bad);
+  }
+  assert.deepEqual(broken((s) => { s.venue.logo = `${ID.venue}/brand/logo-1.png`; s.theme.tableImg = null; }), []);
+});
+
+test('a nested group whose minimum its options cannot reach is invalid', () => {
+  assert.deepEqual(broken((s) => { s.addonGroups[1] = { ...s.addonGroups[1], selection: 'multiple', min: 4, max: 4 }; }), ['min_unreachable']);
+});
+
+test('basket conditions: null is "no condition"; an empty list is refused', () => {
+  assert.deepEqual(broken((s) => { s.upsellRules[0].basketLacks = null; }), []);
+  assert.deepEqual(broken((s) => { s.upsellRules[0].basketHas = { dishes: [], sections: [] }; }), ['rule_condition_empty']);
+  assert.deepEqual(broken((s) => { s.upsellRules[0].basketLacks = { dishes: [], sections: [] }; }), ['rule_condition_empty']);
+  assert.deepEqual(broken((s) => { s.upsellRules[0].basketHas = { dishes: [ID.burger], sections: [] }; }), []);
+});
+
+test('lint: a rule that suggests its own trigger, an add-on no dish in scope offers', () => {
+  assert.deepEqual(lintSnapshotV2(cafeDemo()), []);
+  const s = mutable(cafeDemo());
+  s.upsellRules[0].suggest = { kind: 'dish', dishId: ID.espresso };          // scope: the espresso
+  s.upsellRules[1].scope = { kind: 'dish', ids: [ID.schnitzel] };            // cheese is an extra of the burger only
+  assert.ok(validateSnapshotV2(s).ok, 'still valid: these are warnings');
+  assert.deepEqual(lintSnapshotV2(s), [{ code: 'rule_suggests_its_trigger', path: 'upsellRules[0]' }, { code: 'rule_option_unreachable', path: 'upsellRules[1]' }]);
+  s.upsellRules[1].scope = { kind: 'section', ids: [ID.mains] };
+  assert.deepEqual(lintSnapshotV2(s).map((w) => w.code), ['rule_suggests_its_trigger'], 'the mains section holds the burger');
 });

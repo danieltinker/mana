@@ -202,3 +202,9 @@ test('defaultSelection follows the owner\'s defaults and prices without errors',
   const d2 = defaultSelection(DISHES.burger, { groups: ctx.groups, unavailable: { dishes: new Set(), options: new Set([ID.fries]) } });
   assert.deepEqual(d2.groups[0], { groupId: ID.side, options: [] });
 });
+
+test('a total too large for exact arithmetic is refused, not rounded', () => {
+  const huge: DishV2 = { ...DISHES.lemonade, price: { amount: Math.floor(Number.MAX_SAFE_INTEGER / 4), note: { he: '', en: '' } } };
+  assert.deepEqual(codes(priceDish(huge, sel([], 3), ctx)), ['total_overflow']);
+  assert.deepEqual(codes(priceDish(huge, sel([], 1), ctx)), ['total_overflow'], 'the VAT extraction would overflow too');
+});

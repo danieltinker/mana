@@ -121,10 +121,13 @@ export type UpsellRuleV2 = {
   readonly scope: RuleScope;
   /** null = any time. Days empty = every day. */
   readonly when: RuleWhen | null;
-  /** The basket must contain one of these (empty lists = no condition). */
-  readonly basketHas: IdMatch;
-  /** The basket must contain none of these. */
-  readonly basketLacks: IdMatch;
+  /**
+   * null = no condition. Otherwise the basket must contain one of these, and the lists name at least one dish or
+   * section (a condition never turns into "always": publish leaves a rule out when every target it names is gone).
+   */
+  readonly basketHas: IdMatch | null;
+  /** null = no condition. Otherwise the basket must contain none of these (at least one id). */
+  readonly basketLacks: IdMatch | null;
   readonly suggest: UpsellSuggestion;
   readonly line: Text;
   /** 0–100; the higher wins; ties go to the smaller id. */
@@ -164,6 +167,13 @@ export type SnapshotV2 = {
   readonly addonGroups: readonly AddonGroupV2[];
   readonly upsellRules: readonly UpsellRuleV2[];
 };
+
+/**
+ * A warning from publishing or previewing: the menu is published, but something will not behave as the owner may
+ * expect. Codes: `rule_left_out` (reason `scope_empty` | `basket_has_empty` | `suggestion_hidden`; the rule is not in the
+ * snapshot), `rule_suggests_its_trigger`, `rule_option_unreachable` (from `lintSnapshotV2`, also in the database).
+ */
+export type PublishWarning = { readonly code: string; readonly path: string; readonly id?: string; readonly reason?: string; readonly label?: string };
 
 /** What `public_menu(slug)` answers. */
 export type PublicMenuResponse =

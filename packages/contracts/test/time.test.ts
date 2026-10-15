@@ -112,3 +112,13 @@ test('resolveUntil: two hours across the spring change are two real hours', () =
   assert.equal(iso(until), '2026-03-27T01:00:00.000Z');
   assert.deepEqual(localParts(until, TZ), { date: '2026-03-27', weekday: 5, minutes: 4 * 60 }, 'the wall clock shows 04:00');
 });
+
+test('nextOpening: nothing within 14 days is null (and "until opening" falls back to tomorrow)', () => {
+  const hours = H([{ days: [0, 1, 2, 3, 4, 5, 6], from: '08:00', to: '17:00' }], [{ from: '2026-10-15', to: '2026-11-15' }]);
+  const now = zonedTime('2026-10-15', '12:00', TZ);
+  assert.equal(nextOpening(hours, now), null);
+  assert.equal(iso(resolveUntil({ kind: 'next_opening' }, now, hours)), iso(zonedTime('2026-10-16', '00:00', TZ)));
+  // closed for 13 days: the 14th day's opening is found
+  const h2 = H(hours.weekly, [{ from: '2026-10-15', to: '2026-10-28' }]);
+  assert.equal(iso(nextOpening(h2, now)), iso(zonedTime('2026-10-29', '08:00', TZ)));
+});

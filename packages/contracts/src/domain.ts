@@ -46,6 +46,9 @@ export type VenueRow = {
   support_can_act: boolean;
   /** Demo venues are labelled everywhere and left out of real totals. Set by Halom only. */
   is_demo: boolean;
+  /** When Halom approved the venue's first publish (app_config.publish_requires_approval); null = not yet. */
+  approved_at: Iso | null;
+  approved_by: Uuid | null;
   published_revision_id: Uuid | null;
   first_published_at: Iso | null;
   last_published_at: Iso | null;
@@ -307,7 +310,7 @@ export type EntitlementRow = {
 
 /** Column lists at run time, compared with the database by supabase/tests. */
 export const TABLE_COLUMNS = {
-  venues: ['id', 'slug', 'name_he', 'name_en', 'area_he', 'area_en', 'cuisine_he', 'cuisine_en', 'kind', 'mode', 'default_lang', 'langs', 'time_zone', 'currency', 'accent', 'surface', 'template', 'logo_path', 'table_img_path', 'order_url', 'book_url', 'phone', 'sold_out_display', 'support_can_act', 'is_demo', 'published_revision_id', 'first_published_at', 'last_published_at', 'archived_at', 'created_by', 'created_at', 'updated_at'],
+  venues: ['id', 'slug', 'name_he', 'name_en', 'area_he', 'area_en', 'cuisine_he', 'cuisine_en', 'kind', 'mode', 'default_lang', 'langs', 'time_zone', 'currency', 'accent', 'surface', 'template', 'logo_path', 'table_img_path', 'order_url', 'book_url', 'phone', 'sold_out_display', 'support_can_act', 'is_demo', 'approved_at', 'approved_by', 'published_revision_id', 'first_published_at', 'last_published_at', 'archived_at', 'created_by', 'created_at', 'updated_at'],
   venue_members: ['venue_id', 'user_id', 'role', 'invited_by', 'created_at'],
   staff: ['user_id', 'role', 'note', 'created_at'],
   sections: ['id', 'venue_id', 'position', 'name_he', 'name_en', 'kind', 'scene', 'room', 'schedule_id', 'hidden', 'created_at', 'updated_at'],

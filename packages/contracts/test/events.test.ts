@@ -93,3 +93,26 @@ test('rollup keys: a total and one key per dashboard dimension', () => {
   assert.deepEqual(rollupKeys('suggestion_accepted', { ruleId: ID.ruleCheese, trigger: 'sheet', dishId: ID.burger }), ['', `rule:${ID.ruleCheese}`, 'trigger:sheet']);
   assert.deepEqual(rollupKeys('menu_published', { revision: 1 }), ['']);
 });
+
+test('prototype keys are not contract properties (constructor, __proto__, toString)', () => {
+  for (const k of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    const e = JSON.parse(JSON.stringify(ev()));
+    e.props = JSON.parse(`{"dishId": "${ID.burger}", "${k}": 1}`);
+    assert.deepEqual(codes(e), ['field_not_allowed'], k);
+  }
+  // a prop the contract needs is not "present" because an object inherits something of that name
+  const e = JSON.parse(JSON.stringify(ev({ name: 'menu_opened', props: { src: 'qr', lang: 'he' } })));
+  assert.deepEqual(codes(e), ['prop_missing']);
+});
+
+test('an event time must carry its offset', () => {
+  assert.deepEqual(codes(ev({ at: '2026-10-15T08:59:30' })), ['time_invalid'], 'no offset: whose 08:59?');
+  assert.deepEqual(codes(ev({ at: '2026-10-15T11:59:30+03:00' })), []);
+  assert.deepEqual(codes(ev({ at: '2026-10-15T08:59:30.123Z' })), []);
+  assert.deepEqual(codes(ev({ at: '2026-10-15 08:59:30Z' })), ['time_invalid']);
+  assert.deepEqual(codes(ev({ at: '2026-10-15T08:59:30+0300' })), ['time_invalid']);
+});
+
+test('rollup keys are lower case whatever case an id arrives in', () => {
+  assert.deepEqual(rollupKeys('dish_viewed', { dishId: ID.burger.toUpperCase() }), ['', `dish:${ID.burger}`]);
+});

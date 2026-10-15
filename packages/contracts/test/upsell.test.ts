@@ -113,3 +113,11 @@ test('days: a weekday-only rule is quiet on Saturday', () => {
   assert.equal(matchSuggestion([r], base({ dishId: ID.espresso, basket: [{ dishId: ID.espresso }], now: saturday })), null);
   assert.ok(matchSuggestion([r], base({ dishId: ID.espresso, basket: [{ dishId: ID.espresso }] })));
 });
+
+test('a "basket has" condition with no targets never fires (fail closed); null is no condition', () => {
+  const ctx = base({ dishId: ID.espresso, basket: [{ dishId: ID.espresso }] });
+  assert.ok(matchSuggestion([rule({ basketHas: null })], ctx));
+  assert.equal(matchSuggestion([rule({ basketHas: { dishes: [], sections: [] } })], ctx), null, 'an emptied list is not "always"');
+  assert.equal(matchSuggestion([rule({ basketHas: { dishes: [ID.burger], sections: [] } })], ctx), null);
+  assert.ok(matchSuggestion([rule({ basketHas: { dishes: [ID.espresso], sections: [] } })], ctx));
+});

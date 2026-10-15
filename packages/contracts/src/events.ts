@@ -90,6 +90,8 @@ export const MAX_COUNT = 1_000_000;
 
 const PERSONAL = new Set<string>(PERSONAL_KEYS.map((k) => k.toLowerCase()));
 const TOP = new Set(['id', 'name', 'venueId', 'at', 'props']);
+/** An instant with an explicit offset: `Z` or `±HH:MM`. A time without one would be read in the reader's own zone. */
+export const EVENT_TIME_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d{1,6})?)?(Z|[+-]\d\d:\d\d)$/;
 
 function propOk(kind: PropKind, v: unknown): boolean {
   switch (kind) {
@@ -125,7 +127,7 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   }
   if (!names.includes(raw.name)) x.add('name_not_allowed', 'name');
   const now = opts.now ?? Date.now();
-  const at = isString(raw.at) && /^\d{4}-\d\d-\d\dT/.test(raw.at) ? Date.parse(raw.at) : NaN;
+  const at = isString(raw.at) && EVENT_TIME_RE.test(raw.at) ? Date.parse(raw.at) : NaN;
   if (Number.isNaN(at)) x.add('time_invalid', 'at');
   else if (at < now - MAX_AGE_MS || at > now + MAX_SKEW_MS) x.add('time_out_of_range', 'at');
 
@@ -133,10 +135,11 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   const props = raw.props;
   if (!isObject(props)) x.add('type', 'props');
   else {
+    // own keys only: "constructor", "__proto__" or "toString" are not properties of the contract
     for (const k of Object.keys(props))
-      if (!(k in spec)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
+      if (!Object.hasOwn(spec, k)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
     for (const [k, kind] of Object.entries(spec)) {
-      if (!(k in props)) x.add('prop_missing', `props.${k}`);
+      if (!Object.hasOwn(props, k)) x.add('prop_missing', `props.${k}`);
       else if (!propOk(kind, props[k])) x.add('prop_invalid', `props.${k}`);
     }
   }
@@ -176,7 +179,7 @@ export function validateBatch(raw: unknown, opts: EventCheck = {}): Validation<B
 export function rollupKeys(name: EventName, props: Readonly<Record<string, unknown>>): string[] {
   const keys = [''];
   const add = (prefix: string, v: unknown): void => {
-    if (typeof v === 'string' && v !== '') keys.push(`${prefix}:${v}`);
+    if (typeof v === 'string' && v !== '') keys.push(`${prefix}:${v.toLowerCase()}`);
   };
   switch (name) {
     case 'menu_opened': add('src', props.src); add('lang', props.lang); break;

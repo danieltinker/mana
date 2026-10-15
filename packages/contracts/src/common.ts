@@ -41,4 +41,25 @@ export function textOk(v: unknown, max: number): v is Text {
   return isObject(v) && isString(v.he) && isString(v.en) && v.he.length <= max && v.en.length <= max;
 }
 
-export const hasName = (t: Text): boolean => t.he.trim() !== '' || t.en.trim() !== '';
+/**
+ * What counts as "blank", in one place (the database's app.blank_class() is the same list; supabase/tests compares
+ * them code point by code point): ASCII whitespace and controls \t \n \v \f \r, U+0085, every Unicode space separator
+ * (Zs: U+0020, U+00A0, U+1680, U+2000–U+200A, U+202F, U+205F, U+3000), the line and paragraph separators U+2028–U+2029,
+ * and the invisible format characters people paste by accident: U+180E, U+200B–U+200F (zero-width, LRM, RLM),
+ * U+202A–U+202E (bidi embeddings), U+2060–U+2064 (word joiner, invisible operators), U+2066–U+2069 (bidi isolates),
+ * U+FEFF (BOM).
+ */
+export const BLANK_CLASS = '\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u180E\\u2000-\\u200F\\u2028-\\u202F\\u205F-\\u2064\\u2066-\\u2069\\u3000\\uFEFF';
+const BLANK_EDGES = new RegExp(`^[${BLANK_CLASS}]+|[${BLANK_CLASS}]+$`, 'gu');
+const BLANK_ONE = new RegExp(`^[${BLANK_CLASS}]$`, 'u');
+
+/** Is this one character blank? */
+export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
+/** Removes blank characters at both ends (names and descriptions are stored this way). */
+export const stripBlank = (s: string): string => s.replace(BLANK_EDGES, '');
+/** Nothing but blank characters (or nothing at all). */
+export const isBlank = (s: string): boolean => stripBlank(s) === '';
+/** Both languages' text with blank edges removed: what the client app saves. */
+export const cleanText = (t: Text): Text => ({ he: stripBlank(t.he), en: stripBlank(t.en) });
+
+export const hasName = (t: Text): boolean => !isBlank(t.he) || !isBlank(t.en);

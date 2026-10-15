@@ -79,6 +79,10 @@ export type CaseStatus = (typeof CASE_STATUSES)[number];
 export const CASE_TOPICS = ['onboarding', 'import', 'menu', 'photos', 'account', 'other'] as const;
 export type CaseTopic = (typeof CASE_TOPICS)[number];
 
+/** A venue's first publish: Halom reviews it before guests see it (app_config.publish_requires_approval). */
+export const REVIEW_STATES = ['not_requested', 'pending', 'approved'] as const;
+export type ReviewState = (typeof REVIEW_STATES)[number];
+
 export const PLANS = ['trial', 'pilot', 'paid'] as const;
 export type Plan = (typeof PLANS)[number];
 

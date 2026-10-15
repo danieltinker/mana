@@ -69,7 +69,6 @@ function basketMatches(m: { dishes: readonly string[]; sections: readonly string
   return false;
 }
 
-const isEmpty = (m: { dishes: readonly string[]; sections: readonly string[] }): boolean => m.dishes.length === 0 && m.sections.length === 0;
 
 function inScope(rule: UpsellRuleV2, ctx: SuggestionContext, basketDishes: ReadonlySet<string>): boolean {
   const sc = rule.scope;
@@ -129,8 +128,9 @@ export function matchSuggestion(rules: readonly UpsellRuleV2[], ctx: SuggestionC
     if ((ctx.shown?.get(rule.id) ?? 0) >= rule.cap) continue;
     if (!inScope(rule, ctx, basketDishes)) continue;
     if (rule.when && !inWindow(rule.when, ctx.now, ctx.menu.timeZone)) continue;
-    if (!isEmpty(rule.basketHas) && !basketMatches(rule.basketHas, basketDishes, ctx.menu)) continue;
-    if (!isEmpty(rule.basketLacks) && basketMatches(rule.basketLacks, basketDishes, ctx.menu)) continue;
+    // null = no condition. A "has" condition with no targets matches nothing (it never turns into "always").
+    if (rule.basketHas !== null && !basketMatches(rule.basketHas, basketDishes, ctx.menu)) continue;
+    if (rule.basketLacks !== null && basketMatches(rule.basketLacks, basketDishes, ctx.menu)) continue;
     if (!suggestionOk(rule, ctx, basketDishes)) continue;
     return { ruleId: rule.id, suggest: rule.suggest, line: rule.line };
   }

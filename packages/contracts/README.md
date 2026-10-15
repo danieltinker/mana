@@ -1,7 +1,7 @@
 # @mana/contracts
 
 The types, validators and pure functions that every Mana app (guest menu, client app, back office), the simulator and
-the database agree on. No runtime dependencies. Node 22.6+ runs the `.ts` files as they are (type stripping), and
+the database agree on. No runtime dependencies. Node 22.18+ runs the `.ts` files as they are (type stripping), and
 bundlers (esbuild, Vite) import them directly, so there is no build step.
 
 | File | What |

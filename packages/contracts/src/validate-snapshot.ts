@@ -6,17 +6,21 @@
  * (supabase/tests checks the two agree on a set of broken menus), so `publish_menu` refuses exactly what this refuses.
  *
  * Codes: version, type, id_invalid, id_duplicate, slug_invalid, name_missing, enum_invalid, price_invalid,
- * ref_unknown, related_self, addon_duplicate, limits_invalid, single_max, min_unreachable, options_empty,
- * option_qty_invalid, opener_qty, opens_self, nesting_too_deep, defaults_exceed, window_invalid, date_invalid,
- * rule_scope_empty, rule_option_needs_dish, rule_option_group, priority_invalid, cap_invalid, too_many, locale_invalid,
- * url_invalid, time_zone_invalid, color_invalid, asset_invalid, text_too_long.
+ * ref_unknown, related_self, addon_duplicate, limits_invalid, limits_loosened, single_max, min_unreachable,
+ * options_empty, option_qty_invalid, opener_qty, opens_self, nesting_too_deep, defaults_exceed, window_invalid,
+ * date_invalid, rule_scope_empty, rule_condition_empty, rule_option_needs_dish, rule_option_group, priority_invalid,
+ * cap_invalid, too_many, locale_invalid, url_invalid, path_invalid, time_zone_invalid, color_invalid, asset_invalid,
+ * text_too_long.
+ *
+ * `lintSnapshotV2` (below) finds what is valid but will not behave as the owner expects; publish returns those as
+ * warnings, never as errors. The database's `app.lint_snapshot` gives the same warnings.
  */
-import { COLOR_RE, Issues, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, type Validation } from './common.ts';
+import { COLOR_RE, Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, type Issue, type Validation } from './common.ts';
 import {
   LIMITS, RELIEF_CLASSES, ROOMS, SCENES, SCHEDULE_KINDS, SECTION_KINDS, SELECTIONS, SOLD_OUT_DISPLAY, TAGS, TRIGGERS,
   VENUE_KINDS, VENUE_MODES,
 } from './enums.ts';
-import type { SnapshotV2 } from './snapshot.ts';
+import type { DishV2, SnapshotV2 } from './snapshot.ts';
 import { isHHMM, isLocalDate, isTimeZone, isWeekday } from './time.ts';
 
 type Obj = Record<string, unknown>;
@@ -30,7 +34,20 @@ function text(x: Issues, v: unknown, path: string, max: number, needName = false
     return;
   }
   if (v.he.length > max || v.en.length > max) x.add('text_too_long', path);
-  if (needName && v.he.trim() === '' && v.en.trim() === '') x.add('name_missing', path);
+  if (needName && isBlank(v.he) && isBlank(v.en)) x.add('name_missing', path);
+}
+
+/**
+ * A storage path relative to the snapshot's assetBase: 1–300 characters, not starting with "/", and no "..", "//",
+ * ":" (so no scheme or host can be smuggled in) or backslash. The database adds that it starts with the venue's folder.
+ */
+export function isRelPath(s: unknown): s is string {
+  return isString(s) && s.length > 0 && s.length <= 300 && !s.startsWith('/') && !s.includes('..') && !s.includes('//') &&
+    !s.includes(':') && !s.includes('\\');
+}
+
+function pathOrNull(x: Issues, v: unknown, path: string): void {
+  if (v !== null && !isRelPath(v)) x.add('path_invalid', path);
 }
 
 function httpsOrNull(x: Issues, v: unknown, path: string): void {
@@ -80,7 +97,7 @@ function windows(x: Issues, v: unknown, path: string): void {
 function asset(x: Issues, v: unknown, path: string): void {
   if (v === null) return;
   if (!isObject(v)) return void x.add('asset_invalid', path);
-  const rel = (s: unknown): boolean => isString(s) && s.length > 0 && s.length <= 300 && !s.includes('..');
+  const rel = isRelPath;
   if (v.state === 'relief') {
     const e = v.e, h = v.h;
     if (!rel(v.color) || !rel(v.aux) || !rel(v.thumb) || !oneOf(RELIEF_CLASSES, v.kind)) x.add('asset_invalid', path);
@@ -113,7 +130,7 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
     text(x, v.cuisine, 'venue.cuisine', 80);
     if (!oneOf(VENUE_KINDS, v.kind)) x.add('enum_invalid', 'venue.kind');
     if (!oneOf(VENUE_MODES, v.mode)) x.add('enum_invalid', 'venue.mode');
-    strOrNull(x, v.logo, 'venue.logo', 300);
+    pathOrNull(x, v.logo, 'venue.logo');
     httpsOrNull(x, v.orderUrl, 'venue.orderUrl');
     httpsOrNull(x, v.bookUrl, 'venue.bookUrl');
     strOrNull(x, v.phone, 'venue.phone', 40);
@@ -135,7 +152,7 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
     if (!isString(th.accent) || !COLOR_RE.test(th.accent)) x.add('color_invalid', 'theme.accent');
     if (!isString(th.surface) || th.surface.length > 40) x.add('type', 'theme.surface');
     if (th.template !== null && (!isString(th.template) || !TEMPLATE_RE.test(th.template))) x.add('type', 'theme.template');
-    strOrNull(x, th.tableImg, 'theme.tableImg', 300);
+    pathOrNull(x, th.tableImg, 'theme.tableImg');
   }
 
   // ---- schedules
@@ -198,6 +215,8 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
       });
       capacity.set(g.id, units);
       if (isInt(g.max) && defaults > g.max) x.add('defaults_exceed', p);
+      // a group whose minimum its own options cannot reach (matters most for a nested group, which no dish limits)
+      if (isInt(g.min) && g.min > units) x.add('min_unreachable', p);
     });
     // nesting: an option may open a group whose options open nothing (one level)
     s.addonGroups.forEach((g, i) => {
@@ -263,6 +282,8 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
             const g = groups.get(a.groupId)!;
             if (!isInt(a.min) || !isInt(a.max) || a.min < 0 || a.max < 1 || a.min > a.max) return void x.add('limits_invalid', r);
             if (g.selection === 'single' && a.max !== 1) x.add('single_max', r);
+            // a dish may only tighten a group's limits
+            else if (isInt(g.min) && isInt(g.max) && g.min <= g.max && (a.min < g.min || a.max > g.max)) x.add('limits_loosened', r);
             if (a.min > (capacity.get(a.groupId) ?? 0)) x.add('min_unreachable', r);
           });
         }
@@ -303,10 +324,13 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
       }
       for (const k of ['basketHas', 'basketLacks'] as const) {
         const m = r[k];
+        if (m === null) continue; // no condition
         if (!isObject(m)) x.add('type', `${p}.${k}`);
         else {
-          uuidList(x, m.dishes, `${p}.${k}.dishes`, dishIds);
-          uuidList(x, m.sections, `${p}.${k}.sections`, sectionIds);
+          const a = uuidList(x, m.dishes, `${p}.${k}.dishes`, dishIds);
+          const b = uuidList(x, m.sections, `${p}.${k}.sections`, sectionIds);
+          // a condition names something; "no condition" is null (never an empty list, which would read as "always")
+          if (Array.isArray(m.dishes) && Array.isArray(m.sections) && a.length + b.length === 0) x.add('rule_condition_empty', `${p}.${k}`);
         }
       }
       const sg = r.suggest;
@@ -326,4 +350,29 @@ export function validateSnapshotV2(raw: unknown): Validation<SnapshotV2> {
   }
 
   return x.ok ? { ok: true, value: raw as unknown as SnapshotV2 } : { ok: false, errors: x.list };
+}
+
+/**
+ * Warnings for a valid snapshot: rules that can never fire as the owner wrote them.
+ * - `rule_suggests_its_trigger`: a rule scoped to a dish suggests that same dish (a suggestion is never what the guest
+ *   already has open or in the basket, so it never fires for it);
+ * - `rule_option_unreachable`: an add-on suggestion whose group no dish in the rule's scope offers.
+ */
+export function lintSnapshotV2(s: SnapshotV2): Issue[] {
+  const out: Issue[] = [];
+  const dishes: Array<{ d: DishV2; section: string }> = [];
+  for (const sec of s.sections) for (const d of sec.dishes) dishes.push({ d, section: sec.id });
+  s.upsellRules.forEach((r, i) => {
+    const p = `upsellRules[${i}]`;
+    const inScope = dishes.filter(({ d, section }) =>
+      r.scope.kind === 'all' ? true : r.scope.kind === 'dish' ? r.scope.ids.includes(d.id) : r.scope.ids.includes(section));
+    if (r.suggest.kind === 'dish' && r.scope.kind === 'dish' && r.scope.ids.includes(r.suggest.dishId)) {
+      out.push({ code: 'rule_suggests_its_trigger', path: p });
+    }
+    if (r.suggest.kind === 'option') {
+      const g = r.suggest.groupId;
+      if (!inScope.some(({ d }) => d.addons.some((a) => a.groupId === g))) out.push({ code: 'rule_option_unreachable', path: p });
+    }
+  });
+  return out;
 }
