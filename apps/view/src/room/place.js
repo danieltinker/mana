@@ -11,7 +11,7 @@ import { WebGLRenderer, Scene, PerspectiveCamera, Group, Mesh, Vector3, Vector2,
   RingGeometry, CircleGeometry, CylinderGeometry, SphereGeometry, MeshBasicMaterial, SpriteMaterial, Sprite, AdditiveBlending, PMREMGenerator, ACESFilmicToneMapping, sRGBEncoding, PCFSoftShadowMap } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { materials, buildArchitecture, buildFixtures, buildTable, buildSetting, radial } from './build.js';
-import { reachOf, snap } from '../../../seating/edit.mjs';
+import { reachOf, snap } from '../../../../seating/edit.mjs';
 
 import { STATE_COLOURS } from './colours.js';
 export { STATE_COLOURS };

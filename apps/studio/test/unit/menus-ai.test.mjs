@@ -1,4 +1,4 @@
-// The edge function `menus-ai` (../../../functions/menus-ai/index.ts), run here as it is written, with the two things it
+// The edge function `menus-ai` (../../../../functions/menus-ai/index.ts), run here as it is written, with the two things it
 // talks to replaced: the allowance call (always "yes") and the model's API (a canned answer per test). Nothing leaves this
 // machine. The point: a refusal from the API must reach the owner as what it is, and only a refusal ABOUT the picture may
 // say "this is not a picture" (11 Oct 2026: a key without a workspace made every scan say that).
@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const SRC = process.env.MENUS_AI_SRC || fileURLToPath(new URL('../../../functions/menus-ai/index.ts', import.meta.url));
+const SRC = process.env.MENUS_AI_SRC || fileURLToPath(new URL('../../../../functions/menus-ai/index.ts', import.meta.url));
 const API = 'https://api.anthropic.com/v1/messages';
 const BIZ = '24beb582-1be7-4828-88d6-d228e3cd3086';
 const env = { ANTHROPIC_API_KEY: 'sk-test', SUPABASE_URL: 'http://supabase.test' };

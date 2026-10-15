@@ -1,4 +1,4 @@
-// A stand-in for the edge function `menus-ai` (reference: ../../../functions/menus-ai/index.ts, contract: BACKEND.md "v2").
+// A stand-in for the edge function `menus-ai` (reference: ../../../../functions/menus-ai/index.ts, contract: BACKEND.md "v2").
 // Same request checks in the same order, the same event shapes, the caller's allowance taken through the real
 // `ai_take` RPC with the caller's own token. What differs: the "reading" is a script, sent line by line with pauses.
 //

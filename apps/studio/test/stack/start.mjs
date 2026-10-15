@@ -15,7 +15,7 @@ import { startGateway, startStatic } from './gateway.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STUDIO = path.resolve(HERE, '../..');
-const MENUS = path.resolve(STUDIO, '..');
+const MENUS = path.resolve(STUDIO, '../..');      // the repository's root (the studio is apps/studio)
 const STACK = path.join(STUDIO, 'test/.stack');
 const PGBIN = process.env.PGBIN || '/usr/lib/postgresql/16/bin';
 // Ports of this lane's own range (other work on the same machine uses 8791 and the usual Supabase ports); STACK_PORT_BASE moves them all.
@@ -125,7 +125,7 @@ export async function startStack({ quiet = true, fresh = true, gen = 'real', pro
   const dir = (env, fallback) => (process.env[env] ? path.resolve(process.env[env]) : fallback);
   const web = await startStatic({ port: PORTS.web, prefix: PREFIX, virtual: { 'config.js': config }, mounts: {
     studio: dir('STACK_STUDIO', path.join(STUDIO, 'dist')), gen: dir('STACK_GEN', path.join(MENUS, 'gen')), 'gen-fake': path.join(HERE, 'fake-gen'),
-    view: dir('STACK_VIEW', path.join(MENUS, 'view')), stock: dir('STACK_STOCK', path.join(MENUS, 'stock')) } });
+    view: dir('STACK_VIEW', path.join(MENUS, 'apps/view')), stock: dir('STACK_STOCK', path.join(MENUS, 'stock')) } });
 
   const stop = async () => {
     stopping = true;

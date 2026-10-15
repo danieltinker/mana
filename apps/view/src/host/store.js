@@ -2,7 +2,7 @@
    times with the real clock's). What is kept: the table clock's state (seating/timers.mjs, checked by validateState on the
    way in), the alerts the manager has seen, and, for a sped-up clock, where its time stood. No names, no phones: a party
    is a number. In production this is the seatings table behind RLS (db/proposed/0006_table_clock.sql). */
-import { validateState } from '../../../seating/timers.mjs';
+import { validateState } from '../../../../seating/timers.mjs';
 
 export function createStore(venue, speed, storage) {
   const KEY = 'mana-host:v1:' + venue + (speed !== 1 ? ':x' + speed : '');

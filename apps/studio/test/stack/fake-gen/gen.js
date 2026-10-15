@@ -1,4 +1,4 @@
-// A light stand-in for ../../../../gen/gen.js, for tests that are about the app around the generator (queue, resume,
+// A light stand-in for ../../../../../gen/gen.js, for tests that are about the app around the generator (queue, resume,
 // failures, review) and not about the generator itself. Same exports, phases and error codes as CONTRACT.md describes;
 // the "relief" is the photo with a round matte and a dome for height. The real generator is exercised once, in a-journey.
 // a test may slow it down (window.__fakeGenSlow = 5) to catch a photo while it is being worked on

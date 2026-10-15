@@ -4,12 +4,12 @@
    parts are tables behind RLS with a realtime channel (db/proposed/0007_floor.sql, seating/README.md).
    Parts: clock (the demo clock: a start time and a speed), timers (seating/timers.mjs), orders (orders.mjs), bids (bids.mjs),
    rules (frames and peak windows: peaks.mjs), layout (the owner's edited floor; Lima's draft when there is none). */
-import { validateLayout } from '../../../seating/validate.mjs';
-import { createState, settings, seat, reserve, tick, validateState, MIN } from '../../../seating/timers.mjs';
-import { validatePeaks, validateFrames } from '../../../seating/peaks.mjs';
-import { createBids, placeBid, validateBids } from '../../../seating/bids.mjs';
-import { createOrders, addOrder, advance, attach, validateOrders } from '../../../seating/orders.mjs';
-import lima from '../../../seating/fixtures/lima.layout.json';
+import { validateLayout } from '../../../../seating/validate.mjs';
+import { createState, settings, seat, reserve, tick, validateState, MIN } from '../../../../seating/timers.mjs';
+import { validatePeaks, validateFrames } from '../../../../seating/peaks.mjs';
+import { createBids, placeBid, validateBids } from '../../../../seating/bids.mjs';
+import { createOrders, addOrder, advance, attach, validateOrders } from '../../../../seating/orders.mjs';
+import lima from '../../../../seating/fixtures/lima.layout.json';
 
 export const DEMOS = { lima };
 const V = 'v1';

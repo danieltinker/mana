@@ -4,8 +4,8 @@
    Address: host/?demo=olea[&lang=en][&view=list][&speed=60][&motion=reduce][&test=1]. The rules are seating/timers.mjs;
    this file only draws them and asks them. A demo: the room is a bundled fixture, the floor lives in this browser's
    localStorage, nothing calls any host. ?speed=60 runs the clock a minute a second, so a pitch shows a time-up in a minute. */
-import { validateLayout, tableById, zoneById, tableNo } from '../../../seating/validate.mjs';
-import { MIN, LIMITS, settings, createState, minutesFor, configure, seat, extend, free, tick, status, byUrgency } from '../../../seating/timers.mjs';
+import { validateLayout, tableById, zoneById, tableNo } from '../../../../seating/validate.mjs';
+import { MIN, LIMITS, settings, createState, minutesFor, configure, seat, extend, free, tick, status, byUrgency } from '../../../../seating/timers.mjs';
 import { DEMOS as ROOMS } from '../seat/demos.js';
 import { drawFloor, ringColour, ringPath } from './floor.js';
 import { createAlerts } from './alerts.js';

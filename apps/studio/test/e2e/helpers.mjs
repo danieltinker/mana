@@ -8,7 +8,7 @@ import { startStack } from '../stack/start.mjs';
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const OUT = path.resolve(HERE, '../.out');
-export const MENUS = path.resolve(HERE, '../../..');
+export const MENUS = path.resolve(HERE, '../../../..');      // the repository's root
 export const PHOTOS = {
   plate: path.join(MENUS, 'gen-lab/photos/real-shakshouka.webp'),
   plate2: path.join(MENUS, 'gen-lab/photos/syn-hamburger-26-2.jpg'),

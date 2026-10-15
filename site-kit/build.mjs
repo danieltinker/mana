@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* The site kit, v1: a menu-first one-page restaurant site from a published menu snapshot (view/demo/olea/menu.json is the
+/* The site kit, v1: a menu-first one-page restaurant site from a published menu snapshot (apps/view/demo/olea/menu.json is the
    shape). One static HTML file and the pictures it shows; nothing loaded from anywhere else; Hebrew first with an
    English toggle; Mana's tokens inlined; JSON-LD Restaurant + Menu from the snapshot only (no invented facts).
 

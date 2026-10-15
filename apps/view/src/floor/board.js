@@ -6,12 +6,12 @@
    moves, adds and removes tables. Entry of view/floor.js. Address: floor/?demo=lima[&lang=en][&speed=30][&gl=off|on]
    [&motion=reduce][&test=1]. The rules are seating/*.mjs; this file draws them and asks them. A demo: nothing leaves
    this browser; the phone (floor/guest.html) talks to it through localStorage and a BroadcastChannel (live.js). */
-import { validateLayout, tableById, zoneById, tableNo, fits } from '../../../seating/validate.mjs';
-import { MIN, LIMITS, configure, seat, extend, free, tick, status, validateState } from '../../../seating/timers.mjs';
-import { peakAt, windowsOn, openSlots, frameFor, validatePeaks, validateFrames } from '../../../seating/peaks.mjs';
-import { tickBids, holdAt, auctionFor, leaderOf, accept, decline, release, configureBids, reconcileBids, validateBids } from '../../../seating/bids.mjs';
-import { addOrder, advance, back, byPhase } from '../../../seating/orders.mjs';
-import * as E from '../../../seating/edit.mjs';
+import { validateLayout, tableById, zoneById, tableNo, fits } from '../../../../seating/validate.mjs';
+import { MIN, LIMITS, configure, seat, extend, free, tick, status, validateState } from '../../../../seating/timers.mjs';
+import { peakAt, windowsOn, openSlots, frameFor, validatePeaks, validateFrames } from '../../../../seating/peaks.mjs';
+import { tickBids, holdAt, auctionFor, leaderOf, accept, decline, release, configureBids, reconcileBids, validateBids } from '../../../../seating/bids.mjs';
+import { addOrder, advance, back, byPhase } from '../../../../seating/orders.mjs';
+import * as E from '../../../../seating/edit.mjs';
 import { createAlerts } from '../host/alerts.js';
 import { createPlan } from '../room/plan2d.js';
 import { STATE_COLOURS } from '../room/colours.js';

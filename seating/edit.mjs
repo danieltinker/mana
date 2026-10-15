@@ -4,7 +4,7 @@
    with a floor (two tables in each other's way, a table outside the venue) without refusing it: the owner may be
    halfway through a change. Save passes the result through validateLayout. The table's size (sizeOf) is shared with the
    3D place and the 2D plan, so what overlaps here is what overlaps on screen. */
-import { footprint } from '../view/src/seat/plan.js';
+import { footprint } from '../apps/view/src/seat/plan.js';
 
 export const SNAP = 0.05, TURN = 15, CHAIR = 0.46;
 /* the small palette: what "Add a table" offers */

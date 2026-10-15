@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { launch, listen, open, tableUp, VIEW } from './browser.mjs';
 
-const LOOKS = JSON.parse(readFileSync(new URL('../../templates/templates.v1.json', import.meta.url), 'utf8')).looks;
+const LOOKS = JSON.parse(readFileSync(new URL('../../../templates/templates.v1.json', import.meta.url), 'utf8')).looks;
 let srv, browser;
 before(async () => { srv = await listen(0); browser = await launch(['--disable-ipc-flooding-protection']); });
 after(async () => { await browser.close(); srv.server.close(); });

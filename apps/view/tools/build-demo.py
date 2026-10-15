@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds demo/olea/ (menu.json + img/) from the reliefs in ../base/img.
+"""Builds demo/olea/ (menu.json + img/) from the reliefs in ../../base/img.
 
 Olea is an invented restaurant. Dish pictures are Halom's own generated reliefs; names, prices, producers
 and breweries below are invented for the demo and belong to no real business.
@@ -10,7 +10,7 @@ from PIL import Image, ImageFilter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VIEW = os.path.dirname(HERE)
-BASE = os.path.join(VIEW, '..', 'base')
+BASE = os.path.join(VIEW, '..', '..', 'base')
 OUT = os.path.join(VIEW, 'demo', 'olea')
 IMG = os.path.join(OUT, 'img')
 

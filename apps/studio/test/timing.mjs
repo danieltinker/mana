@@ -12,7 +12,7 @@ const WEB = `http://127.0.0.1:${BASE + 80}/halom-projects/projects/menus/`;
 const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const GL = ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-first-run', '--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1'];
 const TYPE = { delay: Number(process.env.TIMING_KEY_MS) || 60 };          // a person typing, roughly
-const PHOTO = path.resolve(HERE, '../../gen-lab/photos/real-shakshouka.webp');
+const PHOTO = path.resolve(HERE, '../../../gen-lab/photos/real-shakshouka.webp');
 const fmt = (ms) => `${Math.floor(ms / 60000)} min ${((ms % 60000) / 1000).toFixed(1)} s`;
 
 const browser = await chromium.launch({ executablePath: CHROME, args: GL });

@@ -2,7 +2,7 @@
    with a reason. Entry of view/seat.js (built by view/tools/build.mjs next to app.js).
    Address: seat/?demo=olea[&lang=en][&owner=1][&test=1][&motion=reduce]. Tonight the layout is a bundled fixture per demo;
    a real venue's layout arrives with its snapshot later (seating/README.md). Nothing here calls any host. */
-import { validateLayout, tablesFor, zonesFor, tableById, zoneById, tableNo, newRequest } from '../../../seating/validate.mjs';
+import { validateLayout, tablesFor, zonesFor, tableById, zoneById, tableNo, newRequest } from '../../../../seating/validate.mjs';
 import { drawPlan } from './plan.js';
 import { createSessionStore } from './store.js';
 import { makeT, PRODUCT } from './i18n.js';

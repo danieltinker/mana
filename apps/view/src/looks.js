@@ -6,7 +6,7 @@
      applyLook(theme, presets)          → mutates theme (surface, accent) and presets.table (pool, open, surface finish); returns the look or null
      resetPresets(presets)              → today's numbers back (a live preview may change its look between messages)
      applyLookDom(root, app, look)      → data-look, data-card, the look-<detail> class, the light card's ink */
-import LOOKS from '../../templates/templates.v1.json' with { type: 'json' };
+import LOOKS from '../../../templates/templates.v1.json' with { type: 'json' };
 import { tableDef } from './scenes/common.js';
 
 export const ID = /^[a-z0-9-]{1,40}$/;

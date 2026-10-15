@@ -2,7 +2,7 @@
    data: in the demo they are fictional and never leave this browser; in production this store is a Supabase table behind
    RLS (owner-only reads, a retention period Daniel sets). The same store serves the guest's page and the owner's page, so
    the round trip (request → approve) shows in one browser. Pure apart from the injected storage: unit-tested with a Map. */
-import { validateRequest, transition } from '../../../seating/validate.mjs';
+import { validateRequest, transition } from '../../../../seating/validate.mjs';
 
 export function createSessionStore(venue, storage) {
   const KEY = 'mana-seat:' + venue, MINE = KEY + ':mine';

@@ -7,7 +7,7 @@
    Textures are drawn on small canvases here: no image file is loaded. Nothing in it is a photo of the café. */
 import { BufferGeometry, BufferAttribute, BoxGeometry, CylinderGeometry, SphereGeometry, PlaneGeometry, CircleGeometry, ExtrudeGeometry, Shape, Path,
   Matrix4, Euler, Quaternion, Vector3, Mesh, Group, Color, MeshStandardMaterial, MeshBasicMaterial, CanvasTexture, RepeatWrapping, DoubleSide, sRGBEncoding, MultiplyBlending } from 'three';
-import { sizeOf } from '../../../seating/edit.mjs';
+import { sizeOf } from '../../../../seating/edit.mjs';
 
 export const WALL_H = 3.1, WALL_T = 0.2, TOP_H = 0.74;
 const lin = (hex) => new Color(hex).convertSRGBToLinear();

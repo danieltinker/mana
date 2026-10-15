@@ -3,12 +3,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { validateLayout, validateRequest, newRequest, transition, fits, tablesFor, zonesFor, tableNo } from '../../seating/validate.mjs';
+import { validateLayout, validateRequest, newRequest, transition, fits, tablesFor, zonesFor, tableNo } from '../../../seating/validate.mjs';
 import { createSessionStore } from '../src/seat/store.js';
 import { footprint, seatsOf } from '../src/seat/plan.js';
 import { normalise } from '../src/snapshot.js';
 
-const raw = () => JSON.parse(readFileSync(new URL('../../seating/fixtures/olea.layout.json', import.meta.url), 'utf8'));
+const raw = () => JSON.parse(readFileSync(new URL('../../../seating/fixtures/olea.layout.json', import.meta.url), 'utf8'));
 const L = validateLayout(raw()).layout;
 const ask = (over) => Object.assign({ zone: 'window', table: 'w3', date: '2026-10-14', time: '20:00', party: 3, name: 'דנה לוי', phone: '050-000-0000', note: '' }, over);
 const mk = (over, id = 'r0001') => newRequest(ask(over), L, { id, now: '2026-10-13T10:00:00Z' }).request;

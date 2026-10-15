@@ -6,10 +6,10 @@
    if the guest allowed it, a system notification. At peak, the guest can bid for the tables the owner opened for it
    (sample amounts, nothing is charged). Entry of view/floor-guest.js. It talks to the board through live.js; a locked
    phone needs Web Push in production (seating/README.md). */
-import { tableById, zoneById, tableNo } from '../../../seating/validate.mjs';
-import { openSlots } from '../../../seating/peaks.mjs';
-import { placeBid, auctionFor, leaderOf, minNext, standing, tickBids, validateBids } from '../../../seating/bids.mjs';
-import { byNumber, forTable, validateOrders } from '../../../seating/orders.mjs';
+import { tableById, zoneById, tableNo } from '../../../../seating/validate.mjs';
+import { openSlots } from '../../../../seating/peaks.mjs';
+import { placeBid, auctionFor, leaderOf, minNext, standing, tickBids, validateBids } from '../../../../seating/bids.mjs';
+import { byNumber, forTable, validateOrders } from '../../../../seating/orders.mjs';
 import { createAlerts } from '../host/alerts.js';
 import { createPlan } from '../room/plan2d.js';
 import { GSTR, makeT, itemName } from './i18n.js';

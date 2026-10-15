@@ -21,7 +21,7 @@ const ease = (x) => x * x * (3 - 2 * x);
 fs.mkdirSync(WORK, { recursive: true });
 
 // ---- Olea's menu as the scanner "reads" it: the demo menu of the guest view, plus the baked pasta of the how-to photo
-const demo = JSON.parse(fs.readFileSync(path.join(MENUS, 'view/demo/olea/menu.json'), 'utf8'));
+const demo = JSON.parse(fs.readFileSync(path.join(MENUS, 'apps/view/demo/olea/menu.json'), 'utf8'));
 const lines = [];
 for (const c of demo.categories) {
   lines.push({ t: 'cat', he: c.name.he, en: c.name.en, kind: c.kind });

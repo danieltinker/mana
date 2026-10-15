@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { build, render, price, LABEL } from '../build.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, '../..');
-const MENU = join(ROOT, 'view/demo/olea/menu.json'), OUT = join(HERE, '../out/.test-olea');
+const MENU = join(ROOT, 'apps/view/demo/olea/menu.json'), OUT = join(HERE, '../out/.test-olea');
 const menu = JSON.parse(readFileSync(MENU, 'utf8'));
 
 test('prices are whole shekels, or two decimals, always with ₪', () => {

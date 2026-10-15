@@ -3,7 +3,7 @@
    very slow, and the edit mode's top view. Tables are real buttons (role, tabindex, Enter); in edit mode they can be
    dragged (snapped to 5 cm). The same api as place.js where it makes sense: setRows, select, edit, setLayout, setTable,
    flyTo / view (no-ops that resolve), so a screen does not care which one it has. Metres are the viewBox's unit. */
-import { sizeOf, reachOf, snap } from '../../../seating/edit.mjs';
+import { sizeOf, reachOf, snap } from '../../../../seating/edit.mjs';
 import { STATE_COLOURS } from './colours.js';
 
 const NS = 'http://www.w3.org/2000/svg';

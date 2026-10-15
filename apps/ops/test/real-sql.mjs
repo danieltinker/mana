@@ -12,7 +12,7 @@ import { derive, planRequest, leadPatch, businessesCsv, leadsCsv } from '../src/
 import { HOSTILE } from './fixtures.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const MENUS = path.resolve(HERE, '../..');
+const MENUS = path.resolve(HERE, '../../..');      // the repository's root (the back office is apps/ops)
 const PGBIN = process.env.PGBIN || '/usr/lib/postgresql/16/bin';
 const DIR = path.join(HERE, '.pg'); const DATA = path.join(DIR, 'data'); const PORT = 54777;
 const OSUSER = process.env.STACK_OS_USER || 'claude';
@@ -41,10 +41,10 @@ const pg = spawn(c, a, { stdio: 'ignore' });
 let failed = false;
 try {
   for (let i = 0; ; i++) { if (sh(path.join(PGBIN, 'pg_isready'), ['-h', '127.0.0.1', '-p', String(PORT)], { allowFail: true }).status === 0) break; if (i > 100) throw new Error('postgres did not start'); await new Promise((r) => setTimeout(r, 100)); }
-  file(path.join(MENUS, 'studio/test/stack/bootstrap.sql'));
+  file(path.join(MENUS, 'apps/studio/test/stack/bootstrap.sql'));
   // GoTrue normally creates auth.users; only the columns the schema reads are needed here
   sql(`create table auth.users (id uuid primary key default gen_random_uuid(), email text unique, last_sign_in_at timestamptz, created_at timestamptz default now()); grant select on auth.users to postgres;`);
-  file(path.join(MENUS, 'studio/test/stack/after-auth.sql'));
+  file(path.join(MENUS, 'apps/studio/test/stack/after-auth.sql'));
   file(path.join(MENUS, 'db/0001_core.sql'));
 
   const U = { staff: '11111111-1111-4111-8111-111111111111', a: '22222222-2222-4222-8222-222222222222', b: '33333333-3333-4333-8333-333333333333', lone: '44444444-4444-4444-8444-444444444444', newbie: '55555555-5555-4555-8555-555555555555' };

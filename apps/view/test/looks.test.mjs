@@ -3,13 +3,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { validateLooks, validateLook, SURFACES, DETAILS, contrast, hexRgb } from '../../templates/validate.mjs';
+import { validateLooks, validateLook, SURFACES, DETAILS, contrast, hexRgb } from '../../../templates/validate.mjs';
 import { lookOf, looks, applyLook, resetPresets, applyLookDom, inkAccent, trackOf, ID } from '../src/looks.js';
 import { normalise } from '../src/snapshot.js';
 import { PRESETS } from '../src/scenes/walk.js';
 import { TABLES } from '../src/scenes/common.js';
 
-const file = new URL('../../templates/templates.v1.json', import.meta.url);
+const file = new URL('../../../templates/templates.v1.json', import.meta.url);
 const doc = () => JSON.parse(readFileSync(file, 'utf8'));
 const good = () => ({ id: 'x-look', category: 'cafe', subcategory: 'cafe-boho', name: { he: 'מבט', en: 'Look' }, surface: 'oak', accent: '#e3b23c', card: 'dark', light: { pool: 2, open: .8 }, motion: 'settle', detail: 'tracks', fonts: 'house' });
 
@@ -99,12 +99,12 @@ test('applyLookDom: the attributes and the custom properties the CSS reads, and 
 });
 
 test('the matrix keeps all 99 concepts as data, without their sources; the live looks point into it', () => {
-  const m = JSON.parse(readFileSync(new URL('../../templates/matrix.json', import.meta.url), 'utf8')), txt = JSON.stringify(m);
+  const m = JSON.parse(readFileSync(new URL('../../../templates/matrix.json', import.meta.url), 'utf8')), txt = JSON.stringify(m);
   const subs = m.categories.flatMap((c) => c.subcategories), vars = subs.flatMap((s) => s.variants);
   assert.equal(m.categories.length, 9); assert.equal(subs.length, 33); assert.equal(vars.length, 99);
   assert.ok(!/inspiredBy/.test(txt), 'inspiredBy stays out of the repository (the Project keeps it)'); assert.equal(new Set(vars.map((v) => v.id)).size, 99);
   for (const l of doc().looks) { assert.ok(m.categories.some((c) => c.id === l.category), l.category); assert.ok(subs.some((s) => s.id === l.subcategory && s.id.startsWith(l.category + '-')), l.subcategory); }
-  assert.ok(!existsSync(new URL('../../templates/sources.md', import.meta.url)), 'the venue research lives in the Project, not in this public repository');
+  assert.ok(!existsSync(new URL('../../../templates/sources.md', import.meta.url)), 'the venue research lives in the Project, not in this public repository');
   assert.ok(!vars.some((v) => /^the salon$|flore|thonet|sessions/i.test(v.name)), 'no venue, maker or menu-page name as a concept name');
 });
 

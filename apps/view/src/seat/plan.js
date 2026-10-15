@@ -2,7 +2,7 @@
    their seats. Nothing in it is the keyboard path (the lists in the sheet are): the picture is role="img" and taps on it are a
    shortcut. update(state) only toggles classes; the colours and the 240 ms transitions are in seat.css. Metres are the unit:
    the viewBox is the room, so a 0.06 line is 6 cm of wall. */
-import { tableNo } from '../../../seating/validate.mjs';
+import { tableNo } from '../../../../seating/validate.mjs';
 
 const NS = 'http://www.w3.org/2000/svg';
 function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k])); if (parent) parent.appendChild(e); return e; }

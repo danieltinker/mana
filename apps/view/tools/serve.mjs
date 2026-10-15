@@ -13,7 +13,7 @@ import { dirname, join, extname, normalize } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PREFIX = '/projects/menus/view/', STOCK = '/projects/menus/stock/';
-const FIXTURE = join(ROOT, 'test/fixtures/stock'), LIBRARY = join(ROOT, '..', 'stock');      // the eight fixed starter entries · the real library, when it is there
+const FIXTURE = join(ROOT, 'test/fixtures/stock'), LIBRARY = join(ROOT, '..', '..', 'stock');      // the eight fixed starter entries · the real library, when it is there
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
   '.jpg': 'image/jpeg', '.png': 'image/png', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8', '.mp4': 'video/mp4' };
 const KEY = 'sb_publishable_test';

@@ -1,5 +1,5 @@
 /* Mana back office. Neutral light surface, Halom palette as accents. Light only (an internal tool). */
-@import "../../design/tokens.css";      /* the shared custom properties (--m-*); the names below map onto them */
+@import "../../../design/tokens.css";      /* the shared custom properties (--m-*); the names below map onto them */
 @font-face { font-family: "IBM Plex Sans Hebrew"; font-style: normal; font-display: swap; font-weight: 400; src: url(fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2) format("woff2"); unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F; }
 @font-face { font-family: "IBM Plex Sans Hebrew"; font-style: normal; font-display: swap; font-weight: 500; src: url(fonts/ibm-plex-sans-hebrew-hebrew-500-normal.woff2) format("woff2"); unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F; }
 @font-face { font-family: "IBM Plex Sans Hebrew"; font-style: normal; font-display: swap; font-weight: 600; src: url(fonts/ibm-plex-sans-hebrew-hebrew-600-normal.woff2) format("woff2"); unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F; }
