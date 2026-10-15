@@ -1,6 +1,6 @@
 // A throwaway PostgreSQL 16 cluster for the schema tests: initdb in a temp dir, a free port, the auth stub, every
 // migration in order. Nothing here touches a remote database. When run as root, PostgreSQL runs as an ordinary OS user
-// (STACK_OS_USER, default "claude"), as studio/test/stack/start.mjs does.
+// (STACK_OS_USER, default "claude"), as apps/studio/test/stack/start.mjs does.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -102,8 +102,10 @@ export async function startCluster({ migrations = true, seed = false } = {}) {
 export async function as(url, who, fn) {
   const client = new pg.Client({ connectionString: url });
   await client.connect();
+  // who: 'anon' | 'service' | a user id | { sub, aal } (aal: 'aal1' by default, 'aal2' after MFA)
   const role = who === 'anon' ? 'anon' : who === 'service' ? 'service_role' : 'authenticated';
-  const claims = who === 'anon' ? { role: 'anon' } : who === 'service' ? { role: 'service_role' } : { sub: who, role: 'authenticated' };
+  const claims = who === 'anon' ? { role: 'anon' } : who === 'service' ? { role: 'service_role' }
+    : typeof who === 'object' ? { sub: who.sub, role: 'authenticated', aal: who.aal ?? 'aal1' } : { sub: who, role: 'authenticated', aal: 'aal1' };
   try {
     await client.query('begin');
     await client.query(`select set_config('request.jwt.claims', $1, true), set_config('role', $2, true)`, [JSON.stringify(claims), role]);

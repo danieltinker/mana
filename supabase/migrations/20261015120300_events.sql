@@ -1,4 +1,4 @@
--- Mana, clean schema 4/7: first-party events and their rollups (F10, D22). No personal data, no cookies, no ids of
+-- Mana, clean schema 5/8: first-party events and their rollups (F10, D22). No personal data, no cookies, no ids of
 -- people: an event is a name, a venue, a time, a dedupe id and closed properties (packages/contracts/src/events.ts).
 --
 -- Flow: track_events (guests) and app.emit (the database itself) insert into public.events (partitioned by month, in
@@ -54,15 +54,15 @@ $$;
 -- The rollup keys an event adds one to: '' (the total) and one per dashboard dimension; rollupKeys() in the contracts.
 create function app.event_keys(p_name text, p jsonb) returns text[] language sql immutable set search_path = '' as $$
   select array[''] || case p_name
-    when 'menu_opened' then array_remove(array['src:' || (p->>'src'), 'lang:' || (p->>'lang')], null)
-    when 'dish_viewed' then array_remove(array['dish:' || (p->>'dishId')], null)
-    when 'addon_chosen' then array_remove(array['dish:' || (p->>'dishId'), 'option:' || (p->>'optionId')], null)
-    when 'basket_added' then array_remove(array['dish:' || (p->>'dishId'), case when p->'fromSuggestion' = 'true'::jsonb then 'from:suggestion' end], null)
-    when 'suggestion_shown' then array_remove(array['rule:' || (p->>'ruleId'), 'trigger:' || (p->>'trigger')], null)
-    when 'suggestion_accepted' then array_remove(array['rule:' || (p->>'ruleId'), 'trigger:' || (p->>'trigger')], null)
-    when 'suggestion_dismissed' then array_remove(array['rule:' || (p->>'ruleId'), 'trigger:' || (p->>'trigger')], null)
-    when 'onboarding_step_done' then array_remove(array['step:' || (p->>'step')], null)
-    when 'import_parsed' then array_remove(array['source:' || (p->>'source')], null)
+    when 'menu_opened' then array_remove(array['src:' || lower(p->>'src'), 'lang:' || lower(p->>'lang')], null)
+    when 'dish_viewed' then array_remove(array['dish:' || lower(p->>'dishId')], null)
+    when 'addon_chosen' then array_remove(array['dish:' || lower(p->>'dishId'), 'option:' || lower(p->>'optionId')], null)
+    when 'basket_added' then array_remove(array['dish:' || lower(p->>'dishId'), case when p->'fromSuggestion' = 'true'::jsonb then 'from:suggestion' end], null)
+    when 'suggestion_shown' then array_remove(array['rule:' || lower(p->>'ruleId'), 'trigger:' || lower(p->>'trigger')], null)
+    when 'suggestion_accepted' then array_remove(array['rule:' || lower(p->>'ruleId'), 'trigger:' || lower(p->>'trigger')], null)
+    when 'suggestion_dismissed' then array_remove(array['rule:' || lower(p->>'ruleId'), 'trigger:' || lower(p->>'trigger')], null)
+    when 'onboarding_step_done' then array_remove(array['step:' || lower(p->>'step')], null)
+    when 'import_parsed' then array_remove(array['source:' || lower(p->>'source')], null)
     else '{}'::text[] end
 $$;
 
@@ -116,6 +116,26 @@ create table app.event_counters (
 );
 alter table app.event_counters enable row level security;
 
+-- the days a venue hit its daily cap (events past it are dropped and counted here): the dashboards flag those days
+create table app.event_capped_days (
+  venue_id uuid not null,
+  day date not null,
+  first_at timestamptz not null default now(),
+  dropped bigint not null default 0,
+  primary key (venue_id, day)
+);
+alter table app.event_capped_days enable row level security;
+
+-- server events that happen once per (venue, key): the first time an onboarding step is done
+create table app.once_events (
+  venue_id uuid not null,
+  name text not null,
+  key text not null,
+  at timestamptz not null default now(),
+  primary key (venue_id, name, key)
+);
+alter table app.once_events enable row level security;
+
 create table app.rollup_state (
   id boolean primary key default true check (id),
   last_run_at timestamptz,
@@ -125,27 +145,31 @@ alter table app.rollup_state enable row level security;
 insert into app.rollup_state (id) values (true);
 
 -- ---------------------------------------------------------------- rollups the dashboards read (and subscribe to)
+-- Each has an opaque uuid primary key: a Realtime DELETE payload carries only the primary key, and it must not name a
+-- venue, a dish or a rule. The natural key is a unique constraint (the rollup job's ON CONFLICT target).
 create table public.rollups_minute (
+  id uuid primary key default gen_random_uuid(),
   venue_id uuid not null references public.venues (id) on delete cascade,
   bucket timestamptz not null,
   name text not null,
   key text not null default '',
   demo boolean not null default false,
   n bigint not null default 0 check (n >= 0),
-  primary key (venue_id, bucket, name, key, demo)
+  constraint rollups_minute_natural unique (venue_id, bucket, name, key, demo)
 );
 alter table public.rollups_minute enable row level security;
 comment on table public.rollups_minute is 'Counts per venue per minute (UTC bucket) per event name and key; kept 35 days.';
 create index rollups_minute_bucket_idx on public.rollups_minute (bucket desc, name) where key = '';
 
 create table public.rollups_day (
+  id uuid primary key default gen_random_uuid(),
   venue_id uuid not null references public.venues (id) on delete cascade,
   day date not null,
   name text not null,
   key text not null default '',
   demo boolean not null default false,
   n bigint not null default 0 check (n >= 0),
-  primary key (venue_id, day, name, key, demo)
+  constraint rollups_day_natural unique (venue_id, day, name, key, demo)
 );
 alter table public.rollups_day enable row level security;
 comment on column public.rollups_day.day is 'The venue''s local date (venues.time_zone).';
@@ -220,7 +244,8 @@ end $$;
 create function app.emit_onboarding() returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   if new.state = 'done' and (tg_op = 'INSERT' or old.state <> 'done') then
-    perform app.emit(new.venue_id, 'onboarding_step_done', jsonb_build_object('step', new.step));
+    insert into app.once_events (venue_id, name, key) values (new.venue_id, 'onboarding_step_done', new.step) on conflict do nothing;
+    if found then perform app.emit(new.venue_id, 'onboarding_step_done', jsonb_build_object('step', new.step)); end if;
   end if;
   return null;
 end $$;
@@ -254,17 +279,17 @@ begin
   m as (
     insert into public.rollups_minute as r (venue_id, bucket, name, key, demo, n)
     select k.venue_id, date_trunc('minute', k.at), k.name, k.key, k.demo, count(*) from k group by 1, 2, 3, 4, 5
-    on conflict (venue_id, bucket, name, key, demo) do update set n = r.n + excluded.n),
+    on conflict on constraint rollups_minute_natural do update set n = r.n + excluded.n),
   d as (
     insert into public.rollups_day as r (venue_id, day, name, key, demo, n)
     select k.venue_id, (k.at at time zone v.time_zone)::date, k.name, k.key, k.demo, count(*)
     from k join public.venues v on v.id = k.venue_id group by 1, 2, 3, 4, 5
-    on conflict (venue_id, day, name, key, demo) do update set n = r.n + excluded.n)
+    on conflict on constraint rollups_day_natural do update set n = r.n + excluded.n)
   select count(*) into n from q;
 
   update app.rollup_state set last_run_at = now(), last_count = n where id;
   delete from public.rollups_minute where bucket < now() - interval '35 days';
   delete from app.event_ids where seen_at < now() - interval '3 days';
-  delete from app.event_counters where window_start < now() - interval '2 days';
+  delete from app.event_counters where window_start < now() - interval '3 days';
   return jsonb_build_object('ok', true, 'events', n);
 end $$;

@@ -21,8 +21,9 @@ begin
     return;
   end if;
 
-  insert into public.venues (id, slug, name_he, name_en, cuisine_he, cuisine_en, kind, mode, default_lang, langs, accent, surface, is_demo)
-  values (v, 'cafe-demo', 'קפה דמו', 'Café Demo', 'בית קפה', 'Café', 'cafe', 'view_only', 'he', '{he,en}', '#c8743c', 'oak', true);
+  -- a demo venue Halom made itself: approved from the start (no review), on a pilot plan
+  insert into public.venues (id, slug, name_he, name_en, cuisine_he, cuisine_en, kind, mode, default_lang, langs, accent, surface, is_demo, approved_at)
+  values (v, 'cafe-demo', 'קפה דמו', 'Café Demo', 'בית קפה', 'Café', 'cafe', 'view_only', 'he', '{he,en}', '#c8743c', 'oak', true, now());
   insert into public.entitlements (venue_id, plan, status, note) values (v, 'pilot', 'active', 'synthetic demo venue');
 
   insert into public.schedules (id, venue_id, kind, name_he, name_en, windows) values

@@ -19,7 +19,7 @@ const OWNER = '22222222-2222-4222-8222-2222222222c1';
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 test('onboarding → menu with nested add-ons → publish → guest → owner quick action → Halom acts for the owner', async () => {
-  await w.admin.query(`insert into auth.users (id, email, last_sign_in_at) values ($1, 'scenario-owner@example.invalid', now())`, [OWNER]);
+  await w.admin.query(`insert into auth.users (id, email, email_confirmed_at, last_sign_in_at) values ($1, 'scenario-owner@example.invalid', now(), now())`, [OWNER]);
 
   // 1. the owner names the venue
   const made = await rpc(w.url, OWNER, 'create_venue', { p_slug: 'corner-cafe', p_name_he: 'קפה הפינה', p_name_en: 'Corner Café', p_kind: 'cafe' });
@@ -53,17 +53,23 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
     await c.query(`insert into public.dish_relations (venue_id, dish_id, related_dish_id) values ($1, $2, $3)`, [V, toast, lemonade]);
     const ruleA = await one(`insert into public.upsell_rules (venue_id, trigger, scope_kind, scope_ids, basket_lacks_sections, suggest_kind, suggest_dish_id, line_en, priority)
       values ($1, 'add', 'dish', $2, $3, 'dish', $4, 'A lemonade with that?', 60) returning id`, [V, [toast], [drinks], lemonade]);
-    const ruleB = await one(`insert into public.upsell_rules (venue_id, trigger, scope_kind, scope_ids, suggest_kind, suggest_option_id, line_en, priority)
-      values ($1, 'sheet', 'dish', $2, 'option', $3, 'Harissa?', 40) returning id`, [V, [toast], harissa]);
+    // (an add-on suggestion must be a group the dish offers itself: the sauce is only opened by the fries, so a rule
+    // suggesting harissa on the toast could never fire; publish would warn rule_option_unreachable)
+    const ruleB = await one(`insert into public.upsell_rules (venue_id, trigger, scope_kind, scope_ids, suggest_kind, suggest_dish_id, line_en, priority)
+      values ($1, 'sheet', 'dish', $2, 'dish', $3, 'Lemonade with your toast?', 40) returning id`, [V, [toast], lemonade]);
     for (let d = 0; d < 7; d++) await c.query(`insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, $2, '00:00', '00:00')`, [V, d]);
     await c.query(`update public.menu_imports set status = 'applied' where id = $1`, [imp]);
     for (const step of ['menu', 'review', 'addons', 'hours']) await c.query(`update public.onboarding_progress set state = 'done' where venue_id = $1 and step = $2`, [V, step]);
     return { food, drinks, toast, lemonade, side, sauce, mayo, harissa, fries, salad, ruleA, ruleB };
   });
 
-  // 4. publish
+  // 4. publish; Halom reviews the first publish before guests see it
   const pub = await rpc(w.url, OWNER, 'publish_menu', { p_venue: V, p_note: 'opening day' });
-  assert.deepEqual(pub, { ok: true, revision: 1, slug: 'corner-cafe', path: '/m/corner-cafe' });
+  assert.deepEqual(pub, { ok: true, revision: 1, slug: 'corner-cafe', path: '/m/corner-cafe', review: 'pending', warnings: [] });
+  assert.deepEqual(await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' }),
+    { state: 'unavailable', venue: { name: { he: 'קפה הפינה', en: 'Corner Café' } } });
+  assert.ok((await rpc(w.url, U.support, 'ops_overview')).venues.find((x) => x.id === V).warnings.includes('awaiting_review'));
+  assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: V, p_reason: 'First menu checked' })).ok, true);
 
   // 5. a guest bot reads the menu, chooses, gets one suggestion, accepts one and dismisses another; events go in
   const menu = await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' });
@@ -77,13 +83,14 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
   const ctx = pricingContext(s, unavailable);
   const sel = defaultSelection(toast, ctx);
   const sheet = matchSuggestion(s.upsellRules, { trigger: 'sheet', menu: indexMenu(s), dishId: toast.id, selection: sel, basket: [], now, unavailable });
-  assert.equal(sheet, null, 'Harissa would replace the guest\'s own sauce choice in a single group: not suggested');
+  assert.equal(sheet.ruleId, ids.ruleB, 'the sheet suggests the lemonade; the guest dismisses it');
   const chosen = { quantity: 1, groups: [{ groupId: ids.side, options: [{ optionId: ids.fries, nested: [{ groupId: ids.sauce, options: [{ optionId: ids.harissa }] }] }] }] };
   const price = priceDish(toast, chosen, ctx);
   assert.ok(price.ok);
   assert.equal(price.total, 4200 + 300);
-  const add = matchSuggestion(s.upsellRules, { trigger: 'add', menu: indexMenu(s), dishId: toast.id, selection: chosen, basket: [{ dishId: toast.id, selection: chosen }], now, unavailable });
-  assert.equal(add.ruleId, ids.ruleA);
+  const add = matchSuggestion(s.upsellRules, { trigger: 'add', menu: indexMenu(s), dishId: toast.id, selection: chosen,
+    basket: [{ dishId: toast.id, selection: chosen }], now, unavailable, dismissed: new Set([ids.ruleB]) });
+  assert.equal(add.ruleId, ids.ruleA, 'a dismissed rule stays quiet; another rule may still suggest');
   const e = (name, props) => ({ id: newEventId(), name, venueId: V, at: iso(now - 500), props });
   const r = await as(w.url, 'anon', async (c) => (await c.query('select public.track_events($1::jsonb) as r', [JSON.stringify([
     e('menu_opened', { src: 'qr', lang: 'he', revision: 1 }),

@@ -29,7 +29,7 @@ describe('publish_menu and the snapshot v2', () => {
 
   test('an owner\'s publish returns the public path and bumps the revision; the trial starts', async () => {
     const r = await rpc(w.url, U.ownerB, 'publish_menu', { p_venue: w.B, p_note: 'second' });
-    assert.deepEqual(r, { ok: true, revision: 2, slug: 'bistro-test', path: '/m/bistro-test' });
+    assert.deepEqual(r, { ok: true, revision: 2, slug: 'bistro-test', path: '/m/bistro-test', review: 'approved', warnings: [] });
     const { rows } = await w.admin.query('select status, trial_ends_at is not null as t from public.entitlements where venue_id = $1', [w.B]);
     assert.deepEqual(rows[0], { status: 'trialing', t: true });
     const snap = (await snapshotOf('bistro-test')).snapshot;
@@ -41,7 +41,8 @@ describe('publish_menu and the snapshot v2', () => {
     const r = await rpc(w.url, U.managerA, 'publish_menu', { p_venue: A, p_note: 'by the manager' });
     assert.equal(r.ok, true);
     const { rows } = await w.admin.query(`select actor_kind, via, detail from public.activity_log where venue_id = $1 and action = 'menu.publish' order by id desc limit 1`, [A]);
-    assert.deepEqual(rows[0], { actor_kind: 'manager', via: 'rpc', detail: { revision: r.revision, note: 'by the manager' } });
+    assert.deepEqual(rows[0], { actor_kind: 'manager', via: 'rpc', detail: { revision: r.revision, review: 'approved', hasNote: true, warnings: 0 } },
+      'the note is the owner\'s words: on the revision, not in the log');
     const ev = await w.admin.query(`select props from public.events where venue_id = $1 and name = 'menu_published' order by at desc limit 1`, [A]);
     assert.deepEqual(ev.rows[0].props, { revision: r.revision });
   });
@@ -99,6 +100,14 @@ describe('publish_menu and the snapshot v2', () => {
       kind: (s) => { s.venue.kind = 'nightclub'; },
       slug: (s) => { s.slug = 'Bad Slug'; },
       version: (s) => { s.v = 1; },
+      nestedMinUnreachable: (s) => { s.addonGroups[1] = { ...s.addonGroups[1], selection: 'multiple', min: 4, max: 4 }; },
+      loosened: (s) => { s.sections[1].dishes[0].addons[0] = { groupId: ID.side, min: 0, max: 1 }; },
+      loosenedMax: (s) => { s.sections[1].dishes[0].addons[1] = { groupId: ID.extras, min: 0, max: 5 }; },
+      conditionEmpty: (s) => { s.upsellRules[2].basketLacks = { dishes: [], sections: [] }; },
+      conditionNotObject: (s) => { s.upsellRules[2].basketHas = 'drinks'; },
+      blankName: (s) => { s.sections[0].name = { he: '\u200F\u00A0', en: '\uFEFF' }; },
+      logoPath: (s) => { s.venue.logo = 'https://evil.example/logo.png'; },
+      tablePath: (s) => { s.theme.tableImg = 'a//b.jpg'; },
     };
     for (const [name, breakIt] of Object.entries(cases)) {
       const s = mutable(cafeDemo());

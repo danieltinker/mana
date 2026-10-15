@@ -36,6 +36,13 @@ describe('the events contract in the database', () => {
       ev('menu_opened', { src: 'qr', lang: 'fr', revision: 1 }), ev('menu_opened', { src: 'qr', lang: 'he', revision: 1.5 }),
       ev('suggestion_shown', { ruleId: ID.ruleCheese, trigger: 'popup', dishId: null }), ev('addon_chosen', { dishId: w.b.dish, groupId: w.b.group, optionId: w.b.option, parentOptionId: null }),
       [1, 2], null, 'event',
+      // times need an explicit offset
+      { ...base(), at: iso(Date.now() - 1000).replace('Z', '') }, { ...base(), at: iso(Date.now() - 1000).replace('Z', '+00:00') },
+      { ...base(), at: iso(Date.now() - 1000).replace('T', ' ') }, { ...base(), at: iso(Date.now() - 1000).replace('Z', '+0000') },
+      // prototype keys are not properties of the contract
+      { ...base(), props: JSON.parse(`{"dishId":"${w.b.dish}","constructor":1}`) }, { ...base(), props: JSON.parse(`{"dishId":"${w.b.dish}","__proto__":1}`) },
+      { ...base(), props: JSON.parse(`{"dishId":"${w.b.dish}","toString":"x"}`) },
+      { ...ev('menu_opened', { src: 'qr', lang: 'he', revision: 1 }), props: JSON.parse('{"src":"qr","lang":"he","hasOwnProperty":1}') },
     ];
     for (const e of inputs) {
       const sql = (await w.admin.query(`select app.check_event($1::jsonb, app.guest_events()) as c`, [JSON.stringify(e)])).rows[0].c;
@@ -51,6 +58,7 @@ describe('the events contract in the database', () => {
       ['basket_added', { dishId: w.b.dish, qty: 1, fromSuggestion: true }], ['basket_added', { dishId: w.b.dish, qty: 1, fromSuggestion: false }],
       ['suggestion_dismissed', { ruleId: ID.ruleCheese, trigger: 'sheet', dishId: null }], ['onboarding_step_done', { step: 'hours' }],
       ['import_parsed', { importId: uid(), source: 'wolt_text', sections: 1, dishes: 2, exceptions: 0 }], ['menu_published', { revision: 3 }],
+      ['dish_viewed', { dishId: w.b.dish.toUpperCase() }], ['suggestion_shown', { ruleId: ID.ruleCheese.toUpperCase(), trigger: 'add', dishId: null }],
     ];
     for (const [name, props] of samples) {
       const { rows } = await w.admin.query('select app.event_keys($1, $2::jsonb) as k', [name, JSON.stringify(props)]);

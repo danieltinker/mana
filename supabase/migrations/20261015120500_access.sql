@@ -1,4 +1,4 @@
--- Mana, clean schema 6/7: who may do what. Every grant and every row-level security policy lives in this file, so
+-- Mana, clean schema 7/8: who may do what. Every grant and every row-level security policy lives in this file, so
 -- the access model can be read (and reviewed) in one place. supabase/tests checks each rule.
 --
 -- Roles
@@ -7,9 +7,12 @@
 --     owner         everything of their venue (menu, hours, availability, settings, team, records, publish)
 --     manager       like the owner, except the team, the support switch and plan
 --     counter       reads the menu; sets and restores availability; nothing else (cannot change a price)
---     Halom support reads across venues; writes into a venue ONLY through act_for_owner (logged, with a reason)
---     Halom admin   the same as support in phase 1 (admin-only functions come with billing, phase 3)
---   service_role    edge functions (the scanner): bypasses RLS; never in a browser.
+--     Halom support reads across venues; writes into a venue's menu ONLY through act_for_owner (logged, with a
+--                   reason); approves venues and sets plans through ops_* functions (logged, with a reason); reads
+--                   leads (personal data) only through ops_leads, which logs every read
+--     Halom admin   like support, and creates staff invites (create_staff_invite)
+--                   (staff count as staff only with an MFA session when app_config.staff_require_aal2 is on)
+--   service_role    edge functions (the scanner): bypasses RLS; never in a browser; reads the records, never writes them.
 --
 -- Helpers (schema app, SECURITY DEFINER): is_member, is_owner, can_edit (owner|manager), can_operate
 -- (owner|manager|counter), can_read (member or staff), can_see_records (owner|manager or staff), is_staff.
@@ -26,11 +29,18 @@ alter default privileges in schema public revoke execute on functions from anon,
 -- (PostgreSQL also grants EXECUTE on every new function to PUBLIC, and that default can only be revoked globally,
 -- which would reach other schemas. Instead each migration revokes what it creates, and supabase/tests fails when anon
 -- or authenticated can run anything beyond the RPCs granted below.)
--- the service role (edge functions such as the scanner) is granted explicitly: newer Supabase projects do not grant
--- new tables to the API roles by default. It bypasses RLS; the append-only and same-venue triggers still hold for it.
-grant all on all tables in schema public to service_role;
-grant all on all sequences in schema public to service_role;
-grant all on all tables in schema app to service_role;
+-- The service role (edge functions such as the scanner) bypasses RLS, so it gets only what it needs, granted explicitly
+-- (newer Supabase projects do not grant new tables to the API roles by default): never TRUNCATE, TRIGGER or REFERENCES;
+-- the records (activity log, revisions, events, rollups) are read-only to it; availability overrides are never deleted.
+revoke all on all tables in schema public from service_role;
+revoke all on all tables in schema app from service_role;
+grant select, insert, update, delete on all tables in schema public to service_role;
+revoke insert, update, delete on public.activity_log, public.menu_revisions, public.events, public.rollups_minute, public.rollups_day
+  from service_role;
+revoke delete on public.availability_overrides from service_role;
+grant select on all tables in schema app to service_role;
+grant usage, select on all sequences in schema public to service_role;
+alter default privileges in schema public revoke truncate, trigger, references on tables from service_role;
 
 -- ---------------------------------------------------------------- venues and people
 grant select on public.venues to authenticated;
@@ -57,13 +67,15 @@ create policy members_read on public.venue_members for select to authenticated
 create policy members_change on public.venue_members for update to authenticated
   using ((select app.is_owner(venue_id))) with check ((select app.is_owner(venue_id)));
 create policy members_remove on public.venue_members for delete to authenticated using ((select app.is_owner(venue_id)));
--- a venue always keeps an owner
+-- a venue always keeps an owner. The venue's row is locked first, so two owners removing each other at the same time
+-- are serialised: the second sees the first's change and is refused.
 create function app.guard_last_owner() returns trigger language plpgsql security definer set search_path = '' as $$
 begin
-  if old.role = 'owner' and (tg_op = 'DELETE' or new.role <> 'owner')
-     and exists (select 1 from public.venues v where v.id = old.venue_id)
-     and not exists (select 1 from public.venue_members m where m.venue_id = old.venue_id and m.role = 'owner' and m.user_id <> old.user_id) then
-    raise exception 'last_owner';
+  if old.role = 'owner' and (tg_op = 'DELETE' or new.role <> 'owner') then
+    perform 1 from public.venues v where v.id = old.venue_id for no key update;
+    if found and not exists (select 1 from public.venue_members m where m.venue_id = old.venue_id and m.role = 'owner' and m.user_id <> old.user_id) then
+      raise exception 'last_owner';
+    end if;
   end if;
   return coalesce(new, old);
 end $$;
@@ -71,7 +83,7 @@ create trigger venue_members_last_owner before update or delete on public.venue_
 
 grant select on public.staff to authenticated;
 create policy staff_read on public.staff for select to authenticated using (user_id = (select auth.uid()) or (select app.is_staff()));
--- staff_invites: no access (an admin adds a code hash by SQL; redeem_staff_invite reads it)
+-- staff_invites: no access (create_staff_invite writes the hash, redeem_staff_invite reads it)
 
 grant select on public.entitlements to authenticated;
 create policy entitlements_read on public.entitlements for select to authenticated using ((select app.can_see_records(venue_id)));
@@ -138,13 +150,11 @@ create policy cases_open on public.support_cases for insert to authenticated wit
 create policy cases_change on public.support_cases for update to authenticated
   using ((select app.can_edit(venue_id))) with check ((select app.can_edit(venue_id)));
 
--- ---------------------------------------------------------------- Mana's leads: Halom staff only (they are personal data)
-grant select on public.leads to authenticated;
-grant update (status, owner, notes) on public.leads to authenticated;
-create policy leads_read on public.leads for select to authenticated using ((select app.is_staff()));
-create policy leads_work on public.leads for update to authenticated using ((select app.is_staff())) with check ((select app.is_staff()));
+-- ---------------------------------------------------------------- Mana's leads: personal data, never read directly
+-- No grant to authenticated at all: staff read through ops_leads (each read is written to the activity log) and work a
+-- lead through ops_update_lead. Every later read of personal data follows the same pattern (a logged definer function).
 
--- public.app_config, public.staff_invites, public.events: no grants at all
+-- public.app_config, public.staff_invites, public.events, public.leads: no grants at all
 
 -- ---------------------------------------------------------------- files (Supabase Storage): "<venue id>/..." in both buckets
 -- menu-private: the owner's original photos and import screenshots; members who edit, and Halom staff, read them.
@@ -199,6 +209,196 @@ grant execute on function app.is_member(uuid), app.is_owner(uuid), app.can_edit(
 grant execute on function public.public_menu(text), public.track_events(jsonb),
   public.submit_lead(uuid, text, text, text, text, text, text, text, integer) to anon, authenticated;
 grant execute on function public.slug_available(text), public.create_venue(text, text, text, text, text), public.preview_menu(uuid),
-  public.publish_menu(uuid, text), public.my_dashboard(uuid, text), public.redeem_staff_invite(text), public.ops_overview(),
-  public.act_for_owner(uuid, text, text, jsonb) to authenticated;
+  public.publish_menu(uuid, text), public.restore_revision(uuid, integer), public.unpublish_menu(uuid), public.my_dashboard(uuid, text),
+  public.redeem_staff_invite(text), public.create_staff_invite(text, text), public.ops_overview(), public.ops_approve_venue(uuid, text),
+  public.ops_set_plan(uuid, text, timestamptz, text, text), public.ops_leads(text, text, timestamptz, integer),
+  public.ops_update_lead(uuid, text, text, text), public.act_for_owner(uuid, text, text, jsonb) to authenticated;
 grant execute on all functions in schema public to service_role;
+
+-- ---------------------------------------------------------------- the grant audit: run it after every migration
+-- Returns every grant to anon or authenticated that is not on the intended list below (problem 'unexpected'), every
+-- intended grant that is gone ('missing'), and any TRUNCATE / TRIGGER / REFERENCES or write on a record table held by
+-- the service role ('unexpected'). Nothing returned = the access model is exactly the one this file describes. A
+-- migration that changes access updates the list in the same change; supabase/tests asserts it returns nothing.
+create function app.audit_grants() returns table (problem text, grantee text, object text, privilege text)
+language plpgsql stable security definer set search_path = '' as $$
+declare expected text[] := array[
+  'anon|function|public.public_menu(text)|EXECUTE',
+  'anon|function|public.submit_lead(uuid,text,text,text,text,text,text,text,integer)|EXECUTE',
+  'anon|function|public.track_events(jsonb)|EXECUTE',
+  'authenticated|column|public.availability_overrides.note|INSERT',
+  'authenticated|column|public.availability_overrides.restored_at|UPDATE',
+  'authenticated|column|public.availability_overrides.starts_at|INSERT',
+  'authenticated|column|public.availability_overrides.target_id|INSERT',
+  'authenticated|column|public.availability_overrides.target_kind|INSERT',
+  'authenticated|column|public.availability_overrides.until_kind|INSERT',
+  'authenticated|column|public.availability_overrides.until_spec|INSERT',
+  'authenticated|column|public.availability_overrides.venue_id|INSERT',
+  'authenticated|column|public.menu_imports.exceptions|UPDATE',
+  'authenticated|column|public.menu_imports.id|INSERT',
+  'authenticated|column|public.menu_imports.input_sha256|INSERT',
+  'authenticated|column|public.menu_imports.parsed|UPDATE',
+  'authenticated|column|public.menu_imports.raw_paths|INSERT',
+  'authenticated|column|public.menu_imports.raw_text|INSERT',
+  'authenticated|column|public.menu_imports.rights_confirmed|INSERT',
+  'authenticated|column|public.menu_imports.rights_confirmed|UPDATE',
+  'authenticated|column|public.menu_imports.source|INSERT',
+  'authenticated|column|public.menu_imports.status|UPDATE',
+  'authenticated|column|public.menu_imports.venue_id|INSERT',
+  'authenticated|column|public.onboarding_progress.blockers|INSERT',
+  'authenticated|column|public.onboarding_progress.blockers|UPDATE',
+  'authenticated|column|public.onboarding_progress.state|INSERT',
+  'authenticated|column|public.onboarding_progress.state|UPDATE',
+  'authenticated|column|public.onboarding_progress.step|INSERT',
+  'authenticated|column|public.onboarding_progress.venue_id|INSERT',
+  'authenticated|column|public.support_cases.body|INSERT',
+  'authenticated|column|public.support_cases.status|UPDATE',
+  'authenticated|column|public.support_cases.subject|INSERT',
+  'authenticated|column|public.support_cases.topic|INSERT',
+  'authenticated|column|public.support_cases.topic|UPDATE',
+  'authenticated|column|public.support_cases.venue_id|INSERT',
+  'authenticated|column|public.venue_members.role|UPDATE',
+  'authenticated|column|public.venues.accent|UPDATE',
+  'authenticated|column|public.venues.area_en|UPDATE',
+  'authenticated|column|public.venues.area_he|UPDATE',
+  'authenticated|column|public.venues.book_url|UPDATE',
+  'authenticated|column|public.venues.cuisine_en|UPDATE',
+  'authenticated|column|public.venues.cuisine_he|UPDATE',
+  'authenticated|column|public.venues.default_lang|UPDATE',
+  'authenticated|column|public.venues.kind|UPDATE',
+  'authenticated|column|public.venues.langs|UPDATE',
+  'authenticated|column|public.venues.logo_path|UPDATE',
+  'authenticated|column|public.venues.name_en|UPDATE',
+  'authenticated|column|public.venues.name_he|UPDATE',
+  'authenticated|column|public.venues.order_url|UPDATE',
+  'authenticated|column|public.venues.phone|UPDATE',
+  'authenticated|column|public.venues.sold_out_display|UPDATE',
+  'authenticated|column|public.venues.support_can_act|UPDATE',
+  'authenticated|column|public.venues.surface|UPDATE',
+  'authenticated|column|public.venues.table_img_path|UPDATE',
+  'authenticated|column|public.venues.template|UPDATE',
+  'authenticated|column|public.venues.time_zone|UPDATE',
+  'authenticated|function|public.act_for_owner(uuid,text,text,jsonb)|EXECUTE',
+  'authenticated|function|app.can_edit(uuid)|EXECUTE',
+  'authenticated|function|app.can_operate(uuid)|EXECUTE',
+  'authenticated|function|app.can_read(uuid)|EXECUTE',
+  'authenticated|function|app.can_see_records(uuid)|EXECUTE',
+  'authenticated|function|app.is_member(uuid)|EXECUTE',
+  'authenticated|function|app.is_owner(uuid)|EXECUTE',
+  'authenticated|function|app.is_staff()|EXECUTE',
+  'authenticated|function|app.path_venue(text)|EXECUTE',
+  'authenticated|function|app.until_spec_ok(jsonb)|EXECUTE',
+  'authenticated|function|app.windows_ok(jsonb)|EXECUTE',
+  'authenticated|function|public.create_staff_invite(text,text)|EXECUTE',
+  'authenticated|function|public.create_venue(text,text,text,text,text)|EXECUTE',
+  'authenticated|function|public.my_dashboard(uuid,text)|EXECUTE',
+  'authenticated|function|public.ops_approve_venue(uuid,text)|EXECUTE',
+  'authenticated|function|public.ops_leads(text,text,timestamp with time zone,integer)|EXECUTE',
+  'authenticated|function|public.ops_overview()|EXECUTE',
+  'authenticated|function|public.ops_set_plan(uuid,text,timestamp with time zone,text,text)|EXECUTE',
+  'authenticated|function|public.ops_update_lead(uuid,text,text,text)|EXECUTE',
+  'authenticated|function|public.preview_menu(uuid)|EXECUTE',
+  'authenticated|function|public.public_menu(text)|EXECUTE',
+  'authenticated|function|public.publish_menu(uuid,text)|EXECUTE',
+  'authenticated|function|public.redeem_staff_invite(text)|EXECUTE',
+  'authenticated|function|public.restore_revision(uuid,integer)|EXECUTE',
+  'authenticated|function|public.slug_available(text)|EXECUTE',
+  'authenticated|function|public.submit_lead(uuid,text,text,text,text,text,text,text,integer)|EXECUTE',
+  'authenticated|function|public.track_events(jsonb)|EXECUTE',
+  'authenticated|function|public.unpublish_menu(uuid)|EXECUTE',
+  'authenticated|table|public.activity_log|SELECT',
+  'authenticated|table|public.addon_groups|DELETE',
+  'authenticated|table|public.addon_groups|INSERT',
+  'authenticated|table|public.addon_groups|SELECT',
+  'authenticated|table|public.addon_groups|UPDATE',
+  'authenticated|table|public.addon_options|DELETE',
+  'authenticated|table|public.addon_options|INSERT',
+  'authenticated|table|public.addon_options|SELECT',
+  'authenticated|table|public.addon_options|UPDATE',
+  'authenticated|table|public.assets|DELETE',
+  'authenticated|table|public.assets|INSERT',
+  'authenticated|table|public.assets|SELECT',
+  'authenticated|table|public.assets|UPDATE',
+  'authenticated|table|public.availability_overrides|SELECT',
+  'authenticated|table|public.dish_addon_groups|DELETE',
+  'authenticated|table|public.dish_addon_groups|INSERT',
+  'authenticated|table|public.dish_addon_groups|SELECT',
+  'authenticated|table|public.dish_addon_groups|UPDATE',
+  'authenticated|table|public.dish_relations|DELETE',
+  'authenticated|table|public.dish_relations|INSERT',
+  'authenticated|table|public.dish_relations|SELECT',
+  'authenticated|table|public.dish_relations|UPDATE',
+  'authenticated|table|public.dishes|DELETE',
+  'authenticated|table|public.dishes|INSERT',
+  'authenticated|table|public.dishes|SELECT',
+  'authenticated|table|public.dishes|UPDATE',
+  'authenticated|table|public.entitlements|SELECT',
+  'authenticated|table|public.menu_imports|SELECT',
+  'authenticated|table|public.menu_revisions|SELECT',
+  'authenticated|table|public.onboarding_progress|SELECT',
+  'authenticated|table|public.rollups_day|SELECT',
+  'authenticated|table|public.rollups_minute|SELECT',
+  'authenticated|table|public.schedules|DELETE',
+  'authenticated|table|public.schedules|INSERT',
+  'authenticated|table|public.schedules|SELECT',
+  'authenticated|table|public.schedules|UPDATE',
+  'authenticated|table|public.sections|DELETE',
+  'authenticated|table|public.sections|INSERT',
+  'authenticated|table|public.sections|SELECT',
+  'authenticated|table|public.sections|UPDATE',
+  'authenticated|table|public.staff|SELECT',
+  'authenticated|table|public.support_cases|SELECT',
+  'authenticated|table|public.upsell_rules|DELETE',
+  'authenticated|table|public.upsell_rules|INSERT',
+  'authenticated|table|public.upsell_rules|SELECT',
+  'authenticated|table|public.upsell_rules|UPDATE',
+  'authenticated|table|public.venue_closures|DELETE',
+  'authenticated|table|public.venue_closures|INSERT',
+  'authenticated|table|public.venue_closures|SELECT',
+  'authenticated|table|public.venue_closures|UPDATE',
+  'authenticated|table|public.venue_hours|DELETE',
+  'authenticated|table|public.venue_hours|INSERT',
+  'authenticated|table|public.venue_hours|SELECT',
+  'authenticated|table|public.venue_hours|UPDATE',
+  'authenticated|table|public.venue_members|DELETE',
+  'authenticated|table|public.venue_members|SELECT',
+  'authenticated|table|public.venues|SELECT'
+];
+begin
+  return query
+  with actual as (
+    select r.rolname::text as grantee, 'table' as kind, (n.nspname || '.' || c.relname)::text as object, pr.priv as privilege
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join (values ('anon'), ('authenticated')) r(rolname)
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr(priv)
+    where n.nspname in ('public', 'app') and c.relkind in ('r', 'p', 'v', 'm', 'f') and has_table_privilege(r.rolname, c.oid, pr.priv)
+    union all
+    select r.rolname::text, 'column', (n.nspname || '.' || c.relname || '.' || a.attname)::text, pr.priv
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+    cross join (values ('anon'), ('authenticated')) r(rolname)
+    cross join unnest(array['SELECT', 'INSERT', 'UPDATE', 'REFERENCES']) pr(priv)
+    where n.nspname in ('public', 'app') and c.relkind in ('r', 'p', 'v', 'm', 'f')
+      and not has_table_privilege(r.rolname, c.oid, pr.priv) and has_column_privilege(r.rolname, c.oid, a.attnum, pr.priv)
+    union all
+    select r.rolname::text, 'function', p.oid::regprocedure::text, 'EXECUTE'
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    cross join (values ('anon'), ('authenticated')) r(rolname)
+    where n.nspname in ('public', 'app') and has_function_privilege(r.rolname, p.oid, 'EXECUTE')
+    union all
+    select 'service_role', 'table', (n.nspname || '.' || c.relname)::text, pr.priv
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) pr(priv)
+    where n.nspname in ('public', 'app') and c.relkind in ('r', 'p') and has_table_privilege('service_role', c.oid, pr.priv)
+      and (pr.priv in ('TRUNCATE', 'REFERENCES', 'TRIGGER') or n.nspname = 'app'
+           or c.relname in ('activity_log', 'menu_revisions', 'events', 'rollups_minute', 'rollups_day')
+           or (c.relname = 'availability_overrides' and pr.priv = 'DELETE'))
+  )
+  select 'unexpected'::text, a.grantee, a.object, a.privilege from actual a
+  where a.grantee = 'service_role' or (a.grantee || '|' || a.kind || '|' || a.object || '|' || a.privilege) <> all (expected)
+  union all
+  select 'missing'::text, split_part(e, '|', 1), split_part(e, '|', 3), split_part(e, '|', 4) from unnest(expected) e
+  where e not in (select a.grantee || '|' || a.kind || '|' || a.object || '|' || a.privilege from actual a)
+  order by 1, 2, 3, 4;
+end $$;
+revoke execute on function app.audit_grants() from public, anon, authenticated;

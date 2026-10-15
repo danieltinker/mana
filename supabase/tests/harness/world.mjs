@@ -1,6 +1,7 @@
 // The people and venues every database test starts from (all synthetic):
 //   venue A = "Café Demo" from supabase/seed/synthetic.sql (a demo venue, published), with an owner, a manager, a counter;
-//   venue B = "Bistro Test", made by its owner through create_venue, one section, one dish, published (a real venue);
+//   venue B = "Bistro Test", made by its owner through create_venue, one section, one dish, published and approved by
+//   Halom (a real venue);
 //   Halom staff: one support, one admin; and a signed-in stranger with no venue.
 import assert from 'node:assert/strict';
 import { as, rpc, startCluster } from './cluster.mjs';
@@ -22,7 +23,7 @@ export async function world() {
   const c = await startCluster({ seed: true });
   try {
     await c.admin.query(
-      `insert into auth.users (id, email, last_sign_in_at) select u.id, u.email, now() from (values ${Object.entries(U)
+      `insert into auth.users (id, email, email_confirmed_at, last_sign_in_at) select u.id, u.email, now(), now() from (values ${Object.entries(U)
         .map(([k, v]) => `('${v}'::uuid, '${k.toLowerCase()}@example.invalid')`).join(', ')}) u(id, email)`,
     );
     await c.admin.query(`insert into public.venue_members (venue_id, user_id, role) values
@@ -41,6 +42,9 @@ export async function world() {
     });
     const pub = await rpc(c.url, U.ownerB, 'publish_menu', { p_venue: B, p_note: 'first' });
     assert.equal(pub.ok, true, JSON.stringify(pub));
+    assert.equal(pub.review, 'pending', 'the first publish waits for Halom (publish_requires_approval)');
+    const ok = await rpc(c.url, U.support, 'ops_approve_venue', { p_venue: B, p_reason: 'Menu checked, test venue' });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
     return { ...c, B, b: ids };
   } catch (e) {
     await c.stop();

@@ -58,8 +58,13 @@ describe('act_for_owner', () => {
     const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' } }, 'Typo in the imported price');
     assert.equal(r.ok, true);
     const log = (await ownerLog()).filter((x) => x.action === 'dishes.update' && x.via === 'act_for_owner').at(-1);
-    assert.deepEqual(log.detail.changes, { price: [1600, 1700], desc_en: ['', 'Fresh'] });
+    assert.deepEqual(log.detail.changes, { price: [1600, 1700] }, 'numbers with their values; words only as "changed"');
+    assert.deepEqual(log.detail.columns, ['desc_en', 'price']);
     assert.equal(log.reason, 'Typo in the imported price');
+    const act = (await ownerLog()).filter((x) => x.action === 'support.act_for_owner').at(-1);
+    assert.deepEqual(act.detail, { action: 'dish.update', keys: ['dishId', 'patch'], patchKeys: ['desc_en', 'price'],
+      result: { dishId: ID.lemonade, fields: ['desc_en', 'price'] } });
+    assert.ok(!JSON.stringify(act.detail).includes('Fresh'), 'the words staff typed are not in the log');
   });
 
   test('staff may publish for the owner; the revision says so', async () => {
@@ -187,11 +192,18 @@ describe('create_venue and slugs', () => {
     assert.equal((await rpc(w.url, U.support, 'my_dashboard', { p_venue: A, p_range: '7d' })).days.length, 7, 'staff see what the owner sees');
   });
 
-  test('staff invites: a code is redeemed once, before it expires', async () => {
-    await w.admin.query(`insert into public.staff_invites (code_hash, role, note) values (encode(extensions.digest('INVITE-CODE-TEST-1', 'sha256'), 'hex'), 'support', 'test')`);
-    assert.deepEqual(await rpc(w.url, U.stranger, 'redeem_staff_invite', { p_code: 'wrong' }), { ok: false, code: 'invalid' });
-    assert.deepEqual(await rpc(w.url, U.stranger, 'redeem_staff_invite', { p_code: 'INVITE-CODE-TEST-1' }), { ok: true, role: 'support' });
+  test('staff invites: made by an admin, bound to an e-mail, redeemed once', async () => {
+    assert.equal((await rpc(w.url, U.support, 'create_staff_invite', { p_email: 'stranger@example.invalid', p_role: 'support' })).error?.code, '42501', 'admins only');
+    const inv = await rpc(w.url, U.admin, 'create_staff_invite', { p_email: ' Stranger@Example.invalid ', p_role: 'support' });
+    assert.equal(inv.ok, true);
+    assert.match(inv.code, /^[0-9a-f]{48}$/);
+    const stored = await w.admin.query(`select code_hash, email from public.staff_invites where email = 'stranger@example.invalid'`);
+    assert.equal(stored.rows.length, 1);
+    assert.notEqual(stored.rows[0].code_hash, inv.code, 'only the hash is stored');
+    assert.ok(!JSON.stringify((await w.admin.query(`select detail from public.activity_log where action = 'staff_invite.create'`)).rows).includes(inv.code));
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'redeem_staff_invite', { p_code: inv.code }), { ok: false, code: 'invalid' }, 'another e-mail');
+    assert.deepEqual(await rpc(w.url, U.stranger, 'redeem_staff_invite', { p_code: inv.code }), { ok: true, role: 'support' });
     assert.equal(Array.isArray((await rpc(w.url, U.stranger, 'ops_overview')).venues), true);
-    assert.deepEqual(await rpc(w.url, U.ownerB, 'redeem_staff_invite', { p_code: 'INVITE-CODE-TEST-1' }), { ok: false, code: 'invalid' }, 'used');
+    assert.deepEqual(await rpc(w.url, U.stranger, 'redeem_staff_invite', { p_code: inv.code }), { ok: true }, 'already staff');
   });
 });

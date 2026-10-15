@@ -50,8 +50,10 @@ describe('the schema itself', () => {
     assert.deepEqual(rows.map((r) => r.f), [
       'app.can_edit', 'app.can_operate', 'app.can_read', 'app.can_see_records', 'app.is_member', 'app.is_owner', 'app.is_staff',
       'app.path_venue', 'app.until_spec_ok', 'app.windows_ok',
-      'public.act_for_owner', 'public.create_venue', 'public.my_dashboard', 'public.ops_overview', 'public.preview_menu',
-      'public.public_menu', 'public.publish_menu', 'public.redeem_staff_invite', 'public.slug_available', 'public.submit_lead', 'public.track_events',
+      'public.act_for_owner', 'public.create_staff_invite', 'public.create_venue', 'public.my_dashboard', 'public.ops_approve_venue',
+      'public.ops_leads', 'public.ops_overview', 'public.ops_set_plan', 'public.ops_update_lead', 'public.preview_menu', 'public.public_menu',
+      'public.publish_menu', 'public.redeem_staff_invite', 'public.restore_revision', 'public.slug_available', 'public.submit_lead',
+      'public.track_events', 'public.unpublish_menu',
     ]);
   });
 
@@ -215,14 +217,22 @@ describe('Halom staff', () => {
     assert.equal((await rpc(w.url, 'anon', 'ops_overview')).error?.code, '42501');
   });
 
-  test('leads are staff-only', async () => {
+  test('leads are personal data: nobody reads the table; staff read through ops_leads, and every read is logged', async () => {
     const r = await rpc(w.url, 'anon', 'submit_lead', { p_token: '22222222-2222-4222-8222-222222222222', p_message: 'We would like a menu', p_contact: 'owner@example.invalid', p_elapsed_ms: 5000 });
     assert.equal(r.ok, true);
-    assert.equal(await count(w.url, U.ownerA, 'select 1 from public.leads'), 0);
-    assert.equal(await count(w.url, U.support, 'select 1 from public.leads'), 1);
+    assert.equal(await count(w.url, U.ownerA, 'select 1 from public.leads'), '42501');
+    assert.equal(await count(w.url, U.support, 'select 1 from public.leads'), '42501', 'not even staff, directly');
+    assert.equal((await rpc(w.url, U.ownerA, 'ops_leads')).error?.code, '42501');
+    const got = await rpc(w.url, U.support, 'ops_leads');
+    assert.equal(got.count, 1);
+    assert.equal(got.leads[0].contact, 'owner@example.invalid');
+    const read = await w.admin.query(`select venue_id, actor_kind, n, detail from public.activity_log where action = 'leads.read' order by id desc limit 1`);
+    assert.deepEqual(read.rows[0], { venue_id: null, actor_kind: 'staff', n: 1, detail: { n: 1, status: 'default' } });
+    assert.ok(!JSON.stringify(read.rows[0]).includes('owner@example.invalid'));
     assert.deepEqual(await rpc(w.url, 'anon', 'submit_lead', { p_token: '22222222-2222-4222-8222-222222222222', p_message: 'again', p_contact: 'owner@example.invalid', p_elapsed_ms: 5000 }), { ok: true, ref: r.ref }, 'the same form twice');
     // staff work the lead: logged (Halom-wide), without the contact
-    assert.equal(await count(w.url, U.support, `update public.leads set status = 'contacted', notes = 'called back' where ref = $1`, [r.ref]), 1);
+    const lead = got.leads[0].id;
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_update_lead', { p_id: lead, p_status: 'contacted', p_notes: 'called back' }), { ok: true });
     const { rows } = await w.admin.query(`select venue_id, actor_kind, detail from public.activity_log where action = 'leads.update' order by id desc limit 1`);
     assert.equal(rows[0].venue_id, null);
     assert.equal(rows[0].actor_kind, 'staff');

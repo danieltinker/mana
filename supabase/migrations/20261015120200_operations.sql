@@ -1,4 +1,4 @@
--- Mana, clean schema 3/6: operations. Onboarding progress, menu imports, support cases, the append-only activity log
+-- Mana, clean schema 4/8: operations. Onboarding progress, menu imports, support cases, the append-only activity log
 -- (with the audit triggers that fill it), and Mana's own leads.
 
 -- ---------------------------------------------------------------- onboarding: one row per step, saved at every step (F03)
@@ -50,8 +50,9 @@ create table public.menu_imports (
 alter table public.menu_imports enable row level security;
 comment on column public.menu_imports.rights_confirmed is 'D33: photos from Wolt are kept only when the owner confirms they own them.';
 create index menu_imports_venue_idx on public.menu_imports (venue_id, created_at desc);
--- re-importing the same input finds the earlier import instead of duplicating it (Hopa test 1)
-create index menu_imports_input_idx on public.menu_imports (venue_id, input_sha256) where input_sha256 is not null;
+-- re-importing the same input finds the earlier import instead of duplicating it (Hopa test 1): one live import per input
+create unique index menu_imports_input_idx on public.menu_imports (venue_id, input_sha256)
+  where input_sha256 is not null and status <> 'discarded';
 create trigger menu_imports_touch before update on public.menu_imports for each row execute function app.touch();
 
 -- clients move an import only from parsed to applied or discarded; the scanner (service role) does the rest
@@ -103,6 +104,7 @@ alter table public.support_cases enable row level security;
 create index support_cases_open_idx on public.support_cases (status, created_at desc) where status <> 'resolved';
 create index support_cases_venue_idx on public.support_cases (venue_id, created_at desc);
 create trigger support_cases_touch before update on public.support_cases for each row execute function app.touch();
+create trigger support_cases_clean before insert or update on public.support_cases for each row execute function app.strip_text('subject', 'body');
 
 create function app.guard_case() returns trigger language plpgsql set search_path = '' as $$
 begin
@@ -138,7 +140,7 @@ create table public.activity_log (
   target_ids text[] not null default '{}' check (cardinality(target_ids) <= 500),
   n integer not null default 1 check (n >= 0),
   detail jsonb not null default '{}' check (jsonb_typeof(detail) = 'object' and pg_column_size(detail) < 16000),
-  check ((via = 'act_for_owner') = (reason is not null))
+  check (via <> 'act_for_owner' or reason is not null)
 );
 alter table public.activity_log enable row level security;
 comment on column public.activity_log.actor_id is 'auth.users id, kept as a plain value (no foreign key) so the record outlives the account.';
@@ -158,14 +160,16 @@ create function app.via() returns text language sql stable security definer set 
     else 'direct' end
 $$;
 
+-- p_reason: a staff action outside act_for_owner that still needs a reason (approve a venue, set a plan). Reasons are
+-- shown to the owner and must not contain personal data.
 create function app.log(p_venue uuid, p_action text, p_target_table text default null, p_target_ids text[] default '{}',
-                        p_detail jsonb default '{}', p_n integer default 1) returns bigint
+                        p_detail jsonb default '{}', p_n integer default 1, p_reason text default null) returns bigint
 language plpgsql security definer set search_path = '' as $$
 declare v_via text := app.via(); v_id bigint;
 begin
   insert into public.activity_log (venue_id, actor_id, actor_kind, via, reason, action, target_table, target_ids, n, detail)
   values (p_venue, (select auth.uid()), case when p_venue is null then (case when app.is_staff() then 'staff' else 'system' end) else app.actor_kind(p_venue) end,
-          v_via, case when v_via = 'act_for_owner' then nullif(current_setting('mana.reason', true), '') end,
+          v_via, coalesce(nullif(btrim(coalesce(p_reason, '')), ''), case when v_via = 'act_for_owner' then nullif(current_setting('mana.reason', true), '') end),
           p_action, p_target_table, coalesce(p_target_ids, '{}'), coalesce(p_n, 1), coalesce(p_detail, '{}'))
   returning id into v_id;
   return v_id;
@@ -180,9 +184,25 @@ create function app.audit_hidden(p_col text) returns boolean language sql immuta
                    'contact', 'name', 'message', 'venue_name', 'source_hash', 'client_token')
 $$;
 
--- Columns whose change alone is not an activity (publish bookkeeping; publish_menu logs the publish itself).
+-- Columns whose change alone is not an activity (publish and review bookkeeping: publish_menu and ops_approve_venue
+-- log those themselves; the daily job forgetting a lead's source hash).
 create function app.audit_ignored(p_col text) returns boolean language sql immutable set search_path = '' as $$
-  select p_col in ('updated_at', 'published_revision_id', 'first_published_at', 'last_published_at')
+  select p_col in ('updated_at', 'published_revision_id', 'first_published_at', 'last_published_at', 'approved_at', 'approved_by',
+                   'source_hash')
+$$;
+
+-- Which values the log may copy. Numbers, booleans and nulls always; text only for columns that hold ids, codes,
+-- times, dates and paths (an allow-list, so a new free-text column is never copied by accident). Names, descriptions,
+-- lines, notes and anything else a person typed are recorded as "this column changed", never with the words.
+create function app.audit_value_ok(p_col text, p jsonb) returns boolean language sql immutable set search_path = '' as $$
+  select case
+    when app.audit_hidden(p_col) or app.audit_ignored(p_col) then false
+    when jsonb_typeof(coalesce(p, 'null'::jsonb)) in ('number', 'boolean', 'null') then true
+    when jsonb_typeof(p) = 'string' then char_length(p #>> '{}') <= 200 and p_col ~ ('^(id|[a-z_]+_id|slug|kind|mode|role|status|state|step|scene|room'
+      || '|selection|trigger|scope_kind|suggest_kind|target_kind|until_kind|created_by_kind|topic|plan|source|sold_out_display|default_lang'
+      || '|time_zone|currency|accent|surface|template|relief_class|error_code|[a-z_]+_at|[a-z_]+_date|valid_from|valid_to|opens|closes'
+      || '|from_time|to_time|[a-z_]+_path|weekday)$')
+    else false end
 $$;
 
 -- A row's identity, whatever its key: id, else (venue_id / user_id / step), else venue_id.
@@ -190,12 +210,11 @@ create function app.row_key(p jsonb) returns text language sql immutable set sea
   select coalesce(p->>'id', nullif(concat_ws('/', p->>'venue_id', p->>'user_id', p->>'step'), ''))
 $$;
 
--- The short scalar fields of a row, for a one-row log entry ("dish off until 14:30", "price 6800 → 7200").
+-- The loggable fields of a row, for a one-row log entry ("dish off until 14:30", "price 6800", never the words).
 create function app.audit_scalars(p jsonb) returns jsonb language sql immutable set search_path = '' as $$
   select coalesce(jsonb_object_agg(k, v), '{}'::jsonb)
   from jsonb_each(p) e(k, v)
-  where not app.audit_hidden(k) and not app.audit_ignored(k)
-    and jsonb_typeof(v) in ('string', 'number', 'boolean') and char_length(v::text) <= 200
+  where jsonb_typeof(v) <> 'null' and app.audit_value_ok(k, v)
 $$;
 
 -- One log row per venue per statement (a bulk import of 200 dishes is one row with n = 200, not 200 rows).
@@ -243,10 +262,7 @@ begin
              array_agg(distinct c.key order by c.key) as cols,
              case when count(distinct c.id) = 1 then
                coalesce(jsonb_object_agg(c.key, jsonb_build_array(c.before, c.after))
-                 filter (where not app.audit_hidden(c.key)
-                           and jsonb_typeof(coalesce(c.after, 'null')) in ('string', 'number', 'boolean', 'null')
-                           and jsonb_typeof(coalesce(c.before, 'null')) in ('string', 'number', 'boolean', 'null')
-                           and char_length(coalesce(c.before::text, '')) <= 200 and char_length(coalesce(c.after::text, '')) <= 200), '{}'::jsonb)
+                 filter (where app.audit_value_ok(c.key, c.before) and app.audit_value_ok(c.key, c.after)), '{}'::jsonb)
              end as changes
       from changed c group by c.venue_id
     loop

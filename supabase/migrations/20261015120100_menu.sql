@@ -1,4 +1,4 @@
--- Mana, clean schema 2/6: the menu. Schedules, sections, dishes, pictures, reusable add-on groups with ONE nesting
+-- Mana, clean schema 3/8: the menu. Schedules, sections, dishes, pictures, reusable add-on groups with ONE nesting
 -- level, "goes well with", upsell rules, opening hours and closures, availability overrides, published revisions.
 --
 -- Same-venue integrity is structural: every content table has unique (venue_id, id) and references its parent with
@@ -61,6 +61,7 @@ create table public.schedules (
 );
 alter table public.schedules enable row level security;
 create trigger schedules_touch before update on public.schedules for each row execute function app.touch();
+create trigger schedules_clean before insert or update on public.schedules for each row execute function app.strip_text('name_he', 'name_en');
 create trigger schedules_fixed before update on public.schedules for each row execute function app.guard_content();
 create trigger schedules_limit before insert on public.schedules for each row execute function app.guard_limit('schedules', 'venue_id');
 
@@ -85,6 +86,7 @@ create table public.sections (
 alter table public.sections enable row level security;
 create index sections_venue_idx on public.sections (venue_id, position);
 create trigger sections_touch before update on public.sections for each row execute function app.touch();
+create trigger sections_clean before insert or update on public.sections for each row execute function app.strip_text('name_he', 'name_en');
 create trigger sections_fixed before update on public.sections for each row execute function app.guard_content();
 create trigger sections_limit before insert on public.sections for each row execute function app.guard_limit('sections', 'venue_id');
 
@@ -122,6 +124,8 @@ comment on column public.dishes.allergens_he is 'The owner''s own words. Never g
 create index dishes_section_idx on public.dishes (section_id, position);
 create index dishes_venue_idx on public.dishes (venue_id);
 create trigger dishes_touch before update on public.dishes for each row execute function app.touch();
+create trigger dishes_clean before insert or update on public.dishes for each row
+  execute function app.strip_text('name_he', 'name_en', 'desc_he', 'desc_en', 'price_note_he', 'price_note_en', 'allergens_he', 'allergens_en');
 create trigger dishes_fixed before update on public.dishes for each row execute function app.guard_content();
 create trigger dishes_limit before insert on public.dishes for each row execute function app.guard_limit('dishes', 'venue_id');
 
@@ -229,6 +233,7 @@ alter table public.addon_groups enable row level security;
 comment on column public.addon_groups.label is 'The owner''s own label in the group library ("Side, burgers"). Never shown to guests.';
 create index addon_groups_venue_idx on public.addon_groups (venue_id);
 create trigger addon_groups_touch before update on public.addon_groups for each row execute function app.touch();
+create trigger addon_groups_clean before insert or update on public.addon_groups for each row execute function app.strip_text('label', 'name_he', 'name_en');
 create trigger addon_groups_fixed before update on public.addon_groups for each row execute function app.guard_content();
 create trigger addon_groups_limit before insert on public.addon_groups for each row execute function app.guard_limit('addon_groups', 'venue_id');
 
@@ -258,6 +263,7 @@ comment on column public.addon_options.opens_group_id is 'The ONE nesting level:
 create index addon_options_group_idx on public.addon_options (group_id, position);
 create index addon_options_opens_idx on public.addon_options (opens_group_id) where opens_group_id is not null;
 create trigger addon_options_touch before update on public.addon_options for each row execute function app.touch();
+create trigger addon_options_clean before insert or update on public.addon_options for each row execute function app.strip_text('name_he', 'name_en');
 create trigger addon_options_fixed before update on public.addon_options for each row execute function app.guard_content();
 create trigger addon_options_limit before insert on public.addon_options for each row execute function app.guard_limit('options_per_group', 'group_id');
 
@@ -307,6 +313,10 @@ begin
   hi := coalesce(new.max_units, g.max_units);
   if g.selection = 'single' and hi <> 1 then raise exception 'single_max'; end if;
   if lo > hi then raise exception 'limits_invalid'; end if;
+  -- a dish may only tighten its group's limits (the snapshot also clamps, should the group be tightened later)
+  if (new.min_units is not null and new.min_units < g.min_units) or (new.max_units is not null and new.max_units > g.max_units) then
+    raise exception 'limits_loosened';
+  end if;
   return new;
 end $$;
 create trigger dish_addon_groups_guard before insert or update on public.dish_addon_groups for each row execute function app.guard_dish_addon();
@@ -369,6 +379,7 @@ create table public.upsell_rules (
 alter table public.upsell_rules enable row level security;
 create index upsell_rules_venue_idx on public.upsell_rules (venue_id) where active;
 create trigger upsell_rules_touch before update on public.upsell_rules for each row execute function app.touch();
+create trigger upsell_rules_clean before insert or update on public.upsell_rules for each row execute function app.strip_text('label', 'line_he', 'line_en');
 create trigger upsell_rules_fixed before update on public.upsell_rules for each row execute function app.guard_content();
 create trigger upsell_rules_limit before insert on public.upsell_rules for each row execute function app.guard_limit('rules', 'venue_id');
 
@@ -386,13 +397,20 @@ begin
 end $$;
 create trigger upsell_rules_guard before insert or update on public.upsell_rules for each row execute function app.guard_rule();
 
--- a deleted dish or section leaves no stale id in a rule's lists; a rule whose whole scope is gone goes with it
+-- A deleted dish or section leaves no stale id in a rule's lists; a rule whose whole scope is gone goes with it. A rule
+-- whose "basket has" list loses its last target is switched off and the switch is logged: an emptied list would read as
+-- "no condition", and a condition must never turn into "always".
 create function app.scrub_rule_refs() returns trigger language plpgsql security definer set search_path = '' as $$
-declare kind text := case tg_table_name when 'dishes' then 'dish' else 'section' end;
+declare kind text := case tg_table_name when 'dishes' then 'dish' else 'section' end; emptied uuid[];
 begin
   if not exists (select 1 from public.venues v where v.id = old.venue_id) then return null; end if;
   delete from public.upsell_rules r
   where r.venue_id = old.venue_id and r.scope_kind = kind and r.scope_ids = array[old.id];
+  select coalesce(array_agg(r.id), '{}') into emptied from public.upsell_rules r
+  where r.venue_id = old.venue_id and r.active
+    and array_remove(case when kind = 'dish' then r.basket_has_dishes else r.basket_has_sections end, old.id)
+        || case when kind = 'dish' then r.basket_has_sections else r.basket_has_dishes end = '{}'::uuid[]
+    and old.id = any (case when kind = 'dish' then r.basket_has_dishes else r.basket_has_sections end);
   if kind = 'dish' then
     update public.upsell_rules r set scope_ids = array_remove(r.scope_ids, old.id),
       basket_has_dishes = array_remove(r.basket_has_dishes, old.id), basket_lacks_dishes = array_remove(r.basket_lacks_dishes, old.id)
@@ -403,6 +421,11 @@ begin
       basket_has_sections = array_remove(r.basket_has_sections, old.id), basket_lacks_sections = array_remove(r.basket_lacks_sections, old.id)
     where r.venue_id = old.venue_id
       and ((r.scope_kind = 'section' and old.id = any (r.scope_ids)) or old.id = any (r.basket_has_sections) or old.id = any (r.basket_lacks_sections));
+  end if;
+  if cardinality(emptied) > 0 then
+    update public.upsell_rules set active = false where id = any (emptied);
+    perform app.log(old.venue_id, 'upsell_rules.deactivated', 'upsell_rules', emptied::text[],
+                    jsonb_build_object('reason', 'basket_has_emptied', 'deleted', kind, 'deletedId', old.id), cardinality(emptied));
   end if;
   return null;
 end $$;
@@ -440,6 +463,7 @@ create table public.venue_closures (
 alter table public.venue_closures enable row level security;
 create index venue_closures_venue_idx on public.venue_closures (venue_id, to_date);
 create trigger venue_closures_fixed before update on public.venue_closures for each row execute function app.guard_content();
+create trigger venue_closures_clean before insert or update on public.venue_closures for each row execute function app.strip_text('note_he', 'note_en');
 create trigger venue_closures_limit before insert on public.venue_closures for each row execute function app.guard_limit('closures', 'venue_id');
 
 -- ---------------------------------------------------------------- venue-local time (the same rules as packages/contracts/src/time.ts)
