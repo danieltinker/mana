@@ -7,25 +7,25 @@ out/
 test-results/
 *.log
 .DS_Store
-studio/test/stack/fake-gen/models/*.bin
+apps/studio/test/stack/fake-gen/models/*.bin
 _site/
-ops/test/shots/
+apps/ops/test/shots/
 # local test machinery and screenshots: never on a public branch
-studio/test/.stack/
-view/.shots/
+apps/studio/test/.stack/
+apps/view/.shots/
 brand/.shots-raw/
 **/.shots*/
 *.pgdata/
 brand/.scratch/
-# the guest menu's build output: made by `cd view && npm run build` (CI builds it in tools/build-site.sh)
-view/app.js
-view/seat.js
+# the guest menu's build output: made by `cd apps/view && npm run build` (CI builds it in tools/build-site.sh)
+apps/view/app.js
+apps/view/seat.js
 # timers: the host board's build
-view/host.js
-# Café Lima's place system: the board's and the guest phone's builds (view/floor/)
-view/floor.js
-view/floor-guest.js
-view/chunks/
+apps/view/host.js
+# Café Lima's place system: the board's and the guest phone's builds (apps/view/floor/)
+apps/view/floor.js
+apps/view/floor-guest.js
+apps/view/chunks/
 # the product page's bundled scripts: made by node brand/tools/build-land.mjs (CI builds them in tools/build-site.sh)
 brand/site/land/
 
