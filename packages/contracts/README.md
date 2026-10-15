@@ -6,7 +6,7 @@ bundlers (esbuild, Vite) import them directly, so there is no build step.
 
 | File | What |
 |---|---|
-| `src/common.ts` | Shared checks, among them the one definition of a **blank** character (`BLANK_CLASS`, `isBlank`, `stripBlank`): Unicode spaces, controls like tab and newline, NBSP, BOM, zero-width and direction marks. The database's `app.strip_blank` uses the same class (compared code point by code point in `supabase/tests`). |
+| `src/common.ts` | Shared checks, among them the one definition of a **blank** character (`BLANK_CLASS`, `isBlank`, `stripBlank`): Unicode spaces, controls like tab and newline, NBSP, BOM, soft hyphen, zero-width and direction marks, variation selectors, tags, and the fillers that draw nothing. Stripping keeps the variation selectors and tags that finish an emoji at the end of a name. The database's `app.strip_blank` uses the same class and rule (compared code point by code point, and on sample strings, in `supabase/tests`). |
 | `src/enums.ts` | Every closed list of words (venue kinds and modes, roles, triggers, onboarding steps, import sources…) and the size limits. The database's check constraints use the same lists (compared in `supabase/tests`). |
 | `src/domain.ts` | One row type per table of the clean schema, column for column, plus `TABLE_COLUMNS` (compared with the database). |
 | `src/snapshot.ts` | The published menu **snapshot v2**: everything the guest menu needs. Readers ignore fields they do not know. |

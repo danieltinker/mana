@@ -56,28 +56,65 @@ select * from app.audit_grants();          -- must return no rows: the grants ar
 
 Once, after the last one:
 
-```sql
--- the public storage address for this environment (ends with "/")
-update public.app_config set value = to_jsonb('https://<project-ref>.supabase.co/storage/v1/object/public/menu-public/'::text)
-where key = 'public_base';
--- the synthetic demo venue (optional): run seed/synthetic.sql
-```
+1. Set the public storage address and, optionally, seed the demo venue:
 
-Then run the Supabase advisors (security and performance) and check that `cron.job` holds the three jobs.
+   ```sql
+   -- the public storage address for this environment (ends with "/")
+   update public.app_config set value = to_jsonb('https://<project-ref>.supabase.co/storage/v1/object/public/menu-public/'::text)
+   where key = 'public_base';
+   -- the synthetic demo venue (optional): run seed/synthetic.sql
+   ```
+
+2. **Auth → Sign In / Providers → Email → "Confirm email" ON**, with a working mail sender (custom SMTP). With it
+   off, Supabase marks every address confirmed at sign-up, so `require_confirmed_email` proves nothing; without mail,
+   nobody can confirm, so nobody can create a venue.
+3. Run the Supabase advisors (security and performance) and check that `cron.job` holds the three jobs.
+4. **The header check.** The caps trust the address the platform puts in `cf-connecting-ip` / `x-real-ip` / the last
+   `X-Forwarded-For` entry. Prove a caller cannot choose it: send two `track_events` calls from the same machine to the
+   demo venue (published and approved by the seed), one plain and one with forged headers, then look at the counters.
+
+   ```bash
+   # $URL = the project URL, $KEY = its publishable key; each call needs a fresh event id
+   ev() { printf '[{"id":"%s","name":"menu_opened","venueId":"00000000-0000-4000-8000-0000000000c1","at":"%s","props":{"src":"link","lang":"he","revision":1}}]' \
+     "$(uuidgen | tr A-Z a-z)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; }
+   curl -s "$URL/rest/v1/rpc/track_events" -H "apikey: $KEY" -H 'Content-Type: application/json' -d "{\"p_events\": $(ev)}"
+   curl -s "$URL/rest/v1/rpc/track_events" -H "apikey: $KEY" -H 'Content-Type: application/json' \
+     -H 'cf-connecting-ip: 203.0.113.1' -H 'x-real-ip: 203.0.113.2' -H 'x-forwarded-for: 203.0.113.3, 203.0.113.4' -d "{\"p_events\": $(ev)}"
+   ```
+
+   ```sql
+   select key, n from app.event_counters
+   where key like 'demo-source:%' and window_start = date_trunc('hour', now());
+   ```
+
+   **One key with `n = 2`** (and nothing else new) means both calls landed on the real client's source: the forged
+   headers were ignored. Two keys mean the platform passes caller-written headers through; do not open the product
+   until `app.request_source()` is changed to the header the platform does control.
 
 A later migration that changes access adds its grants and policies at its end, in the same style, and updates the
 intended list inside `app.audit_grants()` in the same change; the tests fail otherwise.
 
 ## Settings (`public.app_config`)
 
+**Three founder decisions the reviews introduced** are switches, set to the cautious side until Daniel and Rami decide:
+
+| Decision | Switch | Default | Note |
+|---|---|---|---|
+| Halom checks a venue before guests see it | `publish_requires_approval` | **`true`** | The first publish waits for `ops_approve_venue`, which makes it visible and starts the trial. `false`: the first publish goes live at once |
+| Only confirmed e-mail addresses create venues | `require_confirmed_email` | **`true`** | Needs Auth → "Confirm email" ON and a working mail sender (see the checklist above) |
+| How long raw guest events are kept | `events_retention_months` | **`13`** | The daily job drops older event partitions; the rollups are kept as they are |
+
+All settings:
+
 | Key | Default | What |
 |---|---|---|
 | `public_base` | `null` | The public storage address (set per environment); publishing is refused until it is set |
 | `publish_requires_approval` | **`true`** (until Daniel decides) | A venue's first publish waits for Halom: `ops_approve_venue` makes it visible and starts the trial |
-| `require_confirmed_email` | `true` | `create_venue` needs a confirmed auth e-mail |
+| `require_confirmed_email` | `true` | `create_venue` needs a confirmed auth e-mail (and Auth's "Confirm email" ON) |
 | `staff_require_aal2` | `false` | Staff count as staff only in an MFA (`aal2`) session. **Turn it on as soon as the back office has its MFA screen** |
 | `event_caps` | `{"per_source_hour": 300, "per_venue_source_day": 1500, "per_venue_day": 50000}` | Guest-event caps; past `per_venue_day` the day is flagged as capped |
-| `lead_caps` | `{"per_source_hour": 5, "hard_day": 2000}` | Past `per_source_hour` a lead is kept as `spam`; past `hard_day` leads in the last 24 hours nothing more is stored |
+| `event_caps_demo` | `{"per_source_hour": 100000, "per_venue_source_day": 1000000, "per_venue_day": 1000000}` | The same caps for demo venues (`venues.is_demo`), on counters of their own: the simulator runs every bot from one source |
+| `lead_caps` | `{"per_source_hour": 5, "per_source_day": 20, "hard_day": 2000}` | Past `per_source_hour` a lead is kept as `spam`; past `per_source_day` one source's leads are answered ok and not stored; past `hard_day` non-spam leads from everyone in 24 hours the form answers `rate_limited` |
 | `events_retention_months` | `13` | Event partitions older than this many months are dropped by the daily job |
 | `staff_invite_max_failures` | `5` | Failed invite redemptions per person per day before `locked` |
 | `trial_days`, `vat_basis_points`, `limits`, `reserved_slugs` | 30, 1800, … | As in the foundation |
@@ -93,14 +130,26 @@ the API), each `SECURITY DEFINER` with `search_path = ''`:
 | owner | everything of their venues | menu, hours, availability, settings, imports, cases, publish, restore, unpublish; the support switch (owner only) |
 | manager | like the owner | like the owner, except the team and the support switch |
 | counter | the menu of their venue | availability overrides only (take off, restore); never a price |
-| Halom support / admin | every venue's menu and records | a venue's menu **only** through `act_for_owner`; approvals and plans through `ops_*` (each with a reason); leads only through `ops_leads` |
-| service role (edge functions) | everything (it bypasses RLS) | menu and import tables; **never** the records (activity log, revisions, events, rollups), never TRUNCATE / TRIGGER / REFERENCES, never deletes an availability override |
+| Halom support | every venue's menu and records | a venue's menu **only** through `act_for_owner`; approvals through `ops_approve_venue` (with a reason); leads only through `ops_leads` |
+| Halom admin | like support | like support, plus staff invites (`create_staff_invite`) and plans (`ops_set_plan`, with a reason) |
+| service role (edge functions) | everything (it bypasses RLS) | **only** what the scanner and the picture pipeline produce: insert and update on `menu_imports` and `assets`. Never a venue, member, staff row, invite or plan, never the records (activity log, revisions, events, rollups), never TRUNCATE / TRIGGER / REFERENCES; anything else goes through an RPC |
 
 Structural guarantees beside the policies: composite foreign keys `(venue_id, id)` so no row points into another venue;
 the slug is permanent; pictures (including the logo and the table photo) live in the venue's own storage folder;
 availability overrides can only be restored, never edited or deleted; venues with history cannot be deleted (records
 `RESTRICT`), they are archived; a venue always keeps an owner (the venue's row is locked, so two owners cannot remove
-each other at once).
+each other at once); a venue's approval (`approved_at`, `approved_by`) is audited like any other column.
+
+**Plans and trials.** A venue has one trial: it starts with the first approved publish (or `ops_approve_venue`) and only
+while no trial ever started, so a venue set back to `pending` does not get a fresh one by publishing again. **To take a
+venue offline, an admin sets it to `suspended`** (`ops_set_plan`, with a reason); guests then see "unavailable" and
+publishing is refused (`plan_suspended`). `pending` is only the state before the first approval.
+
+**A rule that lost its condition stays off.** When the last dish or section a rule's "basket has" names is deleted, the
+rule is switched off with `inactive_reason = 'basket_has_emptied'` (logged as `upsell_rules.deactivated`). Switching it
+on again with the list still empty is refused (`rule_condition_emptied`), since "when the basket has X" would become
+"always"; giving it a new target clears the reason and it may go on. The reason cannot be cleared by hand while the list
+is empty: a rule meant to have no condition is made as a new rule.
 
 **Append-only, and its limit.** `activity_log` and `menu_revisions` refuse UPDATE, DELETE and TRUNCATE through
 triggers, for every API role and for ordinary SQL. The database owner and a superuser can still bypass that (disable the
@@ -142,7 +191,9 @@ next day. The first admin is added once by SQL, by whoever applies the migration
 refused per event (own keys only: `constructor` or `__proto__` are not properties), times must carry an offset, ids must
 belong to the venue, the venue must be published and approved, and the same id is stored once (also across batches).
 Three caps stop scripted inflation: per source per hour, per (venue, source) per day, per venue per local day; the day a
-venue passes its cap is recorded and shown (`my_dashboard().capped`, `ops_overview().venues[].cappedToday`).
+venue passes its cap is recorded and shown (`my_dashboard().capped`, `ops_overview().venues[].cappedToday`). Demo venues
+use `event_caps_demo` on counters of their own (`demo-source:…`), so the simulator's bots never cap a real venue's
+guests who share an address with them.
 
 The **source** is a SHA-256 of the caller's address with a random salt that changes every UTC day (kept two days, then
 deleted). The address is `cf-connecting-ip`, then `x-real-ip`, then the **last** `X-Forwarded-For` entry; never the
@@ -162,7 +213,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 |---|---|---|
 | `public_menu(p_slug)` | anyone | `{state:'ok', snapshot, live}` · `{state:'unavailable', venue:{name}}` (unpublished, waiting for review, plan not live) · `{state:'not_found'}` |
 | `track_events(p_events)` | anyone | `{ok, accepted, duplicates, capped, rejected:[{index, code}]}` |
-| `submit_lead(…)` | anyone | Mana's own "talk to us" form; `{ok, ref}` for a well-formed lead (suspected spam is kept, marked `spam`); same token, same ref; `{ok:false, code:'rate_limited'}` only past the 24-hour ceiling |
+| `submit_lead(…)` | anyone | Mana's own "talk to us" form; `{ok, ref}` for a well-formed lead (suspected spam is kept, marked `spam`); same token, same ref; `{ok}` without a ref, and nothing stored, for one source past `per_source_day`; `{ok:false, code:'rate_limited'}` only past the 24-hour ceiling of non-spam leads |
 | `slug_available(p_slug)`, `create_venue(p_slug, p_name_he, p_name_en, p_kind, p_default_lang)` | signed in, confirmed e-mail | the venue, its owner, a pending trial, nine onboarding steps; at most five venues per owner |
 | `preview_menu(p_venue)` | owner, manager, staff | `{snapshot, issues, warnings}`: what a publish would produce, what would stop it, what would only warn |
 | `publish_menu(p_venue, p_note)` | owner, manager | builds snapshot v2, validates it with the contracts' codes, stores revision n+1, returns `{ok, revision, slug, path:'/m/<slug>', review, warnings}` |
@@ -172,7 +223,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `create_staff_invite(p_email, p_role)` | Halom admin | `{ok, code, expiresAt}`, the code shown once |
 | `ops_overview()` | staff | every venue: review, onboarding stage and blockers, last publish, opens today / 7 days / last hour, capped today, suggestions, open cases, warnings, plan |
 | `ops_approve_venue(p_venue, p_reason)` | staff | approves the first publish, starts the trial, logged with the reason |
-| `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` | staff | sets the plan state by hand until billing exists (live today as `ops_set_entitlement`), logged with the reason |
+| `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` | Halom admin | sets the plan state by hand until billing exists (live today as `ops_set_entitlement`), logged with the reason; `suspended` takes a venue offline |
 | `ops_leads(p_status, p_source, p_since, p_limit)`, `ops_update_lead(p_id, p_status, p_owner, p_notes)` | staff | the leads, every read logged; spam out of the default view |
 | `act_for_owner(p_venue, p_reason, p_action, p_payload)` | staff | the only staff write path into a venue's menu (above) |
 
