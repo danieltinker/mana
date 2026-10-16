@@ -24,7 +24,7 @@
  */
 import {
   BLANK_CLASS, cleanText, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, stripBlank, textLength,
-  type Lang, type Text, type Validation,
+  type Issue, type Lang, type Text, type Validation,
 } from './common.ts';
 import type {
   AddonGroupRow, AddonOptionRow, AssetRow, DishAddonGroupRow, DishRow, MenuImportRow, SectionRow,
@@ -185,10 +185,25 @@ export function importKey(text: string): string {
 }
 
 type Keys = { readonly he: string; readonly en: string };
-const keysOf = (t: Text): Keys => ({ he: importKey(t.he), en: importKey(t.en) });
-const scoreKeys = (a: Keys, b: Keys): number => (a.he !== '' && a.he === b.he ? 2 : 0) + (a.en !== '' && a.en === b.en ? 1 : 0);
+/** A name made only of symbols or emoji has no `importKey` in either language: it is matched by its exact text instead,
+ * `#<Hebrew>#<English>` with blank edges stripped (no `importKey` holds a `#`), in the Hebrew slot. */
+export const fallbackKey = (t: Text): string => `#${stripBlank(t.he)}#${stripBlank(t.en)}`;
+/** The name says something, but nothing `importKey` keeps (symbols or emoji only): `name_symbols`. */
+export const symbolsOnly = (t: Text): boolean => importKey(t.he) === '' && importKey(t.en) === '' && !(isBlank(t.he) && isBlank(t.en));
+const keysOf = (t: Text): Keys => {
+  const he = importKey(t.he);
+  const en = importKey(t.en);
+  if (he !== '' || en !== '' || (isBlank(t.he) && isBlank(t.en))) return { he, en };
+  return { he: fallbackKey(t), en: '' };
+};
+const scoreKeys = (a: Keys, b: Keys): number =>
+  a.he !== '' && b.he !== '' && a.he !== b.he ? 0 : (a.he !== '' && a.he === b.he ? 2 : 0) + (a.en !== '' && a.en === b.en ? 1 : 0);
 
-/** How well two bilingual names match: 2 when the Hebrew keys are equal (and not empty), plus 1 for English. */
+/**
+ * How well two bilingual names match: 2 when the Hebrew keys are equal (and not empty), plus 1 for English; 0 when both
+ * have a Hebrew key and they differ, whatever the English says ("סלט קיסר / Salad" is not "סלט ירקות / Salad"). A
+ * name of symbols or emoji only is keyed by its exact text (`fallbackKey`).
+ */
 export const nameScore = (a: Text, b: Text): number => scoreKeys(keysOf(a), keysOf(b));
 
 /** Dishes match across sections only within one family of section kinds: food (food, dessert) or drink. */
@@ -206,13 +221,30 @@ const utf8Bytes = (s: string): number => {
 };
 
 /**
+ * A JSON number as PostgreSQL's jsonb writes it back: a `numeric`, never in exponent form (JavaScript writes 1e21 as
+ * "1e+21", PostgreSQL as "1000000000000000000000"; 1e-7 as "0.0000001").
+ */
+export function jsonbNumberText(n: number): string {
+  const s = JSON.stringify(n); // the text a client sends ("0" for -0; null for NaN and Infinity, which JSON has not)
+  const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (!m) return s;
+  const [, sign, lead, frac = '', exp] = m;
+  const digits = lead! + frac;
+  const point = 1 + Number(exp);
+  if (point >= digits.length) return sign + digits + '0'.repeat(point - digits.length);
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+/**
  * The bytes of a value's jsonb text form, as PostgreSQL writes it (`octet_length(v::text)`): JSON with `": "` between
- * a key and its value and `", "` between items. The order of keys does not change the length.
+ * a key and its value and `", "` between items, numbers as `jsonbNumberText`. The order of keys does not change the
+ * length.
  */
 export function draftBytes(v: unknown): number {
   if (v === null || v === undefined) return 4;
   if (typeof v === 'boolean') return v ? 4 : 5;
-  if (typeof v === 'number') return String(v).length;
+  if (typeof v === 'number') return jsonbNumberText(v).length;
   if (typeof v === 'string') return utf8Bytes(JSON.stringify(v));
   if (Array.isArray(v)) return v.reduce((n: number, x) => n + draftBytes(x), 2) + Math.max(0, v.length - 1) * 2;
   if (typeof v === 'object') {
@@ -239,10 +271,11 @@ function only(x: Issues, o: Record<string, unknown>, allowed: readonly string[],
   for (const k of Object.keys(o)) if (!allowed.includes(k)) x.add('field_not_allowed', path ? `${path}.${k}` : k);
 }
 
+/** Text is measured as it will be stored: in code points, once blank edges are stripped (as everywhere, ADR-008). */
 function str(x: Issues, v: unknown, path: string, max: number): void {
   if (!isString(v)) return void x.add('type', path);
   if (!isStorableText(v)) x.add('text_invalid', path);
-  else if (textLength(v) > max) x.add('text_too_long', path);
+  else if (textLength(stripBlank(v)) > max) x.add('text_too_long', path);
 }
 
 function text(x: Issues, v: unknown, path: string, max: number, needName = false): void {
@@ -250,7 +283,7 @@ function text(x: Issues, v: unknown, path: string, max: number, needName = false
   only(x, v, KEYS.text, path);
   for (const l of LANGS) {
     if (!isStorableText(v[l] as string)) x.add('text_invalid', `${path}.${l}`);
-    else if (textLength(v[l] as string) > max) x.add('text_too_long', `${path}.${l}`);
+    else if (textLength(stripBlank(v[l] as string)) > max) x.add('text_too_long', `${path}.${l}`);
   }
   if (needName && isBlank(v.he) && isBlank(v.en)) x.add('name_missing', path);
 }
@@ -293,7 +326,8 @@ export function draftGroupLimits(g: Pick<DraftGroup, 'selection' | 'min' | 'max'
  * defaults_exceed, ref_unknown, addon_duplicate, count_invalid.
  *
  * - Sizes: at most `DRAFT_BYTES_MAX` bytes (`draftBytes`), within `DRAFT_CAPS`, and at most `EXCEPTIONS_MAX`
- *   exceptions; text lengths in code points; no NUL and no lone surrogate (`text_invalid`); no key the type does not
+ *   exceptions; text lengths in code points of the text with its blank edges stripped (a photo path as it is); no NUL
+ *   and no lone surrogate (`text_invalid`); no key the type does not
  *   have, at any level (`field_not_allowed`).
  * - A dish's limits: each 0–30 and min ≤ max; under a group's **stated** limits they may only tighten
  *   (`limits_loosened`; a guess yields to what a dish states), and they may not contradict them: a dish min above the
@@ -489,6 +523,9 @@ export const IMPORT_EXCEPTIONS = {
   name_missing_lang: 'check',
   /** the draft (key `DRAFT_ROOT`, `count` nodes): text the reader translated; Hebrew and French need a native read. */
   translation_check: 'check',
+  /** section, dish, group or option: a name of symbols or emoji only (no letter or digit in either language); a later
+   * import recognises it only by the exact same text (`fallbackKey`). */
+  name_symbols: 'check',
   /** option: opens a group from inside a group that is itself opened (two levels; one is the limit, D37). */
   nesting_too_deep: 'fix',
   /** section, dish, group, option or a dish's group: past `LIMITS` (sections, dishes, groups, options per group,
@@ -539,6 +576,7 @@ export const EXCEPTION_CHOICES: Readonly<Record<ImportExceptionCode, readonly Im
   dish_repeated: ['skip', 'keep_both'],
   name_missing_lang: ['accept'],
   translation_check: ['accept'],
+  name_symbols: ['accept'],
   nesting_too_deep: ['unlink', 'skip'],
   too_many: ['skip'],
   photo_rights_unknown: ['illustration', 'confirm_rights'],
@@ -627,6 +665,7 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
     if (i >= LIMITS.sections) push('too_many', s.key, p);
     if (sectionKeys.slice(0, i).some((k) => scoreKeys(sectionKeys[i]!, k) > 0)) push('section_duplicate', s.key, p);
     named(s.name, s.translated);
+    if (symbolsOnly(s.name)) push('name_symbols', s.key, p);
     s.dishes.forEach((d, j) => {
       const q = `${p}.dishes[${j}]`;
       const f = flat[flatN++]!;
@@ -636,6 +675,7 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
       if (candidates(dishIndex, f.keys).some((t) => t.index < f.index && sameSection(t.section, i))) push('dish_duplicate', d.key, q);
       else if (repeated(f)) push('dish_repeated', d.key, q);
       named(d.name, d.translated, [d.desc]);
+      if (symbolsOnly(d.name)) push('name_symbols', d.key, q);
       if (dishN >= LIMITS.dishes) push('too_many', d.key, q);
       dishN += 1;
       if (d.photo !== null && d.photo.rights !== 'confirmed') push('photo_rights_unknown', d.key, q);
@@ -652,11 +692,13 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
     if (!lim.stated) push('limits_guessed', g.key, p);
     if (lim.min > lim.capacity) push('limits_unreachable', g.key, p);
     named(g.name, g.translated);
+    if (symbolsOnly(g.name)) push('name_symbols', g.key, p);
     if (i >= LIMITS.addonGroups) push('too_many', g.key, p);
     g.options.forEach((o, j) => {
       const q = `${p}.options[${j}]`;
       if (o.price === null) push('option_price_unreadable', o.key, q);
       named(o.name, o.translated);
+      if (symbolsOnly(o.name)) push('name_symbols', o.key, q);
       if (o.opens !== null && opened.has(g.key)) push('nesting_too_deep', o.key, q);
       if (j >= LIMITS.optionsPerGroup) push('too_many', o.key, q);
     });
@@ -750,8 +792,8 @@ export const PLAN_KINDS = ['section', 'group', 'option', 'dish', 'dish_group', '
 export type PlanKind = (typeof PLAN_KINDS)[number];
 export const PLAN_OPS = ['create', 'update', 'keep', 'skip'] as const;
 export type PlanOp = (typeof PLAN_OPS)[number];
-/** Why a node is left out: the owner's choice (or `ImportDecisions.skip`); a duplicate section merged into the first;
- * a section that receives nothing new, or a group left with no options; a node whose section, dish or group is left
+/** Why a node is left out: the owner's choice (or `ImportDecisions.skip`); a duplicate section merged into the first,
+ * or a dish's second link to an existing group one of its links already lands on; a section that receives nothing new, or a group left with no options; a node whose section, dish or group is left
  * out; a group no dish of this import uses. */
 export const SKIP_REASONS = ['choice', 'merged', 'empty', 'parent_skipped', 'unused'] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
@@ -832,9 +874,10 @@ function byIndex<T>(rows: readonly Row<T>[]): { he: Map<string, Row<T>[]>; en: M
   }
   return { he, en };
 }
+/** The rows whose name matches `k` (`scoreKeys` > 0: an English match does not count when the Hebrew names differ). */
 function candidates<T>(index: { he: Map<string, Row<T>[]>; en: Map<string, Row<T>[]> }, k: Keys): Row<T>[] {
   const a = k.he !== '' ? (index.he.get(k.he) ?? []) : [];
-  const b = k.en !== '' ? (index.en.get(k.en) ?? []) : [];
+  const b = k.en !== '' ? (index.en.get(k.en) ?? []).filter((r) => scoreKeys(k, r.keys) > 0) : [];
   return b.length === 0 ? a : [...new Set([...a, ...b])];
 }
 const compareIds = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -883,8 +926,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    group whose kept options cannot reach its minimum (`draftGroupLimits` over them) while all its options could asks
  *    `limits_unreachable` once, keyed by the group (a draft-level one is not asked again); `skip` leaves the group out
  *    (`choice`) and the cascade runs again, which may make another group unreachable; until nothing changes.
- * 3. **Sections by name**, in draft order: a section merged into an earlier one (`merge`) goes where that one goes;
- *    otherwise the best unclaimed existing section by `nameScore` (then position, then id).
+ * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes; the other kept
+ *    sections claim existing ones in one pass (`assign`: best `nameScore`, then the row's position, id, then the draft
+ *    key), so the result does not depend on the draft's order.
  * 4. **Dishes in their section:** every kept dish whose section resolved, against the dishes of that existing section,
  *    in one pass over all of them (`assign`: best score, then the row's position, id, then the draft key).
  * 5. **Dishes elsewhere:** the dishes still unmatched against the existing dishes still free, only in a section of the
@@ -937,8 +981,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    target (positions after the group's last, never a default, opening nothing), and is `skip` (`choice`) otherwise.
  * 12. **Links:** a link staying on the dish's own group is kept (its row's id), or under `new_group` updated with the
  *    draft's dish limits (a minimum above the created group's kept capacity is null) and `refs.group_id`; others are
- *    created with the draft's dish limits: for an existing group
- *    only those within its own limits (else null), for a created group a minimum above its kept capacity is null.
+ *    created with the draft's dish limits: for an existing group only those within its own limits (else null), for a
+ *    created group a minimum above its kept capacity is null. A dish never gets two links to one existing group: a
+ *    link landing on an existing group an earlier link of the same dish (link order) already lands on is `merged`.
  *    **Photos:** created for a dish with no picture in a live state (`LIVE_ASSET_STATUSES`; the dish's `asset_id`
  *    first) when its rights are confirmed (by the draft or `confirm_rights`); kept (that picture's id) otherwise.
  * 13. **Positions** continue after the highest existing one (or from 0), in draft order.
@@ -1073,18 +1118,14 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const claimedSections = new Set<string>();
   const sectionKeys = new Map(draft.sections.map((s) => [s.key, keysOf(s.name)] as const));
   draft.sections.forEach((s, i) => {
-    if (out(s.key)) return;
-    if (chosen('section_duplicate', s.key) === 'merge') {
-      const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
-      mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
-      return;
-    }
-    const k = sectionKeys.get(s.key)!;
-    const m = exSections
-      .filter((e) => !claimedSections.has(e.id) && scoreKeys(k, e.keys) > 0)
-      .sort((a, b) => scoreKeys(k, b.keys) - scoreKeys(k, a.keys) || a.position - b.position || compareIds(a.id, b.id))[0];
-    if (m) { claimedSections.add(m.id); target.set(s.key, { id: m.id, ref: null }); nameMatched.add(s.key); }
+    if (out(s.key) || chosen('section_duplicate', s.key) !== 'merge') return;
+    const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
+    mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
   });
+  // the other kept sections claim existing ones in one pass (best score, then position, id, draft key), whatever their order
+  const byName = assign(draft.sections.filter((s) => !out(s.key) && !mergedInto.has(s.key)).map((s) => ({ key: s.key, keys: sectionKeys.get(s.key)! })),
+    () => exSections, claimedSections);
+  for (const [key, m] of byName) { target.set(key, { id: m.id, ref: null }); nameMatched.add(key); }
   const rootOf = (sectionKey: string): string => mergedInto.get(sectionKey) ?? sectionKey;
 
   // ---- 4–7. dishes: in their section, elsewhere in the family, renamed sections, another kind
@@ -1427,38 +1468,47 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   // ---- 12. links and photos
   const linkSteps: PlanStep[] = [];
   const nextLinkPosition = new Map<string, number>();
-  for (const s of draft.sections) for (const d of s.dishes) d.groups.forEach((a) => {
-    const lk = linkKey(d.key, a.group);
-    const reason = linkOut(d, a);
-    if (reason) return void linkSteps.push(skipStep('dish_group', lk, reason));
-    const res = linkRes.get(lk)!;
-    if (res.kind === 'own' && res.answer === 'new_group') {
-      // moved to the group this plan creates: like a created link, a minimum above its kept capacity is dropped
-      const min = a.min !== null && a.min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX) ? null : a.min;
-      return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
-    }
-    if (res.kind === 'own') return void linkSteps.push(changeStep('dish_group', lk, res.link.id, {}));
-    const dt = dishTarget.get(d.key)!;
-    const gt = globalOf(a.group);
-    const tk = targetKeyOf(dt);
-    if (!nextLinkPosition.has(tk)) nextLinkPosition.set(tk, nextPosition(dt.id ? linksOf.get(dt.id) ?? [] : []));
-    const position = nextLinkPosition.get(tk)!;
-    nextLinkPosition.set(tk, position + 1);
-    let min = a.min;
-    let max = a.max;
-    if (gt.id) {
-      // a dish only tightens an existing group: a stated limit outside the group's own is dropped
-      const y = groupById.get(gt.id)!;
-      if (min !== null && (min < y.min_units || min > y.max_units)) min = null;
-      if (max !== null && (max > y.max_units || max < y.min_units)) max = null;
-      if (min !== null && max !== null && min > max) { min = null; max = null; }
-    } else if (min !== null && min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX)) min = null;
-    const set: LinkCreate = { position, min_units: min, max_units: max };
-    const refs: { dish_id?: string; group_id?: string } = {};
-    if (dt.id) set.dish_id = dt.id; else refs.dish_id = dt.ref!;
-    if (gt.id) set.group_id = gt.id; else refs.group_id = gt.ref!;
-    linkSteps.push(createStep('dish_group', lk, set, refs));
-  });
+  for (const s of draft.sections) for (const d of s.dishes) {
+    const used = new Set<string>(); // the existing groups this dish's links already landed on
+    d.groups.forEach((a) => {
+      const lk = linkKey(d.key, a.group);
+      const reason = linkOut(d, a);
+      if (reason) return void linkSteps.push(skipStep('dish_group', lk, reason));
+      const res = linkRes.get(lk)!;
+      // two draft groups that land on one existing group (one by its Hebrew name, one by its English): one link
+      const lands = res.kind === 'own' ? (res.answer === 'new_group' ? null : res.groupId) : globalOf(a.group).id;
+      if (lands !== null) {
+        if (used.has(lands)) return void linkSteps.push(skipStep('dish_group', lk, 'merged'));
+        used.add(lands);
+      }
+      if (res.kind === 'own' && res.answer === 'new_group') {
+        // moved to the group this plan creates: like a created link, a minimum above its kept capacity is dropped
+        const min = a.min !== null && a.min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX) ? null : a.min;
+        return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
+      }
+      if (res.kind === 'own') return void linkSteps.push(changeStep('dish_group', lk, res.link.id, {}));
+      const dt = dishTarget.get(d.key)!;
+      const gt = globalOf(a.group);
+      const tk = targetKeyOf(dt);
+      if (!nextLinkPosition.has(tk)) nextLinkPosition.set(tk, nextPosition(dt.id ? linksOf.get(dt.id) ?? [] : []));
+      const position = nextLinkPosition.get(tk)!;
+      nextLinkPosition.set(tk, position + 1);
+      let min = a.min;
+      let max = a.max;
+      if (gt.id) {
+        // a dish only tightens an existing group: a stated limit outside the group's own is dropped
+        const y = groupById.get(gt.id)!;
+        if (min !== null && (min < y.min_units || min > y.max_units)) min = null;
+        if (max !== null && (max > y.max_units || max < y.min_units)) max = null;
+        if (min !== null && max !== null && min > max) { min = null; max = null; }
+      } else if (min !== null && min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX)) min = null;
+      const set: LinkCreate = { position, min_units: min, max_units: max };
+      const refs: { dish_id?: string; group_id?: string } = {};
+      if (dt.id) set.dish_id = dt.id; else refs.dish_id = dt.ref!;
+      if (gt.id) set.group_id = gt.id; else refs.group_id = gt.ref!;
+      linkSteps.push(createStep('dish_group', lk, set, refs));
+    });
+  }
 
   const livePhoto = (dishId: string): string | null => {
     const d = dishById.get(dishId);
@@ -1557,9 +1607,11 @@ export const IMPORT_CLIENT_COLUMNS = [
   'id', 'venue_id', 'source', 'status', 'raw_paths', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by',
   'applied_at', 'created_at', 'updated_at',
 ] as const;
-type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at'>;
-/** An import as a client reads it, by status. */
-export type MenuImportView = ImportViewBase & (
+type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at' | 'notes'>;
+/** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`), stored by
+ * `save_import_draft` so the preview survives a reload ([] until then). The phase-1 migration adds the column
+ * `menu_imports.notes`, and with it `MenuImportRow.notes` and `notes` in `IMPORT_CLIENT_COLUMNS`. */
+export type MenuImportView = ImportViewBase & { readonly notes: readonly ReaderNote[] } & (
   | { readonly status: 'uploaded' | 'parsing'; readonly parsed: null; readonly exceptions: readonly []; readonly error_code: null; readonly applied_at: null }
   | { readonly status: 'parsed'; readonly parsed: ImportDraft; readonly exceptions: readonly ImportException[]; readonly error_code: null; readonly applied_at: null }
   | { readonly status: 'failed'; readonly parsed: ImportDraft | null; readonly exceptions: readonly ImportException[]; readonly error_code: string; readonly applied_at: null }
@@ -1650,19 +1702,131 @@ export type ClaimScanReply =
 export const SCAN_ERROR_CODES = ['image_unreadable', 'model_failed', 'draft_invalid', 'timeout'] as const;
 export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
 
-/** `save_import_draft`: the client (text sources) or the scanner (image sources) stores what it read. */
-export type SaveDraftInput = { readonly importId: string; readonly draft: ImportDraft };
+// ---------------------------------------------------------------- what a reader says about the source
+
+/**
+ * What a reader tells the owner beside the draft (`packages/import`, the scanner): what it left out and why, and what it
+ * read but wants checked. The draft's exceptions are about the draft; these are about the source. `info` = nothing to
+ * do; `check` = worth a look in the preview. **A note never carries the source's text**: a code, the draft key it
+ * concerns, line numbers (or the scanner's pages) and counts only.
+ */
+export const READER_NOTES = {
+  /** The input was empty, or held nothing but blank lines. */
+  empty_input: 'info',
+  /** The input was longer than `IMPORT_TEXT_MAX`; the rest was not read. */
+  input_truncated: 'check',
+  /** The source had more than `DRAFT_CAPS` allows (sections, dishes, groups, options); the rest was left out. */
+  caps_reached: 'check',
+  /** Lines recognised as not being menu content (`rule` says which: header, rating, delivery, hours, fee, …). */
+  noise: 'info',
+  /** A line no rule could place; left out (counted in `dropped`). */
+  line_unknown: 'info',
+  /** A section's own text (a sub-title, a line about the whole section): a draft section has no place for it. */
+  section_text: 'info',
+  /** A heading with no dish under it. */
+  section_empty: 'info',
+  /** The page's "Popular" section, which repeats dishes of other sections, was left out. */
+  popular_dropped: 'info',
+  /** Some dishes of the "Popular" section appear in no other section: the copy may be missing part of the page. */
+  popular_only: 'check',
+  /** A label outside Mana's tags (kosher, organic…), left out: tags come only from `TAGS`. */
+  label_dropped: 'info',
+  /** The source marks the dish sold out. Mana does not make it unavailable: the owner decides. */
+  sold_out: 'check',
+  /** Several prices, a range or "from": the first price was taken and the price note keeps what the source showed. */
+  price_range: 'check',
+  /** Two prices side by side (a discount and the regular price): the higher, regular price was taken. */
+  price_discount: 'check',
+  /** No price beside the dish; the price on the sheet's "Add to order" button was taken. */
+  price_from_button: 'check',
+  /** A text longer than the draft allows was shortened. */
+  text_clipped: 'check',
+  /** A group's stated limits are outside what Mana allows (or contradict each other); they were left unstated. */
+  limits_dropped: 'check',
+  /** More pre-selected options than the group allows; none is kept pre-selected. */
+  defaults_cleared: 'check',
+  /** Choices (a group heading, option lines) with no dish before them. */
+  group_orphan: 'info',
+  /** A group heading names an option ("Sauce for fries") that the dish does not show: kept as a plain group. */
+  nesting_unmatched: 'info',
+  /** The scanner's answer for a page stopped before its end (too long); what arrived is kept. */
+  page_truncated: 'check',
+  /** The scanner found no menu on a page, or could not read it. */
+  page_unreadable: 'check',
+} as const;
+export type ReaderNoteCode = keyof typeof READER_NOTES;
+export const READER_NOTE_CODES = Object.keys(READER_NOTES) as ReaderNoteCode[];
+/** Line numbers per note, and notes per import. */
+export const NOTE_LINES_MAX = 100;
+export const NOTES_MAX = 2000;
+const NOTE_RULE_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+export type ReaderNote = {
+  readonly code: ReaderNoteCode;
+  readonly severity: (typeof READER_NOTES)[ReaderNoteCode];
+  /** The draft node it concerns (a section, dish or group key), or null for the whole input. */
+  readonly key: string | null;
+  /** 1-based lines of the source (the scanner's pages for page notes), ascending, at most `NOTE_LINES_MAX`. */
+  readonly lines: readonly number[];
+  /** How many lines or nodes the note stands for (can be more than `lines` holds). */
+  readonly count: number;
+  /** For `noise`: the rule that recognised the lines (a machine word). */
+  readonly rule: string | null;
+};
+
+/**
+ * Codes: type, field_not_allowed, too_many, enum_invalid, key_invalid, ref_unknown (with `draft`: a key the draft does
+ * not have), lines_invalid, count_invalid, rule_invalid. Paths `notes[i].<field>` under `prefix`.
+ */
+export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix = 'notes'): Issue[] {
+  const x = new Issues();
+  if (!Array.isArray(raw)) return [{ code: 'type', path: prefix }];
+  if (raw.length > NOTES_MAX) x.add('too_many', prefix);
+  let keys: Set<string> | null = null;
+  if (draft) {
+    keys = new Set<string>();
+    for (const s of draft.sections) { keys.add(s.key); for (const d of s.dishes) keys.add(d.key); }
+    for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
+  }
+  raw.forEach((n, i) => {
+    const p = `${prefix}[${i}]`;
+    if (!isObject(n)) return void x.add('type', p);
+    only(x, n, ['code', 'severity', 'key', 'lines', 'count', 'rule'], p);
+    if (!oneOf(READER_NOTE_CODES, n.code)) x.add('enum_invalid', `${p}.code`);
+    else if (n.severity !== READER_NOTES[n.code]) x.add('enum_invalid', `${p}.severity`);
+    if (n.key !== null) {
+      if (!isString(n.key) || !DRAFT_KEY_RE.test(n.key)) x.add('key_invalid', `${p}.key`);
+      else if (keys && !keys.has(n.key)) x.add('ref_unknown', `${p}.key`);
+    }
+    const lines = n.lines;
+    if (!Array.isArray(lines) || lines.length > NOTE_LINES_MAX || !lines.every((l, j) => isInt(l) && l >= 1 && l <= 1_000_000 && (j === 0 || l > (lines[j - 1] as number)))) {
+      x.add('lines_invalid', `${p}.lines`);
+    }
+    if (!isInt(n.count) || n.count < 1 || n.count > 1_000_000) x.add('count_invalid', `${p}.count`);
+    if (n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
+  });
+  return x.list;
+}
+
+/**
+ * `save_import_draft(p_import, p_draft, p_notes jsonb default '[]')`: the client (text sources) or the scanner (image
+ * sources) stores what it read, and what the reader said about it (`notes`, stored in `menu_imports.notes`; left out =
+ * none).
+ */
+export type SaveDraftInput = { readonly importId: string; readonly draft: ImportDraft; readonly notes?: readonly ReaderNote[] };
 export type SaveDraftReply =
   | RpcOk<{ readonly exceptions: readonly ImportException[]; readonly counts: DraftCounts }>
   | RpcFail<'invalid_draft' | 'too_large' | 'source_mismatch' | 'rights_unconfirmed' | 'import_unknown' | 'import_busy' | 'import_closed'>;
 
+/** Codes: those of `validateDraft` under `draft.`, and of `readerNoteIssues` under `notes`. */
 export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
   const x = new Issues();
-  only(x, raw, ['importId', 'draft'], '');
+  only(x, raw, ['importId', 'draft', 'notes'], '');
   if (!isUuid(raw.importId)) x.add('id_invalid', 'importId');
   const d = validateDraft(raw.draft);
   if (d.ok === false) for (const e of d.errors) x.add(e.code, e.path ? `draft.${e.path}` : 'draft');
+  if (raw.notes !== undefined) for (const e of readerNoteIssues(raw.notes, d.ok ? d.value : null)) x.add(e.code, e.path);
   return x.ok ? { ok: true, value: raw as unknown as SaveDraftInput } : { ok: false, errors: x.list };
 }
 
@@ -1674,6 +1838,9 @@ export type ApplyImportInput = { readonly importId: string; readonly draft: Impo
 export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
   | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'not_parsed' | 'import_closed'>;
+
+/** `discard_import(p_import)`: an import the owner gives up (`uploaded`, `failed` or `parsed`); twice is fine. */
+export type DiscardImportReply = RpcOk | RpcFail<'import_unknown' | 'import_busy' | 'import_closed'>;
 
 export function validateApplyImport(raw: unknown): Validation<ApplyImportInput> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };

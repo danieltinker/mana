@@ -3,7 +3,7 @@
  * venue's menu), the first publish's approval, plans, and Mana's own leads. Every one of these is logged with a reason
  * the owner sees (leads: every read is logged, never with the contact).
  */
-import { isInt, isObject, isString, isUuid, oneOf, type Validation } from './common.ts';
+import { isBlank, isInt, isObject, isString, isUuid, oneOf, type Validation } from './common.ts';
 import type { DishRow } from './domain.ts';
 import {
   ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, PLANS, TAGS, TARGET_KINDS,
@@ -26,13 +26,23 @@ export const DISH_PATCH_COLUMNS = [
 ] as const satisfies readonly (keyof DishRow)[];
 export type DishPatch = Partial<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number]>>;
 
-/** What each `act_for_owner` action takes. */
+/**
+ * What each `act_for_owner` action takes. An action that changes a value the owner may be editing too carries the
+ * `updated_at` staff read (`expectedUpdatedAt`): when the row changed since, the database answers `stale` with what
+ * it holds now, and writes nothing, so staff never overwrite a change of the owner's they did not see. It is compared
+ * in whole seconds (`app.iso`, the precision of every staff read): `app.iso(updated_at) = app.iso(expectedUpdatedAt)`.
+ */
 export type ActForOwnerPayloads = {
   'availability.set': { readonly targetKind: TargetKind; readonly targetId: string; readonly until: UntilSpec; readonly note?: string | null };
   'availability.restore': { readonly targetKind: TargetKind; readonly targetId: string };
-  'dish.update': { readonly dishId: string; readonly patch: DishPatch };
+  /** `expectedUpdatedAt`: the dish's `updated_at` as staff read it. Both names may not end up blank (`name_missing`;
+   * the database also refuses a patch that blanks the one name the dish has, as `payload_invalid`). */
+  'dish.update': { readonly dishId: string; readonly patch: DishPatch; readonly expectedUpdatedAt: string };
   'menu.publish': { readonly note?: string | null };
-  'onboarding.set': { readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers?: readonly string[] };
+  /** `expectedUpdatedAt`: the step's `updatedAt` as staff read it; null = the step was never written. */
+  'onboarding.set': {
+    readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers?: readonly string[]; readonly expectedUpdatedAt: string | null;
+  };
   'support_case.update': { readonly caseId: string; readonly status: CaseStatus };
 };
 
@@ -44,25 +54,33 @@ export type ActForOwnerInput = {
 export type ActForOwnerCode =
   | 'reason_required' | 'venue_unknown' | 'owner_declined' | 'action_unknown' | 'payload_invalid' | 'target_unknown' | 'until_invalid'
   | 'until_in_past' | 'step_automatic' | 'step_done' | 'plan_expired' | 'plan_suspended' | 'empty_menu' | 'invalid_menu';
+/** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). */
+export type ActForOwnerStale =
+  | { readonly ok: false; readonly code: 'stale'; readonly action: 'dish.update'; readonly current: Readonly<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number] | 'id' | 'updated_at'>> }
+  | {
+      readonly ok: false; readonly code: 'stale'; readonly action: 'onboarding.set';
+      readonly current: { readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers: readonly string[]; readonly updatedAt: string | null };
+    };
 /** `result` holds what the action did, ids and numbers only (the log keeps the same). */
 export type ActForOwnerReply =
   | RpcOk<{ readonly action: ActForOwnerAction; readonly result: Readonly<Record<string, unknown>>; readonly logId: number }>
+  | ActForOwnerStale
   | RpcFail<ActForOwnerCode>;
 
 const PAYLOAD_KEYS: Readonly<Record<ActForOwnerAction, readonly string[]>> = {
   'availability.set': ['targetKind', 'targetId', 'until', 'note'],
   'availability.restore': ['targetKind', 'targetId'],
-  'dish.update': ['dishId', 'patch'],
+  'dish.update': ['dishId', 'patch', 'expectedUpdatedAt'],
   'menu.publish': ['note'],
-  'onboarding.set': ['step', 'state', 'blockers'],
+  'onboarding.set': ['step', 'state', 'blockers', 'expectedUpdatedAt'],
   'support_case.update': ['caseId', 'status'],
 };
 const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /**
  * Codes: type, field_not_allowed, id_invalid, reason_required, action_unknown, enum_invalid, until_invalid,
- * text_invalid, text_too_long, price_invalid, stock_invalid, nothing_to_change, step_automatic, blocker_invalid,
- * too_many. Paths inside the payload start with `payload.`.
+ * text_invalid, text_too_long, price_invalid, stock_invalid, nothing_to_change, name_missing, time_invalid,
+ * step_automatic, blocker_invalid, too_many. Paths inside the payload start with `payload.`.
  */
 export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> {
   return validateInput<ActForOwnerInput>(raw, ['venueId', 'reason', 'action', 'payload'], (x, o) => {
@@ -84,6 +102,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         break;
       case 'dish.update': {
         if (!isUuid(p.dishId)) x.add('id_invalid', 'payload.dishId');
+        if (!isInstant(p.expectedUpdatedAt)) x.add('time_invalid', 'payload.expectedUpdatedAt');
         const patch = p.patch;
         if (!isObject(patch)) return void x.add('type', 'payload.patch');
         if (Object.keys(patch).length === 0) x.add('nothing_to_change', 'payload.patch');
@@ -103,6 +122,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
           else if (k === 'stock_id' && !(v === null || (isString(v) && STOCK_RE.test(v)))) x.add('stock_invalid', path);
           else if (k === 'position' && !(isInt(v) && v >= 0)) x.add('type', path);
         }
+        if (isString(patch.name_he) && isString(patch.name_en) && isBlank(patch.name_he) && isBlank(patch.name_en)) x.add('name_missing', 'payload.patch');
         break;
       }
       case 'menu.publish':
@@ -110,6 +130,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         break;
       case 'onboarding.set':
         if (!oneOf(ONBOARDING_STEPS, p.step)) x.add('enum_invalid', 'payload.step');
+        if (p.expectedUpdatedAt !== null && !isInstant(p.expectedUpdatedAt)) x.add('time_invalid', 'payload.expectedUpdatedAt');
         if (!oneOf(ONBOARDING_STATES, p.state)) x.add('enum_invalid', 'payload.state');
         else if (oneOf(ONBOARDING_STEPS, p.step) && isAutoStep(p.step) && (p.state === 'done' || (p.state === 'skipped' && p.step !== 'review'))) {
           x.add('step_automatic', 'payload.state');
@@ -132,24 +153,33 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
 
 // ---------------------------------------------------------------- the first publish's approval, plans
 
-/** `ops_approve_venue(p_venue, p_reason)`: staff approve a venue's first publish; guests see it and the trial starts. */
-export type ApproveVenueInput = { readonly venueId: string; readonly reason: string };
+/**
+ * `ops_approve_venue(p_venue, p_reason, p_expected_revision)`: staff approve a venue's first publish; guests see it
+ * and the trial starts. **The only way a venue is approved** (`ops_set_plan` never approves). `expectedRevision` is the
+ * revision number staff reviewed (`ops_revision`): when the venue's newest revision is another, the database answers
+ * `revision_changed` with the newest number and approves nothing, so staff never approve a menu they did not read.
+ */
+export type ApproveVenueInput = { readonly venueId: string; readonly reason: string; readonly expectedRevision: number };
 export type ApproveVenueReply =
   | RpcOk<{ readonly trialEndsAt: string | null }>
+  | { readonly ok: false; readonly code: 'revision_changed'; readonly revision: number }
   | RpcFail<'reason_required' | 'venue_unknown' | 'already_approved' | 'not_published'>;
 
-/** Codes: type, field_not_allowed, id_invalid, reason_required. */
+/** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid. */
 export function validateApproveVenue(raw: unknown): Validation<ApproveVenueInput> {
-  return validateInput<ApproveVenueInput>(raw, ['venueId', 'reason'], (x, o) => {
+  return validateInput<ApproveVenueInput>(raw, ['venueId', 'reason', 'expectedRevision'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
     if (!isReason(o.reason)) x.add('reason_required', 'reason');
+    if (!(isInt(o.expectedRevision) && o.expectedRevision >= 1)) x.add('revision_invalid', 'expectedRevision');
   });
 }
 
 /**
  * `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` (admins): the plan by hand until billing exists. `until`
- * ends a trial (`trialing`; absent = the trial's length) or a paid period (`active`); a live state also approves the
- * venue; `suspended` takes it offline.
+ * ends a trial (`trialing`; absent = the trial's length) or a paid period (`active`); `suspended` takes the venue
+ * offline. It **never approves**: a live state (`trialing`, `active`) on a venue still waiting for its first approval
+ * answers `approval_first` (approve it with `ops_approve_venue`, which starts the trial); `pending`, `expired` and
+ * `suspended` may be set at any time.
  */
 export type SetPlanInput = {
   readonly venueId: string;
@@ -158,7 +188,9 @@ export type SetPlanInput = {
   readonly reason: string;
   readonly plan?: Plan | null;
 };
-export type SetPlanReply = RpcOk<{ readonly state: EntitlementStatus }> | RpcFail<'reason_required' | 'state_invalid' | 'plan_invalid' | 'until_in_past' | 'venue_unknown'>;
+export type SetPlanReply =
+  | RpcOk<{ readonly state: EntitlementStatus }>
+  | RpcFail<'reason_required' | 'state_invalid' | 'plan_invalid' | 'until_in_past' | 'venue_unknown' | 'approval_first'>;
 
 /** Codes: type, field_not_allowed, id_invalid, state_invalid, plan_invalid, time_invalid, until_in_past, reason_required. */
 export function validateSetPlan(raw: unknown, opts: { readonly now?: number } = {}): Validation<SetPlanInput> {

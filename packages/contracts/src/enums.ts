@@ -114,6 +114,8 @@ export const LIMITS = {
   rules: 50,
   schedules: 20,
   windows: 14,
+  /** Opening-hours windows per venue (`venue_hours` rows; `limits.hours` in the database). */
+  hours: 21,
   closures: 60,
   lineQuantity: 50,
   optionQuantity: 10,
