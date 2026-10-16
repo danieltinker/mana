@@ -4,28 +4,35 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { draftCounts, draftExceptions, validateDraft, type ClaimScanReply, type ImportDraft } from '@mana/contracts';
+import { draftCounts, draftExceptions, IMPORT_IMAGES_MAX, validateDraft, type ClaimScanReply, type ImportDraft } from '@mana/contracts';
 import { MAX_TOKENS, requestBody, sniffMedia, toBase64, upstreamError } from '../anthropic.ts';
 import type { Deps, Env } from '../deps.ts';
-import { cleanStock, handle } from '../handler.ts';
-import { isServiceCaller } from '../purge.ts';
-import { plan, WOLT_BATCH } from '../read.ts';
+import { cleanStock, handle, MAX_BODY } from '../handler.ts';
+import { isServiceCaller, PURGE_BATCH } from '../purge.ts';
+import { CONCURRENCY, MAX_IMAGE_BYTES, pathsOk, plan, WOLT_BATCH } from '../read.ts';
 
 const URL_ = 'https://project.test';
 const API = 'https://api.anthropic.com/v1/messages';
 const VENUE = '00000000-0000-4000-8000-0000000000c1';
+const OTHER_VENUE = '00000000-0000-4000-8000-0000000000c2';
 const IMPORT = '00000000-0000-4000-8000-0000000000d1';
 const SERVICE = 'test-service';
 const ENV: Env = { url: URL_, anonKey: 'test-anon', serviceKey: SERVICE, anthropicKey: 'test-model', workspaceId: '', model: 'test-model-id' };
+const STORAGE = 'GET /storage/v1/object/authenticated/menu-private/';
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new Array(64).fill(7)]);
 const HEIC = new Uint8Array([0, 0, 0, 0x18, ...new TextEncoder().encode('ftypheic'), ...new Array(32).fill(0)]);
 
-type Call = { method: string; url: string; path: string; headers: Record<string, string>; body: any };
-type Route = (c: Call, signal?: AbortSignal | null) => Response | Promise<Response>;
+type Call = { method: string; url: string; path: string; headers: Record<string, string>; body: any; signal: AbortSignal | null };
+type Route = (c: Call) => Response | Promise<Response>;
 
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const modelAnswer = (text: string, stop = 'end_turn') => jsonResponse({ content: [{ type: 'text', text }], stop_reason: stop, usage: { input_tokens: 1000, output_tokens: 200 } });
+/** A route that answers only when the request is cancelled (an abort is the only way out). */
+const hang: Route = (c) => new Promise((_, reject) => {
+  if (c.signal?.aborted) reject(new DOMException('aborted', 'AbortError'));
+  c.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+});
 
 /** A fake `fetch`: routes by "METHOD path" (the first that matches the start of the path), every call recorded. */
 function fakeFetch(routes: Record<string, Route>) {
@@ -37,11 +44,12 @@ function fakeFetch(routes: Record<string, Route>) {
     let body: unknown = init.body ?? null;
     if (typeof body === 'string') try { body = JSON.parse(body); } catch { /* not JSON */ }
     const path = url.startsWith(URL_) ? url.slice(URL_.length).split('?')[0]! : url;
-    const call = { method, url, path, headers, body };
+    const call = { method, url, path, headers, body, signal: init.signal ?? null };
     calls.push(call);
+    if (init.signal?.aborted) throw new DOMException('aborted', 'AbortError');
     const key = Object.keys(routes).find((k) => { const [m, p] = k.split(' ', 2); return m === method && path.startsWith(p!); });
     if (!key) throw new Error(`no route for ${method} ${url}`);
-    return routes[key]!(call, init.signal);
+    return routes[key]!(call);
   };
   return { fetch: f as typeof fetch, calls };
 }
@@ -52,31 +60,34 @@ function deps(fetch: typeof globalThis.fetch, env: Partial<Env> = {}, now: () =>
 }
 
 type Claimed = Extract<ClaimScanReply, { ok: true }>;
-const claimReply = (source: Claimed['source'], n: number, langs: Claimed['langs'] = ['he', 'en']): Claimed => ({
-  ok: true, importId: IMPORT, venueId: VENUE, source, paths: Array.from({ length: n }, (_, i) => `${VENUE}/imports/${IMPORT}/${i + 1}.jpg`), rightsConfirmed: false, langs,
+const claimReply = (source: Claimed['source'], n: number, o: Partial<Claimed> = {}): Claimed => ({
+  ok: true, importId: IMPORT, venueId: VENUE, source, paths: Array.from({ length: n }, (_, i) => `${VENUE}/imports/${IMPORT}/${i + 1}.jpg`), rightsConfirmed: false,
+  langs: ['he', 'en'], ...o,
 });
 
 /** The Supabase side as the backend lane's RPCs answer (ADR-008), with the scanner's own draft checked and stored. */
-function project(source: Claimed['source'], images: number, o: { image?: Uint8Array<ArrayBuffer>; save?: (draft: ImportDraft) => Response; claim?: () => Response } = {}) {
-  const saved: ImportDraft[] = [];
+function project(source: Claimed['source'], images: number, o: { image?: () => Response; save?: (draft: ImportDraft) => Response; claim?: () => Response; patch?: () => Response } = {}) {
+  const saved: Array<{ draft: ImportDraft; notes: unknown }> = [];
   const routes: Record<string, Route> = {
-    'GET /rest/v1/menu_imports': () => jsonResponse([{ source }]),
     'POST /rest/v1/rpc/claim_import_scan': () => (o.claim ? o.claim() : jsonResponse(claimReply(source, images))),
-    'GET /storage/v1/object/menu-private/': () => new Response(o.image ?? JPEG, { status: 200 }),
+    [STORAGE]: () => (o.image ? o.image() : new Response(JPEG, { status: 200, headers: { 'content-length': String(JPEG.length) } })),
     'POST /rest/v1/rpc/save_import_draft': (c) => {
       const draft = c.body.p_draft as ImportDraft;
-      saved.push(draft);
+      saved.push({ draft, notes: c.body.p_notes });
       if (o.save) return o.save(draft);
       return jsonResponse({ ok: true, exceptions: draftExceptions(draft), counts: draftCounts(draft) });
     },
-    'PATCH /rest/v1/menu_imports': () => new Response(null, { status: 204 }),
+    'PATCH /rest/v1/menu_imports': () => (o.patch ? o.patch() : new Response(null, { status: 204 })),
   };
   return { routes, saved };
 }
 
-const read = (action: string, d: Deps, body: Record<string, unknown> = {}, headers: Record<string, string> = { Authorization: 'Bearer owner-token', apikey: 'test-anon' }) =>
+const OWNER = { Authorization: 'Bearer owner-token', apikey: 'test-anon' };
+const read = (action: string, d: Deps, body: Record<string, unknown> = {}, headers: Record<string, string> = OWNER) =>
   handle(new Request('https://fn.test/menus-ai', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ action, import_id: IMPORT, ...body }) }), d)
-    .then(async (r) => ({ status: r.status, body: await r.json() as any }));
+    .then(async (r) => ({ status: r.status, headers: r.headers, body: await r.json() as any }));
+const patches = (calls: Call[]) => calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
+const models = (calls: Call[]) => calls.filter((c) => c.url === API);
 
 const SHOT_1 = [
   '{"lang":"en"}', '{"c":{"he":"עיקריות","en":"Mains"},"k":"food","tr":["he"]}',
@@ -100,11 +111,15 @@ test('plan: one call per printed page; screenshots in overlapping runs', () => {
   assert.deepEqual(plan('wolt_screenshots', 7), [[0, 1, 2, 3, 4], [4, 5, 6]]);
   assert.deepEqual(plan('wolt_screenshots', 9), [[0, 1, 2, 3, 4], [4, 5, 6, 7, 8]]);
   assert.deepEqual(plan('wolt_screenshots', 10), [[0, 1, 2, 3, 4], [4, 5, 6, 7, 8], [8, 9]]);
-  for (const n of [2, 6, 13, 20]) {
+  for (const n of [2, 6, 13, 20, 24]) {
     const p = plan('wolt_screenshots', n);
     assert.deepEqual([...new Set(p.flat())], Array.from({ length: n }, (_, i) => i), `every screenshot is read (${n})`);
     assert.ok(p.every((b) => b.length <= WOLT_BATCH));
   }
+  // the worst case the README states: the most images each source takes
+  assert.equal(plan('scan_menu', IMPORT_IMAGES_MAX.scan).length, 8);
+  assert.equal(plan('wolt_screenshots', IMPORT_IMAGES_MAX.wolt_screenshots).length, 6);
+  assert.ok(CONCURRENCY >= 3 && CONCURRENCY <= 4);
 });
 
 test('requestBody: the images first, labelled when there are several, then the prompt; a bounded answer', () => {
@@ -145,6 +160,20 @@ test('cleanStock and isServiceCaller', () => {
   assert.equal(isServiceCaller('Bearer ', ''), false);
 });
 
+test('security M1 / QA M7: pathsOk accepts exactly the files of this venue\'s folder for this import', () => {
+  const ok = `${VENUE}/imports/${IMPORT}/1.jpg`;
+  assert.equal(pathsOk([ok, `${VENUE}/imports/${IMPORT}/page-2_a.b.png`], VENUE, IMPORT), true);
+  assert.equal(pathsOk([ok], VENUE.toUpperCase(), IMPORT), true, 'the venue id from the claim, in any case');
+  for (const bad of [
+    `${OTHER_VENUE}/imports/${IMPORT}/1.jpg`, `${VENUE}/imports/00000000-0000-4000-8000-0000000000d9/1.jpg`, `${VENUE}/imports/${IMPORT}/../../${OTHER_VENUE}/x.jpg`,
+    `${VENUE}/imports/${IMPORT}/..`, `${VENUE}/imports/${IMPORT}/.`, `${VENUE}/imports/${IMPORT}/a/b.jpg`, `${VENUE}/imports/${IMPORT}/`, `${VENUE}/imports/${IMPORT}/a%2Fb.jpg`,
+    `${VENUE}/imports/${IMPORT}/${'a'.repeat(101)}`, `${VENUE}/originals/1.jpg`, `/${VENUE}/imports/${IMPORT}/1.jpg`, `${VENUE}/imports/${IMPORT}/a b.jpg`,
+  ]) assert.equal(pathsOk([ok, bad], VENUE, IMPORT), false, bad);
+  assert.equal(pathsOk('x', VENUE, IMPORT), false);
+  assert.equal(pathsOk([ok], 'not-a-uuid', IMPORT), false);
+  assert.equal(pathsOk([1], VENUE, IMPORT), false);
+});
+
 // ---------------------------------------------------------------- requests that never reach a paid call
 
 test('requests: CORS, method, a broken body, an unknown action, a bad id, no token', async () => {
@@ -158,6 +187,31 @@ test('requests: CORS, method, a broken body, an unknown action, a bad id, no tok
   assert.equal((await handle(new Request('https://fn.test', { method: 'POST', body: JSON.stringify({ action: 'status', pad: 'x'.repeat(70_000) }) }), d)).status, 413);
 });
 
+test('security L3 / N3: a request body is read up to MAX_BODY, whatever its declared length says', async () => {
+  const d = deps(fakeFetch({}).fetch);
+  // no Content-Length (a stream): cut while it streams
+  let sent = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(c) { if (sent > 10 * MAX_BODY) return c.close(); sent += 16_384; c.enqueue(new Uint8Array(16_384).fill(0x20)); },
+  });
+  const r = await handle(new Request('https://fn.test', { method: 'POST', body: stream, duplex: 'half' } as RequestInit), d);
+  assert.equal(r.status, 413);
+  assert.ok(sent < 2 * MAX_BODY, `read ${sent} bytes, not the whole stream`);
+  // a declared length past the cap: refused before reading
+  const declared = await handle(new Request('https://fn.test', { method: 'POST', headers: { 'content-length': String(MAX_BODY + 1) }, body: '{"action":"status"}' }), d);
+  assert.equal(declared.status, 413);
+});
+
+test('QA L1: an error nobody expected still answers 500 with the CORS headers', async () => {
+  const f = fakeFetch({ 'GET /rest/v1/app_config': () => { throw new TypeError('network down'); } });
+  const d = deps(f.fetch);
+  const r = await read('purge', d, {}, { Authorization: `Bearer ${SERVICE}` });
+  assert.equal(r.status, 500);
+  assert.deepEqual(r.body, { ok: false, code: 'failed' });
+  assert.equal(r.headers.get('access-control-allow-origin'), '*');
+  assert.ok(d.logs.some((l) => l.code === 'failed' && l.thrown === 'TypeError'));
+});
+
 test('status, and not_configured: with no model key nothing is claimed or fetched', async () => {
   const f = fakeFetch({});
   assert.deepEqual((await read('status', deps(f.fetch))).body, { ok: true, configured: true });
@@ -166,11 +220,19 @@ test('status, and not_configured: with no model key nothing is claimed or fetche
   assert.equal(f.calls.length, 0);
 });
 
-test('a mode that is not the import\'s source is refused before the claim', async () => {
-  const p = project('scan', 1);
+test('security L1: no service-role look-up before the claim; the mode goes to the claim, which refuses a wrong one', async () => {
+  const p = project('scan', 1, { claim: () => jsonResponse({ ok: false, code: 'not_scannable' }) });
   const f = fakeFetch(p.routes);
-  assert.deepEqual((await read('wolt_screenshots', deps(f.fetch))).body, { ok: false, code: 'source_mismatch' });
-  assert.deepEqual(f.calls.map((c) => `${c.method} ${c.path}`), ['GET /rest/v1/menu_imports']);
+  assert.deepEqual((await read('wolt_screenshots', deps(f.fetch))).body, { ok: false, code: 'not_scannable' });
+  assert.deepEqual(f.calls.map((c) => `${c.method} ${c.path}`), ['POST /rest/v1/rpc/claim_import_scan'], 'the claim is the first call, and the only one');
+  assert.deepEqual(f.calls[0]!.body, { p_import: IMPORT, p_mode: 'wolt_screenshots' });
+  assert.equal(f.calls[0]!.headers.authorization, 'Bearer owner-token');
+  // a claim that answers another source than the one asked (an RPC that ignored p_mode): nothing is read, the import is marked
+  const q = project('scan', 1);
+  const g = fakeFetch(q.routes);
+  assert.deepEqual((await read('wolt_screenshots', deps(g.fetch))).body, { ok: false, code: 'source_mismatch' });
+  assert.ok(!g.calls.some((c) => c.path.startsWith('/storage/') || c.url === API));
+  assert.deepEqual(patches(g.calls), [{ status: 'failed', error_code: 'image_unreadable' }]);
 });
 
 test('the claim gates every paid call: refused, nothing is downloaded or read', async () => {
@@ -180,39 +242,76 @@ test('the claim gates every paid call: refused, nothing is downloaded or read', 
     const f = fakeFetch(p.routes);
     assert.deepEqual((await read('wolt_screenshots', deps(f.fetch))).body, { ok: false, code });
     assert.ok(!f.calls.some((c) => c.url === API || c.path.startsWith('/storage/')), code);
+    assert.deepEqual(patches(f.calls), [], `${code}: a refused claim marks nothing`);
+  }
+});
+
+test('security M1 / QA M7: a claim with any path outside the import\'s folder is refused before any download', async () => {
+  const bad: Array<[string, Partial<Claimed>]> = [
+    ['another venue', { paths: [`${VENUE}/imports/${IMPORT}/1.jpg`, `${OTHER_VENUE}/imports/${IMPORT}/2.jpg`] }],
+    ['another import', { paths: [`${VENUE}/imports/00000000-0000-4000-8000-0000000000d9/1.jpg`] }],
+    ['a way out', { paths: [`${VENUE}/imports/${IMPORT}/../../../${OTHER_VENUE}/logo.png`] }],
+    ['a dot name', { paths: [`${VENUE}/imports/${IMPORT}/..`] }],
+    ['the claim names another import', { importId: '00000000-0000-4000-8000-0000000000d9' }],
+  ];
+  for (const [label, o] of bad) {
+    const p = project('scan', 1, { claim: () => jsonResponse(claimReply('scan', 1, o)) });
+    const f = fakeFetch(p.routes);
+    const r = await read('scan_menu', deps(f.fetch));
+    assert.deepEqual(r.body, { ok: false, code: 'paths_invalid' }, label);
+    assert.ok(!f.calls.some((c) => c.path.startsWith('/storage/') || c.url === API), `${label}: nothing downloaded or read`);
+    assert.deepEqual(patches(f.calls), [{ status: 'failed', error_code: 'image_unreadable' }], label);
+  }
+});
+
+test('QA L1: a claim with no paths, or with too many for its source, marks the import failed with a real code', async () => {
+  for (const [label, source, o, code] of [
+    ['no paths', 'scan', { paths: undefined as unknown as string[] }, 'paths_invalid'],
+    ['no images', 'scan', { paths: [] }, 'image_unreadable'],
+    ['9 printed pages', 'scan', { paths: Array.from({ length: IMPORT_IMAGES_MAX.scan + 1 }, (_, i) => `${VENUE}/imports/${IMPORT}/${i}.jpg`) }, 'too_many_images'],
+    ['25 screenshots', 'wolt_screenshots', { paths: Array.from({ length: IMPORT_IMAGES_MAX.wolt_screenshots + 1 }, (_, i) => `${VENUE}/imports/${IMPORT}/${i}.jpg`) }, 'too_many_images'],
+  ] as const) {
+    const mode = source === 'scan' ? 'scan_menu' : 'wolt_screenshots';
+    const p = project(source, 1, { claim: () => jsonResponse(claimReply(source, 1, o as Partial<Claimed>)) });
+    const f = fakeFetch(p.routes);
+    assert.deepEqual((await read(mode, deps(f.fetch))).body, { ok: false, code }, label);
+    assert.deepEqual(patches(f.calls), [{ status: 'failed', error_code: 'image_unreadable' }], label);
+    assert.ok(!f.calls.some((c) => c.path.startsWith('/storage/') || c.url === API), label);
   }
 });
 
 // ---------------------------------------------------------------- reading
 
-test('Wolt screenshots: claimed with the owner\'s token, read in overlapping runs, merged, saved as the service role', async () => {
+test('Wolt screenshots: claimed and downloaded with the owner\'s token, read in overlapping runs, merged, saved as the service role with the notes', async () => {
   const p = project('wolt_screenshots', 7);
   const answers = [SHOT_1, SHOT_2];
   const f = fakeFetch({ ...p.routes, [`POST ${API}`]: () => modelAnswer(answers.shift()!) });
   const r = await read('wolt_screenshots', deps(f.fetch), { stock: [{ id: 'schnitzel', label: 'schnitzel' }] });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  // order: nothing paid before the claim
   const order = f.calls.map((c) => (c.url === API ? 'model' : `${c.method} ${c.path.replace(/\/menu-private\/.*/, '/…')}`));
-  assert.deepEqual(order.slice(0, 2), ['GET /rest/v1/menu_imports', 'POST /rest/v1/rpc/claim_import_scan']);
-  assert.ok(order.indexOf('model') > order.indexOf('POST /rest/v1/rpc/claim_import_scan'));
+  assert.equal(order[0], 'POST /rest/v1/rpc/claim_import_scan', 'nothing before the claim');
+  assert.ok(order.indexOf('model') > order.lastIndexOf('GET /storage/v1/object/authenticated/…'));
   const claim = f.calls.find((c) => c.path === '/rest/v1/rpc/claim_import_scan')!;
   assert.equal(claim.headers.authorization, 'Bearer owner-token', 'the claim runs as the owner');
-  assert.deepEqual(claim.body, { p_import: IMPORT });
+  assert.deepEqual(claim.body, { p_import: IMPORT, p_mode: 'wolt_screenshots' });
+  const downloads = f.calls.filter((c) => c.path.startsWith('/storage/'));
+  assert.equal(downloads.length, 7);
+  assert.ok(downloads.every((c) => c.headers.authorization === 'Bearer owner-token' && c.headers.apikey === 'test-anon'), 'Storage\'s row-level security decides, as the owner');
   const save = f.calls.find((c) => c.path === '/rest/v1/rpc/save_import_draft')!;
   assert.equal(save.headers.authorization, `Bearer ${SERVICE}`, 'the draft is saved by the service role');
-  const models = f.calls.filter((c) => c.url === API);
-  assert.deepEqual(models.map((c) => c.body.messages[0].content.filter((x: any) => x.type === 'image').length), [5, 3]);
-  assert.equal(models[0]!.headers['x-api-key'], 'test-model');
-  // the saved draft
-  const draft = p.saved[0]!;
+  assert.deepEqual(models(f.calls).map((c) => c.body.messages[0].content.filter((x: any) => x.type === 'image').length), [5, 3]);
+  assert.equal(models(f.calls)[0]!.headers['x-api-key'], 'test-model');
+  // the saved draft, and its notes beside it
+  const { draft, notes } = p.saved[0]!;
   assert.ok(validateDraft(draft).ok);
   assert.equal(draft.source, 'wolt_screenshots');
   assert.deepEqual(draft.sections.map((s) => [s.name.en, s.dishes.map((x) => x.name.en)]), [['Mains', ['Schnitzel', 'Burger', 'Falafel']], ['Drinks', ['Lemonade']]]);
   assert.equal(draft.sections[0]!.dishes[0]!.illustration, 'schnitzel');
+  assert.ok(Array.isArray(notes));
   assert.deepEqual(r.body.counts, { sections: 2, dishes: 4, groups: 1, options: 2, photos: 0, dropped: 0 });
   assert.deepEqual(r.body.usage, { in: 2000, out: 400 });
   assert.equal(r.body.calls, 2);
-  assert.ok(!f.calls.some((c) => c.method === 'PATCH'), 'nothing marked failed');
+  assert.deepEqual(patches(f.calls), [], 'nothing marked failed');
 });
 
 test('a printed menu: one call per page; a page that continues a section joins it', async () => {
@@ -221,22 +320,24 @@ test('a printed menu: one call per page; a page that continues a section joins i
   const f = fakeFetch({ ...p.routes, [`POST ${API}`]: () => modelAnswer(answers.shift()!) });
   const r = await read('scan_menu', deps(f.fetch));
   assert.equal(r.body.ok, true);
-  assert.deepEqual(p.saved[0]!.sections.map((s) => [s.name.he, s.dishes.map((x) => x.name.he)]), [['עיקריות', ['מרק', 'תבשיל']]]);
-  assert.equal(f.calls.filter((c) => c.url === API).length, 2);
+  assert.deepEqual(p.saved[0]!.draft.sections.map((s) => [s.name.he, s.dishes.map((x) => x.name.he)]), [['עיקריות', ['מרק', 'תבשיל']]]);
+  assert.equal(models(f.calls).length, 2);
 });
 
-test('an answer cut at its length limit is kept, and its page is noted', async () => {
+test('an answer cut at its length limit is kept, and its page is noted (and stored with the draft)', async () => {
   const p = project('scan', 1);
   const f = fakeFetch({ ...p.routes, [`POST ${API}`]: () => modelAnswer(`${SHOT_1}\n{"n":{"he":"מנה","en":"Di`, 'max_tokens') });
   const r = await read('scan_menu', deps(f.fetch));
   assert.equal(r.body.ok, true);
   assert.ok(r.body.notes.some((n: any) => n.code === 'page_truncated'));
+  assert.ok((p.saved[0]!.notes as any[]).some((n) => n.code === 'page_truncated' && n.severity === 'check' && n.lines[0] === 1));
   assert.equal(r.body.dropped, 1);
 });
 
 test('failures after the claim mark the import failed with a closed code, and nothing is saved', async () => {
-  const cases: Array<[string, Partial<Parameters<typeof project>[2]>, Route | null, string, number | undefined]> = [
-    ['an image the API cannot read (HEIC)', { image: HEIC }, null, 'image_unreadable', undefined],
+  const cases: Array<[string, { image?: () => Response }, Route | null, string, number | undefined]> = [
+    ['an image the API cannot read (HEIC)', { image: () => new Response(HEIC) }, null, 'image_unreadable', undefined],
+    ['a missing file', { image: () => new Response('not found', { status: 404 }) }, null, 'image_unreadable', undefined],
     ['the API refuses the image', {}, () => jsonResponse({ error: { type: 'invalid_request_error', message: 'Could not process image' } }, 400), 'image_unreadable', 400],
     ['the API is overloaded', {}, () => jsonResponse({ error: { type: 'overloaded_error' } }, 529), 'model_failed', 529],
     ['no menu on any page', {}, () => modelAnswer('{"lang":"other"}\n{"error":"not_a_menu"}'), 'image_unreadable', undefined],
@@ -244,27 +345,83 @@ test('failures after the claim mark the import failed with a closed code, and no
   for (const [label, o, model, code, upstream] of cases) {
     const p = project('scan', 1, o);
     const f = fakeFetch({ ...p.routes, ...(model ? { [`POST ${API}`]: model } : {}) });
-    const r = await read('scan_menu', deps(f.fetch));
+    const d = deps(f.fetch);
+    const r = await read('scan_menu', d);
     assert.deepEqual(r.body, upstream === undefined ? { ok: false, code } : { ok: false, code, upstream }, label);
     const patch = f.calls.find((c) => c.method === 'PATCH')!;
     assert.deepEqual([patch.url.endsWith(`id=eq.${IMPORT}&status=eq.parsing`), patch.body], [true, { status: 'failed', error_code: code }], label);
     assert.equal(p.saved.length, 0, label);
-    if (!model) assert.ok(!f.calls.some((c) => c.url === API), `${label}: no paid call`);
+    assert.equal(d.logs.at(-1)!.marked, true, `${label}: the mark is logged`);
+    if (!model) assert.equal(models(f.calls).length, 0, `${label}: no paid call`);
   }
-  // a missing file
-  const p = project('scan', 1);
-  const f = fakeFetch({ ...p.routes, 'GET /storage/v1/object/menu-private/': () => new Response('not found', { status: 404 }) });
-  assert.deepEqual((await read('scan_menu', deps(f.fetch))).body, { ok: false, code: 'image_unreadable' });
 });
 
-test('past the deadline the read stops and the import is marked timeout', async () => {
-  const p = project('scan', 1);
-  let t = 0;
-  const now = () => (t++ === 0 ? 0 : 10_000_000);
-  const hang: Route = (_c, signal) => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
-  const f = fakeFetch({ ...p.routes, [`POST ${API}`]: hang });
-  assert.deepEqual((await read('scan_menu', deps(f.fetch, {}, now))).body, { ok: false, code: 'timeout' });
-  assert.deepEqual(f.calls.find((c) => c.method === 'PATCH')!.body, { status: 'failed', error_code: 'timeout' });
+test('QA L1: a mark that does not go through is logged, never hidden', async () => {
+  const p = project('scan', 1, { image: () => new Response(HEIC), patch: () => new Response('down', { status: 503 }) });
+  const f = fakeFetch(p.routes);
+  const d = deps(f.fetch);
+  assert.deepEqual((await read('scan_menu', d)).body, { ok: false, code: 'image_unreadable' });
+  assert.equal(d.logs.at(-1)!.marked, false);
+});
+
+test('security L3: an image is refused by its size before it is read whole (declared, or while it streams)', async () => {
+  // a declared length past the cap: the body is not read
+  let pulled = 0;
+  const big = () => new Response(new ReadableStream<Uint8Array>({ pull(c) { pulled += 1; c.enqueue(new Uint8Array(65_536)); } }), { headers: { 'content-length': String(MAX_IMAGE_BYTES + 1) } });
+  const p = project('scan', 1, { image: big });
+  const f = fakeFetch(p.routes);
+  assert.deepEqual((await read('scan_menu', deps(f.fetch))).body, { ok: false, code: 'image_unreadable' });
+  assert.ok(pulled <= 2, `pulled ${pulled} chunks`);
+  assert.equal(models(f.calls).length, 0);
+  // no declared length: cut once the stream passes the cap
+  let sent = 0;
+  const endless = () => new Response(new ReadableStream<Uint8Array>({
+    pull(c) { if (sent === 0) { sent += 4; c.enqueue(JPEG.slice(0, 4)); return; } sent += 262_144; c.enqueue(new Uint8Array(262_144)); },
+  }));
+  const q = project('scan', 1, { image: endless });
+  const g = fakeFetch(q.routes);
+  assert.deepEqual((await read('scan_menu', deps(g.fetch))).body, { ok: false, code: 'image_unreadable' });
+  assert.ok(sent <= MAX_IMAGE_BYTES + 2 * 262_144, `read ${sent} bytes`);
+  assert.deepEqual(patches(g.calls), [{ status: 'failed', error_code: 'image_unreadable' }]);
+});
+
+test('security L2 / QA M8: the first refusal stops the read: no call starts after it, and the ones in flight are cancelled', async () => {
+  const p = project('scan', 6);
+  let n = 0;
+  const signals: AbortSignal[] = [];
+  const f = fakeFetch({
+    ...p.routes,
+    [`POST ${API}`]: (c) => {
+      signals.push(c.signal!);
+      // the first answers 529 once the others are in flight; the others would never answer
+      if (n++ === 0) return new Promise((resolve) => setTimeout(() => resolve(jsonResponse({ error: { type: 'overloaded_error' } }, 529)), 5));
+      return hang(c);
+    },
+  });
+  const r = await read('scan_menu', deps(f.fetch));
+  assert.deepEqual(r.body, { ok: false, code: 'model_failed', upstream: 529 });
+  assert.equal(models(f.calls).length, CONCURRENCY, 'the calls in flight, none after');
+  assert.ok(signals.every((s) => s.aborted), 'every call of this read is cancelled by its answer');
+  assert.deepEqual(patches(f.calls), [{ status: 'failed', error_code: 'model_failed' }]);
+});
+
+test('QA M8: past the deadline the read stops, the import is marked timeout (never left parsing), and nothing runs on', async () => {
+  for (const stage of ['model', 'download'] as const) {
+    const p = project('scan', 2, stage === 'download' ? { image: () => { throw new Error('unused'); } } : {});
+    let t = 0;
+    const now = () => (t++ === 0 ? 0 : 10_000_000);
+    const signals: AbortSignal[] = [];
+    const routes: Record<string, Route> = { ...p.routes, [`POST ${API}`]: (c: Call) => { signals.push(c.signal!); return hang(c); } };
+    if (stage === 'download') routes[STORAGE] = (c: Call) => { signals.push(c.signal!); return hang(c); };
+    const f = fakeFetch(routes);
+    const d = deps(f.fetch, {}, now);
+    assert.deepEqual((await read('scan_menu', d)).body, { ok: false, code: 'timeout' }, stage);
+    assert.deepEqual(patches(f.calls), [{ status: 'failed', error_code: 'timeout' }], stage);
+    assert.ok(signals.length > 0 && signals.every((s) => s.aborted), stage);
+    const after = f.calls.length;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(f.calls.length, after, `${stage}: no call after the answer`);
+  }
 });
 
 test('save_import_draft refuses: a closed import is left as it is; anything else marks draft_invalid', async () => {
@@ -288,26 +445,74 @@ test('the log carries counts and codes, never a menu\'s text or a key', async ()
 
 // ---------------------------------------------------------------- purge
 
-test('purge: only the service role; images deleted through Storage, then the import records it', async () => {
-  const rows = [{ id: '00000000-0000-4000-8000-0000000000e1', raw_paths: [`${VENUE}/imports/a/1.jpg`, `${VENUE}/imports/a/2.jpg`] }, { id: '00000000-0000-4000-8000-0000000000e2', raw_paths: [`${VENUE}/imports/b/1.jpg`] }];
+const ROW = (n: number, paths?: string[]) => {
+  const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  return { id, venue_id: VENUE, raw_paths: paths ?? [`${VENUE}/imports/${id}/1.jpg`, `${VENUE}/imports/${id}/2.jpg`] };
+};
+
+test('purge: only the service role; images deleted through Storage, then the import records it, only while it is closed', async () => {
+  const rows = [ROW(1), ROW(2), ROW(3)];
   let deletes = 0;
   const f = fakeFetch({
     'GET /rest/v1/app_config': () => jsonResponse([{ value: 30 }]),
     'GET /rest/v1/menu_imports': () => jsonResponse(rows),
-    'DELETE /storage/v1/object/menu-private': () => new Response('[]', { status: deletes++ === 0 ? 200 : 500 }),
-    'PATCH /rest/v1/menu_imports': () => new Response(null, { status: 204 }),
+    'DELETE /storage/v1/object/menu-private': () => new Response('[]', { status: deletes++ === 1 ? 500 : 200 }),
+    // the third row was reopened meanwhile: the conditional update finds nothing
+    'PATCH /rest/v1/menu_imports': (c) => jsonResponse(c.url.includes(rows[2]!.id) ? [] : [{ id: 'x' }]),
   });
   const now = () => Date.parse('2026-10-16T12:00:00Z');
   const asOwner = await read('purge', deps(f.fetch, {}, now), {});
   assert.deepEqual([asOwner.status, asOwner.body], [403, { ok: false, code: 'not_allowed' }]);
   assert.equal(f.calls.length, 0);
   const r = await read('purge', deps(f.fetch, {}, now), { import_id: undefined }, { Authorization: `Bearer ${SERVICE}` });
-  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [rows[1]!.id] });
+  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [rows[1]!.id, rows[2]!.id], next: null });
   const list = f.calls.find((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports')!;
   assert.match(list.url, /status=in\.\(applied,discarded,failed\)/);
   assert.match(list.url, /raw_purged_at=is\.null/);
+  assert.match(list.url, /order=id\.asc/);
   assert.ok(list.url.includes(`updated_at=lt.${encodeURIComponent('2026-09-16T12:00:00.000Z')}`), 'retention: 30 days');
   assert.deepEqual(f.calls.find((c) => c.method === 'DELETE')!.body, { prefixes: rows[0]!.raw_paths });
-  assert.deepEqual(f.calls.filter((c) => c.method === 'PATCH').map((c) => c.body), [{ raw_paths: [], raw_purged_at: '2026-10-16T12:00:00.000Z' }]);
+  const marks = f.calls.filter((c) => c.method === 'PATCH');
+  assert.deepEqual(marks.map((c) => c.body), [{ raw_paths: [], raw_purged_at: '2026-10-16T12:00:00.000Z' }, { raw_paths: [], raw_purged_at: '2026-10-16T12:00:00.000Z' }]);
+  assert.ok(marks.every((c) => /raw_purged_at=is\.null/.test(c.url) && /status=in\.\(applied,discarded,failed\)/.test(c.url)), 'the mark is conditional');
   assert.deepEqual((await read('purge', deps(f.fetch, {}, now), { import_id: 'nope' }, { Authorization: `Bearer ${SERVICE}` })).body, { ok: false, code: 'bad_request' });
+});
+
+test('security M1 (purge): only files of the import\'s own folder are deleted; any other path leaves the row alone', async () => {
+  const good = ROW(1);
+  const evil = ROW(2, [`${VENUE}/imports/${ROW(2).id}/1.jpg`, `${OTHER_VENUE}/imports/x/1.jpg`]);
+  const traversal = ROW(3, [`${VENUE}/imports/${ROW(3).id}/../../../menu-public/${OTHER_VENUE}/logo.png`]);
+  const f = fakeFetch({
+    'GET /rest/v1/app_config': () => jsonResponse([]),
+    'GET /rest/v1/menu_imports': () => jsonResponse([good, evil, traversal]),
+    'DELETE /storage/v1/object/menu-private': () => new Response('[]'),
+    'PATCH /rest/v1/menu_imports': () => jsonResponse([{ id: 'x' }]),
+  });
+  const r = await read('purge', deps(f.fetch), {}, { Authorization: `Bearer ${SERVICE}` });
+  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [evil.id, traversal.id], next: null });
+  assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), [{ prefixes: good.raw_paths }]);
+});
+
+test('security L6: rows that keep failing never stall the purge: keyset paging, and a cursor for the next call', async () => {
+  const all = Array.from({ length: 3 * PURGE_BATCH + 7 }, (_, i) => ROW(i + 1));
+  const f = fakeFetch({
+    'GET /rest/v1/app_config': () => jsonResponse([]),
+    'GET /rest/v1/menu_imports': (c) => {
+      const after = /id=gt\.([0-9a-f-]+)/.exec(c.url)?.[1] ?? '';
+      return jsonResponse(all.filter((r) => r.id > after).slice(0, PURGE_BATCH));
+    },
+    // every delete fails: the rows stay, and the purge still goes past them
+    'DELETE /storage/v1/object/menu-private': () => new Response('no', { status: 500 }),
+  });
+  const r = await read('purge', deps(f.fetch), {}, { Authorization: `Bearer ${SERVICE}` });
+  assert.equal(r.body.ok, true);
+  assert.equal(r.body.failed.length, all.length, 'every row was tried once');
+  assert.equal(r.body.next, null);
+  const pages = f.calls.filter((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports');
+  assert.equal(pages.length, 4);
+  assert.ok(pages[1]!.url.includes(`id=gt.${all[PURGE_BATCH - 1]!.id}`));
+  // a call may resume where the last one stopped
+  const again = await read('purge', deps(f.fetch), { after: all[2 * PURGE_BATCH - 1]!.id }, { Authorization: `Bearer ${SERVICE}` });
+  assert.equal(again.body.failed.length, PURGE_BATCH + 7);
+  assert.deepEqual((await read('purge', deps(f.fetch), { after: 'x' }, { Authorization: `Bearer ${SERVICE}` })).body, { ok: false, code: 'bad_request' });
 });

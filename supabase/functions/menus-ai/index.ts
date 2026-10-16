@@ -1,6 +1,6 @@
 // Mana's scanner, v2 (ADR-006): the Deno entry. Everything it does is in handler.ts and the modules it imports, which
 // the Node tests run with mocks (test/); this file only reads the environment. README.md says what deploying needs.
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import "jsr:@supabase/functions-js@2.117.2/edge-runtime.d.ts";
 import { DEFAULT_SCAN_MODEL } from "./deps.ts";
 import { handle } from "./handler.ts";
 

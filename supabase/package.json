@@ -8,7 +8,7 @@
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "test:functions": "node --test functions/menus-ai/test/*.test.ts",
-    "check:functions": "tsc -p functions/menus-ai/tsconfig.json",
+    "check:functions": "tsc -p functions/menus-ai/tsconfig.json && tsc -p functions/menus-ai/tsconfig.entry.json",
     "migrate:local": "node tests/harness/smoke.mjs"
   },
   "devDependencies": {
