@@ -11,7 +11,8 @@
    Needs: `npm ci` at the root (the three apps), Chromium for the browser suites (CHROME, default
    /opt/pw-browsers/chromium-1194/chrome-linux/chrome), and for studio-e2e the local stack's binaries (apps/studio/test/README.md);
    sim and e2e use the same binaries, or fetch them once into sim/.stack/bin (sim/README.md).
-   The brand suite (the product page) needs `npm ci` in brand/ and a built brand/site/land (node brand/tools/build-land.mjs).
+   The brand suite (the product page) installs brand/'s own lock when brand/node_modules is missing (the root `npm ci`
+   covers only the workspaces) and needs a built brand/site/land (node brand/tools/build-land.mjs).
    Exit 1 if any suite fails. Logs: test-results/<suite>.log (ignored by git). */
 import { spawn } from 'node:child_process';
 import { mkdirSync, createWriteStream } from 'node:fs';
@@ -21,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /* name, folder, command, browser/stack (heavy) or not */
 const SUITES = [
+  ['names', '.', 'node --test tools/check-names.mjs', false],        // no listed name (the mock client's) in a file, a commit of this branch or its name
   ['config', '.', 'node --test tools/check-config.mjs', false],      // the settings per environment, and no secret key anywhere (docs/environments.md)
   ['tools', '.', "node --test 'tools/test/*.test.mjs'", false],      // the local server, the build's settings step, the demo's scenarios
   ['contracts-check', 'packages/contracts', 'npm run -s check', false],
@@ -41,7 +43,8 @@ const SUITES = [
   ['view-browser', 'apps/view', 'npm run -s test:browser', true],
   ['ops-e2e', 'apps/ops', 'npm run -s build && npm run -s test:e2e', true],
   ['studio-e2e', 'apps/studio', 'npm run -s build && npm run -s test:e2e', true],
-  ['brand', 'brand', 'node tools/test-site.mjs', true],
+  // brand/ is outside the workspace with a lock of its own (qrcode, the fonts, opentype.js): installed here when missing
+  ['brand', 'brand', '([ -d node_modules ] || npm ci --no-audit --no-fund --loglevel=error) && node tools/test-site.mjs', true],
   ['e2e', 'e2e', 'npm test', true],             // the browser on the simulator's stack (phase 0: one smoke test)
 ];
 /* the seating contracts' tests run inside view-unit (apps/view/package.json names them) */
