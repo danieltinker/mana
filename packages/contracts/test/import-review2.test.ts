@@ -150,3 +150,55 @@ test('L1 (p2dbg.ts): a dish link moved by new_group drops a minimum above the cr
   assert.deepEqual(setOf(step(plan(d, m, all), 'dish_group', linkKey('d-burger', 'g-extras'))), { min_units: 3, max_units: null }, 'reachable: kept');
   assert.deepEqual(changes(plan(d, m, all)).filter((c) => c.startsWith('group')), ['group:g-extras:create']);
 });
+
+test('L2 (h2b.ts): two draft groups landing on one existing group give a dish one link, not two', () => {
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g')] })])],
+    [group('g', 'תוספת', 'Extras', { options: [opt('o1', 'צ׳יפס', 'Fries', 0), opt('o2', 'סלט', 'Salad', 0), opt('o3', 'אורז', 'Rice', 0)] })]);
+  const m = applyPlan(EMPTY_MENU, plan(base));
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-new', 'פרגית', 'Chicken', 7000, { groups: [link('g-side'), link('g-extras')] })])], [
+    group('g-side', 'תוספת', 'Side', { options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
+    group('g-extras', 'תוספות', 'Extras', { options: [opt('b1', 'אורז', 'Rice', 0)] }),
+  ]);
+  const p = plan(d, m);
+  assert.deepEqual(p.steps.filter((s) => s.kind === 'dish_group').map((s) => `${s.key}:${s.op}${s.reason ? `(${s.reason})` : ''}`),
+    ['d-new>g-side:create', 'd-new>g-extras:skip(merged)']);
+  const after = applyPlan(m, p);
+  const chicken = after.dishes.find((x) => x.name_en === 'Chicken')!;
+  assert.equal(after.dishGroups.filter((l) => l.dish_id === chicken.id).length, 1);
+});
+
+test('L3 (rr2.ts P1): which draft section claims an existing one does not depend on the draft order', () => {
+  const m = applyPlan(EMPTY_MENU, plan(draftOf([section('s-a', 'עיקריות', 'Mains', [dish('d-a', 'סטייק', 'Steak', 9000)])])));
+  const he = section('s-he', 'עיקריות', 'Main courses', [dish('d-fish', 'דג', 'Fish', 8000)]);
+  const en = section('s-en', 'מנות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3000)]);
+  const outcome = (order: ReturnType<typeof section>[]) => {
+    const after = applyPlan(m, plan(draftOf(order), m));
+    return after.sections.map((s) => `${s.name_en}: ${after.dishes.filter((x) => x.section_id === s.id).map((x) => x.name_en).join(', ')}`);
+  };
+  assert.deepEqual(outcome([he, en]), outcome([en, he]));
+  assert.deepEqual(outcome([he, en]), ['Mains: Steak, Fish', 'Mains: Soup'], 'the Hebrew match claims it; "מנות" is another section (L10)');
+});
+
+test('L9 (rr.ts NEW-2): a name of symbols or emoji only is matched by its exact text, and flagged', () => {
+  const d = draftOf([section('s-hot', '🔥', '🔥', [dish('d-x', '★', '★', 1000), dish('d-y', 'פיצה', 'Pizza', 4000), dish('d-z', '☆', '', 1200)])]);
+  assert.deepEqual(draftExceptions(d).map((e) => `${e.code}@${e.key}`), ['name_missing_lang@_draft', 'name_symbols@s-hot', 'name_symbols@d-x', 'name_symbols@d-z']);
+  const m = applyPlan(EMPTY_MENU, plan(d));
+  assert.deepEqual(changes(plan(d, m)), [], 're-importing it changes nothing');
+  const e: any = copy(d);
+  e.sections[0].dishes[0].name = tx(' ★ ', '★');
+  assert.deepEqual(changes(plan(e, m)), [], 'blank edges do not count');
+  e.sections[0].dishes[0].name = tx('★★', '★★');
+  assert.deepEqual(changes(plan(e, m)), ['dish:d-x:create'], 'another text is another dish');
+});
+
+test('L10 (rr2.ts P6): when the Hebrew names differ, an English match does not make them the same', () => {
+  const m = applyPlan(EMPTY_MENU, plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט ירקות', 'Salad', 3800)])])));
+  const p = plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט קיסר', 'Salad', 4600)])]), m);
+  assert.deepEqual([step(p, 'dish', 'd1').op, asked(p)], ['create', []]);
+  // the same Hebrew with another English still matches (the Hebrew counts 2)
+  const q = plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט ירקות', 'Green salad', 3800)])]), m);
+  assert.equal(step(q, 'dish', 'd1').op, 'keep');
+  // one side without Hebrew: the English decides
+  const r = plan(draftOf([section('s', '', 'Salads', [dish('d1', '', 'Salad', 3800)])]), m);
+  assert.equal(step(r, 'dish', 'd1').op, 'keep');
+});

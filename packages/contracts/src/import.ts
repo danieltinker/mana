@@ -185,10 +185,25 @@ export function importKey(text: string): string {
 }
 
 type Keys = { readonly he: string; readonly en: string };
-const keysOf = (t: Text): Keys => ({ he: importKey(t.he), en: importKey(t.en) });
-const scoreKeys = (a: Keys, b: Keys): number => (a.he !== '' && a.he === b.he ? 2 : 0) + (a.en !== '' && a.en === b.en ? 1 : 0);
+/** A name made only of symbols or emoji has no `importKey` in either language: it is matched by its exact text instead,
+ * `#<Hebrew>#<English>` with blank edges stripped (no `importKey` holds a `#`), in the Hebrew slot. */
+export const fallbackKey = (t: Text): string => `#${stripBlank(t.he)}#${stripBlank(t.en)}`;
+/** The name says something, but nothing `importKey` keeps (symbols or emoji only): `name_symbols`. */
+export const symbolsOnly = (t: Text): boolean => importKey(t.he) === '' && importKey(t.en) === '' && !(isBlank(t.he) && isBlank(t.en));
+const keysOf = (t: Text): Keys => {
+  const he = importKey(t.he);
+  const en = importKey(t.en);
+  if (he !== '' || en !== '' || (isBlank(t.he) && isBlank(t.en))) return { he, en };
+  return { he: fallbackKey(t), en: '' };
+};
+const scoreKeys = (a: Keys, b: Keys): number =>
+  a.he !== '' && b.he !== '' && a.he !== b.he ? 0 : (a.he !== '' && a.he === b.he ? 2 : 0) + (a.en !== '' && a.en === b.en ? 1 : 0);
 
-/** How well two bilingual names match: 2 when the Hebrew keys are equal (and not empty), plus 1 for English. */
+/**
+ * How well two bilingual names match: 2 when the Hebrew keys are equal (and not empty), plus 1 for English; 0 when both
+ * have a Hebrew key and they differ, whatever the English says ("סלט קיסר / Salad" is not "סלט ירקות / Salad"). A
+ * name of symbols or emoji only is keyed by its exact text (`fallbackKey`).
+ */
 export const nameScore = (a: Text, b: Text): number => scoreKeys(keysOf(a), keysOf(b));
 
 /** Dishes match across sections only within one family of section kinds: food (food, dessert) or drink. */
@@ -489,6 +504,9 @@ export const IMPORT_EXCEPTIONS = {
   name_missing_lang: 'check',
   /** the draft (key `DRAFT_ROOT`, `count` nodes): text the reader translated; Hebrew and French need a native read. */
   translation_check: 'check',
+  /** section, dish, group or option: a name of symbols or emoji only (no letter or digit in either language); a later
+   * import recognises it only by the exact same text (`fallbackKey`). */
+  name_symbols: 'check',
   /** option: opens a group from inside a group that is itself opened (two levels; one is the limit, D37). */
   nesting_too_deep: 'fix',
   /** section, dish, group, option or a dish's group: past `LIMITS` (sections, dishes, groups, options per group,
@@ -539,6 +557,7 @@ export const EXCEPTION_CHOICES: Readonly<Record<ImportExceptionCode, readonly Im
   dish_repeated: ['skip', 'keep_both'],
   name_missing_lang: ['accept'],
   translation_check: ['accept'],
+  name_symbols: ['accept'],
   nesting_too_deep: ['unlink', 'skip'],
   too_many: ['skip'],
   photo_rights_unknown: ['illustration', 'confirm_rights'],
@@ -627,6 +646,7 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
     if (i >= LIMITS.sections) push('too_many', s.key, p);
     if (sectionKeys.slice(0, i).some((k) => scoreKeys(sectionKeys[i]!, k) > 0)) push('section_duplicate', s.key, p);
     named(s.name, s.translated);
+    if (symbolsOnly(s.name)) push('name_symbols', s.key, p);
     s.dishes.forEach((d, j) => {
       const q = `${p}.dishes[${j}]`;
       const f = flat[flatN++]!;
@@ -636,6 +656,7 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
       if (candidates(dishIndex, f.keys).some((t) => t.index < f.index && sameSection(t.section, i))) push('dish_duplicate', d.key, q);
       else if (repeated(f)) push('dish_repeated', d.key, q);
       named(d.name, d.translated, [d.desc]);
+      if (symbolsOnly(d.name)) push('name_symbols', d.key, q);
       if (dishN >= LIMITS.dishes) push('too_many', d.key, q);
       dishN += 1;
       if (d.photo !== null && d.photo.rights !== 'confirmed') push('photo_rights_unknown', d.key, q);
@@ -652,11 +673,13 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
     if (!lim.stated) push('limits_guessed', g.key, p);
     if (lim.min > lim.capacity) push('limits_unreachable', g.key, p);
     named(g.name, g.translated);
+    if (symbolsOnly(g.name)) push('name_symbols', g.key, p);
     if (i >= LIMITS.addonGroups) push('too_many', g.key, p);
     g.options.forEach((o, j) => {
       const q = `${p}.options[${j}]`;
       if (o.price === null) push('option_price_unreadable', o.key, q);
       named(o.name, o.translated);
+      if (symbolsOnly(o.name)) push('name_symbols', o.key, q);
       if (o.opens !== null && opened.has(g.key)) push('nesting_too_deep', o.key, q);
       if (j >= LIMITS.optionsPerGroup) push('too_many', o.key, q);
     });
@@ -750,8 +773,8 @@ export const PLAN_KINDS = ['section', 'group', 'option', 'dish', 'dish_group', '
 export type PlanKind = (typeof PLAN_KINDS)[number];
 export const PLAN_OPS = ['create', 'update', 'keep', 'skip'] as const;
 export type PlanOp = (typeof PLAN_OPS)[number];
-/** Why a node is left out: the owner's choice (or `ImportDecisions.skip`); a duplicate section merged into the first;
- * a section that receives nothing new, or a group left with no options; a node whose section, dish or group is left
+/** Why a node is left out: the owner's choice (or `ImportDecisions.skip`); a duplicate section merged into the first,
+ * or a dish's second link to an existing group one of its links already lands on; a section that receives nothing new, or a group left with no options; a node whose section, dish or group is left
  * out; a group no dish of this import uses. */
 export const SKIP_REASONS = ['choice', 'merged', 'empty', 'parent_skipped', 'unused'] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
@@ -883,8 +906,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    group whose kept options cannot reach its minimum (`draftGroupLimits` over them) while all its options could asks
  *    `limits_unreachable` once, keyed by the group (a draft-level one is not asked again); `skip` leaves the group out
  *    (`choice`) and the cascade runs again, which may make another group unreachable; until nothing changes.
- * 3. **Sections by name**, in draft order: a section merged into an earlier one (`merge`) goes where that one goes;
- *    otherwise the best unclaimed existing section by `nameScore` (then position, then id).
+ * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes; the other kept
+ *    sections claim existing ones in one pass (`assign`: best `nameScore`, then the row's position, id, then the draft
+ *    key), so the result does not depend on the draft's order.
  * 4. **Dishes in their section:** every kept dish whose section resolved, against the dishes of that existing section,
  *    in one pass over all of them (`assign`: best score, then the row's position, id, then the draft key).
  * 5. **Dishes elsewhere:** the dishes still unmatched against the existing dishes still free, only in a section of the
@@ -937,8 +961,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    target (positions after the group's last, never a default, opening nothing), and is `skip` (`choice`) otherwise.
  * 12. **Links:** a link staying on the dish's own group is kept (its row's id), or under `new_group` updated with the
  *    draft's dish limits (a minimum above the created group's kept capacity is null) and `refs.group_id`; others are
- *    created with the draft's dish limits: for an existing group
- *    only those within its own limits (else null), for a created group a minimum above its kept capacity is null.
+ *    created with the draft's dish limits: for an existing group only those within its own limits (else null), for a
+ *    created group a minimum above its kept capacity is null. A dish never gets two links to one existing group: a
+ *    link landing on an existing group an earlier link of the same dish (link order) already lands on is `merged`.
  *    **Photos:** created for a dish with no picture in a live state (`LIVE_ASSET_STATUSES`; the dish's `asset_id`
  *    first) when its rights are confirmed (by the draft or `confirm_rights`); kept (that picture's id) otherwise.
  * 13. **Positions** continue after the highest existing one (or from 0), in draft order.
@@ -1073,18 +1098,14 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const claimedSections = new Set<string>();
   const sectionKeys = new Map(draft.sections.map((s) => [s.key, keysOf(s.name)] as const));
   draft.sections.forEach((s, i) => {
-    if (out(s.key)) return;
-    if (chosen('section_duplicate', s.key) === 'merge') {
-      const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
-      mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
-      return;
-    }
-    const k = sectionKeys.get(s.key)!;
-    const m = exSections
-      .filter((e) => !claimedSections.has(e.id) && scoreKeys(k, e.keys) > 0)
-      .sort((a, b) => scoreKeys(k, b.keys) - scoreKeys(k, a.keys) || a.position - b.position || compareIds(a.id, b.id))[0];
-    if (m) { claimedSections.add(m.id); target.set(s.key, { id: m.id, ref: null }); nameMatched.add(s.key); }
+    if (out(s.key) || chosen('section_duplicate', s.key) !== 'merge') return;
+    const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
+    mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
   });
+  // the other kept sections claim existing ones in one pass (best score, then position, id, draft key), whatever their order
+  const byName = assign(draft.sections.filter((s) => !out(s.key) && !mergedInto.has(s.key)).map((s) => ({ key: s.key, keys: sectionKeys.get(s.key)! })),
+    () => exSections, claimedSections);
+  for (const [key, m] of byName) { target.set(key, { id: m.id, ref: null }); nameMatched.add(key); }
   const rootOf = (sectionKey: string): string => mergedInto.get(sectionKey) ?? sectionKey;
 
   // ---- 4–7. dishes: in their section, elsewhere in the family, renamed sections, another kind
@@ -1427,38 +1448,47 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   // ---- 12. links and photos
   const linkSteps: PlanStep[] = [];
   const nextLinkPosition = new Map<string, number>();
-  for (const s of draft.sections) for (const d of s.dishes) d.groups.forEach((a) => {
-    const lk = linkKey(d.key, a.group);
-    const reason = linkOut(d, a);
-    if (reason) return void linkSteps.push(skipStep('dish_group', lk, reason));
-    const res = linkRes.get(lk)!;
-    if (res.kind === 'own' && res.answer === 'new_group') {
-      // moved to the group this plan creates: like a created link, a minimum above its kept capacity is dropped
-      const min = a.min !== null && a.min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX) ? null : a.min;
-      return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
-    }
-    if (res.kind === 'own') return void linkSteps.push(changeStep('dish_group', lk, res.link.id, {}));
-    const dt = dishTarget.get(d.key)!;
-    const gt = globalOf(a.group);
-    const tk = targetKeyOf(dt);
-    if (!nextLinkPosition.has(tk)) nextLinkPosition.set(tk, nextPosition(dt.id ? linksOf.get(dt.id) ?? [] : []));
-    const position = nextLinkPosition.get(tk)!;
-    nextLinkPosition.set(tk, position + 1);
-    let min = a.min;
-    let max = a.max;
-    if (gt.id) {
-      // a dish only tightens an existing group: a stated limit outside the group's own is dropped
-      const y = groupById.get(gt.id)!;
-      if (min !== null && (min < y.min_units || min > y.max_units)) min = null;
-      if (max !== null && (max > y.max_units || max < y.min_units)) max = null;
-      if (min !== null && max !== null && min > max) { min = null; max = null; }
-    } else if (min !== null && min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX)) min = null;
-    const set: LinkCreate = { position, min_units: min, max_units: max };
-    const refs: { dish_id?: string; group_id?: string } = {};
-    if (dt.id) set.dish_id = dt.id; else refs.dish_id = dt.ref!;
-    if (gt.id) set.group_id = gt.id; else refs.group_id = gt.ref!;
-    linkSteps.push(createStep('dish_group', lk, set, refs));
-  });
+  for (const s of draft.sections) for (const d of s.dishes) {
+    const used = new Set<string>(); // the existing groups this dish's links already landed on
+    d.groups.forEach((a) => {
+      const lk = linkKey(d.key, a.group);
+      const reason = linkOut(d, a);
+      if (reason) return void linkSteps.push(skipStep('dish_group', lk, reason));
+      const res = linkRes.get(lk)!;
+      // two draft groups that land on one existing group (one by its Hebrew name, one by its English): one link
+      const lands = res.kind === 'own' ? (res.answer === 'new_group' ? null : res.groupId) : globalOf(a.group).id;
+      if (lands !== null) {
+        if (used.has(lands)) return void linkSteps.push(skipStep('dish_group', lk, 'merged'));
+        used.add(lands);
+      }
+      if (res.kind === 'own' && res.answer === 'new_group') {
+        // moved to the group this plan creates: like a created link, a minimum above its kept capacity is dropped
+        const min = a.min !== null && a.min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX) ? null : a.min;
+        return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
+      }
+      if (res.kind === 'own') return void linkSteps.push(changeStep('dish_group', lk, res.link.id, {}));
+      const dt = dishTarget.get(d.key)!;
+      const gt = globalOf(a.group);
+      const tk = targetKeyOf(dt);
+      if (!nextLinkPosition.has(tk)) nextLinkPosition.set(tk, nextPosition(dt.id ? linksOf.get(dt.id) ?? [] : []));
+      const position = nextLinkPosition.get(tk)!;
+      nextLinkPosition.set(tk, position + 1);
+      let min = a.min;
+      let max = a.max;
+      if (gt.id) {
+        // a dish only tightens an existing group: a stated limit outside the group's own is dropped
+        const y = groupById.get(gt.id)!;
+        if (min !== null && (min < y.min_units || min > y.max_units)) min = null;
+        if (max !== null && (max > y.max_units || max < y.min_units)) max = null;
+        if (min !== null && max !== null && min > max) { min = null; max = null; }
+      } else if (min !== null && min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX)) min = null;
+      const set: LinkCreate = { position, min_units: min, max_units: max };
+      const refs: { dish_id?: string; group_id?: string } = {};
+      if (dt.id) set.dish_id = dt.id; else refs.dish_id = dt.ref!;
+      if (gt.id) set.group_id = gt.id; else refs.group_id = gt.ref!;
+      linkSteps.push(createStep('dish_group', lk, set, refs));
+    });
+  }
 
   const livePhoto = (dishId: string): string | null => {
     const d = dishById.get(dishId);
