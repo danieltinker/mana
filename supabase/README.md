@@ -91,6 +91,11 @@ Once, after the last one:
    headers were ignored. Two keys mean the platform passes caller-written headers through; do not open the product
    until `app.request_source()` is changed to the header the platform does control.
 
+   **Result on `mana`, 16 Oct 2026: passed.** Supabase's edge (Cloudflare) refuses a request that carries its own
+   `cf-connecting-ip` header outright ("error code: 1000"), so that header cannot be forged at all; a call forging
+   only `x-real-ip` and the leftmost `X-Forwarded-For` landed on the same source as the plain call (one key, `n = 2`).
+   To repeat the check, forge only those two headers: a forged `cf-connecting-ip` never reaches the database.
+
 A later migration that changes access adds its grants and policies at its end, in the same style, and updates the
 intended list inside `app.audit_grants()` in the same change; the tests fail otherwise.
 
