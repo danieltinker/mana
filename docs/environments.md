@@ -53,6 +53,13 @@ production build `npm run serve` withholds `/mana/config.js` (no page can reach 
 in-build demo (`/mana/view/?demo=olea`), unless `--live` is given. Agents never pass `--live`; they work on demo or
 local.
 
+**The settings are judged on every request, not once at start** (`npm run serve`, `npm run demo`, `npm run
+dev:local`): `_site/` can be rebuilt while a server runs (`npm run build` in a second terminal). Before each answer for
+`config.js`, or for any file that is it under another name (a hard link, the same inode) or a copy (the same content),
+the server reads the file as it is now: production's settings are withheld unless `--live`, and settings of another
+environment than the one checked at start are refused (409), with one line in the terminal. Restart the server after a
+rebuild.
+
 The cutover (ADR-005) changes production's database in one reviewed pull request that changes, together, `config.js`,
 `PRODUCTION` in `tools/env.mjs` and the address written out in `tools/check-config.mjs`; the guard fails if only one of
 them changes. The same pull request adds `env: 'production'`, `schema: 2`, `siteBase` and `support.whatsapp` to
@@ -94,8 +101,10 @@ printed with the others.
 
 - A private scenario's name and path are never listed or printed: an unknown name lists only `tools/demo-scenarios/`'s,
   says "or a private one", and stops before anything is built, with exit code 2; a private one is announced as "the
-  private scenario", and when it fails the demo says only that it failed (`MANA_DEMO_DEBUG=1` shows the error as it
-  is, which may name it).
+  private scenario", and when it fails the demo says only that it failed and, at most, a built-in error type (an error
+  class of its own is "an error", a thrown value "a thrown value"). While it is loaded, what it leaves running (a
+  timer that throws, a promise nobody awaits) ends the demo with the same generic line instead of Node's stack.
+  `MANA_DEMO_DEBUG=1` shows the error as it is, which may name it.
 - **A scenario writes only under `private/` or `_site/`.** `outDir` is `private/demo-output/<name>/`. If the run adds
   or changes a file git sees (`git status`: a tracked file changed, or a new one not ignored), the demo fails; it names
   the files for a scenario of the repository, and only counts them for a private one.
@@ -161,16 +170,22 @@ A production build is byte for byte what it was before the environments existed.
 
 Three fast suites (`node tools/test-all.mjs --fast` runs them with the rest):
 
-- `names`: no tracked or new text file, no commit of the branch (`origin/main..HEAD`, messages and patches) and not the
-  name of the branch being pushed holds a forbidden name (the mock client's, in Latin and Hebrew spellings).
+- `names`: no tracked or new file (its text and its path), no commit of the branch (`origin/main..HEAD`, messages and
+  patches) and not the name of the branch being pushed holds a forbidden name (the mock client's, in Latin and Hebrew
+  spellings).
   - **The names are never in the repository**, not as text and not as hashes (a short name's hash reverses). They are
     read from a file outside git: `MANA_FORBIDDEN_NAMES_FILE` if it is set, else `private/forbidden-names.txt`
-    (git-ignored); one name per line, `#` comments. Without it the suite says so in one line and passes: it is a
-    local guard, and every machine that pushes has the list (Daniel's Mac in `private/`, the cloud machine through
-    `MANA_FORBIDDEN_NAMES_FILE`). Run it before every push. A finding names the file and line, never the name.
-  - Text is read as a person reads it: JSON `\uXXXX`, HTML entities and `%XX` are decoded, zero-width, soft-hyphen and
-    bidi characters dropped, accents and points dropped, Hebrew final letters folded. A name matches as its words in a
-    row (across a line break, a hyphen, an underscore) or written as one word.
+    (git-ignored); one name per line, `#` comments. Without the default file the runner's line says "no list: nothing
+    checked" and the suite passes: it is a local guard, and every machine that pushes has the list (Daniel's Mac in
+    `private/`, the cloud machine through `MANA_FORBIDDEN_NAMES_FILE`). A `MANA_FORBIDDEN_NAMES_FILE` that points at
+    nothing, or at an empty list, fails. Run it before every push. A finding names the file (a listed word in its path
+    masked) and line, never the name.
+  - Text is read as a person reads it: HTML tags dropped; JSON and JavaScript escapes (`\uXXXX`, `\n`, `\t`, `\"`…),
+    HTML entities and `%XX` decoded; zero-width, soft-hyphen and bidi characters dropped; accents and points dropped;
+    camel case split; Hebrew final letters folded. A name matches as its words in a row (across a line break, a hyphen,
+    an underscore, a tag), its last word also in the plural, or written as one word, also inside a longer word.
+  - It is a safety net against accidents, not an adversary: deliberate evasions (look-alike letters from another
+    script, spaced-out letters, double encoding) are out of its scope.
   - The branch: the current branch and its upstream; with a detached HEAD, set `MANA_PUSH_BRANCH=<branch>`.
 - `config`: production still points at halom-studio and `https://halom.io/m/` with schema 1; demo points at `mana`
   with schema 2, its own short links and F01's addresses; both keys are publishable keys of the exact shape, not JWTs;
@@ -178,9 +193,11 @@ Three fast suites (`node tools/test-all.mjs --fast` runs them with the rest):
   shape, whole, and `.gitleaksignore` lets nothing else through; `config/local.js` is git-ignored and untracked; no
   file in the repository holds an `sb_secret_…` key or a `service_role` key; `pages.yml` builds production only,
   checks it, and pins its actions.
-- `tools`: the local server (routes, ranges, headers, the reviewers' probes, the guarded production serve, withheld
-  settings by their real path), the build's settings step and its environment choice, the strict CSP rewrite, the JWT
-  rule, the scenario seam, and that the tools a Mac runs load no package.
+- `tools`: the local server (routes, ranges, headers, the reviewers' probes, the guarded production serve, the
+  settings judged on every request, also after a rebuild under a running server and through a hard link or a copy),
+  the build's settings step and its environment choice, the strict CSP rewrite, the JWT rule, the scenario seam (a
+  private scenario's failures, late ones included), the e2e server's short links, and that the tools a Mac runs load no
+  package.
 
 Before a push, besides the suites: `gitleaks detect --source . --log-opts="<base>..HEAD" --redact --no-banner` (the
 branch's commits; it reads `.gitleaks.toml`).
