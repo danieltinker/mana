@@ -116,6 +116,10 @@ test('dashboards: the query, the nudges, staying live', () => {
   assert.equal(pollDelay(15_000, 0, () => 0), 13_500);
   assert.equal(pollDelay(15_000, 0, () => 1), 16_500);
   assert.equal(pollDelay(15_000, 3, () => 1), LIVE_REFRESH.maxBackoffMs, 'never above 120 s, jitter included');
+  // round 3: a slow safety poll beside a Realtime subscription (what the subscribed tables do not carry)
+  assert.equal(LIVE_REFRESH.safetyMs, 60_000);
+  assert.equal(pollDelay(LIVE_REFRESH.safetyMs, 0, () => 0.5), 60_000);
+  assert.equal(pollDelay(LIVE_REFRESH.safetyMs, 1, () => 0.5), LIVE_REFRESH.maxBackoffMs);
 });
 
 test('the back office: clients list, venue, analytics, demo', () => {
