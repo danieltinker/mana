@@ -53,9 +53,11 @@ export const PRICE_TEXT_MAX = 40;
 /** Lines a reader could not read at all (a count, never the text). */
 export const DROPPED_MAX = 100_000;
 /** A draft's size: the bytes of its jsonb text form (`octet_length(parsed::text)`, which `draftBytes` computes); the
- * same number is `menu_imports.parsed`'s column check. */
-export const DRAFT_BYTES_MAX = 400_000;
-/** At most this many exceptions per draft (`menu_imports.exceptions` holds no more); a draft with more is refused. */
+ * same number is `menu_imports.parsed`'s column check and `save_import_draft`'s. A menu at `LIMITS` with short bilingual
+ * names is about 1.18 MB. */
+export const DRAFT_BYTES_MAX = 1_500_000;
+/** At most this many exceptions per draft (`menu_imports.exceptions` holds no more); a draft with more is refused. What
+ * `apply_import` stores there is the draft's own exceptions with their answers (`ImportPlan.fromDraft`), so it fits too. */
 export const EXCEPTIONS_MAX = 2000;
 /** Hard bounds on a draft's shape: a reader that goes past them is broken, so the draft is refused (`too_large`).
  * Between `LIMITS` and these, the draft is kept and the extra nodes are `too_many` exceptions. */
@@ -294,8 +296,10 @@ export function draftGroupLimits(g: Pick<DraftGroup, 'selection' | 'min' | 'max'
  *   exceptions; text lengths in code points; no NUL and no lone surrogate (`text_invalid`); no key the type does not
  *   have, at any level (`field_not_allowed`).
  * - A dish's limits: each 0–30 and min ≤ max; under a group's **stated** limits they may only tighten
- *   (`limits_loosened`; a guess yields to what a dish states); the dish's effective min (its own, else the group's) may
- *   not exceed its effective max nor the group's capacity (`limits_invalid`).
+ *   (`limits_loosened`; a guess yields to what a dish states), and they may not contradict them: a dish min above the
+ *   group's stated max, or a dish max below its stated min (`limits_invalid`). What the options can reach is not checked
+ *   here: a group whose minimum its options cannot reach is the exception `limits_unreachable`, and the plan drops a
+ *   dish minimum above the capacity of the group it creates.
  * - A dish may not carry two groups with the same name and selection (`addon_duplicate`).
  * - A text source carries no photos (`photo_unexpected`).
  *
@@ -436,9 +440,9 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
         if (own.stated && ((isInt(a.min) && isInt(g.min) && a.min < g.min) || (isInt(a.max) && isInt(g.max) && a.max > g.max))) {
           return void x.add('limits_loosened', r);
         }
-        const lo = (a.min as number | null) ?? own.min;
-        const hi = (a.max as number | null) ?? own.max;
-        if (lo > hi || lo > own.capacity) x.add('limits_invalid', r);
+        // a dish's own limits may not contradict the group's stated ones; what the group's options can reach is the
+        // group's question (`limits_unreachable`), and the plan drops a dish minimum its group cannot reach
+        if ((isInt(a.min) && isInt(g.max) && a.min > g.max) || (isInt(a.max) && isInt(g.min) && a.max < g.min)) x.add('limits_invalid', r);
       });
     });
   });
@@ -468,14 +472,17 @@ export const IMPORT_EXCEPTIONS = {
   option_price_unreadable: 'fix',
   /** group: the source states no limits; the plan uses `draftGroupLimits`' guess. */
   limits_guessed: 'check',
-  /** group: the minimum is more than its (kept) options can add up to. Also raised by the plan after skips. */
+  /** group: the minimum is more than its options can add up to. Raised by the plan too (once, keyed by the group) when
+   * the options left out make it so; `skip` then leaves the group out (rule 2 of `planApply`). */
   limits_unreachable: 'fix',
   /** section: the same name (`importKey`) as an earlier section of the draft. */
   section_duplicate: 'fix',
   /** dish: the same name as an earlier dish of the same section, or of a section with the same name. */
   dish_duplicate: 'fix',
-  /** dish: the same name and the same price as an earlier dish of another section (Wolt's "Popular" repeats dishes;
-   * a same-name dish at another price is another dish). */
+  /** dish: a copy of a dish with the same name and the same price in another section (Wolt's "Popular" repeats
+   * dishes; a same-name dish at another price is another dish). Of such copies, the one kept is the one with the most
+   * add-on groups, then the one in the section with the smaller share of such copies, then the larger section, then the
+   * first in the draft; every other copy is `dish_repeated`, wherever it comes in the draft. */
   dish_repeated: 'check',
   /** the draft (key `DRAFT_ROOT`, `count` nodes): names missing in one of the venue's languages (the guest menu falls
    * back to the other). */
@@ -497,8 +504,9 @@ export const IMPORT_EXCEPTIONS = {
   dish_elsewhere: 'check',
   /** plan, dish: a dish of that name is in a section of another kind (a drink among the food): new unless answered. */
   dish_other_kind: 'check',
-  /** plan, dish or option: the price read differs from the venue's (`count` = the venue's price in agorot, or -1 when
-   * the venue shows none). */
+  /** plan, a draft section (for its dishes) or a draft group (for its options): prices read that differ from the
+   * venue's (`count` = how many). One answer for all of them; `price_differs@<dish or option key>` answers one of them
+   * differently (an override, not an exception of its own). */
   price_differs: 'check',
   /** plan, a dish's group (`<dish>><group>`) or an option's nested group (`<option>><group>`): the venue's dish or
    * option already has this group, but its options differ from the source's. */
@@ -594,11 +602,26 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
   for (const g of draft.groups) for (const o of g.options) if (o.opens !== null) opened.add(o.opens);
 
   const sectionKeys = draft.sections.map((s) => keysOf(s.name));
-  type Seen = { section: number; price: number | null };
-  const byHe = new Map<string, Seen[]>();
-  const byEn = new Map<string, Seen[]>();
-  const sameName = (k: Keys): Seen[] => [...(k.he !== '' ? byHe.get(k.he) ?? [] : []), ...(k.en !== '' ? byEn.get(k.en) ?? [] : [])];
+  const sameSection = (a: number, b: number): boolean => a === b || scoreKeys(sectionKeys[a]!, sectionKeys[b]!) > 0;
+  // every dish, flat, with its name keys: `dish_duplicate` looks at earlier ones, `dish_repeated` at all of them
+  type Flat = { index: number; section: number; dish: DraftDish; keys: Keys };
+  const flat: Flat[] = [];
+  draft.sections.forEach((s, i) => s.dishes.forEach((d) => flat.push({ index: flat.length, section: i, dish: d, keys: keysOf(d.name) })));
+  const dishIndex = byIndex(flat);
+  const twinsOf = (f: Flat): Flat[] =>
+    candidates(dishIndex, f.keys).filter((t) => !sameSection(t.section, f.section) && t.dish.price === f.dish.price);
+  const twinCount = draft.sections.map(() => 0);
+  const hasTwin = flat.map((f) => twinsOf(f).length > 0);
+  for (const f of flat) if (hasTwin[f.index]) twinCount[f.section]! += 1;
+  /** The copy kept among twins first: the most add-on groups, the section with the smaller share of twins, the larger
+   * section, the earlier in the draft. */
+  const keptFirst = (a: Flat, b: Flat): number => {
+    const sa = draft.sections[a.section]!.dishes.length, sb = draft.sections[b.section]!.dishes.length;
+    return b.dish.groups.length - a.dish.groups.length || twinCount[a.section]! * sb - twinCount[b.section]! * sa || sb - sa || a.index - b.index;
+  };
+  const repeated = (f: Flat): boolean => hasTwin[f.index]! && twinsOf(f).some((t) => keptFirst(t, f) < 0);
   let dishN = 0;
+  let flatN = 0;
   draft.sections.forEach((s, i) => {
     const p = `sections[${i}]`;
     if (i >= LIMITS.sections) push('too_many', s.key, p);
@@ -606,16 +629,12 @@ export function draftExceptions(draft: ImportDraft, opts: DraftExceptionOptions 
     named(s.name, s.translated);
     s.dishes.forEach((d, j) => {
       const q = `${p}.dishes[${j}]`;
-      const dk = keysOf(d.name);
+      const f = flat[flatN++]!;
       if (d.price === null && (d.priceText === null || isBlank(d.priceText))) push('price_missing', d.key, q);
       if (d.price === null && d.priceText !== null && !isBlank(d.priceText)) push('price_unreadable', d.key, q);
       if (d.price === 0) push('price_zero', d.key, q);
-      const same = sameName(dk);
-      if (same.some((e) => e.section === i || scoreKeys(sectionKeys[e.section]!, sectionKeys[i]!) > 0)) push('dish_duplicate', d.key, q);
-      else if (same.some((e) => e.price === d.price)) push('dish_repeated', d.key, q);
-      const seen: Seen = { section: i, price: d.price };
-      if (dk.he !== '') pushTo(byHe, dk.he, seen);
-      if (dk.en !== '') pushTo(byEn, dk.en, seen);
+      if (candidates(dishIndex, f.keys).some((t) => t.index < f.index && sameSection(t.section, i))) push('dish_duplicate', d.key, q);
+      else if (repeated(f)) push('dish_repeated', d.key, q);
       named(d.name, d.translated, [d.desc]);
       if (dishN >= LIMITS.dishes) push('too_many', d.key, q);
       dishN += 1;
@@ -795,6 +814,10 @@ export type ImportPlan = {
   /** Every exception, the draft's and the plan's, with the answer used: the draft's in `draftExceptions` order, then the
    * plan's in the order of the steps they concern (then `IMPORT_EXCEPTIONS` order). */
   readonly exceptions: readonly AnsweredException[];
+  /** How many of `exceptions` are the draft's own (the first ones). `apply_import` stores exactly those in
+   * `menu_imports.exceptions` (the list `save_import_draft` stored, now with the answers used; at most `EXCEPTIONS_MAX`
+   * by `validateDraft`); the plan's own are counted per code in the `import.apply` activity row. */
+  readonly fromDraft: number;
 };
 
 type Target = { readonly id: string; readonly ref: null } | { readonly id: null; readonly ref: string };
@@ -822,18 +845,19 @@ function pushTo<K, V>(m: Map<K, V[]>, k: K, v: V): void {
 }
 
 /**
- * Pairs draft nodes with existing rows, each at most once, by the best score first; ties by the row's position, then
- * its id, then the draft key. Order-independent: the result does not depend on the order of `nodes`.
+ * Pairs draft nodes with existing rows, each at most once, by the best score first; then the pairs `prefer` ranks
+ * lower (0 before 1); then the row's position, its id, and the draft key. Order-independent: the result does not
+ * depend on the order of `nodes`.
  */
 function assign<N extends { key: string; keys: Keys }, R extends { id: string; position: number; keys: Keys }>(
-  nodes: readonly N[], rowsFor: (n: N) => readonly R[], taken: Set<string>,
+  nodes: readonly N[], rowsFor: (n: N) => readonly R[], taken: Set<string>, prefer: (n: N, r: R) => number = () => 0,
 ): Map<string, R> {
-  const pairs: Array<{ n: N; r: R; score: number }> = [];
+  const pairs: Array<{ n: N; r: R; score: number; rank: number }> = [];
   for (const n of nodes) for (const r of rowsFor(n)) {
     const score = scoreKeys(n.keys, r.keys);
-    if (score > 0 && !taken.has(r.id)) pairs.push({ n, r, score });
+    if (score > 0 && !taken.has(r.id)) pairs.push({ n, r, score, rank: prefer(n, r) });
   }
-  pairs.sort((a, b) => b.score - a.score || a.r.position - b.r.position || compareIds(a.r.id, b.r.id) || compareIds(a.n.key, b.n.key));
+  pairs.sort((a, b) => b.score - a.score || a.rank - b.rank || a.r.position - b.r.position || compareIds(a.r.id, b.r.id) || compareIds(a.n.key, b.n.key));
   const out = new Map<string, R>();
   for (const p of pairs) {
     if (out.has(p.n.key) || taken.has(p.r.id)) continue;
@@ -855,21 +879,30 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * 2. **What is left out** (`skip`): the keys in `decisions.skip` and every node answered `skip`; then, until nothing
  *    changes: a section takes its dishes; a dish takes its links and photo; a group takes its options, its links and
  *    the options that open it; a group whose options are all left out is left out too (`empty`). `unlink` keeps an
- *    option but it opens nothing. Limits and capacity count only the options kept.
+ *    option but it opens nothing. Limits and capacity count only the options kept. Then, in draft group order, a kept
+ *    group whose kept options cannot reach its minimum (`draftGroupLimits` over them) while all its options could asks
+ *    `limits_unreachable` once, keyed by the group (a draft-level one is not asked again); `skip` leaves the group out
+ *    (`choice`) and the cascade runs again, which may make another group unreachable; until nothing changes.
  * 3. **Sections by name**, in draft order: a section merged into an earlier one (`merge`) goes where that one goes;
  *    otherwise the best unclaimed existing section by `nameScore` (then position, then id).
  * 4. **Dishes in their section:** every kept dish whose section resolved, against the dishes of that existing section,
  *    in one pass over all of them (`assign`: best score, then the row's position, id, then the draft key).
  * 5. **Dishes elsewhere:** the dishes still unmatched against the existing dishes still free, only in a section of the
- *    same family of kinds (`KIND_FAMILY`), one pass.
+ *    same family of kinds (`KIND_FAMILY`), one pass. Among equally good candidates, the one in the existing section
+ *    where the rest of the dish's draft section went comes first: each kept dish of the (merged) draft section votes
+ *    for the existing section of its step-4 match, or for every existing section that holds a free candidate of its
+ *    family; the section with strictly the most votes, if there is one, is preferred (then position, id, draft key).
  * 6. **Renamed sections:** a draft section with no name match whose step-5 matches are, for more than half of them, in
  *    one existing section that no other draft section resolved to or proposes: `section_renamed` (`same_section`, the
- *    default, keeps the venue's name; `rename` takes the source's; `keep_both` makes a new section).
+ *    default, keeps the venue's name; `rename` takes the source's; `keep_both` makes a new section). With step 5's
+ *    preference, two renamed sections that each hold a dish of the same name keep their own.
  * 7. **Dishes of another kind:** the dishes still unmatched against the existing dishes still free, in a section of the
  *    other family, one pass: `dish_other_kind` (default `new_dish`).
  * 8. **Dish outcomes.** A step-4 match, or a step-5 match now in its own resolved section, updates or keeps the
- *    venue's dish; any other step-5 match asks `dish_elsewhere` (default `same_dish`). A price read that differs from
- *    the venue's asks `price_differs` (default `keep_mine`). Updates never take anything away: names, descriptions,
+ *    venue's dish; any other step-5 match asks `dish_elsewhere` (default `same_dish`). Prices read (after `price_zero`'s
+ *    `no_price`) that differ from the venue's ask one `price_differs` per draft section, keyed by the section, `count` =
+ *    how many of its dishes (default `keep_mine`); `price_differs@<dish key>` answers one dish on its own. Updates never
+ *    take anything away: names, descriptions,
  *    price notes and allergen text are written only where the venue's are blank; tags only gain (the venue's, then the
  *    draft's new ones in draft order); the illustration is set only when the dish has neither a photo nor one. A matched
  *    dish stays in its section. An unmatched dish is created in its section's target.
@@ -890,17 +923,21 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
  *    group's key, the others by `targetKey`. A group with no target is `unused`. A created group's limits: as stated,
  *    else the guess over its kept options, loosened to what its new links state (a smaller min; for a multiple choice,
- *    a larger max up to 30); a minimum above the kept capacity asks `limits_unreachable` (`clamp` lowers it to the
- *    capacity). Its limits are confirmed only when stated (`limits_confirmed`).
+ *    a larger max up to 30); a minimum still above the kept capacity is lowered to it (the group was asked
+ *    `limits_unreachable` in step 2, or in the draft, and a kept group's answer is `clamp`), so the plan never creates a
+ *    group whose minimum its options cannot reach. Its limits are confirmed only when stated (`limits_confirmed`).
  * 11. **Options**, per target (draft option order): a left-out option has one `skip` step, under the first target only;
  *    in a created target every kept option is created (positions from 0; its default kept; it opens its nested
  *    group's global target, refused as `nesting_too_deep` when that is an existing group whose options open groups);
- *    in an existing target, a matched option updates (names fill blanks; a different price read asks `price_differs`
- *    keyed by the option's step key; an `opens_changed`/`group_changed` answer `new_group` adds `refs.opens_group_id`)
+ *    in an existing target, a matched option updates (names fill blanks; prices read that differ, on every existing
+ *    target of the group, ask one `price_differs` keyed by the draft group, `count` = how many, and
+ *    `price_differs@<option key>` answers one option on all its targets; an `opens_changed`/`group_changed` answer
+ *    `new_group` adds `refs.opens_group_id`)
  *    or is kept; an unmatched one is created when a link or option of this group answered `add_options` for that
  *    target (positions after the group's last, never a default, opening nothing), and is `skip` (`choice`) otherwise.
  * 12. **Links:** a link staying on the dish's own group is kept (its row's id), or under `new_group` updated with the
- *    draft's dish limits and `refs.group_id`; others are created with the draft's dish limits: for an existing group
+ *    draft's dish limits (a minimum above the created group's kept capacity is null) and `refs.group_id`; others are
+ *    created with the draft's dish limits: for an existing group
  *    only those within its own limits (else null), for a created group a minimum above its kept capacity is null.
  *    **Photos:** created for a dish with no picture in a live state (`LIVE_ASSET_STATUSES`; the dish's `asset_id`
  *    first) when its rights are confirmed (by the draft or `confirm_rights`); kept (that picture's id) otherwise.
@@ -908,7 +945,8 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * 14. **Order of the steps:** sections (draft order); groups (draft order, each with its targets in order); options
  *    (draft group order, then target order, then draft option order); dishes (draft order); dish groups (dish order,
  *    then link order); photos (dish order). `exceptions`: the draft's in `draftExceptions` order, then the plan's in
- *    the order of the steps they concern (`<kind>:<key>`), then `IMPORT_EXCEPTIONS` order.
+ *    the order of the steps they concern (`<kind>:<key>`), then `IMPORT_EXCEPTIONS` order. `fromDraft` = how many are
+ *    the draft's (what `apply_import` stores).
  * 15. **Limits** with what the venue has: sections, dishes, groups (`too_many` at `sections`, `dishes`, `groups`),
  *    options added to an existing group (at its id), groups per dish (at the link's key).
  */
@@ -941,6 +979,13 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     if (c !== undefined) { choice.set(exceptionId(e), c); planAsked.push({ e: { ...e, choice: c }, step }); }
     return c;
   };
+  /** One node of a grouped exception answered on its own (`<code>@<node key>`), else the group's answer. */
+  const override = (code: ImportExceptionCode, nodeKey: string, fallback: ImportChoice | undefined): ImportChoice | undefined => {
+    const c = decisions.choices[`${code}@${nodeKey}`];
+    if (c === undefined) return fallback;
+    if (!EXCEPTION_CHOICES[code].includes(c)) { x.add('choice_invalid', nodeKey, code); return fallback; }
+    return c;
+  };
 
   // ---- 2. what is left out
   const skipped = new Map<string, SkipReason>();
@@ -963,18 +1008,35 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     const opens = opensOf(o);
     if (opens !== null) pushTo(openersOf, opens, o);
   }
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const g of draft.groups) {
-      if (!skipped.has(g.key) && g.options.every((o) => skipped.has(o.key))) { skipped.set(g.key, 'empty'); changed = true; }
-      if (!skipped.has(g.key)) continue;
-      for (const o of [...g.options, ...(openersOf.get(g.key) ?? [])]) if (!skipped.has(o.key)) { skipped.set(o.key, 'parent_skipped'); changed = true; }
+  const cascade = (): void => {
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const g of draft.groups) {
+        if (!skipped.has(g.key) && g.options.every((o) => skipped.has(o.key))) { skipped.set(g.key, 'empty'); changed = true; }
+        if (!skipped.has(g.key)) continue;
+        for (const o of [...g.options, ...(openersOf.get(g.key) ?? [])]) if (!skipped.has(o.key)) { skipped.set(o.key, 'parent_skipped'); changed = true; }
+      }
     }
-  }
+  };
   const out = (key: string): boolean => skipped.has(key);
   const linkOut = (d: DraftDish, a: DraftDishGroup): SkipReason | null =>
     out(d.key) || out(a.group) ? 'parent_skipped' : asked.has(linkKey(d.key, a.group)) ? 'choice' : null;
   const keptOptions = (g: DraftGroup): DraftOption[] => g.options.filter((o) => !out(o.key));
+  // a group whose kept options no longer reach its minimum (the draft's own options did): asked once; `skip` leaves it
+  // out like any other skip, and its options, links and openers with it, which may make another group unreachable
+  const unreachableInDraft = new Set(draft.groups.filter((g) => { const l = draftGroupLimits(g, g.options); return l.min > l.capacity; }).map((g) => g.key));
+  const askedUnreachable = new Set<string>();
+  for (let more = true; more;) {
+    cascade();
+    more = false;
+    draft.groups.forEach((g, gi) => {
+      if (out(g.key) || unreachableInDraft.has(g.key) || askedUnreachable.has(g.key)) return;
+      const lim = draftGroupLimits(g, keptOptions(g));
+      if (lim.min <= lim.capacity) return;
+      askedUnreachable.add(g.key);
+      if (ask('limits_unreachable', g.key, `groups[${gi}]`, `group:${g.key}`) === 'skip') { skipped.set(g.key, 'choice'); more = true; }
+    });
+  }
 
   const pricesShown =
     draft.sections.some((s) => s.dishes.some((d) => d.price !== null && !out(d.key))) ||
@@ -1033,8 +1095,25 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const homeOf = (n: DNode): string | null => target.get(rootOf(n.section.key))?.id ?? null;
   const inSection = assign(kept.filter((n) => homeOf(n) !== null), (n) => candidates(dishIndex, n.keys).filter((r) => r.section_id === homeOf(n)), takenDishes);
   const family = (n: DNode): string => KIND_FAMILY[draftSectionOf.get(n.key)!.kind];
-  const elsewhere = assign(kept.filter((n) => !inSection.has(n.key)),
-    (n) => candidates(dishIndex, n.keys).filter((r) => familyOfDish(r) === family(n)), takenDishes);
+  const nearRows = (n: DNode) => candidates(dishIndex, n.keys).filter((r) => familyOfDish(r) === family(n));
+  // where the rest of a draft section went: each kept dish votes for the existing section of its step-4 match, or for
+  // every existing section holding a free candidate of its family; the one section with the most votes, if any
+  const votes = new Map<string, Map<string, number>>();
+  for (const n of kept) {
+    const root = rootOf(n.section.key);
+    const v = votes.get(root) ?? new Map<string, number>();
+    votes.set(root, v);
+    const m = inSection.get(n.key);
+    const ids = m ? [m.section_id] : [...new Set(nearRows(n).filter((r) => !takenDishes.has(r.id)).map((r) => r.section_id))];
+    for (const id of ids) v.set(id, (v.get(id) ?? 0) + 1);
+  }
+  const affinity = new Map<string, string>();
+  for (const [root, v] of votes) {
+    const top = [...v].sort((a, b) => b[1] - a[1]);
+    if (top.length > 0 && (top.length === 1 || top[0]![1] > top[1]![1])) affinity.set(root, top[0]![0]);
+  }
+  const elsewhere = assign(kept.filter((n) => !inSection.has(n.key)), nearRows, takenDishes,
+    (n, r) => (r.section_id === affinity.get(rootOf(n.section.key)) ? 0 : 1));
 
   const renamed = new Map<string, string>(); // draft section → the existing section it proposes
   for (const s of draft.sections) {
@@ -1062,9 +1141,10 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const nextDishPosition = new Map<string, number>();
   const targetKeyOf = (t: Target): string => t.id ?? `ref:${t.ref}`;
   const createdInSection = new Set<string>();
+  // the venue's dish each kept dish lands on (asking dish_elsewhere / dish_other_kind), in draft order
+  const matchOf = new Map<string, (typeof exDishes)[number]>();
   for (const s of draft.sections) for (const d of s.dishes) {
-    const reason = skipped.get(d.key) ?? (out(rootOf(s.key)) ? 'parent_skipped' : undefined);
-    if (reason) { dishSteps.push(skipStep('dish', d.key, reason)); continue; }
+    if (skipped.has(d.key) || out(rootOf(s.key))) continue;
     const home = sectionTarget(s.key);
     let m = inSection.get(d.key);
     const near = elsewhere.get(d.key);
@@ -1073,16 +1153,32 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     }
     const far = otherKind.get(d.key);
     if (!m && !near && far && ask('dish_other_kind', d.key, dishPath.get(d.key)!, `dish:${d.key}`) === 'same_dish') m = far;
+    if (m) matchOf.set(d.key, m);
+  }
+  const priceRead = (d: DraftDish): number | null => (d.price !== null && chosen('price_zero', d.key) === 'no_price' ? null : d.price);
+  const priceDiffers = (d: DraftDish): boolean => {
+    const m = matchOf.get(d.key);
+    const price = priceRead(d);
+    return m !== undefined && price !== null && price !== m.price;
+  };
+  // prices that differ: one question per draft section, for its dishes
+  const sectionPrice = new Map<string, ImportChoice | undefined>();
+  draft.sections.forEach((s, i) => {
+    const n = s.dishes.filter(priceDiffers).length;
+    if (n > 0) sectionPrice.set(s.key, ask('price_differs', s.key, `sections[${i}]`, `section:${s.key}`, n));
+  });
+  for (const s of draft.sections) for (const d of s.dishes) {
+    const reason = skipped.get(d.key) ?? (out(rootOf(s.key)) ? 'parent_skipped' : undefined);
+    if (reason) { dishSteps.push(skipStep('dish', d.key, reason)); continue; }
+    const home = sectionTarget(s.key);
+    const m = matchOf.get(d.key);
     if (m) {
       dishTarget.set(d.key, { id: m.id, ref: null });
       const set: Record<string, unknown> = fillBlank(m, {
         name_he: d.name.he, name_en: d.name.en, desc_he: d.desc.he, desc_en: d.desc.en, price_note_he: d.priceNote.he,
         price_note_en: d.priceNote.en, allergens_he: d.allergens.he, allergens_en: d.allergens.en,
       });
-      const price = d.price !== null && chosen('price_zero', d.key) === 'no_price' ? null : d.price;
-      if (price !== null && price !== m.price && ask('price_differs', d.key, dishPath.get(d.key)!, `dish:${d.key}`, m.price ?? -1) === 'take_new') {
-        set.price = price;
-      }
+      if (priceDiffers(d) && override('price_differs', d.key, sectionPrice.get(s.key)) === 'take_new') set.price = priceRead(d);
       const gained = d.tags.filter((t) => !m!.tags.includes(t));
       if (gained.length > 0) set.tags = [...m.tags, ...gained];
       if (m.asset_id === null && m.stock_id === null && d.illustration !== null) set.stock_id = d.illustration;
@@ -1272,7 +1368,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
             if (a.max !== null && g.selection === 'multiple') max = Math.max(max, Math.min(a.max, GROUP_UNITS_MAX));
           }
         }
-        if (min > lim.capacity && ask('limits_unreachable', g.key, p, `group:${g.key}`) === 'clamp') min = lim.capacity;
+        // never above the kept capacity: `limits_unreachable` was asked in step 2 and a kept group's answer is `clamp`
+        if (min > lim.capacity) min = lim.capacity;
         createdCapacity.set(g.key, lim.capacity);
         const name = cleanText(g.name);
         groupSteps.push(createStep('group', key, {
@@ -1283,22 +1380,28 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       }
       groupSteps.push(changeStep('group', key, t.id, fillBlank(groupById.get(t.id)!, { name_he: g.name.he, name_en: g.name.en })));
     }
-    // ---- 11. options, per target
+    // ---- 11. options, per target; prices that differ: one question per draft group, for its options on every target
+    let differing = 0;
+    for (const t of targets) {
+      if (t.id === null) continue;
+      const cov = cover(g, t.id);
+      for (const o of kept1) { const e = cov.get(o.key); if (e && o.price !== null && o.price !== e.price) differing += 1; }
+    }
+    const groupPrice = differing > 0 ? ask('price_differs', g.key, p, `group:${g.key}`, differing) : undefined;
     for (const t of targets) {
       const isPrimary = t === primary;
       let position = t.id === null ? 0 : nextPosition(optionsOf.get(t.id) ?? []);
       const adding = t.id !== null && (linksOfGroup(g).some((r) => r.kind === 'own' && r.groupId === t.id && r.answer === 'add_options') ||
         (openerAdd.get(g.key)?.has(t.id) ?? false));
       const matched = t.id === null ? new Map<string, Row<ExistingMenu['options'][number]>>() : cover(g, t.id);
-      g.options.forEach((o, oi) => {
+      g.options.forEach((o) => {
         const key = tkey(o.key, t, primary);
-        const q = `${p}.options[${oi}]`;
         const r = skipped.get(o.key);
         if (r) { if (isPrimary) optionSteps.push(skipStep('option', o.key, r)); return; }
         const e = matched.get(o.key);
         if (e) {
           const set: Record<string, unknown> = fillBlank(e, { name_he: o.name.he, name_en: o.name.en });
-          if (o.price !== null && o.price !== e.price && ask('price_differs', key, q, `option:${key}`, e.price) === 'take_new') set.price = o.price;
+          if (o.price !== null && o.price !== e.price && override('price_differs', o.key, groupPrice) === 'take_new') set.price = o.price;
           const moveTo = openerMove.get(key);
           if (moveTo) optionSteps.push({ kind: 'option', key, op: 'update', id: e.id, set, refs: { opens_group_id: moveTo }, reason: null });
           else optionSteps.push(changeStep('option', key, e.id, set));
@@ -1330,7 +1433,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     if (reason) return void linkSteps.push(skipStep('dish_group', lk, reason));
     const res = linkRes.get(lk)!;
     if (res.kind === 'own' && res.answer === 'new_group') {
-      return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: a.min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
+      // moved to the group this plan creates: like a created link, a minimum above its kept capacity is dropped
+      const min = a.min !== null && a.min > (createdCapacity.get(a.group) ?? GROUP_UNITS_MAX) ? null : a.min;
+      return void linkSteps.push({ kind: 'dish_group', key: lk, op: 'update', id: res.link.id, set: { min_units: min, max_units: a.max }, refs: { group_id: a.group }, reason: null });
     }
     if (res.kind === 'own') return void linkSteps.push(changeStep('dish_group', lk, res.link.id, {}));
     const dt = dishTarget.get(d.key)!;
@@ -1405,7 +1510,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const planExceptions = [...planAsked]
     .sort((a, b) => (stepIndex.get(a.step) ?? 0) - (stepIndex.get(b.step) ?? 0) || rank.get(a.e.code)! - rank.get(b.e.code)!)
     .map((p) => p.e);
-  return { ok: true, value: { v: 1, steps, summary: summarize(steps), exceptions: [...answered, ...planExceptions] } };
+  return { ok: true, value: { v: 1, steps, summary: summarize(steps), exceptions: [...answered, ...planExceptions], fromDraft: answered.length } };
 }
 
 const nextPosition = (rows: ReadonlyArray<{ position: number }>): number => (rows.length ? Math.max(...rows.map((r) => r.position)) + 1 : 0);
@@ -1465,7 +1570,9 @@ export type MenuImportView = ImportViewBase & (
 export const TEXT_SOURCES = ['paste', 'wolt_text'] as const satisfies readonly ImportSource[];
 export const IMAGE_SOURCES = ['scan', 'wolt_screenshots'] as const satisfies readonly ImportSource[];
 export const IMPORT_TEXT_MAX = 60_000;
-export const IMPORT_IMAGES_MAX = 20;
+/** Images per import, by source: what one scanner request reads in its time (photos of a printed menu are heavier than
+ * screenshots). More pages are another import; imports add up, since the plan never deletes. */
+export const IMPORT_IMAGES_MAX: Readonly<Record<(typeof IMAGE_SOURCES)[number], number>> = { scan: 8, wolt_screenshots: 24 };
 export const SHA256_RE = /^[0-9a-f]{64}$/;
 
 /**
@@ -1513,7 +1620,7 @@ export function validateCreateImport(raw: unknown): Validation<CreateImportInput
     if (importId === null) x.add('id_invalid', 'importId');
     const folder = isUuid(raw.venueId) && isUuid(importId) ? `${(raw.venueId as string).toLowerCase()}/imports/${(importId as string).toLowerCase()}/` : null;
     if (!Array.isArray(paths) || paths.length === 0) x.add('paths_missing', 'paths');
-    else if (paths.length > IMPORT_IMAGES_MAX) x.add('too_many', 'paths');
+    else if (paths.length > IMPORT_IMAGES_MAX[raw.source as (typeof IMAGE_SOURCES)[number]]) x.add('too_many', 'paths');
     else paths.forEach((p, i) => {
       if (!isRelPath(p) || textLength(p) > 200 || !isStorableText(p) || (folder !== null && !p.startsWith(folder))) x.add('path_invalid', `paths[${i}]`);
     });
