@@ -14,7 +14,8 @@ import {
 import { EVENT_NAMES, EVENT_TIME_RE, type EventName } from './events.ts';
 import type { DraftCounts, ImportExceptionCode } from './import.ts';
 import type { OnboardingProgress } from './onboarding.ts';
-import { isReason, validateInput } from './rpc.ts';
+import { isReason, requiredText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
+import type { SnapshotV2 } from './snapshot.ts';
 import type { SupportCase } from './support.ts';
 import { isLocalDate, type LocalDate } from './time.ts';
 
@@ -100,7 +101,8 @@ export const OPS_PAGE_MAX = 500;
 
 /** `ops_venues`: the clients list. Every filter is optional; they combine with "and". */
 export type OpsVenuesQuery = {
-  /** A part of the name (either language) or of the slug, any case; 1–80 characters. */
+  /** A part of the name (either language) or of the slug, any case; 1–80 characters once blank edges are stripped
+   * (the database searches for the stripped text). */
   readonly q?: string;
   readonly stage?: OnboardingStep | 'complete';
   readonly warning?: OpsWarning;
@@ -127,11 +129,7 @@ export type OpsVenues = {
 /** Codes: type, field_not_allowed, text_too_long, text_missing, enum_invalid, limit_invalid. */
 export function validateOpsVenuesQuery(raw: unknown): Validation<OpsVenuesQuery> {
   return validateInput<OpsVenuesQuery>(raw, ['q', 'stage', 'warning', 'review', 'planState', 'plan', 'demo', 'sort', 'limit', 'offset'], (x, o) => {
-    if (o.q !== undefined) {
-      if (!isString(o.q)) x.add('type', 'q');
-      else if (o.q.trim() === '') x.add('text_missing', 'q');
-      else if (o.q.length > 80) x.add('text_too_long', 'q');
-    }
+    if (o.q !== undefined) requiredText(x, o.q, 'q', 80);
     if (o.stage !== undefined && o.stage !== 'complete' && !oneOf(ONBOARDING_STEPS, o.stage)) x.add('enum_invalid', 'stage');
     if (o.warning !== undefined && !oneOf(OPS_WARNINGS, o.warning)) x.add('enum_invalid', 'warning');
     if (o.review !== undefined && !oneOf(REVIEW_STATES, o.review)) x.add('enum_invalid', 'review');
@@ -272,7 +270,7 @@ const daysBetween = (a: LocalDate, b: LocalDate): number => Math.round((Date.par
 /** `ops_set_demo` (admins): label a venue as demo or real. Logged with the reason. Stored events and rollups keep the
  * label they were counted with (records are append-only); the switch applies from the next event. */
 export type SetDemoInput = { readonly venueId: string; readonly demo: boolean; readonly reason: string };
-export type SetDemoReply = { readonly ok: true; readonly demo: boolean };
+export type SetDemoReply = RpcOk<{ readonly demo: boolean }> | RpcFail<'reason_required' | 'venue_unknown'>;
 
 /** Codes: type, field_not_allowed, id_invalid, reason_required. */
 export function validateSetDemo(raw: unknown): Validation<SetDemoInput> {
@@ -287,4 +285,30 @@ export function validateSetDemo(raw: unknown): Validation<SetDemoInput> {
 export type OpsVenueQuery = { readonly venueId: string };
 export function validateOpsVenueQuery(raw: unknown): Validation<OpsVenueQuery> {
   return validateInput<OpsVenueQuery>(raw, ['venueId'], (x, o) => void (isUuid(o.venueId) || x.add('id_invalid', 'venueId')));
+}
+
+// ---------------------------------------------------------------- a stored revision, as staff read it
+
+/**
+ * `ops_revision(p_venue, p_revision)` (staff; a caller who is not staff gets 42501 `not_staff`): one stored revision
+ * of a venue's menu, the newest when `revision` is null or absent. Each read is logged (`menu.read`).
+ */
+export type OpsRevisionQuery = { readonly venueId: string; readonly revision?: number | null };
+export type OpsRevision =
+  | RpcOk<{
+      readonly venueId: string;
+      readonly revision: { readonly id: string; readonly number: number; readonly createdAt: string; readonly note: string | null; readonly live: boolean };
+      /** The newest revision's number. */
+      readonly latest: number;
+      readonly review: ReviewState;
+      readonly snapshot: SnapshotV2;
+    }>
+  | RpcFail<'venue_unknown' | 'revision_unknown'>;
+
+/** Codes: type, field_not_allowed, id_invalid, revision_invalid. */
+export function validateOpsRevisionQuery(raw: unknown): Validation<OpsRevisionQuery> {
+  return validateInput<OpsRevisionQuery>(raw, ['venueId', 'revision'], (x, o) => {
+    if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
+    if (o.revision !== undefined && o.revision !== null && !(isInt(o.revision) && o.revision >= 1)) x.add('revision_invalid', 'revision');
+  });
 }

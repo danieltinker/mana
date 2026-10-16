@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanText, hasName, isBlank, isBlankChar, stripBlank } from '../src/common.ts';
+import { cleanText, hasName, isBlank, isBlankChar, isStorableText, stripBlank, textLength } from '../src/common.ts';
+import { isLocalDate } from '../src/time.ts';
 
 test('the blank characters, one by one', () => {
   const blank = [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0x85, 0xa0, 0x1680, 0x180e, 0x2000, 0x2005, 0x200a, 0x200b, 0x200c, 0x200d, 0x200e, 0x200f,
@@ -31,4 +32,29 @@ test('strip at the edges only; a name of nothing but blanks is no name', () => {
   assert.deepEqual(cleanText({ he: '‫ טוסט‬', en: ' Toast ' }), { he: 'טוסט', en: 'Toast' });
   assert.equal(hasName({ he: '‎', en: ' ' }), false);
   assert.equal(hasName({ he: '', en: ' x ' }), true);
+});
+
+test('lengths count code points, as char_length does; text PostgreSQL cannot store is told apart', () => {
+  const burger = String.fromCodePoint(0x1f354);
+  assert.equal(textLength(''), 0);
+  assert.equal(textLength('שניצל'), 5);
+  assert.equal(textLength(burger.repeat(3)), 3);
+  assert.equal(textLength(`a${String.fromCharCode(0xd83c)}b`), 3, 'a lone surrogate is one');
+  assert.equal(isStorableText(`Soup ${burger} ☕`), true);
+  assert.equal(isStorableText(`So${String.fromCharCode(0)}up`), false);
+  assert.equal(isStorableText(`x${String.fromCharCode(0xd83c)}`), false);
+  assert.equal(isStorableText(`${String.fromCharCode(0xdf54)}x`), false);
+});
+
+test('isBlank says exactly what stripBlank leaves', () => {
+  const samples = ['', ' ', 'a', ` ${String.fromCodePoint(0xfe0f)}`, `${String.fromCodePoint(0x2615, 0xfe0f)} `, String.fromCodePoint(0x200b, 0xa0, 0x3164), ' x '];
+  for (const s of samples) assert.equal(isBlank(s), stripBlank(s) === '', JSON.stringify(s));
+});
+
+test('a local date is a real date between 2000 and 2100', () => {
+  assert.equal(isLocalDate('2026-10-16'), true);
+  assert.equal(isLocalDate('2000-01-01') && isLocalDate('2100-12-31'), true);
+  assert.equal(isLocalDate('1999-12-31'), false);
+  assert.equal(isLocalDate('2101-01-01'), false);
+  assert.equal(isLocalDate('2026-02-30'), false);
 });

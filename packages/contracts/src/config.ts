@@ -6,6 +6,8 @@
  *   simulator's stack) run v2;
  * - `realtime`: boolean (absent = true): the local stack has no Realtime server, so local says false and the
  *   dashboards poll (`LIVE_REFRESH`).
+ * Until the cutover production runs schema 1 only: production with `schema: 2` is reported (`schema_env_mismatch`)
+ * and read as 1, so a wrong config file cannot point production's pages at v2 code.
  */
 import { isObject, type Issue } from './common.ts';
 
@@ -19,7 +21,8 @@ export const DEFAULT_FLAGS: ConfigFlags = { env: 'production', schema: 1, realti
 /**
  * The flags of a config object, with the defaults for what is absent. A value that is present but not one of the
  * allowed ones is a broken config file: it is reported in `issues` (codes `env_invalid`, `schema_invalid`,
- * `realtime_invalid`) and replaced by the default, so a page never runs v2 code against v1 data by accident.
+ * `realtime_invalid`, `schema_env_mismatch`) and replaced by the default, so a page never runs v2 code against v1 data
+ * by accident.
  */
 export function configFlags(raw: unknown): ConfigFlags & { readonly issues: readonly Issue[] } {
   const issues: Issue[] = [];
@@ -38,6 +41,10 @@ export function configFlags(raw: unknown): ConfigFlags & { readonly issues: read
   if (o.realtime !== undefined) {
     if (typeof o.realtime === 'boolean') realtime = o.realtime;
     else issues.push({ code: 'realtime_invalid', path: 'realtime' });
+  }
+  if (env === 'production' && schema === 2) {
+    issues.push({ code: 'schema_env_mismatch', path: 'schema' });
+    schema = 1;
   }
   return { env, schema, realtime, issues };
 }

@@ -1,12 +1,14 @@
 // Scripted (deterministic) scenarios. Each one drives the three sides through their public interfaces and returns
 // what each side ended up seeing; the tests in sim/test assert those end states, the CLI prints them.
 import path from 'node:path';
+import { GUEST_EVENTS } from '@mana/contracts';
 import { asAnon } from './client.mjs';
 import { GuestBot } from './guest.mjs';
 import { HalomBot } from './halom.mjs';
 import { Ledger } from './ledger.mjs';
 import { OwnerBot } from './owner.mjs';
-import { readSeed, SEEDS } from './seed.mjs';
+import { runRandom } from './random.mjs';
+import { DEMO_REASON, readSeed, SEEDS } from './seed.mjs';
 
 export const bistro = () => readSeed(path.join(SEEDS, 'bistro-sim.json')).seed;
 
@@ -19,12 +21,19 @@ export async function halomTeam(stack, tag = 'team') {
   return { admin, support };
 }
 
-/** An owner with a venue built from a seed (not yet published); the venue is flagged as a demo (setup). */
-export async function ownerWithMenu(stack, seed, { slug, email = `owner.${slug}@example.invalid` }) {
+/**
+ * An owner with a venue built from a seed (not yet published). Unless the seed says "demo": false, Halom's admin
+ * (`halom`, else a first admin made here) labels the venue a demo with ops_set_demo.
+ */
+export async function ownerWithMenu(stack, seed, { slug, email = `owner.${slug}@example.invalid`, halom = null }) {
   const owner = await OwnerBot.signUp(stack, { email });
   const made = await owner.createVenue({ slug, name: seed.venue.name, kind: seed.venue.kind, defaultLang: seed.venue.defaultLang });
   if (!made.ok) throw new Error('create_venue: ' + JSON.stringify(made));
-  await stack.setDemo(owner.venueId, seed.venue.demo !== false);
+  if (seed.venue.demo !== false) {
+    const admin = halom ?? (await HalomBot.firstAdmin(stack, stack, { email: `admin.${slug}@example.invalid` }));
+    const r = await admin.setDemo(owner.venueId, true, DEMO_REASON);
+    if (!r.ok) throw new Error('ops_set_demo: ' + JSON.stringify(r));
+  }
   const ids = await owner.buildMenu(seed);
   await owner.setOnboarding(seed.onboarding ?? ['menu', 'review', 'addons', 'hours']);
   return { owner, ids };
@@ -83,6 +92,73 @@ export async function scriptedGuests(stack, slug, ids) {
   return { guests: [a, b, c], ledger, log };
 }
 
+/** A venue built from a seed, published, and approved by Halom's support when the first publish waits for review. */
+export async function liveFromSeed(stack, seed, slug, team) {
+  const { owner, ids } = await ownerWithMenu(stack, seed, { slug, halom: team.admin });
+  const published = await owner.publish('simulator');
+  if (!published.ok) throw new Error('publish_menu: ' + JSON.stringify(published));
+  if (published.review === 'pending') {
+    const ok = await team.support.approve(owner.venueId, 'Synthetic venue checked by the simulator');
+    if (!ok.ok) throw new Error('ops_approve_venue: ' + JSON.stringify(ok));
+  }
+  return { owner, ids, slug, venueId: owner.venueId };
+}
+
+/**
+ * Phase 1 around the dashboards and the back office (ADR-008), on two copies of Bistro Sim: a real venue and a demo
+ * one (labelled by Halom's admin with ops_set_demo). Guests use both; the owner of the real one asks for help, Halom
+ * answers the case, the owner takes a dish off for two hours from the phone and brings back everything off today,
+ * and exports the menu. Returns every side's view; sim/test/phase1.test.mjs asserts them.
+ */
+export async function phase1Chain(stack, { slug = 'bistro-p1', seed = bistro(), guests = 15, minutes = 10 } = {}) {
+  const team = await halomTeam(stack, slug);
+  const real = await liveFromSeed(stack, { ...seed, venue: { ...seed.venue, demo: false } }, `${slug}-real`, team);
+  const demo = await liveFromSeed(stack, seed, `${slug}-demo`, team);
+
+  // guests: the scripted three on each venue, then a seeded crowd on the real one
+  const scripted = { real: await scriptedGuests(stack, real.slug, real.ids), demo: await scriptedGuests(stack, demo.slug, demo.ids) };
+  const crowd = await runRandom(stack, { slug: real.slug, guests, minutes, seed: 11 });
+  const ledgers = { real: new Ledger().merge(scripted.real.ledger).merge(crowd.ledger), demo: scripted.demo.ledger };
+  await stack.buildRollups();
+
+  const minute = Math.floor(Date.now() / 60000) * 60000;
+  const lastHour = { resolution: 'minute', from: new Date(minute - 59 * 60000).toISOString(), to: new Date(minute + 60000).toISOString(), names: [...GUEST_EVENTS] };
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jerusalem' });
+  const analytics = {
+    real: await team.support.analytics(lastHour),
+    demo: await team.support.analytics({ ...lastHour, demo: 'only' }),
+    all: await team.support.analytics({ ...lastHour, demo: 'include' }),
+    venue: await team.support.analytics({ ...lastHour, venueId: real.venueId }),
+    day: await team.support.analytics({ resolution: 'day', from: today, to: today, names: [...GUEST_EVENTS] }),
+  };
+  const dashboard = await real.owner.dashboard('7d');
+
+  // the owner asks for help; Halom answers and waits for the owner
+  const asked = await real.owner.askForHelp('menu', 'Is the lemonade price right?', 'Synthetic question from the simulator');
+  const help = { asked, list: await team.support.venues({ warning: 'case_open' }), detail: await team.support.venue(real.venueId) };
+  help.updated = await team.support.updateCase(asked.caseId, { status: 'waiting_owner', reason: 'Asked the owner which price is right' });
+  help.listAfter = await team.support.venues({ warning: 'case_open' });
+  help.dashboard = await real.owner.dashboard('today');
+  help.activity = await real.owner.activityPage({ limit: 20 });
+
+  // the phone: the toast off for two hours, seen at once; then everything off today back
+  const watcher = new GuestBot(stack, { ip: '10.0.2.9' });
+  await watcher.open(real.slug, { track: false });
+  const phone = { off: await real.owner.setAvailability('dish', real.ids.dishes.toast, { kind: 'duration', minutes: 120 }) };
+  await watcher.refresh();
+  phone.whileOff = { live: watcher.live, toast: watcher.availability(real.ids.dishes.toast), offNow: (await real.owner.dashboard('today')).offNow };
+  phone.restored = await real.owner.restoreToday();
+  await watcher.refresh();
+  phone.after = { live: watcher.live, toast: watcher.availability(real.ids.dishes.toast) };
+
+  return {
+    team, real, demo, scripted, crowd, ledgers, analytics, dashboard, help, phone,
+    exported: await real.owner.exportMenu(),
+    demoActivity: await demo.owner.activityPage({ limit: 100 }),
+    totals: (await team.support.venues({})).totals,
+  };
+}
+
 /**
  * The phase-0 chain: the owner builds and publishes; Halom's support approves the first publish; guests browse,
  * choose, accept and dismiss suggestions; a visitor of the product page leaves a lead; the owner takes a dish off for
@@ -90,7 +166,7 @@ export async function scriptedGuests(stack, slug, ids) {
  */
 export async function phase0Chain(stack, { slug = 'bistro-chain', seed = bistro() } = {}) {
   const team = await halomTeam(stack, slug);
-  const { owner, ids } = await ownerWithMenu(stack, seed, { slug });
+  const { owner, ids } = await ownerWithMenu(stack, seed, { slug, halom: team.admin });
   const published = await owner.publish('opening day');
   const before = { menu: await asAnon(stack).rpc('public_menu', { p_slug: slug }), card: await team.support.venueCard(owner.venueId) };
   const approved = await team.support.approve(owner.venueId, 'First menu checked: prices and add-ons look right');
