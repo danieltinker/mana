@@ -112,6 +112,7 @@ export const EXCEPTION_LABEL: Readonly<Record<ImportExceptionCode, string>> = {
   price_missing: 'No price', price_unreadable: 'Price unreadable', price_zero: 'Price 0', option_price_unreadable: 'Add-on price unreadable',
   limits_guessed: 'Limits guessed', limits_unreachable: 'Minimum unreachable', section_duplicate: 'Section twice', dish_duplicate: 'Dish twice',
   dish_repeated: 'Dish repeated in another section', name_missing_lang: 'Names in one language only', translation_check: 'Translated: needs a native read',
+  name_symbols: 'Name of symbols only',
   nesting_too_deep: 'Add-ons nested too deep', too_many: 'Over the limits', photo_rights_unknown: 'Photo rights not confirmed',
   allergens_check: 'Allergens to check', section_renamed: 'Section renamed?', dish_elsewhere: 'Dish already in another section',
   dish_other_kind: 'Same name, another kind of section', price_differs: 'Price differs from the menu', group_changed: 'Add-ons differ from the menu',
@@ -121,7 +122,8 @@ export const TARGET_LABEL: Readonly<Record<TargetKind, string>> = { section: 'Se
 const A_TARGET: Readonly<Record<TargetKind, string>> = { section: 'a section', dish: 'a dish', option: 'an add-on' };
 export const DEMO_LABEL: Readonly<Record<DemoScope, string>> = { exclude: 'Real traffic only', include: 'Real and demo', only: 'Demo only' };
 
-export const ACT_LABEL: Readonly<Record<ActForOwnerAction, string>> = {
+/** Every action Halom may take for the owner, and `menu.publish`, which phase 0 offered: older log entries keep it. */
+export const ACT_LABEL: Readonly<Record<ActForOwnerAction | 'menu.publish', string>> = {
   'availability.set': 'Take something off the menu for a while',
   'availability.restore': 'Bring something back on the menu',
   'dish.update': 'Change a dish (price, shown or hidden)',
@@ -312,7 +314,7 @@ export function describe(e: ActivityEntry, nameOf: NameOf = () => null): Said {
     case 'menu.read': return { title: 'Halom read a stored menu', detail: num(d.revision) !== null ? `Revision ${num(d.revision)}` : null };
     case 'support.act_for_owner': {
       const a = str(d.action);
-      return { title: 'Halom acted for the owner', detail: a && isAct(a) ? ACT_LABEL[a] : a };
+      return { title: 'Halom acted for the owner', detail: a && Object.hasOwn(ACT_LABEL, a) ? ACT_LABEL[a as keyof typeof ACT_LABEL] : a };
     }
     case 'upsell_rules.deactivated': return { title: `Suggestion rule${e.n > 1 ? 's' : ''} switched off${many}`, detail: 'Its dish or section is gone' };
     case 'venue.set_demo': return { title: d.demo === true ? 'Marked as a demo venue' : d.demo === false ? 'Marked as a real venue' : 'Demo label changed', detail: null };

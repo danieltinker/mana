@@ -6,7 +6,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { USERS, addTraffic, fakeBackend, ownerEdit, padLog, publish, world } from './fake.ts';
+import { USERS, addTraffic, fakeBackend, ownerEdit, ownerStep, padLog, publish, world } from './fake.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = path.join(root, 'dist');
@@ -53,6 +53,7 @@ export function createStub() {
         if (c.publish) publish(S.w, c.publish);                               // the owner publishes again
         if (c.ownerEdit) ownerEdit(S.w, c.ownerEdit.dishId, c.ownerEdit.patch); // the owner changes a dish in the owner app
         if (c.padLog) padLog(S.w, c.padLog.venueId, c.padLog.n);              // a long history
+        if (c.ownerStep) ownerStep(S.w, c.ownerStep.venueId, c.ownerStep.step, c.ownerStep.state); // the owner marks a step
         if (c.approve) {                                                      // as if Halom had approved earlier
           const v = S.w.venues.find((x) => x.row.id === c.approve);
           if (v) { v.row.review = 'approved'; v.row.approvedAt = new Date().toISOString(); v.row.plan.state = 'trialing'; v.row.warnings = v.row.warnings.filter((x) => x !== 'awaiting_review'); }

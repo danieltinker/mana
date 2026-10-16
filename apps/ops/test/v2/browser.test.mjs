@@ -261,8 +261,9 @@ test('act for owner: closed when the owner’s switch is off, and refused plainl
   await page.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
   await control({ supportCanAct: { venueId: VENUE.demo, value: false } });
   const act = page.locator('[data-write=act]');
-  await act.locator('[data-act-action]').selectOption('menu.publish');
-  await act.locator('[data-reason]').fill('Publishing the fixed prices for the owner');
+  assert.equal(await act.locator('[data-act-action] option[value="menu.publish"]').count(), 0, 'publishing is not offered: staff help through approval');
+  await act.locator('[data-act-action]').selectOption('support_case.update');
+  await act.locator('[data-reason]').fill('Answered the owner about the photos');
   await act.locator('[data-review]').click();
   await act.locator('[data-go]').click();
   assert.match(await act.locator('[data-write-error]').innerText(), /Not done: The owner has turned off Halom acting for them .* Nothing was changed\./);
@@ -368,7 +369,7 @@ test('act for owner (M4): a dish change starts from the owner\'s dish now; a cha
   await act.locator('[data-go]').click();
   await act.locator('[data-write-error]').waitFor();
   assert.match(await act.locator('[data-write-error]').innerText(),
-    /Not done: The owner changed this dish since your review\. Nothing was changed: review it again\. Now the owner’s price is ₪74 and it is shown to guests\./);
+    /Not done: The owner changed this since your review\. Nothing was changed: review it again\. Now the owner’s price is ₪74 and it is shown to guests\./);
   assert.deepEqual(calls('act_for_owner')[0].args.p_payload, { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen });
   assert.equal(await act.locator('[data-review]').count(), 1, 'back to the fields');
   await act.locator('[data-review]').click();
@@ -379,6 +380,31 @@ test('act for owner (M4): a dish change starts from the owner\'s dish now; a cha
   assert.notEqual(now, seen);
   assert.equal(stub.world.venues[0].dishes.find((d) => d.id === ID.burger).price, 7000);
   assert.match(await page.locator(`[data-menu-row=dish][data-id="${ID.burger}"]`).innerText(), /₪68/, 'guests still see the published price');
+  clean(problems);
+});
+
+test('act for owner: an onboarding step carries the updatedAt the page read; a change by the owner since is refused', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('onboarding.set');
+  await act.locator('[data-act-step]').selectOption('photos');
+  await act.locator('[data-act-state]').selectOption('skipped');
+  await act.locator('[data-reason]').fill('The owner will add the photos later');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /Mark the onboarding step “Photos” as skipped \(it is blocked now\)\./);
+  const seen = stub.world.venues[0].steps.find((s) => s.step === 'photos').updatedAt;
+  await control({ ownerStep: { venueId: VENUE.demo, step: 'photos', state: 'doing' } });
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-error]').waitFor();
+  assert.match(await act.locator('[data-write-error]').innerText(), /Not done: The owner changed this since your review\. Nothing was changed: review it again\. Now the step is doing\./);
+  assert.deepEqual(calls('act_for_owner')[0].args.p_payload, { step: 'photos', state: 'skipped', expectedUpdatedAt: seen });
+  await until(() => page.locator('[data-step=photos]').getAttribute('data-state'), 'doing', 'the page refreshed');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /\(it is doing now\)/);
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-result]').waitFor();
+  await until(() => page.locator('[data-step=photos]').getAttribute('data-state'), 'skipped', 'skipped for the owner');
   clean(problems);
 });
 

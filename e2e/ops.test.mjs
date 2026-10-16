@@ -209,14 +209,20 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   const stalePrice = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'dish.update',
     payload: { dishId: espresso, patch: { price: 1400 }, expectedUpdatedAt: dishNow.ok && dishNow.data ? dishNow.data.updated_at : '' } });
   assert.ok(!stalePrice.ok && stalePrice.kind === 'refused' && stalePrice.code === 'stale', JSON.stringify(stalePrice));
-  const step = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'onboarding.set', payload: { step: 'photos', state: 'skipped' } });
+  // an onboarding step, with the updatedAt the venue's read gave (null for a step never written)
+  const detail = await admin.api.venue(v.venueId);
+  assert.ok(detail.ok);
+  const photos = detail.ok ? detail.data.onboarding.steps.find((s) => s.step === 'photos')?.updatedAt ?? null : null;
+  const step = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'onboarding.set',
+    payload: { step: 'photos', state: 'skipped', expectedUpdatedAt: photos } });
   assert.ok(step.ok, JSON.stringify(step));
   const log = await v.owner.activity();
   assert.equal(log.filter((r) => r.action === 'support.act_for_owner' && r.reason === 'Owner asked, api').length, 4, 'each is in the owner’s log with the reason');
 
   // the owner's switch: refused plainly, nothing written
   await v.owner.updateVenue({ support_can_act: false });
-  const declined = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'menu.publish', payload: {} });
+  const declined = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'availability.restore',
+    payload: { targetKind: 'dish', targetId: v.ids.dishes.lemonade } });
   assert.ok(!declined.ok && declined.kind === 'refused' && declined.code === 'owner_declined');
 
   // plans: admins only (a support member is refused as not_admin)

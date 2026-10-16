@@ -119,6 +119,7 @@ export function Write<I, D>(p: WriteProps<I, D>) {
   if (p.blocked) {
     return (
       <div class="write is-blocked" data-write={p.id} data-blocked>
+        {error && <Notice tone="bad"><span data-write-error>{error}</span></Notice>}
         <Notice tone="warn">{p.blocked}</Notice>
         <fieldset class="write-fields" disabled>{p.children}</fieldset>
       </div>

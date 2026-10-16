@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ID } from '@mana/contracts/fixtures';
 import { validateActForOwner, type ActForOwnerInput } from '@mana/contracts';
-import { checkAct, failOf, opsApi, type Backend } from '../../src/v2/api.ts';
+import { failOf, opsApi, type Backend } from '../../src/v2/api.ts';
 import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, ownerEdit, padLog, publish, world } from './fake.ts';
 
 const NOW = Date.parse('2026-10-16T09:30:00Z');
@@ -93,7 +93,10 @@ test('approve (H2): the database approves only the revision reviewed; a newer pu
   publish(w, VENUE.demo);                                       // the owner publishes revision 3 after Halom read revision 2
   const r = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 });
   assert.ok(!r.ok && r.kind === 'refused' && r.code === 'revision_changed');
-  if (!r.ok) assert.match(r.message, /newer revision since your review\. Nothing was approved/);
+  if (!r.ok) {
+    assert.match(r.message, /newer revision since your review\. Nothing was approved/);
+    assert.equal(r.reply?.revision, 3, 'the reply names the newest');
+  }
   const d = await api.venue(VENUE.demo);
   assert.ok(d.ok && d.data.venue.review === 'pending' && d.data.venue.menu.revision === 3);
   assert.ok((await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 3 })).ok);
@@ -126,13 +129,16 @@ test('act for owner (M4): a dish change carries the updated_at it was reviewed w
   const { w, api } = setup();
   const seen = new Date(NOW - 40 * 60_000).toISOString();
   const input = { venueId: VENUE.demo, reason: 'Owner asked by phone', action: 'dish.update', payload: { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen } } as const;
-  assert.deepEqual(checkAct(input), [], 'the contract validator, with the round-3 key checked here');
-  assert.deepEqual(checkAct({ ...input, payload: { ...input.payload, expectedUpdatedAt: 'yesterday' } }).map((e) => [e.code, e.path]), [['time_invalid', 'payload.expectedUpdatedAt']]);
+  const n = w.calls.length;
+  const bad = await api.actForOwner({ ...input, payload: { ...input.payload, expectedUpdatedAt: 'yesterday' } });
+  assert.ok(!bad.ok && bad.kind === 'invalid' && bad.errors?.some((e) => e.code === 'time_invalid' && e.path === 'payload.expectedUpdatedAt'));
+  assert.equal(w.calls.length, n, 'refused before the call');
   ownerEdit(w, ID.burger, { price: 7400 });                  // the owner changes it after the review
   const stale = await api.actForOwner(input);
   assert.ok(!stale.ok && stale.kind === 'refused' && stale.code === 'stale');
   if (!stale.ok) {
-    assert.match(stale.message, /changed this dish since your review\. Nothing was changed/);
+    assert.match(stale.message, /changed this since your review\. Nothing was changed/);
+    assert.equal(stale.reply?.action, 'dish.update');
     assert.deepEqual((stale.reply?.current as { price: number }).price, 7400, 'the refusal carries the values now');
   }
   assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_reason: 'Owner asked by phone', p_action: 'dish.update', p_payload: { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen } });
@@ -204,12 +210,15 @@ test('act for owner: each action\'s payload is checked first; the owner\'s switc
   assert.deepEqual(codes({ ...restore, reason: 'x' }), ['reason_required']);
   assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'availability.set', payload: { targetKind: 'table' as never, targetId: 'x', until: { kind: 'forever' } as never } }),
     ['enum_invalid', 'id_invalid', 'until_invalid']);
-  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'dish.update', payload: { dishId: ID.burger, patch: { price: -1, slug: 'x' } as never } }),
+  const at = '2026-10-16T09:00:00.123456+00:00';
+  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'dish.update', payload: { dishId: ID.burger, patch: { price: -1, slug: 'x' } as never, expectedUpdatedAt: at } }),
     ['field_not_allowed', 'price_invalid']);
-  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'dish.update', payload: { dishId: ID.burger, patch: {} } }), ['nothing_to_change']);
-  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'onboarding.set', payload: { step: 'publish', state: 'done' } }), ['step_automatic'],
+  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'dish.update', payload: { dishId: ID.burger, patch: {}, expectedUpdatedAt: at } }), ['nothing_to_change']);
+  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'dish.update', payload: { dishId: ID.burger, patch: { price: 100 } } as never }), ['time_invalid'],
+    'a dish change names the updated_at it was reviewed with');
+  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'onboarding.set', payload: { step: 'publish', state: 'done', expectedUpdatedAt: null } }), ['step_automatic'],
     'the contract\'s own validator: the database marks publish done');
-  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'onboarding.set', payload: { step: 'photos', state: 'skipped' } }), []);
+  assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'onboarding.set', payload: { step: 'photos', state: 'skipped', expectedUpdatedAt: at } }), []);
   assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'support_case.update', payload: { caseId: 'x', status: 'closed' as never } }),
     ['enum_invalid', 'id_invalid']);
   assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'menu.delete' as never, payload: {} as never }), ['action_unknown']);

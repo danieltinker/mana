@@ -8,11 +8,15 @@
  */
 import { useEffect, useState } from 'preact/hooks';
 import {
-  ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, allDishes, isAutoStep, isObject,
-  type ActForOwnerAction, type CaseStatus, type OnboardingState, type OnboardingStep, type OpsVenueDetail,
+  ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, allDishes, isAutoStep, isObject, validateActForOwner,
+  type ActForOwnerAction, type ActForOwnerInput, type CaseStatus, type OnboardingState, type OnboardingStep, type OpsVenueDetail,
   type PublicMenuResponse, type SnapshotV2, type TargetKind,
 } from '@mana/contracts';
-import { checkAct, type ActInput, type DishNow, type Fail, type Result } from './api.ts';
+import type { DishNow, Fail, Result } from './api.ts';
+
+/** The actions the form offers. Publishing is not one of them (phase 1: staff help a first publish through approval;
+ * the contracts drop `menu.publish` from `ACT_FOR_OWNER_ACTIONS`). */
+export const FORM_ACTIONS: readonly ActForOwnerAction[] = ACT_FOR_OWNER_ACTIONS.filter((a) => (a as string) !== 'menu.publish');
 import {
   ACT_LABEL, CASE_STATUS_LABEL, STATE_LABEL, STEP_LABEL, TARGET_LABEL, UNTIL_CHOICES, fmtMoney, fmtTime, isAct, names, type NameOf, snapshotNames,
 } from './model.ts';
@@ -64,14 +68,15 @@ export type DishNowRead = DishNow | null | Fail;
  * The review's sentence and the input it describes, from the fields (and, for a dish, from the dish as the owner has
  * it now). The reason is <Write>'s; everything else is checked here as act_for_owner checks it.
  */
-export function actPlan(f: Fields, venueId: string, d: OpsVenueDetail, s: SnapshotV2 | null, nameOf: NameOf, now: DishNowRead = null): WritePlan<ActInput> {
+export function actPlan(f: Fields, venueId: string, d: OpsVenueDetail, s: SnapshotV2 | null, nameOf: NameOf, now: DishNowRead = null): WritePlan<ActForOwnerInput> {
   const venue = names(d.venue.name, d.venue.slug).main;
   const quote = (id: string) => `“${nameOf(id) ?? 'this item'}”`;
   const republish = 'The owner’s menu changes now; guests see it after the next publish.';
   const base = { venueId, reason: '' };
-  const no = (why: string): WritePlan<ActInput> => ({ ok: false, why });
-  const yes = (input: ActInput, what: string, note?: string): WritePlan<ActInput> => {
-    const errors = checkAct(input).filter((e) => e.path !== 'reason');
+  const no = (why: string): WritePlan<ActForOwnerInput> => ({ ok: false, why });
+  const yes = (input: ActForOwnerInput, what: string, note?: string): WritePlan<ActForOwnerInput> => {
+    const v = validateActForOwner(input);
+    const errors = v.ok ? [] : v.errors.filter((e) => e.path !== 'reason');
     return errors.length ? no(`This cannot be sent: ${errors.map((e) => e.code.replace(/_/g, ' ')).join(', ')}.`) : { ok: true, what, input, ...(note ? { note } : {}) };
   };
   switch (f.action) {
@@ -109,23 +114,32 @@ export function actPlan(f: Fields, venueId: string, d: OpsVenueDetail, s: Snapsh
       return yes({ ...base, action: 'dish.update', payload: { dishId: dish.id, patch: { hidden: hide }, ...at } },
         `${hide ? 'Hide' : 'Show'} ${quote(dish.id)} ${hide ? 'from' : 'to'} guests.`, republish);
     }
-    case 'menu.publish':
-      return yes({ ...base, action: 'menu.publish', payload: {} }, `Publish ${venue}’s menu as it is in the owner app now, as a new revision.`,
-        d.venue.review === 'pending' ? 'Guests see it once the first publish is approved.' : d.venue.review === 'not_requested' ? 'This is the first publish: it waits for Halom’s approval.' : 'Guests see it at once.');
-    case 'onboarding.set':
-      return yes({ ...base, action: 'onboarding.set', payload: { step: f.step, state: f.state } }, `Mark the onboarding step “${STEP_LABEL[f.step]}” as ${STATE_LABEL[f.state].toLowerCase()}.`);
+    case 'onboarding.set': {
+      // the step as this page read it (with the venue): its state now and the updated_at the database compares
+      const step = d.onboarding.steps.find((x) => x.step === f.step);
+      const was = step?.state ?? 'todo';
+      if (was === f.state) return no(`Nothing would change: the step “${STEP_LABEL[f.step]}” is already ${STATE_LABEL[was].toLowerCase()}.`);
+      return yes({ ...base, action: 'onboarding.set', payload: { step: f.step, state: f.state, expectedUpdatedAt: step?.updatedAt ?? null } },
+        `Mark the onboarding step “${STEP_LABEL[f.step]}” as ${STATE_LABEL[f.state].toLowerCase()} (it is ${STATE_LABEL[was].toLowerCase()} now).`);
+    }
     case 'support_case.update': {
       const c = d.cases.find((x) => x.id === f.caseId);
       if (!c) return no('Choose a case.');
       return yes({ ...base, action: 'support_case.update', payload: { caseId: c.id, status: f.caseStatus } }, `Set the case “${c.subject.slice(0, 80)}” to ${CASE_STATUS_LABEL[f.caseStatus].toLowerCase()}.`);
     }
+    default:
+      return no('The back office does not offer this action.');
   }
 }
 
-/** A `stale` refusal carries the dish as it is now: that, in words. */
+/** A `stale` refusal carries the row as it is now (the dish, or the onboarding step): that, in words. */
 export function staleNow(f: Fail): string | null {
   const cur = f.code === 'stale' && f.reply && isObject(f.reply.current) ? f.reply.current : null;
   if (!cur) return null;
+  if (f.reply?.action === 'onboarding.set') {
+    const st = cur.state;
+    return typeof st === 'string' && st in STATE_LABEL ? `Now the step is ${STATE_LABEL[st as OnboardingState].toLowerCase()}.` : null;
+  }
   const parts = [typeof cur.price === 'number' || cur.price === null ? `the owner’s price is ${money(cur.price as number | null)}` : null,
     typeof cur.hidden === 'boolean' ? (cur.hidden ? 'it is hidden from guests' : 'it is shown to guests') : null].filter(Boolean);
   return parts.length ? `Now ${parts.join(' and ')}.` : null;
@@ -169,7 +183,7 @@ export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
       onDone={() => { set({ target: '' }); return onDone(); }}>
       <label class="field"><span>Action</span>
         <select value={f.action} onChange={(e) => set({ action: e.currentTarget.value as ActForOwnerAction })} data-act-action>
-          {ACT_FOR_OWNER_ACTIONS.map((a) => <option key={a} value={a}>{ACT_LABEL[a]}</option>)}
+          {FORM_ACTIONS.map((a) => <option key={a} value={a}>{ACT_LABEL[a]}</option>)}
         </select>
       </label>
       {(f.action === 'availability.set' || f.action === 'dish.update') && !snapshot && (

@@ -9,10 +9,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
-  ACTIVITY_PAGE_MAX, SLUG_RE, TIMELINE_KINDS, isUuid, venueFilter, type ActivityEntry, type ApproveVenueReply, type ClientDashboard,
-  type OpsVenueDetail, type PublicMenuResponse, type TimelineKind,
+  ACTIVITY_PAGE_MAX, SLUG_RE, TIMELINE_KINDS, isUuid, venueFilter, type ActivityEntry, type ApproveVenueInput, type ApproveVenueReply,
+  type ClientDashboard, type OpsVenueDetail, type PublicMenuResponse, type TimelineKind,
 } from '@mana/contracts';
-import type { ApproveInput, Fail, Ok, Result } from './api.ts';
+import type { Fail, Ok, Result } from './api.ts';
 import { useLive, type LiveData } from './hooks.ts';
 import {
   ACTOR_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STATE_LABEL, STEP_LABEL, TIMELINE_LABEL, ago, describe, fmtDate, fmtDateTime, fmtDay,
@@ -171,14 +171,17 @@ function Approve({ detail, refresh, onApproved }: { detail: OpsVenueDetail; refr
         <p class="muted small">Published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
           Read the menu below first.</p></div>
       <div class="panel-body">
-        <Write<ApproveInput, Ok<ApproveVenueReply>> id="approve" submit="Approve"
+        <Write<ApproveVenueInput, Ok<ApproveVenueReply>> id="approve" submit="Approve"
           changed={{ key: rev, note: `The owner published revision ${rev ?? '—'} while you were reviewing. Nothing was approved: read it below, then review again.` }}
           plan={() => (rev === null ? { ok: false, why: 'Nothing is published to approve yet.' }
             : { ok: true, what: `Approve ${name}’s first publish (revision ${rev}): guests can open the menu at once, and the trial starts.`,
               input: { venueId: v.id, reason: '', expectedRevision: rev } })}
           run={(input, reason) => api.approve({ ...input, reason })}
           done={approvedText}
-          onFail={(f) => { if (f.kind === 'refused') void refresh(); }}
+          onFail={(f) => {
+            if (f.kind === 'refused') void refresh();
+            return f.code === 'revision_changed' && typeof f.reply?.revision === 'number' ? `The newest is revision ${f.reply.revision}.` : null;
+          }}
           onDone={(d) => onApproved(approvedText(d))} />
       </div>
     </section>

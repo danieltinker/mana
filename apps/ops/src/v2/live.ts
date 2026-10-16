@@ -12,8 +12,8 @@
  */
 import { LIVE_REFRESH, pollDelay } from '@mana/contracts';
 
-/** The safety poll while subscribed. Contracts round 3 adds `LIVE_REFRESH.safetyMs`; until then, 60 s. */
-export const SAFETY_MS: number = (LIVE_REFRESH as { readonly safetyMs?: number }).safetyMs ?? 60_000;
+/** The safety poll while subscribed (`LIVE_REFRESH.safetyMs`, ADR-007 as amended in round 3). */
+export const SAFETY_MS: number = LIVE_REFRESH.safetyMs;
 
 export type ChannelStatus = 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR';
 /** Subscribes; calls `signal` per message and `status` per channel state; returns the unsubscribe. */

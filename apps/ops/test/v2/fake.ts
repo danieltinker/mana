@@ -393,6 +393,17 @@ export function ownerEdit(w: World, dishId: string, patch: { price?: number | nu
   }
 }
 
+/** The owner marks an onboarding step in the owner app (a new `updated_at`). */
+export function ownerStep(w: World, venueId: string, step: OnboardingStep, state: OnboardingState): void {
+  const v = find(w, venueId);
+  if (!v) return;
+  const s = v.steps.find((x) => x.step === step);
+  const was = s?.state ?? null;
+  const at = iso(Math.max(w.now(), s?.updatedAt ? Date.parse(s.updatedAt) + 1 : 0));
+  if (s) { s.state = state; s.updatedAt = at; } else v.steps.push({ step, state, blockers: [], updatedAt: at });
+  log(w, v, 'onboarding_progress.update', { actorKind: 'owner', via: 'rpc', targetIds: [`${venueId}/${step}`], detail: { columns: ['state'], changes: { state: [was, state] } } });
+}
+
 /** `n` more entries in a venue's log, the owner's edits half a minute apart, up to now (a long history). */
 export function padLog(w: World, venueId: string, n: number): void {
   const v = find(w, venueId);
@@ -498,9 +509,9 @@ function actForOwner(w: World, v: FakeVenue, reason: string, action: string, p: 
       // the owner's tables, not the published menu: guests see the change after the next publish
       const d = v.dishes.find((x) => x.id === p.dishId);
       if (!d) return { ok: false, code: 'target_unknown' };
-      // the round-3 payload: refused when the owner changed the dish since the review read it
-      if (p.expectedUpdatedAt !== undefined && Date.parse(String(p.expectedUpdatedAt)) !== Date.parse(d.updated_at)) {
-        return { ok: false, code: 'stale', current: { price: d.price, hidden: d.hidden, updatedAt: d.updated_at } };
+      // refused when the owner changed the dish since the review read it (the string as read, at full precision)
+      if (p.expectedUpdatedAt !== d.updated_at) {
+        return { ok: false, code: 'stale', action, current: { id: d.id, name_he: d.name_he, name_en: d.name_en, price: d.price, hidden: d.hidden, updated_at: d.updated_at } };
       }
       const patch = p.patch as { price?: number | null; hidden?: boolean };
       Object.assign(d, patch, { updated_at: iso(Math.max(w.now(), Date.parse(d.updated_at) + 1)) });
@@ -509,15 +520,12 @@ function actForOwner(w: World, v: FakeVenue, reason: string, action: string, p: 
       ids = [d.id];
       break;
     }
-    case 'menu.publish': {
-      const revision = publish(w, v.row.id, via);
-      if (revision === null) return { ok: false, code: 'empty_menu' };
-      result = { ok: true, revision };
-      break;
-    }
     case 'onboarding.set': {
       const step = p.step as OnboardingStep, state = p.state as OnboardingState;
       const s = v.steps.find((x) => x.step === step);
+      if (p.expectedUpdatedAt !== (s?.updatedAt ?? null)) {
+        return { ok: false, code: 'stale', action, current: { step, state: s?.state ?? 'todo', blockers: s?.blockers ?? [], updatedAt: s?.updatedAt ?? null } };
+      }
       if (s) { s.state = state; s.updatedAt = iso(w.now()); } else v.steps.push({ step, state, blockers: [], updatedAt: iso(w.now()) });
       const pr = onboardingProgress(v.steps);
       v.row.onboarding = { ...v.row.onboarding, stage: pr.next ?? 'complete', done: pr.done };
@@ -583,7 +591,7 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       if (!v.row.menu.firstPublishedAt) return { ok: false, code: 'not_published' };
       // the round-3 signature: approves the revision the review named, only while it is still the newest
       const latest = v.revisions.at(-1)?.number ?? v.row.menu.revision;
-      if (a.p_expected_revision !== latest) return { ok: false, code: 'revision_changed', latest };
+      if (a.p_expected_revision !== latest) return { ok: false, code: 'revision_changed', revision: latest };
       v.row.approvedAt = iso(w.now()); v.row.review = 'approved';
       v.row.warnings = v.row.warnings.filter((x) => x !== 'awaiting_review');
       v.row.plan = { ...v.row.plan, state: 'trialing', trialEndsAt: iso(w.now() + 30 * DAY) };

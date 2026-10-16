@@ -7,7 +7,7 @@
  * typed fake in the tests.
  */
 import {
-  EVENT_TIME_RE, isInt, isObject, isUuid, stripBlank, validateActForOwner, validateActivityQuery, validateApproveVenue, validateDashboardQuery,
+  isObject, isUuid, stripBlank, validateActForOwner, validateActivityQuery, validateApproveVenue, validateDashboardQuery,
   validateExportQuery, validateOpsAnalyticsQuery, validateOpsLeadsQuery, validateOpsRevisionQuery, validateOpsVenueQuery, validateOpsVenuesQuery,
   validateSetDemo, validateSetPlan, validateUpdateCase, validateUpdateLead,
   type ActForOwnerInput, type ActForOwnerReply, type ActivityPage, type ActivityQuery, type ApproveVenueInput, type ApproveVenueReply,
@@ -82,7 +82,7 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   revision_unknown: 'That revision does not exist.',
   revision_changed: 'The owner published a newer revision since your review. Nothing was approved: read it and review again.',
   approval_first: 'A plan does not approve a venue: approve its first publish first, after reading its menu.',
-  stale: 'The owner changed this dish since your review. Nothing was changed: review it again.',
+  stale: 'The owner changed this since your review. Nothing was changed: review it again.',
   revision_invalid: 'That is not a revision number.',
   text_invalid: 'Some text holds characters that cannot be stored.',
   already_approved: 'This venue was already approved.',
@@ -136,36 +136,6 @@ const malformed: Fail = { ok: false, kind: 'server', message: 'The server sent a
 /** The success half of a write's reply (the contracts type both halves; the failure becomes a `Fail`). */
 export type Ok<R> = Extract<R, { readonly ok: true }>;
 
-const isInstant = (v: unknown): v is string => typeof v === 'string' && EVENT_TIME_RE.test(v) && !Number.isNaN(Date.parse(v));
-
-/**
- * `ops_approve_venue` with the revision the review step named (`p_expected_revision`): the database approves only while
- * that is still the newest, else it answers `revision_changed`. The backend's round-3 signature; the contract's
- * `ApproveVenueInput` gains `expectedRevision` in the same round, and this type goes then.
- */
-export type ApproveInput = ApproveVenueInput & { readonly expectedRevision: number };
-
-type DishUpdate = Extract<ActForOwnerInput, { readonly action: 'dish.update' }>;
-/**
- * An act for the owner; `dish.update` also carries the dish's `updated_at` as the review step read it
- * (`expectedUpdatedAt`): the database answers `stale`, with the current values, when the owner changed the dish since.
- * The backend's round-3 payload; the contract's validator learns the key in the same round, and `checkAct` goes then.
- */
-export type ActInput = Exclude<ActForOwnerInput, DishUpdate>
-  | (Omit<DishUpdate, 'payload'> & { readonly payload: DishUpdate['payload'] & { readonly expectedUpdatedAt?: string } });
-
-/** The contract's validator, with `dish.update`'s `expectedUpdatedAt` checked here until the contract knows it. */
-export function checkAct(input: ActInput): readonly Issue[] {
-  let checked: unknown = input;
-  const extra: Issue[] = [];
-  if (input.action === 'dish.update' && isObject(input.payload) && 'expectedUpdatedAt' in input.payload) {
-    const { expectedUpdatedAt, ...payload } = input.payload;
-    if (!isInstant(expectedUpdatedAt)) extra.push({ code: 'time_invalid', path: 'payload.expectedUpdatedAt' });
-    checked = { ...input, payload };
-  }
-  const v = validateActForOwner(checked);
-  return [...(v.ok ? [] : v.errors), ...extra];
-}
 
 // ---------------------------------------------------------------- the API
 
@@ -244,17 +214,17 @@ export function opsApi(backend: Backend) {
       return write<OpsRevision>('ops_revision', { p_venue: query.venueId, p_revision: query.revision ?? null });
     },
 
-    approve(input: ApproveInput): Promise<Result<Ok<ApproveVenueReply>>> {
-      const { expectedRevision, ...base } = input;
-      const v = validateApproveVenue(base);
-      const errors = [...(v.ok ? [] : v.errors), ...(isInt(expectedRevision) && expectedRevision >= 1 ? [] : [{ code: 'revision_invalid', path: 'expectedRevision' }])];
-      if (errors.length) return Promise.resolve(invalid(errors));
-      return write<ApproveVenueReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_expected_revision: expectedRevision });
+    /** Approves the revision staff reviewed (`expectedRevision`); a newer one is refused as `revision_changed`. */
+    approve(input: ApproveVenueInput): Promise<Result<Ok<ApproveVenueReply>>> {
+      const v = validateApproveVenue(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return write<ApproveVenueReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_expected_revision: input.expectedRevision });
     },
 
-    actForOwner(input: ActInput): Promise<Result<Ok<ActForOwnerReply>>> {
-      const errors = checkAct(input);
-      if (errors.length) return Promise.resolve(invalid(errors));
+    /** `dish.update` and `onboarding.set` carry the `updated_at` staff read, exactly as read; a change since is `stale`. */
+    actForOwner(input: ActForOwnerInput): Promise<Result<Ok<ActForOwnerReply>>> {
+      const v = validateActForOwner(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
       return write<ActForOwnerReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
     },
 
