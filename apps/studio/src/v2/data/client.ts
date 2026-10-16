@@ -1,17 +1,16 @@
 // The v2 app's one door to Supabase: the same supabase-js client and sign-in as the v1 app (lib/api.ts: PKCE, the
-// session kept under the same key), and the runtime fields of the config (RULES: env, schema, realtime).
+// session kept under the same key), and the config's flags (env, schema, realtime), read only through the contracts'
+// configFlags (ADR-007), so "absent" and "broken" mean the same in every app.
+import { configFlags, type ConfigFlags } from '@mana/contracts';
 import { cfg, sb } from '../../lib/api.ts';
 import { refusal, toV2Error } from './errors.ts';
 
 export { cfg, sb };
 
-const raw = ((window as any).HALOM_MENUS_CONFIG || {}) as { env?: unknown; schema?: unknown; realtime?: unknown };
-export const runtime = {
-  env: (raw.env === 'demo' || raw.env === 'local' ? raw.env : 'production') as 'production' | 'demo' | 'local',
-  schema: raw.schema === 2 ? 2 : 1,
-  /** false on the local stack (no Realtime server): screens that would subscribe refresh by hand instead. */
-  realtime: raw.realtime !== false,
-} as const;
+const flags = configFlags((window as any).HALOM_MENUS_CONFIG);
+if (flags.issues.length) console.warn('config.js:', flags.issues.map((x) => x.code).join(', '));
+/** `realtime` is false on the local stack (no Realtime server): live screens poll instead. */
+export const runtime: ConfigFlags = { env: flags.env, schema: flags.schema, realtime: flags.realtime };
 
 /** Await a supabase-js call; its data, or a V2Error. */
 export async function q<T>(p: PromiseLike<{ data: unknown; error: unknown }>): Promise<T> {

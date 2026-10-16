@@ -99,6 +99,7 @@ test('a rule: the form round-trips, and every check runs before a write', () => 
   assert.deepEqual(codes({ priority: Number.NaN }), ['priority_invalid']);
   assert.deepEqual(codes({ cap: 6 }), ['cap_invalid']);
   assert.deepEqual(codes({ lineEn: 'x'.repeat(121) }), ['too_long']);
+  assert.deepEqual(codes({ lineEn: '🥐'.repeat(120) }), [], 'lengths are code points, as the database counts them');
   // every day chosen is stored as "every day"; ids are kept once
   const all = ruleFromForm({ ...ruleToForm(morning), days: [6, 0, 1, 2, 3, 4, 5], scopeIds: [ID.espresso, ID.espresso] });
   assert.deepEqual([all.value.days, all.value.scope_ids], [[], [ID.espresso]]);

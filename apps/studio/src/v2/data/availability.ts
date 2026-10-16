@@ -76,6 +76,9 @@ export function targetsOf(t: OffTarget, options: readonly Pick<AddonOptionRow, '
 /** An RPC by name with its `p_` arguments; resolves to the answer, rejects on a transport or permission failure. */
 export type RpcCall = (fn: string, args: Record<string, unknown>) => Promise<unknown>;
 
+/** What a call answers once a refusal (`{ ok: false, code }`) has been thrown as a V2Error. */
+type Answered<R> = Extract<R, { ok: true }>;
+
 function checked<T>(v: { ok: true; value: T } | { ok: false; errors: readonly { code: string; path: string }[] }): T {
   if (!v.ok) throw new V2Error(v.errors[0]!.code, v.errors);
   return v.value;
@@ -83,9 +86,9 @@ function checked<T>(v: { ok: true; value: T } | { ok: false; errors: readonly { 
 
 export function availabilityApi(call: RpcCall) {
   /** Take one target off until `until`, or bring it back now (`until: null`). The newest answer counts. */
-  async function set(input: SetAvailabilityInput): Promise<SetAvailabilityReply> {
+  async function set(input: SetAvailabilityInput): Promise<Answered<SetAvailabilityReply>> {
     const i = checked(validateSetAvailability(input));
-    return refusal(await call('set_availability', { p_venue: i.venueId, p_target_kind: i.target.kind, p_target_id: i.target.id, p_until: i.until, p_note: i.note ?? null })) as SetAvailabilityReply;
+    return refusal(await call('set_availability', { p_venue: i.venueId, p_target_kind: i.target.kind, p_target_id: i.target.id, p_until: i.until, p_note: i.note ?? null })) as Answered<SetAvailabilityReply>;
   }
   return {
     set,
@@ -93,16 +96,16 @@ export function availabilityApi(call: RpcCall) {
      * Several targets with one answer (a whole group): every call is made; when one is refused the first refusal is
      * thrown after the others finished, and the screen reloads what is stored.
      */
-    async setAll(venueId: string, targets: readonly { kind: TargetKind; id: string }[], until: UntilSpec | null): Promise<SetAvailabilityReply[]> {
+    async setAll(venueId: string, targets: readonly { kind: TargetKind; id: string }[], until: UntilSpec | null): Promise<Answered<SetAvailabilityReply>[]> {
       if (targets.length === 0) throw new V2Error('target_unknown');
       const out = await Promise.allSettled(targets.map((target) => set({ venueId, target, until })));
       const bad = out.find((x) => x.status === 'rejected');
       if (bad) throw (bad as PromiseRejectedResult).reason;
-      return out.map((x) => (x as PromiseFulfilledResult<SetAvailabilityReply>).value);
+      return out.map((x) => (x as PromiseFulfilledResult<Answered<SetAvailabilityReply>>).value);
     },
-    async restoreToday(venueId: string): Promise<RestoreTodayReply> {
+    async restoreToday(venueId: string): Promise<Answered<RestoreTodayReply>> {
       const i = checked(validateRestoreToday({ venueId }));
-      return refusal(await call('restore_today', { p_venue: i.venueId })) as RestoreTodayReply;
+      return refusal(await call('restore_today', { p_venue: i.venueId })) as Answered<RestoreTodayReply>;
     },
   };
 }

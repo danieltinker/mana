@@ -1,4 +1,5 @@
 import { render } from 'preact';
+import { configFlags } from '@mana/contracts';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import './app.css';
 import { PRODUCT } from './product.ts';
@@ -21,8 +22,9 @@ import { ScanScreen } from './screens/scan.tsx';
 import { PreviewFab, PreviewDock } from './screens/preview.tsx';
 
 // The clean schema (ADR-005): a config with schema 2 (the demo database, the local stack) boots the v2 app in src/v2/,
-// loaded as a chunk of its own; anything else (production) runs this app exactly as before.
-const SCHEMA_2 = (window as any).HALOM_MENUS_CONFIG?.schema === 2;
+// loaded as a chunk of its own; anything else (production) runs this app exactly as before. The flags are read through
+// the contracts' configFlags (ADR-007): production is schema 1 whatever its file says, until the cutover.
+const SCHEMA_2 = configFlags((window as any).HALOM_MENUS_CONFIG).schema === 2;
 if (!SCHEMA_2) { applyLang(); document.title = PRODUCT.mark; }
 
 const TABS = [{ path: '', key: 'home', icon: 'home' }, { path: 'menu', key: 'menu', icon: 'menu' }, { path: 'style', key: 'style', icon: 'look' }];

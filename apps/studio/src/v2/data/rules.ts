@@ -5,7 +5,7 @@
 // is found by asking matchSuggestion again with one condition at a time. Pure.
 import {
   LIMITS, SCOPE_KINDS, TRIGGERS, addDays, defaultSelection, indexMenu, isHHMM, isWeekday, localParts, matchSuggestion, menuAvailability,
-  oneOf, rankRules, stripBlank, unavailableOf, zonedTime,
+  oneOf, rankRules, stripBlank, textLength, unavailableOf, zonedTime,
 } from '@mana/contracts';
 import type {
   DishV2, HHMM, IdMatch, LiveOverlay, MenuAvailability, MenuIndex, ScopeKind, SnapshotV2, Suggestion, SuggestionContext, Tag, Trigger,
@@ -44,7 +44,7 @@ export type RuleWrite = Pick<UpsellRuleRow, 'label' | 'trigger' | 'scope_kind' |
   | 'basket_has_sections' | 'basket_lacks_dishes' | 'basket_lacks_sections' | 'suggest_kind' | 'suggest_dish_id' | 'suggest_option_id' | 'line_he'
   | 'line_en' | 'priority' | 'cap' | 'active'>;
 
-/** The schema's lengths and ranges (upsell_rules' checks). */
+/** The schema's lengths (in code points) and ranges (upsell_rules' checks). */
 const LABEL = 80;
 const PRIORITY_MAX = 100;
 export const DEFAULT_PRIORITY = 50;
@@ -86,7 +86,7 @@ export function ruleToForm(r: UpsellRuleRow): RuleForm {
 export function ruleFromForm(f: RuleForm): Mapped<RuleWrite> {
   const errors: FieldError[] = [];
   const label = stripBlank(f.label);
-  if (label.length > LABEL) errors.push({ field: 'label', code: 'too_long' });
+  if (textLength(label) > LABEL) errors.push({ field: 'label', code: 'too_long' });
   if (!oneOf(TRIGGERS, f.trigger)) errors.push({ field: 'trigger', code: 'enum_invalid' });
   if (!oneOf(SCOPE_KINDS, f.scopeKind)) errors.push({ field: 'scope', code: 'enum_invalid' });
   const scopeIds = f.scopeKind === 'all' ? [] : uniq(f.scopeIds);
@@ -109,8 +109,8 @@ export function ruleFromForm(f: RuleForm): Mapped<RuleWrite> {
   if (dish ? !f.suggestDishId : !f.suggestOptionId) errors.push({ field: 'suggest', code: 'suggestion_missing' });
   if (!dish && f.trigger === 'checkout') errors.push({ field: 'suggest', code: 'rule_option_needs_dish' });
   const lineHe = stripBlank(f.lineHe), lineEn = stripBlank(f.lineEn);
-  if (lineHe.length > LIMITS.ruleLine) errors.push({ field: 'line_he', code: 'too_long' });
-  if (lineEn.length > LIMITS.ruleLine) errors.push({ field: 'line_en', code: 'too_long' });
+  if (textLength(lineHe) > LIMITS.ruleLine) errors.push({ field: 'line_he', code: 'too_long' });
+  if (textLength(lineEn) > LIMITS.ruleLine) errors.push({ field: 'line_en', code: 'too_long' });
   if (!Number.isInteger(f.priority) || f.priority < 0 || f.priority > PRIORITY_MAX) errors.push({ field: 'priority', code: 'priority_invalid' });
   if (!Number.isInteger(f.cap) || f.cap < 1 || f.cap > LIMITS.ruleCap) errors.push({ field: 'cap', code: 'cap_invalid' });
   return done(errors, {

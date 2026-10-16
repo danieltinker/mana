@@ -1,7 +1,7 @@
 // Opening hours, closed dates and schedules (day parts such as breakfast, specials on chosen days): stored rows ↔ what
 // the owner edits, with the checks the database makes (app.windows_ok and the tables' own checks), and the venue's hours
 // in the contracts' shape, as public_menu builds the live overlay, so "open now" here is what the guest sees. Pure.
-import { LIMITS, SCHEDULE_KINDS, isBlank, isHHMM, isLocalDate, isWeekday, minutesOf, oneOf, stripBlank } from '@mana/contracts';
+import { LIMITS, SCHEDULE_KINDS, isBlank, isHHMM, isLocalDate, isWeekday, minutesOf, oneOf, stripBlank, textLength } from '@mana/contracts';
 import type { HHMM, ScheduleKind, ScheduleRow, TimeWindow, VenueClosureRow, VenueHours, VenueHoursRow, Weekday } from '@mana/contracts';
 import type { FieldError, Mapped } from './forms.ts';
 
@@ -9,7 +9,7 @@ import type { FieldError, Mapped } from './forms.ts';
 export const WEEK: readonly Weekday[] = [0, 1, 2, 3, 4, 5, 6];
 const DAY = 1440;
 const WEEK_MIN = 7 * DAY;
-/** A schedule's or a closure's name and note: the schema's lengths. */
+/** A schedule's or a closure's name and note: the schema's lengths, in code points (the contracts' textLength). */
 const SCHEDULE_NAME = 60;
 const CLOSURE_NOTE = 80;
 /** The schema's longest closure (`to_date - from_date <= 366`). */
@@ -78,8 +78,8 @@ export function closureFromForm(f: ClosureForm): Mapped<ClosureWrite> {
   else if (isLocalDate(f.from) && to < f.from) errors.push({ field: 'to', code: 'date_order' });
   else if (isLocalDate(f.from) && dayNumber(to) - dayNumber(f.from) > CLOSURE_DAYS) errors.push({ field: 'to', code: 'range_too_long' });
   const noteHe = stripBlank(f.noteHe), noteEn = stripBlank(f.noteEn);
-  if (noteHe.length > CLOSURE_NOTE) errors.push({ field: 'note_he', code: 'too_long' });
-  if (noteEn.length > CLOSURE_NOTE) errors.push({ field: 'note_en', code: 'too_long' });
+  if (textLength(noteHe) > CLOSURE_NOTE) errors.push({ field: 'note_he', code: 'too_long' });
+  if (textLength(noteEn) > CLOSURE_NOTE) errors.push({ field: 'note_en', code: 'too_long' });
   return done(errors, { from_date: f.from, to_date: to, note_he: noteHe, note_en: noteEn });
 }
 
@@ -111,8 +111,8 @@ export const scheduleToForm = (r: ScheduleRow): ScheduleForm => ({
 export function scheduleFromForm(f: ScheduleForm): Mapped<ScheduleWrite> {
   const errors: FieldError[] = [];
   const he = stripBlank(f.nameHe), en = stripBlank(f.nameEn);
-  if (he.length > SCHEDULE_NAME) errors.push({ field: 'name_he', code: 'too_long' });
-  if (en.length > SCHEDULE_NAME) errors.push({ field: 'name_en', code: 'too_long' });
+  if (textLength(he) > SCHEDULE_NAME) errors.push({ field: 'name_he', code: 'too_long' });
+  if (textLength(en) > SCHEDULE_NAME) errors.push({ field: 'name_en', code: 'too_long' });
   if (isBlank(he) && isBlank(en)) errors.push({ field: 'name', code: 'name_missing' });
   if (!oneOf(SCHEDULE_KINDS, f.kind)) errors.push({ field: 'kind', code: 'enum_invalid' });
   if (f.windows.length === 0) errors.push({ field: 'windows', code: 'windows_empty' });
