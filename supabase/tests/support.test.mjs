@@ -3,7 +3,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { as, q, rpc } from './harness/cluster.mjs';
-import { A, ID, U, world } from './harness/world.mjs';
+import { A, count, ID, U, world } from './harness/world.mjs';
 import { validateSnapshotV2 } from '../../packages/contracts/src/index.ts';
 
 let w;
@@ -128,7 +128,8 @@ describe('support cases and onboarding', () => {
     assert.equal(id.opened_by, U.ownerA);
     const o = await rpc(w.url, U.support, 'ops_overview');
     assert.equal(o.venues.find((v) => v.id === A).openCases, 1);
-    assert.ok(o.totals.openCases >= 1);
+    assert.ok(o.venues.find((v) => v.id === A).warnings.includes('case_open'));
+    assert.equal(o.totals.openCases, 0, 'Café Demo is a demo venue: its case is on its row, not in the real totals');
     const r = await afo(U.support, 'support_case.update', { caseId: id.id, status: 'resolved' }, 'Added the two drinks by hand');
     assert.equal(r.ok, true);
     const { rows } = await w.admin.query('select status, resolved_at is not null as done from public.support_cases where id = $1', [id.id]);
@@ -140,15 +141,20 @@ describe('support cases and onboarding', () => {
   test('onboarding: progress per step, the stage in ops_overview, blockers are machine words', async () => {
     const o = await rpc(w.url, U.support, 'ops_overview');
     const b = o.venues.find((v) => v.id === w.B);
-    assert.equal(b.onboarding.stage, 'menu');
-    assert.equal(b.onboarding.done, 2);
+    assert.equal(b.onboarding.stage, 'review', 'venue (create_venue), menu (the first dish) and publish are the database\'s, done');
+    assert.equal(b.onboarding.done, 3);
     assert.equal(b.menu.live, true);
-    const r = await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'blocked', blockers = '{"price missing!"}' where venue_id = $1 and step = 'menu'`, [w.B]);
+    const r = await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'blocked', blockers = '{"price missing!"}' where venue_id = $1 and step = 'addons'`, [w.B]);
     assert.match(r.error?.message ?? '', /blocker_invalid/);
-    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'blocked', blockers = '{dish_without_price}' where venue_id = $1 and step = 'menu'`, [w.B]));
+    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'blocked', blockers = '{dish_without_price}' where venue_id = $1 and step = 'addons'`, [w.B]));
     const o2 = await rpc(w.url, U.support, 'ops_overview');
-    assert.deepEqual(o2.venues.find((v) => v.id === w.B).onboarding.blocked, [{ step: 'menu', blockers: ['dish_without_price'] }]);
+    assert.deepEqual(o2.venues.find((v) => v.id === w.B).onboarding.blocked, [{ step: 'addons', blockers: ['dish_without_price'] }]);
     assert.equal(o2.venues.find((v) => v.id === A).isDemo, true);
+    // the database's own steps: never done by hand, never undone once it marked them
+    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'review'`, [w.B])).error?.message ?? '', /step_automatic/);
+    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'todo' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '', /step_done/);
+    assert.equal(await count(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'menu'`, [w.B]), 1, 'done → done is not a change');
+    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'todo', blockers = '{}' where venue_id = $1 and step = 'addons'`, [w.B]));
   });
 });
 

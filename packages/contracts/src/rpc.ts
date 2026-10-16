@@ -6,7 +6,7 @@
  * Conventions (unchanged from phase 0): a mistake the caller can act on comes back as `{ ok: false, code }`; "you may
  * not" raises SQLSTATE 42501, which supabase-js reports as an error, not as a reply.
  */
-import { Issues, isBlank, isObject, isString, isUuid, stripBlank, type Issue } from './common.ts';
+import { Issues, isBlank, isObject, isStorableText, isString, isUuid, stripBlank, textLength, type Issue } from './common.ts';
 
 export type RpcOk<T extends object = object> = { readonly ok: true } & T;
 export type RpcFail<C extends string = string> = { readonly ok: false; readonly code: C; readonly errors?: readonly Issue[] };
@@ -16,19 +16,29 @@ export type RpcReply<T extends object = object, C extends string = string> = Rpc
  * owner reads it, so it must not hold personal data. */
 export const REASON_MIN = 3;
 export const REASON_MAX = 500;
-export const isReason = (v: unknown): v is string => isString(v) && stripBlank(v).length >= REASON_MIN && stripBlank(v).length <= REASON_MAX;
+export const isReason = (v: unknown): v is string => {
+  if (!isString(v) || !isStorableText(v)) return false;
+  const n = textLength(stripBlank(v));
+  return n >= REASON_MIN && n <= REASON_MAX;
+};
 
-/** A free-text field that may be null: a string of at most `max` characters. */
+/**
+ * A free-text field that may be null or absent. Both text checks measure the same way: the text as stored (blank edges
+ * stripped), in code points; NUL and lone surrogates are `text_invalid`.
+ */
 export function optionalText(x: Issues, v: unknown, path: string, max: number): void {
   if (v === null || v === undefined) return;
   if (!isString(v)) x.add('type', path);
-  else if (v.length > max) x.add('text_too_long', path);
+  else if (!isStorableText(v)) x.add('text_invalid', path);
+  else if (textLength(stripBlank(v)) > max) x.add('text_too_long', path);
 }
 
+/** A free-text field that must say something (`text_missing` when it is only blanks). */
 export function requiredText(x: Issues, v: unknown, path: string, max: number, missing = 'text_missing'): void {
   if (!isString(v)) x.add('type', path);
+  else if (!isStorableText(v)) x.add('text_invalid', path);
   else if (isBlank(v)) x.add(missing, path);
-  else if (stripBlank(v).length > max) x.add('text_too_long', path);
+  else if (textLength(stripBlank(v)) > max) x.add('text_too_long', path);
 }
 
 export const uuidAt = (x: Issues, v: unknown, path: string): void => void (isUuid(v) || x.add('id_invalid', path));
