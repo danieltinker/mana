@@ -11,9 +11,12 @@ import { named } from './data/rows.ts';
 import { hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveProblem, saveState, session, signOut, venueId } from './data/store.ts';
 import { errText, lang, setLang, t } from './i18n.ts';
 import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
+import { HelpButton } from './screens/help.tsx';
 import { StartScreen } from './screens/start.tsx';
 import { VenueNewScreen } from './screens/venue-new.tsx';
 import { ErrorLine, Icon2 } from './ui.tsx';
+// while a first publish waits for Halom, the open place learns of the approval by itself (backlog B4)
+import './data/approval.ts';
 
 export function App() {
   useEffect(() => {
@@ -70,6 +73,7 @@ function Shell() {
             ? <button type="button" class="top-biz top-switch" aria-haspopup="dialog" onClick={() => setAccount(true)} data-action="switch-venue"><span>{name}</span><Icon name="chevdown" size={16} /></button>
             : <span class="top-biz" title={name}>{name}</span>}
           <SaveBadge />
+          <HelpButton />
           <button type="button" class="acctbtn" aria-haspopup="dialog" aria-label={t('app.account')} onClick={() => setAccount(true)} data-action="account"><Icon name="user" /></button>
         </div>
       </header>
@@ -131,7 +135,7 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
         <div class="bizlist" role="group" aria-label={t('app.switchBusiness')}>
           {list.map((m) => (
             <button key={m.venue.id} type="button" class="bizrow" aria-current={m.venue.id === venueId.value ? 'true' : undefined} data-venue={m.venue.slug}
-              onClick={() => { onClose(); if (m.venue.id !== venueId.value) { openVenue(m.venue.id); go(landing()); } }}>
+              onClick={() => { onClose(); if (m.venue.id !== venueId.value) { openVenue(m.venue.id); go(landing(m.venue)); } }}>
               <Icon name="store" size={20} /><span class="bizrow-name">{named(m.venue, lang.value)}</span>
               {m.venue.id === venueId.value && <Icon name="check" size={18} />}
             </button>

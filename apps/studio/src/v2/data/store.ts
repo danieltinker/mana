@@ -291,7 +291,8 @@ export function setPriorities(priorities: ReadonlyMap<string, number>): Promise<
     .then(() => {}, async (e) => { await reloadMenuQuietly(); throw e; });
 }
 
-async function reloadMenuQuietly() {
+/** The open place's whole menu again (another device, or Halom, changed it); on failure the rows on screen stay. */
+export async function reloadMenuQuietly() {
   const d = menu.value; if (!d) return;
   const gen = generation;
   try { const fresh = await api.loadMenu(d.venue.id, d.role); if (gen === generation) menu.value = fresh; } catch { /* the rows on screen stay */ }

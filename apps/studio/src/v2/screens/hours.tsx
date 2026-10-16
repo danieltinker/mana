@@ -80,8 +80,8 @@ function Week() {
   );
 }
 
-/** Open or closed now, as the guest's phone will say it. */
-function NowCard() {
+/** Open or closed now, as the guest's phone will say it (also on Home's "today's hours"). */
+export function NowCard() {
   const d = menu.value!, now = clock.value, tz = d.venue.time_zone;
   const hours = venueHoursOf(tz, d.hours, d.closures);
   const none = hours.weekly.length === 0;
@@ -101,7 +101,8 @@ function NowCard() {
   );
 }
 
-function DayRow({ day, rows, editable }: { day: Weekday; rows: VenueHoursRow[]; editable: boolean }) {
+/** One weekday's windows, each one a tap from its editor (also on Home's "today's hours"). */
+export function DayRow({ day, rows, editable }: { day: Weekday; rows: VenueHoursRow[]; editable: boolean }) {
   const [editing, setEditing] = useState<string | null>(null);
   return (
     <li class="weekday" data-day={day}>

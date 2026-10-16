@@ -137,3 +137,71 @@ span.hourchip{cursor:default;min-height:0;padding:3px 11px}
 .v2 .empty{display:grid;gap:10px;justify-items:center;text-align:center;padding:32px 18px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
 .v2 .empty p{color:var(--muted);max-width:40ch}
 .v2 .empty-actions{margin-top:6px}
+
+/* Home (F08): the help button, quick actions, what is off now, at a glance, the latest changes */
+.helpbtn{text-decoration:none}
+.acts-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.acts-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.act:disabled{opacity:.45;cursor:default}
+.nudges .nudge-plain{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 14px;border-radius:var(--r);background:var(--soft);color:var(--charcoal);font-weight:500;font-size:.96rem;margin:0}
+.badge-halom{background:var(--black);color:var(--ivory)}
+.offnowcard h2{font:600 1.05rem/1.25 var(--body)}
+.offlist{display:grid}
+.offlist li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 0}
+.offlist li+li{border-top:1px solid var(--line)}
+.offlist-text{display:grid;gap:2px;min-width:0}
+.offlist-name{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.offquick{display:grid;gap:8px}
+.offquick h3{font-size:.95rem;color:var(--muted)}
+.glance{gap:14px}
+.glance h2{font:600 1.15rem/1.25 var(--body)}
+.glance-in{display:grid;gap:16px}
+.glance-hero{display:grid;gap:6px}
+.glance-minis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;padding-top:10px;border-top:1px solid var(--line)}
+.glance-minis li,.glance-tiles li{display:grid;gap:3px;min-width:0}
+.glance-minis bdi,.glance-tiles bdi{font:600 1.25rem/1 var(--display);color:var(--black)}
+.glance-minis span,.glance-tiles span{display:flex;align-items:flex-start;gap:4px;font-size:.8rem;line-height:1.3;color:var(--muted)}
+.glance-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0 0;border-top:1px solid var(--line)}
+.glance-sugg{display:grid;gap:8px}
+.glance-sugg .glance-tiles{border-top:0;padding-top:0}
+.glance-chart,.glance-top{display:grid;gap:6px}
+.glance-empty{display:grid;gap:6px;justify-items:center;text-align:center;padding:22px 12px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
+.chart-fig{margin:0;display:grid;gap:2px}
+.chart-readout{min-height:1.3em;margin:0}
+.cols{height:auto}
+.cols .col{fill:var(--charcoal)}
+.cols .col-capped{opacity:.4}
+.cols .col-picked{fill:var(--rose)}
+.cols .col-hit{fill:transparent;cursor:pointer}
+.cols .col-label{font:600 10px var(--body);fill:var(--black)}
+.cols .grid{stroke:var(--line);stroke-width:1}
+.cols .baseline{stroke:var(--line-2);stroke-width:1}
+.top-bar .col{fill:var(--charcoal)}
+.chart-table summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:.9rem;color:var(--charcoal)}
+.chart-table table{width:100%;border-collapse:collapse;font-size:.88rem}
+.chart-table th,.chart-table td{padding:6px 4px;text-align:start;border-bottom:1px solid var(--line)}
+.chart-table td{font-variant-numeric:tabular-nums;text-align:end}
+.chart-table thead th:not(:first-child){text-align:end}
+.chart-table tbody th{font-weight:500}
+.topdishes2 li{grid-template-columns:minmax(0,40%) 1fr auto}
+.topdishes2 .top-n{font-weight:500;white-space:nowrap}
+
+/* the activity log */
+.actlog{display:grid;gap:14px}
+.actday{display:grid;gap:8px}
+.actday-h{font-size:.9rem;color:var(--muted)}
+.actrows .actrow{display:block}
+.actrow-in{display:grid;gap:3px;padding:10px 14px}
+.actrow.is-halom .actrow-in{border-inline-start:3px solid var(--black)}
+.actrow-what{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.actrow-who{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.actrow-reason{font-size:.9rem;color:var(--charcoal);background:var(--soft);border-radius:var(--r-sm);padding:6px 10px;margin-top:4px}
+
+/* get help */
+.helpform h2,.helpnext h2{font:600 1.1rem/1.25 var(--body)}
+.helpallow{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--soft)}
+.caselist{display:grid}
+.caseline{display:grid;gap:4px;padding:10px 0}
+.caseline+.caseline{border-top:1px solid var(--line)}
+.caseline-subject{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.caseline-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
