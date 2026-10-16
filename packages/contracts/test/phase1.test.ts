@@ -9,7 +9,7 @@ import {
   ACTIVITY_ACTIONS, activityChanges, AUDITED_TABLES, auditOpsOf, configFlags, isActivityAction, isAutoStep, isUntilSpec, LIVE_REFRESH,
   NUDGE_CODES, onboardingProgress, OPS_WARNINGS, pollDelay, resolveUntil, timelineKind, validateActivityQuery, validateDashboardQuery,
   validateExportQuery, validateOpenCase, validateOpsAnalyticsQuery, validateOpsVenueQuery, validateOpsVenuesQuery, validateRestoreToday,
-  validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type Validation,
+  validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type Validation,
 } from '../src/index.ts';
 
 const V = '00000000-0000-4000-8000-0000000000c1';
@@ -37,6 +37,7 @@ test('set_availability and restore_today inputs', () => {
   assert.deepEqual(errs(validateSetAvailability({ venueId: V, target: { kind: 'option', id: D }, until: null })), [], 'null = back now');
   assert.deepEqual(errs(validateSetAvailability({ venueId: 'x', target: { kind: 'table', id: 'y' }, until: { kind: 'forever' }, note: 'x'.repeat(201), extra: 1 })),
     ['enum_invalid', 'field_not_allowed', 'id_invalid', 'id_invalid', 'text_too_long', 'until_invalid']);
+  assert.deepEqual(errs(validateSetAvailability({ venueId: V, target: { kind: 'dish', id: D }, until: null, note: `a${String.fromCharCode(0)}` })), ['text_invalid']);
   assert.deepEqual(errs(validateRestoreToday({ venueId: V })), []);
   assert.deepEqual(errs(validateRestoreToday({})), ['id_invalid']);
 });
@@ -52,6 +53,8 @@ test('onboarding: progress in journey order; automatic steps are the database\'s
   assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'photos', state: 'done' })), []);
   assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'review', state: 'skipped', blockers: [] })), []);
   assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'publish', state: 'done' })), ['step_automatic']);
+  assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'menu', state: 'skipped' })), ['step_automatic'], 'of the automatic steps only review is skipped');
+  assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'menu', state: 'doing' })), []);
   assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'photos', state: 'blocked', blockers: ['dish_without_price', 'Free text!'] })), ['blocker_invalid']);
   assert.deepEqual(errs(validateSetStep({ venueId: V, step: 'party', state: 'done' })), ['enum_invalid']);
 });
@@ -62,11 +65,13 @@ test('support: get help, and staff updates with a reason', () => {
   assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'billing', subject: 'x'.repeat(161), allowAct: 'yes' })), ['enum_invalid', 'text_too_long', 'type']);
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed with the owner' })), []);
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, reason: 'ok' })), ['nothing_to_change', 'reason_required']);
+  assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'open' })), ['reason_required'], 'the reason may be left out of the call, never of the update');
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', body: null })), [], 'a null body is no body');
 });
 
 test('activity: every action the database logs today is on the closed list; tables and named actions', () => {
   assert.equal(new Set(ACTIVITY_ACTIONS).size, ACTIVITY_ACTIONS.length);
-  assert.ok(isActivityAction('dishes.update') && isActivityAction('import.apply') && isActivityAction('leads.update'));
+  assert.ok(isActivityAction('dishes.update') && isActivityAction('import.apply') && isActivityAction('leads.update') && isActivityAction('menu.read'));
   assert.ok(!isActivityAction('venues.insert') && !isActivityAction('leads.read.all') && !isActivityAction(7));
   assert.deepEqual(auditOpsOf('venues'), ['update']);
   // the migrations, read as text: app.log(..., '<action>' and the audited tables' triggers
@@ -95,6 +100,7 @@ test('activity: query and the update detail', () => {
   assert.equal(timelineKind('availability_overrides.update'), 'availability');
   assert.equal(timelineKind('dish_addon_groups.insert'), 'menu');
   assert.equal(timelineKind('menu.export'), 'menu');
+  assert.equal(timelineKind('menu.read'), 'publish');
   assert.equal(timelineKind('venue_hours.update'), 'settings');
 });
 
@@ -109,11 +115,14 @@ test('dashboards: the query, the nudges, staying live', () => {
   assert.equal(pollDelay(15_000, 10, () => 0.5), LIVE_REFRESH.maxBackoffMs);
   assert.equal(pollDelay(15_000, 0, () => 0), 13_500);
   assert.equal(pollDelay(15_000, 0, () => 1), 16_500);
+  assert.equal(pollDelay(15_000, 3, () => 1), LIVE_REFRESH.maxBackoffMs, 'never above 120 s, jitter included');
 });
 
 test('the back office: clients list, venue, analytics, demo', () => {
   assert.deepEqual(errs(validateOpsVenuesQuery({})), []);
   assert.deepEqual(errs(validateOpsVenuesQuery({ q: 'demo', stage: 'complete', warning: 'stuck_step_2d', review: 'pending', planState: 'trialing', plan: 'pilot', demo: 'only', sort: 'opens_today', limit: 50, offset: 100 })), []);
+  for (const q of [String.fromCodePoint(0x200b), String.fromCodePoint(0xa0), ' \t ']) assert.deepEqual(errs(validateOpsVenuesQuery({ q })), ['text_missing'], JSON.stringify(q));
+  assert.deepEqual(errs(validateOpsVenuesQuery({ q: ` ${'x'.repeat(80)} ` })), [], 'measured after stripping');
   assert.deepEqual(errs(validateOpsVenuesQuery({ q: '  ', stage: 'done', warning: 'late', demo: 'all', sort: 'size', limit: 501, offset: -1, page: 2 })),
     ['enum_invalid', 'enum_invalid', 'enum_invalid', 'enum_invalid', 'field_not_allowed', 'limit_invalid', 'limit_invalid', 'text_missing']);
   assert.equal(new Set(OPS_WARNINGS).size, OPS_WARNINGS.length);
@@ -135,12 +144,19 @@ test('the back office: clients list, venue, analytics, demo', () => {
   assert.deepEqual(errs(validateSetDemo({ venueId: V, demo: true, reason: 'Synthetic venue for the walkthrough' })), []);
   assert.deepEqual(errs(validateSetDemo({ venueId: V, demo: 'yes', reason: ' ab ' })), ['reason_required', 'type']);
   assert.deepEqual(errs(validateExportQuery({ venueId: V })), []);
+  assert.deepEqual(errs(validateOpsRevisionQuery({ venueId: V })), []);
+  assert.deepEqual(errs(validateOpsRevisionQuery({ venueId: V, revision: null })), []);
+  assert.deepEqual(errs(validateOpsRevisionQuery({ venueId: V, revision: 3 })), []);
+  assert.deepEqual(errs(validateOpsRevisionQuery({ venueId: 'x', revision: 0, n: 1 })), ['field_not_allowed', 'id_invalid', 'revision_invalid']);
 });
 
 test('config flags: absent means production, v1, realtime; a broken value is reported and replaced', () => {
   assert.deepEqual(configFlags(undefined), { env: 'production', schema: 1, realtime: true, issues: [] });
   assert.deepEqual(configFlags({ supabaseUrl: 'x' }), { env: 'production', schema: 1, realtime: true, issues: [] });
   assert.deepEqual(configFlags({ env: 'local', schema: 2, realtime: false }), { env: 'local', schema: 2, realtime: false, issues: [] });
+  assert.deepEqual(configFlags({ env: 'demo', schema: 2 }), { env: 'demo', schema: 2, realtime: true, issues: [] });
+  assert.deepEqual(configFlags({ schema: 2 }), { env: 'production', schema: 1, realtime: true, issues: [{ code: 'schema_env_mismatch', path: 'schema' }] },
+    'production stays on v1 until the cutover');
   assert.deepEqual(configFlags({ env: 'staging', schema: '2', realtime: 0 }), {
     env: 'production', schema: 1, realtime: true,
     issues: [{ code: 'env_invalid', path: 'env' }, { code: 'schema_invalid', path: 'schema' }, { code: 'realtime_invalid', path: 'realtime' }],
