@@ -13,6 +13,9 @@
   ],
   "scripts": {
     "build": "bash tools/build-site.sh",
+    "serve": "node tools/serve-site.mjs",
+    "demo": "node tools/demo.mjs",
+    "dev:local": "node tools/dev-local.mjs",
     "check": "npm run check --workspaces --if-present",
     "test": "node tools/test-all.mjs",
     "test:fast": "node tools/test-all.mjs --fast"
