@@ -58,13 +58,17 @@ export function ruleSummary(r: RuleWords, name: NameOf): string {
   };
   const parts: string[] = [];
   if (r.scope_kind === 'all') parts.push(t(`rs.${r.trigger}.all`));
-  else parts.push(t(`rs.${r.trigger}.some`, { x: r.scope_kind === 'dish' ? list(r.scope_ids, []) : list([], r.scope_ids) }));
+  else if (r.scope_kind === 'section') parts.push(t(`rs.${r.trigger}.section`, { x: list([], r.scope_ids) }));
+  else parts.push(t(`rs.${r.trigger}.some`, { x: list(r.scope_ids, []) }));
   if (r.basket_has_dishes.length + r.basket_has_sections.length) parts.push(t('rs.has', { x: list(r.basket_has_dishes, r.basket_has_sections) }));
   if (r.basket_lacks_dishes.length + r.basket_lacks_sections.length) parts.push(t('rs.lacks', { x: list(r.basket_lacks_dishes, r.basket_lacks_sections) }));
   if (r.suggest_kind === 'dish') parts.push(t('rs.suggest', { x: (r.suggest_dish_id && name('dish', r.suggest_dish_id)) || t('rs.gone') }));
   else parts.push(t('rs.suggestOption', { x: (r.suggest_option_id && name('option', r.suggest_option_id)) || t('rs.gone') }));
-  const when = [r.days.length && r.days.length < WEEK.length ? daysText(r.days) : '', r.from_time && r.to_time ? timeRange(r.from_time.slice(0, 5), r.to_time.slice(0, 5), true) : '']
-    .filter(Boolean).join(' ');
+  const some = r.days.length > 0 && r.days.length < WEEK.length;
+  const from = r.from_time?.slice(0, 5), to = r.to_time?.slice(0, 5);
+  // a window past midnight on chosen days runs into the day after: "Fri 22–02 (into Sat)"
+  const into = some && from && to && to <= from ? (r.days.length === 1 ? t('rs.into', { day: dayName(((r.days[0]! + 1) % 7) as Weekday, true) }) : t('rs.intoNext')) : '';
+  const when = [some ? daysText(r.days) : '', from && to ? timeRange(from, to, true) : '', into].filter(Boolean).join(' ');
   if (when) parts.push(when);
   return parts.join(', ');
 }

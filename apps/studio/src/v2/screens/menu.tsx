@@ -18,7 +18,21 @@ import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
 import { DishSheet } from './dish.tsx';
-import { OffBadge, OffSheet } from './off.tsx';
+import { OffBadge, OffSheet, offText, stateOf } from './off.tsx';
+
+/** The availability button's name: what it opens, and what is off now (a screen reader hears the red marker too). */
+function offLabel(kind: 'section' | 'dish', id: string, name: string): string {
+  const s = stateOf(kind, id);
+  return s.off ? t('off.open', { name }) + '. ' + offText(s) : t('off.open', { name });
+}
+
+/** After the availability sheet closes, the focus goes back to the button that opened it. */
+function refocusOff(id: string) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const b = document.querySelector(`[data-off-open="${id}"]`) as HTMLElement | null;
+    if (b && document.activeElement !== b) b.focus();
+  }));
+}
 
 export function MenuScreen({ rest }: { rest: string[] }) {
   const d = menu.value!;
@@ -80,7 +94,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
                   <IconBtn icon="up" label={t('menu.up', { name })} disabled={si === 0} data-move="up" onClick={() => moveSection(si, si - 1)} />
                   <IconBtn icon="down" label={t('menu.down', { name })} disabled={si === sections.length - 1} data-move="down" onClick={() => moveSection(si, si + 1)} />
                 </>}
-                {operate && !arranging && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/section/' + sec.id)} data-off-open={sec.id} />}
+                {operate && !arranging && <GlyphBtn icon="pause" label={offLabel('section', sec.id, name)} onClick={() => go('menu/a/section/' + sec.id)} data-off-open={sec.id} />}
                 {editable && <IconBtn icon="edit" label={t('menu.cat.edit') + ': ' + name} onClick={() => go('menu/s/' + sec.id)} />}
               </div>}
             </header>
@@ -95,7 +109,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
 
       {sheetDish && <DishSheet id={sheetDish} tab={rest[2]} onClose={() => go('menu')} />}
       {sheetSection && <SectionSheet id={sheetSection === 'new' ? null : sheetSection} onClose={() => go('menu')} />}
-      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => go('menu')} />}
+      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.id); }} />}
     </div>
   );
 }
@@ -107,20 +121,21 @@ function DishLine({ dish, quick }: { dish: DishRow; quick: boolean }) {
   const part = dish.schedule_id ? d.schedules.find((s) => s.id === dish.schedule_id) : null;
   return (
     <>
-      <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} data-dish={dish.id}>
+      <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} aria-describedby={'dish-sub-' + dish.id} data-dish={dish.id}>
         <span class="row-text">
           <span class="row-name">{name}</span>
-          <span class="row-sub">
+          {/* the price, add-ons, day part, hidden and the red marker: the link's description for a screen reader */}
+          <span class="row-sub" id={'dish-sub-' + dish.id}>
             <span data-price><Price p={menuPrice(d, dish.id)} /></span>
-            {groups > 0 && <span class="badge badge-todo">{tn('menu2.groups', groups)}</span>}
-            {part && <span class="badge badge-ok">{named(part, L)}</span>}
-            {dish.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
-            <OffBadge kind="dish" id={dish.id} />
+            {groups > 0 && <>{' '}<span class="badge badge-todo">{tn('menu2.groups', groups)}</span></>}
+            {part && <>{' '}<span class="badge badge-ok">{named(part, L)}</span></>}
+            {dish.hidden && <>{' '}<span class="badge badge-warn">{t('menu2.hidden')}</span></>}
+            {' '}<OffBadge kind="dish" id={dish.id} />
           </span>
         </span>
         {!quick && <Icon name="chev" size={18} flip />}
       </a>
-      {quick && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/dish/' + dish.id)} data-off-open={dish.id} />}
+      {quick && <GlyphBtn icon="pause" label={offLabel('dish', dish.id, name)} onClick={() => go('menu/a/dish/' + dish.id)} data-off-open={dish.id} />}
     </>
   );
 }

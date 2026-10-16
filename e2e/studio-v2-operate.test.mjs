@@ -15,6 +15,8 @@ import path from 'node:path';
 import { addDays, isOpenAt, localParts, menuAvailability } from '@mana/contracts';
 import { asAnon, createUser, HalomBot, OwnerBot } from '@mana/sim';
 import { OUT, startE2E } from './helpers.mjs';
+import { lang } from '../apps/studio/src/lib/i18n.ts';
+import { momentText } from '../apps/studio/src/v2/words.ts';
 
 const SHOTS = path.join(OUT, 'studio-v2-operate');
 const PASSWORD = 'sim-owner-pass-1';
@@ -29,6 +31,17 @@ const problems = () => page.problems.filter((p) => !/Failed to load resource: th
 const go = async (hash) => { await page.goto(e.webUrl + 'studio/#/' + hash); };
 const rows = (table, extra = {}) => owner.api.select(table, { select: '*', venue_id: `eq.${owner.venueId}`, ...extra });
 /** What the database holds once the app's save has landed (a write follows the tap by a moment). */
+/** What a screen reader gets for an element: its accessible name and description, as Chromium computes them. */
+async function ax(p, selector) {
+  const cdp = await p.context().newCDPSession(p);
+  try {
+    const { root } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+    const { nodes } = await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false });
+    const n = nodes.find((x) => !x.ignored) ?? nodes[0];
+    return { name: plain(n?.name?.value ?? ''), description: plain(n?.description?.value ?? '') };
+  } finally { await cdp.detach(); }
+}
 async function stored(read, want, what) {
   for (let i = 0; i < 50; i++) { const got = await read(); if (JSON.stringify(got) === JSON.stringify(want)) return; await new Promise((r) => setTimeout(r, 100)); }
   assert.deepEqual(await read(), want, what);
@@ -314,6 +327,14 @@ test('availability from the phone: a dish off for two hours in two taps, greyed 
   await page.locator(`[data-off="${croissant}"]`).waitFor();
   assert.match(await page.locator(`[data-off="${croissant}"]`).innerText(), /^לא זמין עד \d\d:\d\d$/);
   await page.locator('[data-off-now="1"]').waitFor();
+  // the focus is back on the button that opened the sheet
+  await stored(() => page.evaluate(() => document.activeElement?.getAttribute('data-off-open')), croissant, 'the focus returns to the row\'s button');
+  // a screen reader hears it too: the row link's description and the button's name carry the red marker
+  const link = await ax(page, `a[data-dish="${croissant}"]`);
+  assert.equal(link.name, 'עריכת קרואסון');
+  assert.match(link.description, /₪14[\s\S]*לא זמין עד \d\d:\d\d$/, link.description);
+  assert.match((await ax(page, `[data-off-open="${croissant}"]`)).name, /^זמינות: קרואסון\. לא זמין עד \d\d:\d\d$/);
+  assert.equal((await ax(page, `[data-off-open="${ids.dishes.muffin}"]`)).name, 'זמינות: מאפין', 'what is available says nothing more');
   await shot('12-off-marker');
 
   // guests: greyed at the end of its section (never orderable), until two hours from now, to the minute
@@ -332,6 +353,16 @@ test('availability from the phone: a dish off for two hours in two taps, greyed 
   await sheet.waitFor({ state: 'detached' });
   await page.locator(`[data-off="${ids.sections.pastries}"]`).waitFor();
   assert.equal(await page.locator(`[data-off="${ids.dishes.muffin}"]`).innerText(), 'לא זמין, כי הקטגוריה לא זמינה');
+  assert.match((await ax(page, `[data-off-open="${ids.sections.pastries}"]`)).name, /^זמינות: מאפים\. לא זמין עד /);
+  assert.match((await ax(page, `a[data-dish="${ids.dishes.muffin}"]`)).description, /^₪12\s+לא זמין, כי הקטגוריה לא זמינה$/);
+
+  // the croissant is off by itself and with its section: the sheet says so before, and bringing it back says it stays off
+  await page.locator(`[data-off-open="${croissant}"]`).click();
+  await sheet.locator('[data-off-also-section]').waitFor();
+  await sheet.locator('[data-action="bring-back"]').click();
+  await sheet.waitFor({ state: 'detached' });
+  await page.getByText('קרואסון: הוחזר, אבל עדיין לא זמין כי הקטגוריה שלו לא זמינה').waitFor();
+  await stored(() => page.locator(`[data-off="${croissant}"]`).innerText(), 'לא זמין, כי הקטגוריה לא זמינה', 'still off, with its section');
 
   // everything taken off today comes back
   await page.locator('[data-action="restore-today"]').click();
@@ -463,5 +494,174 @@ test('changed somewhere else: a rule asks before it is saved over (both changes 
   await edit.locator('[data-action="save-hours"]').click();
   await edit.waitFor({ state: 'detached' });
   await stored(closes, '11:30', 'saved over the times as stored now');
+  assert.deepEqual(problems(), []);
+});
+
+test('every "until" from the phone: the moment shown before the tap is the moment stored', { timeout: 300000 }, async () => {
+  lang.value = 'he';
+  const tea = ids.dishes.tea;
+  const sheet = page.locator('dialog[data-sheet="off"]');
+  const hm = (minutes) => String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
+  // the tea's newest override that counts
+  const newest = async () => (await rows('availability_overrides', { target_id: `eq.${tea}`, restored_at: 'is.null', order: 'starts_at.desc' }))[0];
+  await go('menu');
+  for (const choice of ['h1', 'h2', 'next_opening', 'time', 'date', 'indefinite']) {
+    await page.locator(`[data-off-open="${tea}"]`).click();
+    await sheet.waitFor();
+    const btn = sheet.locator(`[data-until="${choice}"]`);
+    let tap = btn;
+    if (choice === 'time' || choice === 'date') {
+      await btn.click();
+      const now = localParts(Date.now(), TZ);
+      await sheet.locator(`[data-field="off-${choice}"]`).fill(choice === 'time' ? hm((now.minutes + 150) % 1440) : addDays(now.date, 3));
+      tap = sheet.locator(`[data-action="off-${choice}"]`);
+    }
+    // "for an hour" moves with the minute: tap well inside one (the sheet reads its clock every second)
+    if (choice === 'h1' || choice === 'h2') while (new Date().getUTCSeconds() < 3 || new Date().getUTCSeconds() > 50) await new Promise((r) => setTimeout(r, 500));
+    await page.waitForTimeout(1100);
+    const shownAt = await btn.getAttribute('data-back');
+    const shownText = plain(await btn.locator('.fine').innerText());
+    await tap.click();
+    await sheet.waitFor({ state: 'detached' });
+    await page.locator(`[data-off="${tea}"]`).waitFor();
+    const o = await newest();
+    assert.equal(o.until_kind, { h1: 'duration', h2: 'duration', next_opening: 'next_opening', time: 'time', date: 'date', indefinite: 'indefinite' }[choice]);
+    assert.equal(shownAt, o.until_at ? new Date(o.until_at).toISOString() : '', `${choice}: the moment shown is the moment stored`);
+    assert.equal(shownText, o.until_at ? 'חוזר: ' + plain(momentText(new Date(o.until_at), Date.now(), TZ)) : 'לא חוזר מעצמו', choice);
+    if (choice === 'h2') await shot('20-until-h2');
+    await owner.setAvailability('dish', tea, null);
+    await page.locator(`[data-off="${tea}"]`).waitFor({ state: 'detached', timeout: 20000 }).catch(() => go('menu'));
+  }
+  assert.deepEqual(problems(), []);
+});
+
+test('two tabs: hours added on one are checked on the other before adding; rules reordered on one come back on the other with a notice', { timeout: 300000 }, async () => {
+  const b = await page.context().newPage();
+  await b.goto(e.webUrl + 'studio/#/hours');
+  await b.locator('li.weekday[data-day="1"] [data-hours]').waitFor();
+  // tab A: Saturday evening
+  await go('hours');
+  await page.locator('[data-action="add-hours"]').click();
+  let add = page.locator('[data-hours-add]');
+  await add.locator('[data-day="6"]').click();
+  await add.locator('[data-field="add-from"]').fill('18:00');
+  await add.locator('[data-field="add-to"]').fill('21:00');
+  await add.locator('[data-action="save-new-hours"]').click();
+  await page.locator('li.weekday[data-day="6"] [data-hours]').waitFor();
+  // tab B has not seen it: an overlapping window is checked against the hours as stored now
+  await b.locator('[data-action="add-hours"]').click();
+  add = b.locator('[data-hours-add]');
+  await add.locator('[data-day="6"]').click();
+  await add.locator('[data-field="add-from"]').fill('20:00');
+  await add.locator('[data-field="add-to"]').fill('23:00');
+  await add.locator('[data-action="save-new-hours"]').click();
+  await add.getByText('השעות האלה חופפות לשעות שכבר קבעתם באותו יום.').waitFor();
+  await b.locator('li.weekday[data-day="6"] [data-hours]').waitFor();
+  assert.deepEqual((await rows('venue_hours', { weekday: 'eq.6' })).map((h) => [h.opens, h.closes]), [['18:00:00', '21:00:00']], 'one Saturday window');
+  await b.screenshot({ path: path.join(SHOTS, '21-two-tabs-hours.png') });
+  // a Friday night window that meets Saturday's evening is said as running into the next day
+  await add.locator('[data-day="6"]').click();
+  await add.locator('[data-day="5"]').click();
+  await add.locator('[data-field="add-from"]').fill('23:00');
+  await add.locator('[data-field="add-to"]').fill('19:00');
+  await add.locator('[data-action="save-new-hours"]').click();
+  await add.getByText('השעות האלה נמשכות אחרי חצות ונפגשות עם השעות של היום שאחרי.').waitFor();
+  await owner.api.remove('venue_hours', { venue_id: `eq.${owner.venueId}`, weekday: 'eq.6' });
+
+  // rules: both tabs arranging; A moves the first down, then B (which has not seen it) does the same
+  for (const p of [page, b]) { await p.goto(e.webUrl + 'studio/#/rules'); await p.locator('[data-summary]').nth(1).waitFor(); await p.locator('[data-tool="arrange-rules"]').click(); }
+  const order = async () => (await rows('upsell_rules', { order: 'priority.desc,id.asc' })).map((r) => r.id);
+  const before = await order();
+  await page.locator('[data-move="down"]').first().click();
+  await stored(order, [before[1], before[0]], 'tab A\'s order stored');
+  await b.locator('[data-move="down"]').first().click();
+  await b.getByText('זה השתנה במסך או במכשיר אחר, ולכן מוצג עכשיו כפי שהוא שמור. נסו שוב.').first().waitFor();
+  assert.deepEqual(await order(), [before[1], before[0]], 'tab B wrote nothing');
+  const shownIds = () => b.locator('a[data-rule]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-rule')));
+  await stored(shownIds, [before[1], before[0]], 'tab B shows the order as stored');
+  await b.screenshot({ path: path.join(SHOTS, '23-two-tabs-rules.png') });
+  await b.close();
+  await page.locator('[data-tool="arrange-rules"]').click();
+  assert.deepEqual(problems(), []);
+});
+
+test('lost answers: hours tried again with other times say what was stored; a new rule tried again with another line stores the line', { timeout: 300000 }, async () => {
+  // hours: the insert lands, its answer never comes back; the owner changes the times and tries again
+  await go('hours');
+  let drop = true;
+  const loseOnce = async (r) => { if (drop && r.request().method() === 'POST') { drop = false; await r.fetch(); return r.abort('connectionreset'); } return r.continue(); };
+  const hoursRoute = (u) => u.pathname.endsWith('/rest/v1/venue_hours');
+  await page.route(hoursRoute, loseOnce);
+  await page.locator('[data-action="add-hours"]').click();
+  const add = page.locator('[data-hours-add]');
+  await add.locator('[data-day="6"]').click();
+  await add.locator('[data-field="add-from"]').fill('18:00');
+  await add.locator('[data-field="add-to"]').fill('20:00');
+  await add.locator('[data-action="save-new-hours"]').click();
+  await add.locator('.ferr').waitFor();
+  await add.locator('[data-field="add-from"]').fill('19:00');
+  await add.locator('[data-field="add-to"]').fill('21:00');
+  await add.locator('[data-action="save-new-hours"]').click();
+  await add.getByText('הניסיון הקודם כבר נשמר (התשובה עליו לא הגיעה), עם מה שהיה בו אז. כך הוא מוצג עכשיו.').waitFor();
+  assert.equal(plain(await page.locator('li.weekday[data-day="6"] [data-hours]').innerText()), '18:00–20:00', 'the week shows what was stored');
+  assert.deepEqual((await rows('venue_hours', { weekday: 'eq.6' })).map((h) => [h.opens, h.closes]), [['18:00:00', '20:00:00']], 'stored once, as first sent');
+  await shot('22-lost-answer-hours');
+  await page.unroute(hoursRoute);
+  await owner.api.remove('venue_hours', { venue_id: `eq.${owner.venueId}`, weekday: 'eq.6' });
+
+  // a new rule: the same, then the owner changes the line and creates again: one rule, with the new line
+  await go('rules/new');
+  const ed = page.locator('[data-screen="rule-editor"]');
+  await ed.waitFor();
+  await ed.getByRole('button', { name: 'פתיחת מנה', exact: true }).click();
+  await pick('scope', ['תה']);
+  await ed.locator('[data-field="rule-suggest-dish"]').selectOption({ label: 'מאפין' });
+  await ed.locator('[data-field="rule-line-he"]').fill('שורה ראשונה');
+  drop = true;
+  const rulesRoute = (u) => u.pathname.endsWith('/rest/v1/upsell_rules');
+  await page.route(rulesRoute, loseOnce);
+  await ed.locator('[data-action="save-rule"]').click();
+  await ed.locator('[data-error]').waitFor();
+  await ed.locator('[data-field="rule-line-he"]').fill('שורה שנייה');
+  await ed.locator('[data-action="save-rule"]').click();
+  await page.locator('[data-screen="rule-editor"]:not([data-rule="new"])').waitFor();
+  await stored(async () => (await rows('upsell_rules', { suggest_dish_id: `eq.${ids.dishes.muffin}` })).map((r) => r.line_he), ['שורה שנייה'], 'one rule, with the line as the owner left it');
+  await stored(() => page.locator('[data-field="rule-line-he"]').inputValue(), 'שורה שנייה', 'the editor shows it');
+  await page.unroute(rulesRoute);
+  await owner.api.remove('upsell_rules', { suggest_dish_id: `eq.${ids.dishes.muffin}` });
+  // the retry's insert meets the stored row (409, the duplicate the app reads as "stored earlier")
+  assert.deepEqual(problems().filter((x) => !/ERR_CONNECTION_RESET|net::|Failed to fetch|status of 409/.test(x)), []);
+  page.problems.length = 0;                                     // the lost answers were this test's own
+});
+
+test('open now on last night\'s hours, on a closed date: the card never says "open now" beside "closed today"', { timeout: 120000 }, async (t) => {
+  const now = localParts(Date.now(), TZ);
+  if (now.minutes > 21 * 60) { t.skip('needs two hours before midnight on the venue\'s clock'); return; }
+  // yesterday's window runs past midnight until two hours from now; today is a closed date
+  await owner.api.remove('venue_hours', { venue_id: `eq.${owner.venueId}` });
+  const until = String(Math.floor(now.minutes / 60) + 2).padStart(2, '0') + ':00';
+  await owner.insert('venue_hours', [{ weekday: (now.weekday + 6) % 7, opens: '23:00', closes: until }]);
+  await owner.insert('venue_closures', [{ from_date: now.date, to_date: now.date, note_he: 'חג', note_en: 'Holiday' }]);
+  await go('hours');
+  const card = page.locator('[data-open-now]');
+  await page.locator('[data-open-now="open"]').waitFor();
+  assert.equal(plain(await card.locator('[data-closed-today]').innerText()), 'פתוח לפי השעות של אמש, ואחר כך סגור לשאר היום: חג');
+  assert.doesNotMatch(await card.innerText(), /היום סגור/);
+  const live = (await asAnon(e.stack).rpc('public_menu', { p_slug: SLUG })).live;
+  assert.equal(live.open, true, 'as the guest\'s phone has it');
+  await shot('24-open-on-last-nights-hours');
+
+  // closed for the next three weeks: "until the next opening" has none within two weeks, and asks for a date instead
+  await owner.insert('venue_closures', [{ from_date: addDays(now.date, 1), to_date: addDays(now.date, 21), note_he: 'שיפוץ', note_en: 'Works' }]);
+  await go('menu');
+  await go('hours');                                               // the hours screen reads them again when it opens
+  await page.locator('[data-closure]', { hasText: 'שיפוץ' }).waitFor();
+  await go('menu/a/dish/' + ids.dishes.tea);
+  const sheet = page.locator('dialog[data-sheet="off"]');
+  await sheet.locator('[data-until="next_opening"][data-no-opening]').click();
+  assert.equal(plain(await sheet.locator('[data-until="next_opening"] .fine').innerText()), 'אין פתיחה בשבועיים הקרובים: בחרו תאריך');
+  await sheet.locator('[data-field="off-date"]').waitFor();
+  await shot('25-no-opening-within-two-weeks');
+  await sheet.locator('.sheet-close, [data-action="close"]').first().click().catch(() => page.keyboard.press('Escape'));
   assert.deepEqual(problems(), []);
 });

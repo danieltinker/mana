@@ -76,16 +76,19 @@ function stop() {
 function start(id: string) {
   stop();
   venue = id;
+  const gen = generation;
   refreshOff();
   document.addEventListener('visibilitychange', onVisible);
   if (!runtime.realtime) { startPolling(); return; }
   // a message is a signal to fetch again, at most once per debounceMs; polling covers a channel that fails
   channel = sb.channel('off:' + id)
     .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'availability_overrides', filter: venueFilter(id) }, () => {
-      if (debounce) return;
+      if (gen !== generation || debounce) return;
       debounce = setTimeout(() => { debounce = null; refreshOff(); }, LIVE_REFRESH.debounceMs);
     })
     .subscribe((status: string) => {
+      // a channel removed with its place (another place opened, or signed out) says CLOSED: that is not a failure to cover
+      if (gen !== generation) return;
       if (status === 'SUBSCRIBED') { stopPolling(); refreshOff(); }
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') startPolling();
     });

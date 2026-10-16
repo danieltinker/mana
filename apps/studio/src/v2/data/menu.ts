@@ -90,13 +90,36 @@ export async function insertOnce<T extends { id: string }>(table: MenuTable, row
   }
 }
 
-/** New rows with the client's own ids, in one statement; when an earlier try's answer was lost and they are all stored, they answer. */
+/** One table's rows for a venue, as stored now. */
+export const venueRows = <T>(table: MenuTable, venueId: string, columns = '*') => q<T[]>(sb.from(table).select(columns).eq('venue_id', venueId));
+
+/** A value sent and the value stored are the same (times come back with seconds, text stripped of blank ends). */
+function sameValue(sent: unknown, stored: unknown): boolean {
+  if (typeof sent === 'string' && typeof stored === 'string') {
+    if (/^\d\d:\d\d$/.test(sent) && /^\d\d:\d\d:\d\d$/.test(stored)) return stored.startsWith(sent + ':');
+    return sent.trim() === stored.trim();
+  }
+  return JSON.stringify(sent ?? null) === JSON.stringify(stored ?? null);
+}
+
+/**
+ * New rows with the client's own ids, in one statement. When an earlier try's answer was lost and they are all stored
+ * already, they answer, as long as they hold what this try sends; when the owner changed something before trying again,
+ * nothing is written and `stored_earlier` carries the rows as stored (the screen says so, or stores the change).
+ */
 export async function insertAllOnce<T extends { id: string }>(table: MenuTable, rows: readonly { id: string; [column: string]: unknown }[]): Promise<T[]> {
   try {
     return await insertRows<T>(table, rows as object[]);
   } catch (e) {
     const err = toV2Error(e);
-    if (err.code === 'duplicate') { const had = await rowsById<T>(table, rows.map((r) => r.id)); if (had.length === rows.length) return had; }
+    if (err.code === 'duplicate') {
+      const had = await rowsById<T>(table, rows.map((r) => r.id));
+      if (had.length === rows.length) {
+        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameValue(v, h[k])); });
+        if (same) return had;
+        throw new V2Error('stored_earlier', had);
+      }
+    }
     throw err;
   }
 }

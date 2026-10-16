@@ -2,8 +2,12 @@
 // takes the dish off: for an hour, two, until the next opening, until a time today, until a date, or until brought
 // back; each choice says when it comes back before the tap, and it comes back by itself at that minute. A dish's add-on
 // choices and whole groups are one tap further. The red marker says what is off now and until when.
-import { useState } from 'preact/hooks';
-import { addDays, isHHMM, isLocalDate, localParts, type TargetKind } from '@mana/contracts';
+//
+// The "back at" beside each choice is worked out on a clock read every second while the sheet is open (the screens'
+// own clock moves only every minute or so), so the minute shown is the minute the database stores; after the tap the
+// stored moment is what the toast says.
+import { useEffect, useState } from 'preact/hooks';
+import { addDays, isHHMM, isLocalDate, localParts, nextOpening, type TargetKind } from '@mana/contracts';
 import { Btn, Note, Sheet } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { UNTIL_CHOICES, backAt, offState, untilSpecOf, type OffState, type OffTarget, type UntilChoice } from '../data/availability.ts';
@@ -51,9 +55,23 @@ function nameOf(kind: Kind, id: string): string | null {
   return row ? named(row, L) || t('menu2.unnamed') : null;
 }
 
+/** Now, read again every second while a sheet that shows moments is open. */
+function useSecondClock(): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  return now;
+}
+
+/** A dish's section, when it is off now. */
+function sectionOff(kind: Kind, id: string): boolean {
+  if (kind !== 'dish') return false;
+  const sec = menu.value!.dishes.find((x) => x.id === id)?.section_id;
+  return !!sec && stateOf('section', sec).off;
+}
+
 export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onClose: () => void }) {
   const d = menu.value!;
-  const now = clock.value, tz = d.venue.time_zone;
+  const now = useSecondClock(), tz = d.venue.time_zone;
   const k = KINDS.includes(kind as Kind) ? (kind as Kind) : null;
   const name = k ? nameOf(k, id) : null;
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [open, setOpen] = useState<'time' | 'date' | null>(null);
@@ -64,8 +82,11 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
   const state = k === 'group' ? null : stateOf(k, id);
   const group = k === 'group' ? groupOff(id) : null;
   const isOff = state ? state.off && !state.withSection : group!.n > 0;
+  const withSection = sectionOff(k, id);
   const operate = canOperate();
   const when = (at: Date | null) => (at ? t('off.backAt', { when: momentText(at, now, tz) }) : t('off.never'));
+  // "until the next opening" looks two weeks ahead (the contracts' nextOpening): past that, a date is asked for instead
+  const noOpening = hours.weekly.length > 0 && nextOpening(hours, now) === null;
 
   async function apply(choice: UntilChoice, value = '') {
     if (busy) return;
@@ -80,7 +101,7 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
   async function back() {
     if (busy) return;
     setBusy('back'); setError('');
-    try { await bringBack(target); toast(t('off.backDone', { name: name! })); onClose(); }
+    try { await bringBack(target); toast(t(withSection ? 'off.backButSection' : 'off.backDone', { name: name! })); onClose(); }
     catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(''); }
   }
@@ -91,7 +112,8 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
       const ok = c === 'time' ? isHHMM(value) : isLocalDate(value);
       return (
         <li key={c}>
-          <button type="button" class="offchoice" aria-expanded={open === c ? 'true' : 'false'} disabled={!!busy} onClick={() => setOpen(open === c ? null : c)} data-until={c}>
+          <button type="button" class="offchoice" aria-expanded={open === c ? 'true' : 'false'} disabled={!!busy} onClick={() => setOpen(open === c ? null : c)} data-until={c}
+            data-back={open === c && ok ? backAt(untilSpecOf(c, value), now, hours)?.toISOString() ?? '' : undefined}>
             <span class="offchoice-what">{t('off.c.' + c)}</span>
             {open === c && ok && <span class="fine">{when(backAt(untilSpecOf(c, value), now, hours))}</span>}
           </button>
@@ -105,11 +127,22 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
         </li>
       );
     }
+    if (c === 'next_opening' && noOpening) {
+      return (
+        <li key={c}>
+          <button type="button" class="offchoice" disabled={!!busy} onClick={() => setOpen('date')} data-until={c} data-no-opening>
+            <span class="offchoice-what">{t('off.c.' + c)}</span>
+            <span class="fine">{t('off.noOpening')}</span>
+          </button>
+        </li>
+      );
+    }
+    const back = backAt(untilSpecOf(c), now, hours);
     return (
       <li key={c}>
-        <button type="button" class="offchoice" disabled={!!busy} onClick={() => apply(c)} data-until={c}>
+        <button type="button" class="offchoice" disabled={!!busy} onClick={() => apply(c)} data-until={c} data-back={back?.toISOString() ?? ''}>
           <span class="offchoice-what">{t('off.c.' + c)}</span>
-          <span class="fine">{when(backAt(untilSpecOf(c), now, hours))}</span>
+          <span class="fine">{when(back)}</span>
           {busy === c && <span class="spin spin-sm" aria-hidden="true" />}
         </button>
       </li>
@@ -122,6 +155,7 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
       <p class={'offnow' + (isOff || state?.off ? ' is-off' : '')} data-off-state={isOff ? 'off' : state?.off ? 'section' : 'on'} aria-live="polite">
         {state ? offText(state) : t('off.groupState', { n: group!.n, m: group!.of })}
       </p>
+      {isOff && withSection && <p class="fine" data-off-also-section>{t('off.alsoSection')}</p>}
       {operate && isOff && <Btn kind="primary" block busy={busy === 'back'} onClick={back} data-action="bring-back">{t('off.back')}</Btn>}
       {operate && <>
         <h3 class="offhow">{isOff ? t('off.change') : t('off.how')}</h3>
