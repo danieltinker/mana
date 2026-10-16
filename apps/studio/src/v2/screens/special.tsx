@@ -16,7 +16,7 @@ import { clock } from '../data/live.ts';
 import * as api from '../data/menu.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
 import { SPECIAL_NAME_MAX, newSpecialForm, specialFromForm, type SpecialForm } from '../data/special.ts';
-import { addDish, addRows, flushSaves, mayWrite, menu, refreshVenue, saveNow } from '../data/store.ts';
+import { addDish, addRows, flushSaves, hasUnsaved, mayWrite, menu, refreshVenue, saveNow, saveState } from '../data/store.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { MoneyInput } from '../ui.tsx';
 import { daysText, timeRange } from '../words.ts';
@@ -59,6 +59,8 @@ export function SpecialSheet({ onClose }: { onClose: () => void }) {
       let outcome: Done['outcome'] = 'saved';
       if (publish) {
         await flushSaves();
+        // as on the publish screen: nothing is published while a change did not save or waits for a decision
+        if (hasUnsaved()) { setError(t('pub2.blocked.' + (saveState.value === 'conflict' ? 'conflict' : 'failed'))); return; }
         outcome = (await api.publishMenu(d.venue.id, null)).review;
         await refreshVenue().catch(() => {});
         refreshDraft();
