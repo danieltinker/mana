@@ -37,3 +37,6 @@ private/
 
 # Claude Code worktrees and local state
 .claude/
+
+# The Claude desktop app writes this folder into Daniel's connected ~/Documents/mana; untracked, it blocks the sync's clean-tree check
+Claude outputs/
