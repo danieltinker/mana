@@ -1,29 +1,36 @@
 // The menu: sections in order, each with its dishes; a dish opens in its own sheet (#/menu/d/<id>), a section too
 // (#/menu/s/<id>, #/menu/s/new). "Arrange" puts sections and dishes in order, by dragging or with the up and down
-// buttons (keyboard and screen readers, each move announced).
+// buttons (keyboard and screen readers, each move announced). Every row has its availability one tap away
+// (#/menu/a/<kind>/<id>, screens/off.tsx), for the counter too; what is off now carries a red marker, and everything
+// taken off today comes back with one button.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ROOMS, SECTION_KINDS, type DishRow, type SectionRow } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Sheet, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
+import { offToday } from '../data/availability.ts';
 import { toV2Error } from '../data/errors.ts';
 import { agorotOf, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
 import { menuPrice } from '../data/guest.ts';
+import { clock, offNow, overrides, restoreToday } from '../data/live.ts';
 import { byPosition, named } from '../data/rows.ts';
-import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
+import { addDish, addSection, canEdit, canOperate, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { LangSeg, MoneyInput, Price, ReorderList, useEntryLang } from '../ui.tsx';
+import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, useEntryLang } from '../ui.tsx';
 import { DishSheet } from './dish.tsx';
+import { OffBadge, OffSheet } from './off.tsx';
 
 export function MenuScreen({ rest }: { rest: string[] }) {
   const d = menu.value!;
   const L = lang.value;
   const editable = canEdit();
+  const operate = canOperate();
   const sections = byPosition(d.sections);
   const [arranging, setArranging] = useState(false);
   const [said, setSaid] = useState('');
   const sheetDish = rest[0] === 'd' && rest[1] ? rest[1] : null;
   const sheetSection = rest[0] === 's' && rest[1] ? rest[1] : null;
+  const sheetOff = rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2] } : null;
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {
@@ -42,7 +49,8 @@ export function MenuScreen({ rest }: { rest: string[] }) {
           </button>
         </div>}
       </PageHead>
-      {!editable && <Note>{t('menu2.readOnly')}</Note>}
+      {!editable && <Note>{t(operate ? 'menu2.counter' : 'menu2.readOnly')}</Note>}
+      {operate && <OffNowBar />}
 
       {sections.length === 0 && (
         <Empty title={t('menu2.empty.title')} body={t('menu2.empty.body')} icon="menu">
@@ -59,17 +67,20 @@ export function MenuScreen({ rest }: { rest: string[] }) {
               <h2 id={'sec-' + sec.id}>{name}</h2>
               <span class="sec-n">{dishes.length}</span>
               {sec.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
-              {editable && <div class="tools">
-                {arranging && <>
+              <OffBadge kind="section" id={sec.id} />
+              {(editable || operate) && <div class="tools">
+                {editable && arranging && <>
                   <IconBtn icon="up" label={t('menu.up', { name })} disabled={si === 0} onClick={() => moveSection(si, si - 1)} />
                   <IconBtn icon="down" label={t('menu.down', { name })} disabled={si === sections.length - 1} onClick={() => moveSection(si, si + 1)} />
                 </>}
-                <IconBtn icon="edit" label={t('menu.cat.edit') + ': ' + name} onClick={() => go('menu/s/' + sec.id)} />
+                {operate && !arranging && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/section/' + sec.id)} data-off-open={sec.id} />}
+                {editable && <IconBtn icon="edit" label={t('menu.cat.edit') + ': ' + name} onClick={() => go('menu/s/' + sec.id)} />}
               </div>}
             </header>
+            {sec.schedule_id && <p class="fine sec-part">{t('menu2.sectionPart', { name: named(d.schedules.find((s) => s.id === sec.schedule_id), L) })}</p>}
             <ReorderList items={dishes} arranging={arranging && editable} nameOf={(x) => named(x, L)} label={name}
               onMove={(from, to) => { moveRow('dishes', dishes, from, to)?.catch(fail); }}
-              render={(x) => <DishLine dish={x} />} />
+              render={(x) => <DishLine dish={x} quick={operate && !arranging} />} />
             {editable && !arranging && <QuickAdd section={sec} />}
           </section>
         );
@@ -77,28 +88,56 @@ export function MenuScreen({ rest }: { rest: string[] }) {
 
       {sheetDish && <DishSheet id={sheetDish} tab={rest[2]} onClose={() => go('menu')} />}
       {sheetSection && <SectionSheet id={sheetSection === 'new' ? null : sheetSection} onClose={() => go('menu')} />}
+      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => go('menu')} />}
     </div>
   );
 }
 
-function DishLine({ dish }: { dish: DishRow }) {
+function DishLine({ dish, quick }: { dish: DishRow; quick: boolean }) {
   const d = menu.value!, L = lang.value;
   const name = named(dish, L) || t('menu2.unnamed');
   const groups = d.dishGroups.filter((a) => a.dish_id === dish.id).length;
   const part = dish.schedule_id ? d.schedules.find((s) => s.id === dish.schedule_id) : null;
   return (
-    <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} data-dish={dish.id}>
-      <span class="row-text">
-        <span class="row-name">{name}</span>
-        <span class="row-sub">
-          <span data-price><Price p={menuPrice(d, dish.id)} /></span>
-          {groups > 0 && <span class="badge badge-todo">{tn('menu2.groups', groups)}</span>}
-          {part && <span class="badge badge-ok">{named(part, L)}</span>}
-          {dish.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
+    <>
+      <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} data-dish={dish.id}>
+        <span class="row-text">
+          <span class="row-name">{name}</span>
+          <span class="row-sub">
+            <span data-price><Price p={menuPrice(d, dish.id)} /></span>
+            {groups > 0 && <span class="badge badge-todo">{tn('menu2.groups', groups)}</span>}
+            {part && <span class="badge badge-ok">{named(part, L)}</span>}
+            {dish.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
+            <OffBadge kind="dish" id={dish.id} />
+          </span>
         </span>
-      </span>
-      <Icon name="chev" size={18} flip />
-    </a>
+        {!quick && <Icon name="chev" size={18} flip />}
+      </a>
+      {quick && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/dish/' + dish.id)} data-off-open={dish.id} />}
+    </>
+  );
+}
+
+/** What is off now, and one button that brings back everything taken off today (restore_today). */
+function OffNowBar() {
+  const d = menu.value!;
+  const n = offNow().length;
+  const today = offToday(overrides.value, clock.value, d.venue.time_zone).length;
+  const [ask, setAsk] = useState(false), [busy, setBusy] = useState(false);
+  if (n === 0) return null;
+  async function restore() {
+    setBusy(true);
+    try { const back = await restoreToday(); toast(tn('off.restored', back)); setAsk(false); }
+    catch (e) { toast(errText(toV2Error(e).code), 'error'); setAsk(false); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div class="offbar" role="status" data-off-now={n}>
+      <span class="offbar-n"><span class="dot dot-bad" aria-hidden="true" />{tn('off.now', n)}</span>
+      {today > 0 && <Btn small icon="refresh" onClick={() => setAsk(true)} data-action="restore-today">{t('off.restoreToday', { n: today })}</Btn>}
+      <Confirm open={ask} title={t('off.restoreToday.title')} body={tn('off.restoreToday.body', today)} confirmLabel={t('off.restoreToday.go')} busy={busy}
+        onConfirm={restore} onClose={() => setAsk(false)} />
+    </div>
   );
 }
 
@@ -191,6 +230,13 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
           {ROOMS.map((r) => <option key={r} value={r}>{t('room.' + r)}</option>)}
         </select>
       )}</Field>
+      <Field label={t('dish.daypart')} hint={d.schedules.length ? t('menu2.sectionPartHint') : t('dish.daypart.none')}>{(p) => (
+        <select {...p} value={form.scheduleId ?? ''} disabled={!d.schedules.length} data-field="section-daypart" onChange={(e) => set({ scheduleId: (e.target as HTMLSelectElement).value || null })}>
+          <option value="">{t('dish.daypart.always')}</option>
+          {d.schedules.map((s) => <option key={s.id} value={s.id}>{named(s, lang.value)}</option>)}
+        </select>
+      )}</Field>
+      <a class="linkbtn" href="#/hours/parts" data-link="dayparts"><Icon name="clock" size={16} /><span>{t('parts.manage')}</span></a>
       <div class="switchrow"><span>{t('ed.hide')}</span><Switch checked={form.hidden} onChange={(v) => set({ hidden: v })} label={t('ed.hide')} /></div>
       {error && <Note kind="error">{error}</Note>}
       <Confirm open={del} title={t('menu.cat.delete')} body={t(confirmKey, { name: named(row, lang.value), n: dishes })} confirmLabel={t('app.delete')} danger busy={busy}

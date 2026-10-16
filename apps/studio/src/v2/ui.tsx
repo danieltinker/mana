@@ -13,12 +13,15 @@ const MORE: Record<string, string> = {
   minus: 'M5 12h14',
   layers: 'M12 4 3 8.5l9 4.5 9-4.5L12 4zM3 12.5l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5',
   nest: 'M7 4v9a3 3 0 0 0 3 3h9M16 13l3 3-3 3',
+  /** Availability: off for now, back later. */
+  pause: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM10 9v6M14 9v6',
 };
 export function Icon2({ name, size = 20 }: { name: string; size?: number }) {
   if (!(name in MORE)) return <Icon name={name} size={size} />;
   return <svg class="ico" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" focusable="false"><path d={MORE[name]} fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" /></svg>;
 }
-function GlyphBtn({ icon, label, ...rest }: { icon: string; label: string; [k: string]: any }) {
+/** A round icon button with v2's icons too (../ui.tsx IconBtn draws v1's set only). */
+export function GlyphBtn({ icon, label, ...rest }: { icon: string; label: string; [k: string]: any }) {
   return <button type="button" class="iconbtn" aria-label={label} title={label} {...rest}><Icon2 name={icon} /></button>;
 }
 
