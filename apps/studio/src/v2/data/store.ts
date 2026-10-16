@@ -219,8 +219,12 @@ export type Conflict = {
 export const conflicts = signal<readonly Conflict[]>([]);
 /** A change the database refused: the row is back as stored, the screens say why and show it again. */
 export const refused = signal<{ code: string; at: number; table: MenuTable; id: string } | null>(null);
-/** A row the screens with a form over it should read again from memory (after a refusal, a conflict, or the owner's choice). */
+/**
+ * A row the screens with a form over it should read again from memory (after a refusal, a conflict, the owner's choice,
+ * or the menu read again: then `id` is `ANY_ROW`).
+ */
 export const resync = signal<{ table: MenuTable; id: string; at: number } | null>(null);
+export const ANY_ROW = '*';
 const resyncRow = (table: MenuTable, id: string) => { resync.value = { table, id, at: Date.now() }; };
 
 function settle() {
@@ -417,7 +421,17 @@ export async function removeRows(table: MenuTable, ids: string[]): Promise<void>
 async function reloadMenuQuietly() {
   const d = menu.value; if (!d) return;
   const gen = generation;
-  try { const fresh = await api.loadMenu(d.venue.id, d.role); if (gen === generation) menu.value = withTyped(fresh); } catch { /* the rows on screen stay */ }
+  try {
+    const fresh = await api.loadMenu(d.venue.id, d.role);
+    if (gen !== generation) return;
+    for (const key of [...known.keys()]) {                          // the rows being edited, as stored now
+      const [table, id] = key.split(':') as [MenuTable, string];
+      const row = (fresh[KEY[table]] as AnyRow[]).find((r) => r.id === id);
+      if (row) known.set(key, row); else known.delete(key);
+    }
+    menu.value = withTyped(fresh);
+    resyncRow('dishes', ANY_ROW);                                     // an open dish form shows the dish as it is now
+  } catch { /* the rows on screen stay */ }
 }
 
 /**

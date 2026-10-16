@@ -9,7 +9,7 @@ import { toV2Error } from '../data/errors.ts';
 import { capacityOf, dishEdit, dishLimitsFromForm, dishToForm, effectiveLimits, groupToForm, limitChoices, type DishForm, type FieldError } from '../data/forms.ts';
 import { guestModel } from '../data/guest.ts';
 import { byCreated, byPosition, named } from '../data/rows.ts';
-import { addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, relatedOf, removeRows, resync, setDishLimits } from '../data/store.ts';
+import { ANY_ROW, addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, relatedOf, removeRows, resync, setDishLimits } from '../data/store.ts';
 import { langsOf, ruleLine } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { Icon2, LangSeg, MoneyInput, ReadOnly, ReorderList, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
@@ -51,7 +51,7 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
   const sections = byPosition(d.sections);
   const parts = d.schedules;
   // after a refusal, a change made elsewhere, or the owner's choice between the two: the form shows the dish as it is now
-  useEffect(() => { const r = resync.value; if (r && r.table === 'dishes' && r.id === row.id) { setForm(dishToForm(row)); setErrors([]); } }, [resync.value]);
+  useEffect(() => { const r = resync.value; if (r && r.table === 'dishes' && (r.id === row.id || r.id === ANY_ROW)) { setForm(dishToForm(row)); setErrors([]); } }, [resync.value]);
 
   /** Every change is saved shortly after (only what this change touched), except the fields that have a problem (shown under them). */
   const set = (patch: Partial<DishForm>) => {
