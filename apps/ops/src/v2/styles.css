@@ -4,7 +4,13 @@
 
 .v2 .main { max-width: 1520px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
-.is-stale, .is-busy .venue-grid { opacity: .78; transition: opacity .2s; }
+/* only a read the user asked for dims what it replaces; a poll never dims the page */
+.is-stale { opacity: .78; transition: opacity .2s; }
+.v2 .zero { color: var(--muted); }
+.fold > summary { cursor: pointer; font-size: 13px; font-weight: 500; color: var(--ink2); padding: 6px 0; }
+.fold[open] > summary { margin-bottom: 8px; }
+.filters-more { flex: 1 1 100%; }
+.filters-more .filters { margin-top: 2px; }
 .link.back { font-size: 13px; text-decoration: none; justify-self: start; }
 .stack-s { display: grid; gap: 8px; }
 .sub-h { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; margin-top: 4px; }
@@ -111,7 +117,11 @@ a.card-title { text-decoration: none; }
 .write.is-blocked .write-fields { opacity: .6; }
 .count-left { font-size: 11.5px; color: var(--muted); font-weight: 400; justify-self: end; }
 .count-left.is-over { color: var(--bad); font-weight: 600; }
-.confirm:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+.confirm:focus, .write-done:focus { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 8px; }
+.field > label { display: block; }
+.pad-top { padding-top: 14px; }
+.nudges { display: grid; gap: 3px; padding-inline-start: 18px; list-style: disc; }
+.tl-more { padding-top: 4px; }
 .confirm-title { display: flex; gap: 6px; align-items: flex-start; font-weight: 600; }
 .confirm-title .icon { margin-top: 3px; }
 .confirm-reason { font-size: 13px; }
@@ -170,8 +180,8 @@ a.card-title { text-decoration: none; }
   /* one column, the actions before the history */
   .venue-grid { display: flex; flex-direction: column; align-items: stretch; }
   .col { display: contents; }
-  .p-approve { order: 1; } .p-revision { order: 2; } .p-guests { order: 3; } .p-act { order: 4; } .p-onboarding { order: 5; } .p-timeline { order: 6; }
-  .p-cases { order: 7; } .p-imports { order: 8; } .p-admin { order: 9; }
+  .p-approve { order: 1; } .p-revision { order: 2; } .p-guests { order: 3; } .p-owner { order: 4; } .p-act { order: 5; } .p-onboarding { order: 6; }
+  .p-timeline { order: 7; } .p-cases { order: 8; } .p-imports { order: 9; } .p-admin { order: 10; }
 }
 @media (max-width: 699px) {
   .tiles-7 { grid-template-columns: 1fr 1fr; }

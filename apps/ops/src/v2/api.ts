@@ -7,12 +7,14 @@
  * typed fake in the tests.
  */
 import {
-  isObject, stripBlank, validateActForOwner, validateApproveVenue, validateOpsAnalyticsQuery, validateOpsLeadsQuery, validateOpsRevisionQuery,
-  validateOpsVenueQuery, validateOpsVenuesQuery, validateSetDemo, validateSetPlan, validateUpdateCase, validateUpdateLead,
-  type ActForOwnerInput, type ActForOwnerReply, type ApproveVenueInput, type ApproveVenueReply, type Issue, type OpsAnalytics,
-  type OpsAnalyticsQuery, type OpsLeads, type OpsLeadsQuery, type OpsRevision, type OpsRevisionQuery, type OpsVenueDetail, type OpsVenues,
-  type OpsVenuesQuery, type PublicMenuResponse, type SetDemoInput, type SetDemoReply, type SetPlanInput, type SetPlanReply, type StaffRole,
-  type UpdateCaseInput, type UpdateCaseReply, type UpdateLeadInput, type UpdateLeadReply,
+  EVENT_TIME_RE, isInt, isObject, isUuid, stripBlank, validateActForOwner, validateActivityQuery, validateApproveVenue, validateDashboardQuery,
+  validateExportQuery, validateOpsAnalyticsQuery, validateOpsLeadsQuery, validateOpsRevisionQuery, validateOpsVenueQuery, validateOpsVenuesQuery,
+  validateSetDemo, validateSetPlan, validateUpdateCase, validateUpdateLead,
+  type ActForOwnerInput, type ActForOwnerReply, type ActivityPage, type ActivityQuery, type ApproveVenueInput, type ApproveVenueReply,
+  type ClientDashboard, type DashboardQuery, type DishRow, type Issue, type MenuExport, type OpsAnalytics, type OpsAnalyticsQuery, type OpsLeads,
+  type OpsLeadsQuery, type OpsRevision, type OpsRevisionQuery, type OpsVenueDetail, type OpsVenues, type OpsVenuesQuery, type PublicMenuResponse,
+  type SetDemoInput, type SetDemoReply, type SetPlanInput, type SetPlanReply, type StaffRole, type UpdateCaseInput, type UpdateCaseReply,
+  type UpdateLeadInput, type UpdateLeadReply,
 } from '@mana/contracts';
 
 // ---------------------------------------------------------------- results
@@ -31,7 +33,11 @@ export type FailKind =
   /** The database has no such function yet (an older schema than this page). */
   | 'missing'
   | 'timeout' | 'network' | 'server';
-export type Fail = { readonly ok: false; readonly kind: FailKind; readonly message: string; readonly code?: string; readonly errors?: readonly Issue[] };
+export type Fail = {
+  readonly ok: false; readonly kind: FailKind; readonly message: string; readonly code?: string; readonly errors?: readonly Issue[];
+  /** A refused write's whole reply (some carry more than a code: `stale` carries the row's current values). */
+  readonly reply?: Readonly<Record<string, unknown>>;
+};
 export type Result<T> = { readonly ok: true; readonly data: T } | Fail;
 
 // ---------------------------------------------------------------- the backend
@@ -42,7 +48,7 @@ export type Raw = { readonly data: unknown; readonly error: RawError | null };
 /** The RPCs this page calls, by their database names. */
 export const RPC = [
   'ops_venues', 'ops_venue', 'ops_revision', 'ops_analytics', 'ops_update_case', 'ops_set_demo', 'ops_approve_venue', 'act_for_owner', 'ops_set_plan',
-  'ops_leads', 'ops_update_lead', 'public_menu', 'redeem_staff_invite',
+  'ops_leads', 'ops_update_lead', 'public_menu', 'redeem_staff_invite', 'venue_activity', 'my_dashboard', 'export_menu',
 ] as const;
 export type RpcName = (typeof RPC)[number];
 
@@ -50,7 +56,13 @@ export interface Backend {
   rpc(fn: RpcName, args: Readonly<Record<string, unknown>>): Promise<Raw>;
   /** The caller's own row in `public.staff` (RLS lets anyone read their own): `{ role }`, or null when there is none. */
   staffRow(userId: string): Promise<Raw>;
+  /** One dish as the owner's tables hold it now (staff read them under RLS): the `DISH_NOW` columns, or null. */
+  dishRow(dishId: string): Promise<Raw>;
 }
+
+/** The columns of a dish Halom reads before changing it for the owner (what the review step states). */
+export const DISH_NOW = ['id', 'name_he', 'name_en', 'price', 'hidden', 'updated_at'] as const;
+export type DishNow = Pick<DishRow, (typeof DISH_NOW)[number]>;
 
 // ---------------------------------------------------------------- errors → words
 
@@ -68,6 +80,9 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   empty_menu: 'The menu has no dish guests can see, so there is nothing to publish.',
   invalid_menu: 'The menu has a problem that stops a publish; the owner app lists it.',
   revision_unknown: 'That revision does not exist.',
+  revision_changed: 'The owner published a newer revision since your review. Nothing was approved: read it and review again.',
+  approval_first: 'A plan does not approve a venue: approve its first publish first, after reading its menu.',
+  stale: 'The owner changed this dish since your review. Nothing was changed: review it again.',
   revision_invalid: 'That is not a revision number.',
   text_invalid: 'Some text holds characters that cannot be stored.',
   already_approved: 'This venue was already approved.',
@@ -121,6 +136,37 @@ const malformed: Fail = { ok: false, kind: 'server', message: 'The server sent a
 /** The success half of a write's reply (the contracts type both halves; the failure becomes a `Fail`). */
 export type Ok<R> = Extract<R, { readonly ok: true }>;
 
+const isInstant = (v: unknown): v is string => typeof v === 'string' && EVENT_TIME_RE.test(v) && !Number.isNaN(Date.parse(v));
+
+/**
+ * `ops_approve_venue` with the revision the review step named (`p_expected_revision`): the database approves only while
+ * that is still the newest, else it answers `revision_changed`. The backend's round-3 signature; the contract's
+ * `ApproveVenueInput` gains `expectedRevision` in the same round, and this type goes then.
+ */
+export type ApproveInput = ApproveVenueInput & { readonly expectedRevision: number };
+
+type DishUpdate = Extract<ActForOwnerInput, { readonly action: 'dish.update' }>;
+/**
+ * An act for the owner; `dish.update` also carries the dish's `updated_at` as the review step read it
+ * (`expectedUpdatedAt`): the database answers `stale`, with the current values, when the owner changed the dish since.
+ * The backend's round-3 payload; the contract's validator learns the key in the same round, and `checkAct` goes then.
+ */
+export type ActInput = Exclude<ActForOwnerInput, DishUpdate>
+  | (Omit<DishUpdate, 'payload'> & { readonly payload: DishUpdate['payload'] & { readonly expectedUpdatedAt?: string } });
+
+/** The contract's validator, with `dish.update`'s `expectedUpdatedAt` checked here until the contract knows it. */
+export function checkAct(input: ActInput): readonly Issue[] {
+  let checked: unknown = input;
+  const extra: Issue[] = [];
+  if (input.action === 'dish.update' && isObject(input.payload) && 'expectedUpdatedAt' in input.payload) {
+    const { expectedUpdatedAt, ...payload } = input.payload;
+    if (!isInstant(expectedUpdatedAt)) extra.push({ code: 'time_invalid', path: 'payload.expectedUpdatedAt' });
+    checked = { ...input, payload };
+  }
+  const v = validateActForOwner(checked);
+  return [...(v.ok ? [] : v.errors), ...extra];
+}
+
 // ---------------------------------------------------------------- the API
 
 export type OpsApi = ReturnType<typeof opsApi>;
@@ -145,7 +191,7 @@ export function opsApi(backend: Backend) {
     if (!isObject(d)) return malformed;
     if (d.ok === true) return { ok: true, data: d as Ok<R> };
     const code = typeof d.code === 'string' ? d.code : 'failed';
-    return { ok: false, kind: 'refused', code, message: codeText(code), ...(Array.isArray(d.errors) ? { errors: d.errors as Issue[] } : {}) };
+    return { ok: false, kind: 'refused', code, message: codeText(code), reply: d, ...(Array.isArray(d.errors) ? { errors: d.errors as Issue[] } : {}) };
   }
 
   return {
@@ -156,6 +202,16 @@ export function opsApi(backend: Backend) {
       if (raw.error) return failOf(raw.error);
       const role = isObject(raw.data) ? raw.data.role : null;
       return { ok: true, data: role === 'support' || role === 'admin' ? role : null };
+    },
+
+    /** A dish as the owner's tables hold it now (not as published): what a change for the owner starts from. */
+    async dish(dishId: string): Promise<Result<DishNow | null>> {
+      if (!isUuid(dishId)) return invalid([{ code: 'id_invalid', path: 'dishId' }]);
+      let raw: Raw;
+      try { raw = await backend.dishRow(dishId); } catch (e) { return failOf(e as RawError); }
+      if (raw.error) return failOf(raw.error);
+      if (raw.data === null) return { ok: true, data: null };
+      return isObject(raw.data) && raw.data.id === dishId ? { ok: true, data: raw.data as DishNow } : malformed;
     },
 
     venues(query: OpsVenuesQuery = {}): Promise<Result<OpsVenues>> {
@@ -188,15 +244,17 @@ export function opsApi(backend: Backend) {
       return write<OpsRevision>('ops_revision', { p_venue: query.venueId, p_revision: query.revision ?? null });
     },
 
-    approve(input: ApproveVenueInput): Promise<Result<Ok<ApproveVenueReply>>> {
-      const v = validateApproveVenue(input);
-      if (!v.ok) return Promise.resolve(invalid(v.errors));
-      return write<ApproveVenueReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason) });
+    approve(input: ApproveInput): Promise<Result<Ok<ApproveVenueReply>>> {
+      const { expectedRevision, ...base } = input;
+      const v = validateApproveVenue(base);
+      const errors = [...(v.ok ? [] : v.errors), ...(isInt(expectedRevision) && expectedRevision >= 1 ? [] : [{ code: 'revision_invalid', path: 'expectedRevision' }])];
+      if (errors.length) return Promise.resolve(invalid(errors));
+      return write<ApproveVenueReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_expected_revision: expectedRevision });
     },
 
-    actForOwner(input: ActForOwnerInput): Promise<Result<Ok<ActForOwnerReply>>> {
-      const v = validateActForOwner(input);
-      if (!v.ok) return Promise.resolve(invalid(v.errors));
+    actForOwner(input: ActInput): Promise<Result<Ok<ActForOwnerReply>>> {
+      const errors = checkAct(input);
+      if (errors.length) return Promise.resolve(invalid(errors));
       return write<ActForOwnerReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
     },
 
@@ -220,6 +278,28 @@ export function opsApi(backend: Backend) {
       return write<SetPlanReply>('ops_set_plan', {
         p_venue: input.venueId, p_state: input.state, p_until: input.until ?? null, p_reason: stripBlank(input.reason), p_plan: input.plan ?? null,
       });
+    },
+
+    /** The owner's dashboard as they see it (`my_dashboard`; staff may read it): their nudges, what is off, today. */
+    dashboard(query: DashboardQuery): Promise<Result<ClientDashboard>> {
+      const v = validateDashboardQuery(query);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return read<ClientDashboard>('my_dashboard', { p_venue: query.venueId, p_range: query.range ?? 'today' }, (d) => d.v === 2 && Array.isArray(d.nudges));
+    },
+
+    /** The owner's menu as it is in their app now (`export_menu`). Logged as `menu.export`, which the owner sees: on request only. */
+    exportMenu(venueId: string): Promise<Result<MenuExport>> {
+      const v = validateExportQuery({ venueId });
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return read<MenuExport>('export_menu', { p_venue: venueId }, (d) => d.kind === 'mana.menu_export' && isObject(d.tables));
+    },
+
+    /** One page of a venue's log, newest first (`venue_activity`): the timeline past the newest 100 that `ops_venue` carries. */
+    activity(query: ActivityQuery): Promise<Result<ActivityPage>> {
+      const v = validateActivityQuery(query);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return read<ActivityPage>('venue_activity', { p_venue: query.venueId, p_before: query.before ?? null, p_limit: query.limit ?? 50,
+        p_actor: query.actor ?? null, p_via: query.via ?? null }, (d) => Array.isArray(d.entries));
     },
 
     /** Mana's own leads. Personal data: the database logs every read. */

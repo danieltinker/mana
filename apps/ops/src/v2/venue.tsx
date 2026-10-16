@@ -1,29 +1,47 @@
 /**
  * One venue (`ops_venue`): everything support needs to follow it. Its onboarding, the timeline grouped by strand
- * (`timelineKind`), its imports and their exceptions, its cases, what guests see now (`public_menu`, read only), and
- * Halom's writes: approve the first publish, act for the owner, cases, and (admins) the demo label and the plan.
- * Live: the owner's channel for this venue (ADR-007), else polling; every write refetches at once.
+ * (`timelineKind`, older pages from `venue_activity` on request), its imports and their exceptions, its cases, what guests
+ * see now (`public_menu`, read only), what the owner sees (`my_dashboard`; their menu as it is now through `export_menu`,
+ * on request only, since the owner sees each export), and Halom's writes: approve the first publish (of the revision
+ * reviewed), act for the owner, cases, and (admins) the demo label and the plan.
+ * Live: the owner's channel for this venue (ADR-007) with the safety poll, else polling; every write refetches at once.
+ * An address whose id is not a uuid asks nothing: it says there is no such venue.
  */
-import { useMemo, useRef, useState } from 'preact/hooks';
-import { SLUG_RE, venueFilter, type OpsVenueDetail, type PublicMenuResponse, type TimelineKind, TIMELINE_KINDS } from '@mana/contracts';
-import type { Result } from './api.ts';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import {
+  ACTIVITY_PAGE_MAX, SLUG_RE, TIMELINE_KINDS, isUuid, venueFilter, type ActivityEntry, type ApproveVenueReply, type ClientDashboard,
+  type OpsVenueDetail, type PublicMenuResponse, type TimelineKind,
+} from '@mana/contracts';
+import type { ApproveInput, Fail, Ok, Result } from './api.ts';
 import { useLive, type LiveData } from './hooks.ts';
 import {
-  ACTOR_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STATE_LABEL, STEP_LABEL, TIMELINE_LABEL, ago, describe, fmtDateTime, fmtDay, fmtInt,
-  fmtPct, fmtTime, names, snapshotNames, timeline, timelineDays, warningChips, EXCEPTION_LABEL, IMPORT_SOURCE_LABEL, IMPORT_STATUS_LABEL,
-  type NameOf, type TimelineItem,
+  ACTOR_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STATE_LABEL, STEP_LABEL, TIMELINE_LABEL, ago, describe, fmtDate, fmtDateTime, fmtDay,
+  fmtInt, fmtPct, fmtTime, menuState, names, snapshotNames, timeline, timelineDays, warningChips, EXCEPTION_LABEL, IMPORT_SOURCE_LABEL,
+  IMPORT_STATUS_LABEL, type NameOf, type TimelineItem,
 } from './model.ts';
 import { realtime } from './session.ts';
 import { Badge, DemoLabel, Ext, Icon, LoadError, Name, Notice, T, WarningChip, useCtx } from './ui.tsx';
 import { Freshness } from './freshness.tsx';
 import { Write } from './write.tsx';
 import { ActForOwner, type Preset } from './act.tsx';
-import { Admin, Cases, GuestsSee } from './panels.tsx';
+import { Admin, Cases, GuestsSee, OwnerSees } from './panels.tsx';
 import { Revisions } from './revision.tsx';
 
-export type VenueData = { readonly detail: OpsVenueDetail; readonly menu: Result<PublicMenuResponse> };
+export type VenueData = { readonly detail: OpsVenueDetail; readonly menu: Result<PublicMenuResponse>; readonly dash: Result<ClientDashboard> };
 
 export function Venue({ id }: { id: string }) {
+  if (!isUuid(id)) {
+    return (
+      <div class="stack" data-page="venue" data-no-venue>
+        <a class="link back" href="#/clients"><Icon name="back" size={14} /> All clients</a>
+        <Notice tone="warn">There is no venue at this address. Open one from the clients list.</Notice>
+      </div>
+    );
+  }
+  return <VenuePage id={id.toLowerCase()} />;
+}
+
+function VenuePage({ id }: { id: string }) {
   const { api, conn } = useCtx();
   const subscribe = useMemo(() => realtime(conn.client, 'venue', [
     { table: 'rollups_minute', filter: venueFilter(id) }, { table: 'rollups_day', filter: venueFilter(id) }, { table: 'availability_overrides', filter: venueFilter(id) },
@@ -31,9 +49,11 @@ export function Venue({ id }: { id: string }) {
   const live = useLive<VenueData>(async () => {
     const d = await api.venue(id);
     if (!d.ok) return d;
-    return { ok: true, data: { detail: d.data, menu: await api.publicMenu(d.data.venue.slug) } };
+    const [menu, dash] = await Promise.all([api.publicMenu(d.data.venue.slug), api.dashboard({ venueId: id, range: 'today' })]);
+    return { ok: true, data: { detail: d.data, menu, dash } };
   }, [id], { subscribe });
   const [preset, setPreset] = useState<Preset | null>(null);
+  const [approved, setApproved] = useState<string | null>(null);
   const actRef = useRef<HTMLElement>(null);
 
   if (!live.data) {
@@ -44,7 +64,7 @@ export function Venue({ id }: { id: string }) {
       </div>
     );
   }
-  const { detail, menu } = live.data;
+  const { detail, menu, dash } = live.data;
   const v = detail.venue;
   const snapshot = menu.ok && menu.data.state === 'ok' ? menu.data.snapshot : null;
   const nameOf = snapshotNames(snapshot);
@@ -54,20 +74,23 @@ export function Venue({ id }: { id: string }) {
   };
 
   return (
-    <div class={'stack venue' + (live.busy ? ' is-busy' : '')} data-page="venue" data-venue={v.slug}>
+    <div class="stack venue" data-page="venue" data-venue={v.slug}>
       <a class="link back" href="#/clients"><Icon name="back" size={14} /> All clients</a>
       <Head data={live.data} live={live} />
       {live.fail && <Notice tone="bad">Refresh failed: {live.fail.message} Showing the last answer.</Notice>}
       <div class="venue-grid">
         <div class="col col-main">
-          {v.review === 'pending' && <Approve detail={detail} onDone={live.refresh} />}
+          {v.review === 'pending'
+            ? <Approve detail={detail} refresh={live.refresh} onApproved={(text) => { setApproved(text); return live.refresh(); }} />
+            : approved && <Approved text={approved} />}
           {v.review === 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
           <Onboarding detail={detail} />
-          <Timeline detail={detail} nameOf={nameOf} />
+          <Timeline key={v.id} detail={detail} nameOf={nameOf} />
           <Imports detail={detail} />
         </div>
         <div class="col col-side">
           <GuestsSee detail={detail} menu={menu} onRestore={restore} />
+          <OwnerSees detail={detail} dash={dash} onRead={live.refresh} />
           {v.review !== 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
           <section class="panel p-act" aria-labelledby="act-h" ref={actRef} tabIndex={-1} data-panel="act">
             <div class="panel-head"><h2 id="act-h">Act for the owner</h2>
@@ -93,22 +116,24 @@ function Head({ data, live }: { data: VenueData; live: LiveData<VenueData> }) {
   const guestMenu = SLUG_RE.test(v.slug) ? `${vp}?m=${v.slug}` : null;
   const chips = warningChips(v.warnings, v);
   const m = detail.members;
+  const ms = menuState(v);
   return (
     <>
       <header class="venue-head">
         <div class="venue-title">
           <h1 class="page-title" data-venue-name><Name text={v.name} fallback={v.slug} /></h1>
-          <p class="muted small venue-meta"><span class="mono">{v.slug}</span> · {v.kind.replace('_', ' ')} · {v.mode.replace('_', ' ')} · created {fmtDay(v.createdAt.slice(0, 10))}{v.isDemo && <> · <DemoLabel /></>}</p>
+          <p class="muted small venue-meta"><span class="mono">{v.slug}</span> · {v.kind.replace('_', ' ')} · {v.mode.replace('_', ' ')} · created <span data-created>{fmtDate(v.createdAt)}</span>{v.isDemo && <> · <DemoLabel /></>}</p>
           <div class="row wrap badges">
             <Badge tone={v.review === 'approved' ? 'good' : v.review === 'pending' ? 'warn' : 'plain'} icon={v.review === 'approved' ? 'check' : 'clock'} data={`review-${v.review}`}>{REVIEW_LABEL[v.review]}</Badge>
-            <Badge tone={v.plan.state === 'expired' || v.plan.state === 'suspended' ? 'bad' : 'plain'}>{PLAN_LABEL[v.plan.plan]} · {PLAN_STATE_LABEL[v.plan.state]}{v.plan.trialEndsAt ? ` until ${fmtDay(v.plan.trialEndsAt.slice(0, 10))}` : ''}</Badge>
+            <Badge tone={ms.tone} data={`menu-${ms.code}`}>Menu {ms.label}</Badge>
+            <Badge tone={v.plan.state === 'expired' || v.plan.state === 'suspended' ? 'bad' : 'plain'} data="plan">{PLAN_LABEL[v.plan.plan]} · {PLAN_STATE_LABEL[v.plan.state]}{v.plan.trialEndsAt ? ` until ${fmtDate(v.plan.trialEndsAt)}` : ''}</Badge>
             <Badge tone={v.supportCanAct ? 'plain' : 'warn'} icon="lock" data={v.supportCanAct ? 'can-act' : 'cannot-act'}>{v.supportCanAct ? 'Owner lets Halom act for them' : 'Owner has turned off Halom acting'}</Badge>
           </div>
         </div>
         <div class="venue-links">
           {guestMenu && <Ext href={guestMenu} class="btn btn-sm" label={`Open the guest menu for ${v.slug} in a new tab`}>Guest menu <Icon name="out" size={12} /></Ext>}
           <a class="btn btn-sm" href={`#/analytics?venue=${encodeURIComponent(v.id)}`} data-venue-analytics>Analytics</a>
-          <Freshness live={live} />
+          <Freshness live={live} liveWhat="numbers and what is off: live" />
         </div>
       </header>
       {chips.length > 0 && <div class="wchips" aria-label="Warnings">{chips.map((c) => <WarningChip key={c.code} chip={c} />)}</div>}
@@ -128,22 +153,45 @@ function Head({ data, live }: { data: VenueData; live: LiveData<VenueData> }) {
 
 // ---------------------------------------------------------------- approve the first publish
 
-function Approve({ detail, onDone }: { detail: OpsVenueDetail; onDone: () => Promise<boolean> }) {
+const approvedText = (d: Ok<ApproveVenueReply>): string =>
+  `Approved. Guests can open the menu now${d.trialEndsAt ? `; the trial runs until ${fmtDate(d.trialEndsAt)}` : ''}.`;
+
+/**
+ * Approves the revision the review named, and only that one (`p_expected_revision`): if the owner publishes again while
+ * the review is open, the review is dropped; if they published just before the call, the database refuses.
+ */
+function Approve({ detail, refresh, onApproved }: { detail: OpsVenueDetail; refresh: () => Promise<boolean>; onApproved: (text: string) => Promise<boolean> }) {
   const { api } = useCtx();
   const v = detail.venue;
   const name = names(v.name, v.slug).main;
+  const rev = v.menu.revision;
   return (
     <section class="panel p-approve is-attention" aria-labelledby="approve-h" data-panel="approve">
       <div class="panel-head"><h2 id="approve-h">First publish waits for your approval</h2>
         <p class="muted small">Published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
           Read the menu below first.</p></div>
       <div class="panel-body">
-        <Write id="approve" submit="Approve"
-          plan={() => ({ ok: true, what: `Approve ${name}’s first publish${v.menu.revision ? ` (revision ${v.menu.revision})` : ''}: guests can open the menu at once, and the trial starts.` })}
-          run={(reason) => api.approve({ venueId: v.id, reason })}
-          done={(d) => `Approved. Guests can open the menu now${d.trialEndsAt ? `; the trial runs until ${fmtDay(d.trialEndsAt.slice(0, 10))}` : ''}.`}
-          onDone={onDone} />
+        <Write<ApproveInput, Ok<ApproveVenueReply>> id="approve" submit="Approve"
+          changed={{ key: rev, note: `The owner published revision ${rev ?? '—'} while you were reviewing. Nothing was approved: read it below, then review again.` }}
+          plan={() => (rev === null ? { ok: false, why: 'Nothing is published to approve yet.' }
+            : { ok: true, what: `Approve ${name}’s first publish (revision ${rev}): guests can open the menu at once, and the trial starts.`,
+              input: { venueId: v.id, reason: '', expectedRevision: rev } })}
+          run={(input, reason) => api.approve({ ...input, reason })}
+          done={approvedText}
+          onFail={(f) => { if (f.kind === 'refused') void refresh(); }}
+          onDone={(d) => onApproved(approvedText(d))} />
       </div>
+    </section>
+  );
+}
+
+/** Where the approval was, once the venue is approved: the result, with the focus. */
+function Approved({ text }: { text: string }) {
+  const el = useRef<HTMLDivElement>(null);
+  useEffect(() => { el.current?.focus(); }, []);
+  return (
+    <section class="panel p-approve" aria-label="Approval" data-panel="approved">
+      <div class="panel-body pad-top write-done" tabIndex={-1} ref={el} data-write-done><Notice tone="good"><span data-write-result>{text}</span></Notice></div>
     </section>
   );
 }
@@ -179,10 +227,28 @@ function Onboarding({ detail }: { detail: OpsVenueDetail }) {
 
 // ---------------------------------------------------------------- the timeline
 
+/**
+ * The venue's log: the newest 100 entries come with the venue (and stay current with it); older pages are read from
+ * `venue_activity` when asked, and kept while the page is open.
+ */
 function Timeline({ detail, nameOf }: { detail: OpsVenueDetail; nameOf: NameOf }) {
+  const { api, notStaff, signedOut } = useCtx();
   const [kind, setKind] = useState<TimelineKind | 'all'>('all');
-  const t = useMemo(() => timeline(detail.activity), [detail.activity]);
+  const [older, setOlder] = useState<{ readonly entries: readonly ActivityEntry[]; readonly next: number | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [fail, setFail] = useState<Fail | null>(null);
+  const t = useMemo(() => timeline([...detail.activity, ...(older?.entries ?? [])]), [detail.activity, older]);
   const days = timelineDays(t.items, kind);
+  const oldest = t.items.at(-1)?.id ?? null;
+  const more = older ? older.next !== null : detail.activity.length >= ACTIVITY_PAGE_MAX;
+  const showOlder = async () => {
+    if (oldest === null || busy) return;
+    setBusy(true); setFail(null);
+    const r = await api.activity({ venueId: detail.venue.id, before: older?.next ?? oldest, limit: ACTIVITY_PAGE_MAX });
+    setBusy(false);
+    if (!r.ok) { if (r.kind === 'not_staff') notStaff(r); else if (r.kind === 'signed_out') signedOut(); setFail(r); return; }
+    setOlder((o) => ({ entries: [...(o?.entries ?? []), ...r.data.entries], next: r.data.next }));
+  };
   return (
     <section class="panel p-timeline" aria-labelledby="tl-h" data-panel="timeline">
       <div class="panel-head">
@@ -209,7 +275,12 @@ function Timeline({ detail, nameOf }: { detail: OpsVenueDetail; nameOf: NameOf }
           ))}
         </div>
       )}
-      {detail.activity.length >= 100 && <p class="muted small pad">The newest 100 entries.</p>}
+      <div class="pad tl-more">
+        {fail && <Notice tone="bad">Could not read the older entries. {fail.message}</Notice>}
+        {more
+          ? <button type="button" class="btn btn-sm" onClick={() => void showOlder()} disabled={busy} data-show-older>{busy ? 'Reading…' : `Show older entries (${fmtInt(t.items.length)} shown)`}</button>
+          : t.items.length > 0 && <p class="muted small" data-log-start>The start of the log: {fmtInt(t.items.length)} entries.</p>}
+      </div>
     </section>
   );
 }
@@ -228,7 +299,11 @@ function Entry({ e, nameOf }: { e: TimelineItem; nameOf: NameOf }) {
             : <span>{ACTOR_LABEL[e.actorKind]}{e.you ? ' (you)' : ''}</span>}
           {e.via === 'system' && <span class="muted small"> · automatic</span>}
         </p>
-        {e.reason && <p class="tl-reason" data-reason-shown>Reason: <T class="quote">“{e.reason}”</T></p>}
+        {e.shownReason && (
+          <p class="tl-reason" data-reason-shown data-paired={e.paired ? 'yes' : undefined}>
+            Reason{e.paired ? ' (of the same action)' : ''}: <T class="quote">“{e.shownReason}”</T>
+          </p>
+        )}
       </div>
     </li>
   );

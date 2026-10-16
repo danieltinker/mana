@@ -1,8 +1,9 @@
 // The v2 back office (apps/ops, schema 2) in Chromium on the simulator's stack: the real schema, GoTrue and PostgREST,
 // synthetic venues loaded through the bots. At a desk (1440×900) and on a phone (390×844):
-//   a non-staff user is refused; a staff user finds Café Demo, follows its onboarding, approves its first publish, acts
-//   for the owner to restore a dish (with a reason, then sees it in the timeline), and sees simulated guest traffic
-//   appear after stack.buildRollups(); leads are read and updated.
+//   a non-staff user is refused; a staff user finds Café Demo, follows its onboarding, reads what the owner sees,
+//   approves its first publish (the revision read: `p_expected_revision`, the backend's round 3), acts for the owner to
+//   restore a dish (with a reason, then sees it in the timeline), and sees simulated guest traffic appear after
+//   stack.buildRollups(); leads are read and updated.
 // Needs `npm run build` in apps/ops first (dist/).
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -162,11 +163,31 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.ok(rev.ok && rev.data.snapshot.sections.some((sec) => sec.dishes.some((d) => d.id === v.ids.dishes.espresso)));
   const ownerRev = await owner.api.revision({ venueId: v.venueId });
   assert.ok(!ownerRev.ok && ownerRev.kind === 'not_staff', 'staff only');
-  const short = await admin.api.approve({ venueId: v.venueId, reason: 'no' });
+
+  // what the owner sees: their dashboard (not logged), their menu as it is now (logged as menu.export), older log pages,
+  // a dish as their tables hold it (staff read it under RLS)
+  const dash = await admin.api.dashboard({ venueId: v.venueId });
+  assert.ok(dash.ok && dash.data.v === 2 && dash.data.venueId === v.venueId, JSON.stringify(dash).slice(0, 300));
+  assert.ok(dash.ok && dash.data.nudges.some((n) => n.code === 'approval_pending'), 'the owner is told the first publish waits');
+  const exported = await admin.api.exportMenu(v.venueId);
+  assert.ok(exported.ok && exported.data.tables.dishes.some((d) => d.id === v.ids.dishes.espresso), JSON.stringify(exported).slice(0, 300));
+  const [exports] = await e.stack.sql(`select count(*)::int as n from public.activity_log where venue_id = $1 and action = 'menu.export'`, [v.venueId]);
+  assert.equal(exports.n, 1, 'the export is in the owner’s log; the dashboard read is not');
+  const page1 = await admin.api.activity({ venueId: v.venueId, limit: 5 });
+  assert.ok(page1.ok && page1.data.entries.length === 5 && page1.data.next !== null, JSON.stringify(page1).slice(0, 300));
+  const page2 = await admin.api.activity({ venueId: v.venueId, before: page1.ok ? page1.data.next : null, limit: 5 });
+  assert.ok(page2.ok && page1.ok && page2.data.entries.length > 0 && page2.data.entries.every((x) => x.id < page1.data.entries.at(-1).id), 'the next page is older');
+  const read = await admin.api.dish(v.ids.dishes.espresso);
+  const [espressoRow] = await e.stack.sql('select price, updated_at from public.dishes where id = $1', [v.ids.dishes.espresso]);
+  assert.ok(read.ok && read.data && read.data.price === espressoRow.price && Date.parse(read.data.updated_at) === new Date(espressoRow.updated_at).getTime(), JSON.stringify(read));
+  const short = await admin.api.approve({ venueId: v.venueId, reason: 'no', expectedRevision: 1 });
   assert.ok(!short.ok && short.kind === 'invalid', 'refused before the call');
-  const ok = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api' });
-  assert.ok(ok.ok && typeof ok.data.trialEndsAt === 'string');
-  const again = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api' });
+  // the backend's round-3 signature: approve the revision reviewed, refused when the owner published a newer one
+  const stale = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api', expectedRevision: 2 });
+  assert.ok(!stale.ok && stale.kind === 'refused' && stale.code === 'revision_changed', JSON.stringify(stale));
+  const ok = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api', expectedRevision: 1 });
+  assert.ok(ok.ok && typeof ok.data.trialEndsAt === 'string', JSON.stringify(ok));
+  const again = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api', expectedRevision: 1 });
   assert.ok(!again.ok && again.kind === 'refused' && again.code === 'already_approved');
 
   // act for owner: the payload names are act_for_owner's
@@ -179,8 +200,15 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   const set = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'availability.set',
     payload: { targetKind: 'dish', targetId: v.ids.dishes.lemonade, until: { kind: 'duration', minutes: 60 } } });
   assert.ok(set.ok && typeof set.data.result.untilAt === 'string', JSON.stringify(set));
-  const price = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'dish.update', payload: { dishId: espresso, patch: { price: 1300 } } });
+  // a dish change starts from the dish as the owner has it now (staff read it under RLS), with its updated_at
+  const dishNow = await admin.api.dish(espresso);
+  assert.ok(dishNow.ok && dishNow.data && dishNow.data.id === espresso && typeof dishNow.data.updated_at === 'string', JSON.stringify(dishNow));
+  const price = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'dish.update',
+    payload: { dishId: espresso, patch: { price: 1300 }, expectedUpdatedAt: dishNow.ok && dishNow.data ? dishNow.data.updated_at : '' } });
   assert.ok(price.ok, JSON.stringify(price));
+  const stalePrice = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'dish.update',
+    payload: { dishId: espresso, patch: { price: 1400 }, expectedUpdatedAt: dishNow.ok && dishNow.data ? dishNow.data.updated_at : '' } });
+  assert.ok(!stalePrice.ok && stalePrice.kind === 'refused' && stalePrice.code === 'stale', JSON.stringify(stalePrice));
   const step = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'onboarding.set', payload: { step: 'photos', state: 'skipped' } });
   assert.ok(step.ok, JSON.stringify(step));
   const log = await v.owner.activity();
@@ -196,7 +224,7 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.deepEqual(plan, { ok: true, data: { ok: true, state: 'active' } });
   const notStaff = await owner.api.setPlan({ venueId: v.venueId, state: 'active', until: null, plan: 'pilot', reason: 'Pilot agreed, api' });
   assert.ok(!notStaff.ok && notStaff.kind === 'not_admin');
-  const ownerApprove = await owner.api.approve({ venueId: v.venueId, reason: 'Trying as the owner' });
+  const ownerApprove = await owner.api.approve({ venueId: v.venueId, reason: 'Trying as the owner', expectedRevision: 1 });
   assert.ok(!ownerApprove.ok && ownerApprove.kind === 'not_staff');
 });
 
@@ -238,13 +266,19 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     await p.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
     const [read] = await e.stack.sql(`select count(*)::int as n from public.activity_log where venue_id = $1 and action = 'menu.read'`, [v.venueId]);
     assert.equal(read.n, 1, 'one read, logged');
+    // what the owner sees on their dashboard (my_dashboard, read as staff)
+    assert.match(await p.locator('[data-panel=owner] [data-nudge=approval_pending]').innerText(), /The first publish waits for Halom’s approval/);
 
-    // approve the first publish, with a reason
+    // approve the first publish (the revision read), with a reason
     const approve = p.locator('[data-write=approve]');
     await approve.locator('[data-reason]').fill('Synthetic menu checked, e2e');
     await approve.locator('[data-review]').click();
+    assert.match(await approve.locator('[data-what]').innerText(), /\(revision 1\)/);
     await approve.locator('[data-go]').click();
-    await p.locator('[data-badge=review-approved]').waitFor();
+    await p.locator('[data-badge=review-approved]').waitFor({ timeout: 10_000 }).catch(async (err) => {
+      const said = await approve.locator('[data-write-error]').innerText().catch(() => '');
+      throw new Error(`not approved${said ? `: the page says “${said}”` : ''} (${err.message.split('\n')[0]})`);
+    });
     const [ven] = await e.stack.sql('select approved_at from public.venues where id = $1', [v.venueId]);
     assert.ok(ven.approved_at, 'approved in the database');
     assert.match(await p.locator('[data-action="venue.approve"] [data-reason-shown]').first().innerText(), /Synthetic menu checked, e2e/);

@@ -6,7 +6,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { USERS, addTraffic, fakeBackend, world } from './fake.ts';
+import { USERS, addTraffic, fakeBackend, ownerEdit, padLog, publish, world } from './fake.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = path.join(root, 'dist');
@@ -49,6 +49,14 @@ export function createStub() {
         const c = await body(req);
         if (c.reset) S.w = world(c.reset === true ? {} : c.reset);           // new data; the signed-in sessions stay
         if (c.faults) S.w.faults = c.faults;
+        if (c.delays) S.w.delays = c.delays;                                  // { fn: ms }: a slow database
+        if (c.publish) publish(S.w, c.publish);                               // the owner publishes again
+        if (c.ownerEdit) ownerEdit(S.w, c.ownerEdit.dishId, c.ownerEdit.patch); // the owner changes a dish in the owner app
+        if (c.padLog) padLog(S.w, c.padLog.venueId, c.padLog.n);              // a long history
+        if (c.approve) {                                                      // as if Halom had approved earlier
+          const v = S.w.venues.find((x) => x.row.id === c.approve);
+          if (v) { v.row.review = 'approved'; v.row.approvedAt = new Date().toISOString(); v.row.plan.state = 'trialing'; v.row.warnings = v.row.warnings.filter((x) => x !== 'awaiting_review'); }
+        }
         if (c.requireAal2 !== undefined) S.requireAal2 = c.requireAal2;
         if (c.traffic) addTraffic(S.w, c.traffic.venueId, c.traffic.counts);
         if (c.revokeStaff) S.w.staff.delete(c.revokeStaff);
@@ -71,6 +79,13 @@ export function createStub() {
         if (!a) return json(res, 401, { code: 'PGRST301', message: 'JWT expired' });
         const want = String(url.searchParams.get('user_id') || '').replace(/^eq\./, '');
         const r = await fakeBackend(S.w, a.id).staffRow(want === a.id ? a.id : '');      // RLS: your own row only
+        return json(res, 200, r.data ? [r.data] : []);
+      }
+      if (p === '/rest/v1/dishes' && req.method === 'GET') {
+        const a = who(req);
+        if (!a) return json(res, 401, { code: 'PGRST301', message: 'JWT expired' });
+        const want = String(url.searchParams.get('id') || '').replace(/^eq\./, '');
+        const r = await fakeBackend(S.w, a.id).dishRow(want);                            // RLS: staff read any venue's dishes
         return json(res, 200, r.data ? [r.data] : []);
       }
       if (p.startsWith('/rest/v1/rpc/') && req.method === 'POST') {

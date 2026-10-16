@@ -10,7 +10,7 @@ import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { configFlags, type StaffRole } from '@mana/contracts';
 import { opsApi, type Fail } from './api.ts';
-import { PRODUCT } from './model.ts';
+import { PRODUCT, parseRoute, type Route } from './model.ts';
 import { connect, currentUser, onSignedOut, signIn, signOut, type Connection, type User } from './session.ts';
 import { Brand, CtxContext, Icon, Mark, Notice, T, useCtx, type Ctx } from './ui.tsx';
 import { Clients } from './clients.tsx';
@@ -179,21 +179,6 @@ function NotStaff({ user, refused, api, onRetry, onLeave }: {
 
 // ---------------------------------------------------------------- routes
 
-export type Route =
-  | { readonly view: 'clients' }
-  | { readonly view: 'venue'; readonly id: string }
-  | { readonly view: 'analytics'; readonly venue: string | null }
-  | { readonly view: 'leads' };
-
-export function parseRoute(hash: string): Route {
-  const [path = '', qs = ''] = hash.replace(/^#\/?/, '').split('?');
-  const seg = path.split('/').filter(Boolean);
-  const q = new URLSearchParams(qs);
-  if (seg[0] === 'venues' && seg[1]) return { view: 'venue', id: decodeURIComponent(seg[1]) };
-  if (seg[0] === 'analytics') return { view: 'analytics', venue: q.get('venue') };
-  if (seg[0] === 'leads') return { view: 'leads' };
-  return { view: 'clients' };
-}
 function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
   useEffect(() => {

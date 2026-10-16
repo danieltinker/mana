@@ -4,8 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ID } from '@mana/contracts/fixtures';
 import { validateActForOwner, type ActForOwnerInput } from '@mana/contracts';
-import { failOf, opsApi, type Backend } from '../../src/v2/api.ts';
-import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, world } from './fake.ts';
+import { checkAct, failOf, opsApi, type Backend } from '../../src/v2/api.ts';
+import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, ownerEdit, padLog, publish, world } from './fake.ts';
 
 const NOW = Date.parse('2026-10-16T09:30:00Z');
 const at = () => NOW;
@@ -73,17 +73,120 @@ test('not staff: a 42501 from any staff RPC is "not_staff", and the admin-only o
   assert.deepEqual(last(admin.w)?.args, { p_venue: VENUE.demo, p_demo: false, p_reason: 'Real venue after all' });
 });
 
-test('approve: a reason is required before the call; the reply is the database\'s', async () => {
+test('approve: a reason and the reviewed revision are required before the call; the reply is the database\'s', async () => {
   const { w, api } = setup();
   const n = w.calls.length;
-  const short = await api.approve({ venueId: VENUE.demo, reason: '  ok ' });
+  const short = await api.approve({ venueId: VENUE.demo, reason: '  ok ', expectedRevision: 2 });
   assert.ok(!short.ok && short.kind === 'invalid' && short.code === 'reason_required');
+  const noRev = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 0 });
+  assert.ok(!noRev.ok && noRev.kind === 'invalid' && noRev.errors?.some((e) => e.code === 'revision_invalid' && e.path === 'expectedRevision'));
   assert.equal(w.calls.length, n);
-  const r = await api.approve({ venueId: VENUE.demo, reason: '  Menu checked with the owner  ' });
+  const r = await api.approve({ venueId: VENUE.demo, reason: '  Menu checked with the owner  ', expectedRevision: 2 });
   assert.ok(r.ok && typeof r.data.trialEndsAt === 'string');
-  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner' }, 'the reason is sent stripped');
-  const again = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner' });
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner', p_expected_revision: 2 }, 'the reason is sent stripped');
+  const again = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 });
   assert.ok(!again.ok && again.kind === 'refused' && again.code === 'already_approved' && /already approved/.test(again.message));
+});
+
+test('approve (H2): the database approves only the revision reviewed; a newer publish is refused, nothing approved', async () => {
+  const { w, api } = setup();
+  publish(w, VENUE.demo);                                       // the owner publishes revision 3 after Halom read revision 2
+  const r = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 });
+  assert.ok(!r.ok && r.kind === 'refused' && r.code === 'revision_changed');
+  if (!r.ok) assert.match(r.message, /newer revision since your review\. Nothing was approved/);
+  const d = await api.venue(VENUE.demo);
+  assert.ok(d.ok && d.data.venue.review === 'pending' && d.data.venue.menu.revision === 3);
+  assert.ok((await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 3 })).ok);
+});
+
+test('plan (M1): a plan never lets guests in before the first publish is approved', async () => {
+  const admin = setup(USERS.admin);
+  const r = await admin.api.setPlan({ venueId: VENUE.demo, state: 'trialing', until: null, plan: 'pilot', reason: 'Starting the pilot' });
+  assert.ok(!r.ok && r.kind === 'refused' && r.code === 'approval_first');
+  if (!r.ok) assert.match(r.message, /approve its first publish first/);
+  const d = await admin.api.venue(VENUE.demo);
+  assert.ok(d.ok && d.data.venue.plan.state === 'pending' && d.data.venue.review === 'pending', 'nothing changed');
+  assert.ok((await admin.api.setPlan({ venueId: VENUE.demo, state: 'suspended', until: null, plan: null, reason: 'Paused on the owner’s request' })).ok);
+});
+
+test('dish (M4): the dish as the owner has it now, read before the change; staff only (RLS)', async () => {
+  const { w, api } = setup();
+  const r = await api.dish(ID.burger);
+  assert.ok(r.ok && r.data !== null);
+  if (r.ok && r.data) assert.deepEqual([r.data.price, r.data.hidden, r.data.updated_at], [7200, false, new Date(NOW - 40 * 60_000).toISOString()], 'not the published ₪68');
+  assert.deepEqual(last(w), { fn: 'dishes', args: { dishId: ID.burger }, user: USERS.support });
+  assert.deepEqual(await api.dish('00000000-0000-4000-8000-00000000ffff'), { ok: true, data: null });
+  const n = w.calls.length;
+  assert.ok(!(await api.dish('not-a-uuid')).ok);
+  assert.equal(w.calls.length, n, 'refused before the read');
+  assert.deepEqual(await setup(USERS.owner).api.dish(ID.burger), { ok: true, data: null }, 'RLS shows a stranger nothing');
+});
+
+test('act for owner (M4): a dish change carries the updated_at it was reviewed with; a change since is refused with the current values', async () => {
+  const { w, api } = setup();
+  const seen = new Date(NOW - 40 * 60_000).toISOString();
+  const input = { venueId: VENUE.demo, reason: 'Owner asked by phone', action: 'dish.update', payload: { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen } } as const;
+  assert.deepEqual(checkAct(input), [], 'the contract validator, with the round-3 key checked here');
+  assert.deepEqual(checkAct({ ...input, payload: { ...input.payload, expectedUpdatedAt: 'yesterday' } }).map((e) => [e.code, e.path]), [['time_invalid', 'payload.expectedUpdatedAt']]);
+  ownerEdit(w, ID.burger, { price: 7400 });                  // the owner changes it after the review
+  const stale = await api.actForOwner(input);
+  assert.ok(!stale.ok && stale.kind === 'refused' && stale.code === 'stale');
+  if (!stale.ok) {
+    assert.match(stale.message, /changed this dish since your review\. Nothing was changed/);
+    assert.deepEqual((stale.reply?.current as { price: number }).price, 7400, 'the refusal carries the values now');
+  }
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_reason: 'Owner asked by phone', p_action: 'dish.update', p_payload: { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen } });
+  const now = await api.dish(ID.burger);
+  assert.ok(now.ok && now.data);
+  if (!now.ok || !now.data) return;
+  const ok = await api.actForOwner({ ...input, payload: { ...input.payload, expectedUpdatedAt: now.data.updated_at } });
+  assert.ok(ok.ok);
+  const after = await api.dish(ID.burger);
+  assert.ok(after.ok && after.data?.price === 7000);
+  const menu = await api.publicMenu('cafe-demo');
+  assert.ok(menu.ok && menu.data.state === 'unavailable', 'guests still see nothing before approval: the change is in the owner’s menu');
+});
+
+test('dashboard and export (M5): what the owner sees; the export is logged as menu.export, the dashboard is not', async () => {
+  const { w, api } = setup();
+  const d = await api.dashboard({ venueId: VENUE.demo });
+  assert.ok(d.ok);
+  if (!d.ok) return;
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_range: 'today' });
+  assert.deepEqual(d.data.nudges.map((x) => x.code), ['approval_pending', 'onboarding_step']);
+  assert.deepEqual(d.data.offNow.map((o) => [o.kind, o.id, o.name.en]), [['dish', ID.espresso, 'Espresso']]);
+  assert.equal(d.data.demo, true);
+  const reads = (await api.venue(VENUE.demo)).ok ? w.venues[0]!.activity.filter((e) => e.action === 'menu.export').length : -1;
+  assert.equal(reads, 0, 'reading the dashboard logs nothing');
+  const e = await api.exportMenu(VENUE.demo);
+  assert.ok(e.ok && e.data.kind === 'mana.menu_export');
+  if (e.ok) assert.equal(e.data.tables.dishes.find((x) => x.id === ID.burger)?.price, 7200, 'the owner’s menu as it is now');
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo });
+  assert.equal(w.venues[0]!.activity[0]!.action, 'menu.export');
+  const n = w.calls.length;
+  assert.ok(!(await api.exportMenu('x')).ok);
+  assert.ok(!(await api.dashboard({ venueId: VENUE.demo, range: 'year' as never })).ok);
+  assert.equal(w.calls.length, n);
+});
+
+test('activity (M3): venue_activity pages past the newest 100, by p_before, with ADR-008\'s names', async () => {
+  const { w, api } = setup();
+  padLog(w, VENUE.bistro, 130);
+  const first = await api.venue(VENUE.bistro);
+  assert.ok(first.ok && first.data.activity.length === 100);
+  if (!first.ok) return;
+  const oldest = first.data.activity.at(-1)!.id;
+  const page = await api.activity({ venueId: VENUE.bistro, before: oldest, limit: 100 });
+  assert.ok(page.ok);
+  if (!page.ok) return;
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.bistro, p_before: oldest, p_limit: 100, p_actor: null, p_via: null });
+  assert.equal(page.data.entries.length, 33, '130 + the 3 it had, past the first 100');
+  assert.equal(page.data.next, null);
+  assert.ok(page.data.entries.every((e) => e.id < oldest));
+  assert.equal(page.data.entries.at(-1)?.action, 'venue.create');
+  const n = w.calls.length;
+  assert.ok(!(await api.activity({ venueId: VENUE.bistro, limit: 101 })).ok);
+  assert.equal(w.calls.length, n);
 });
 
 test('act for owner: each action\'s payload is checked first; the owner\'s switch is refused plainly', async () => {
@@ -193,12 +296,15 @@ test('faults: a missing function, an empty answer, a thrown transport: a Fail, n
   w.faults.ops_venue = { mode: 'garbage' };
   const empty = await api.venue(VENUE.demo);
   assert.ok(!empty.ok && empty.kind === 'server' && /does not understand/.test(empty.message));
-  const throwing: Backend = { rpc: () => Promise.reject(new TypeError('Failed to fetch')), staffRow: () => Promise.reject(new Error('timeout')) };
+  const throwing: Backend = { rpc: () => Promise.reject(new TypeError('Failed to fetch')), staffRow: () => Promise.reject(new Error('timeout')),
+    dishRow: () => Promise.reject(new TypeError('Failed to fetch')) };
   const t = opsApi(throwing);
   const r = await t.venues();
   assert.ok(!r.ok && r.kind === 'network');
   const s = await t.staffRole(USERS.admin);
   assert.ok(!s.ok && s.kind === 'timeout');
+  const dish = await t.dish(ID.burger);
+  assert.ok(!dish.ok && dish.kind === 'network');
 });
 
 test('the fake\'s traffic: demo traffic counts on the demo venue\'s row, and analytics leave it out unless asked', async () => {

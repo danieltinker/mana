@@ -3,12 +3,17 @@
  * - with a Realtime channel, each message is a signal to fetch again, at most once per `debounceMs`, never the data;
  * - without one (realtime off, a channel that reports CHANNEL_ERROR, TIMED_OUT or CLOSED, or a page that always polls),
  *   it polls every `pollMs`, only while the page is visible, at once when it becomes visible again after a poll fell due,
- *   with `pollDelay`'s backoff after failures; polling stops when the channel subscribes again;
+ *   with `pollDelay`'s backoff after failures; it gives way to the safety poll when the channel subscribes again;
+ * - while subscribed, a safety poll every `safetyMs` (60 s; visible only, the same backoff) fetches what the channel
+ *   does not cover (a page's channel carries some of its tables, never all of them) and anything a message missed;
  * - `refresh()` after the user's own write waits for a fetch in flight and fetches again (never reuses a request that
  *   started before the change).
  * One fetch at a time. Pure: the clock, the visibility and the subscription are passed in, so the rules are tested.
  */
 import { LIVE_REFRESH, pollDelay } from '@mana/contracts';
+
+/** The safety poll while subscribed. Contracts round 3 adds `LIVE_REFRESH.safetyMs`; until then, 60 s. */
+export const SAFETY_MS: number = (LIVE_REFRESH as { readonly safetyMs?: number }).safetyMs ?? 60_000;
 
 export type ChannelStatus = 'SUBSCRIBED' | 'TIMED_OUT' | 'CLOSED' | 'CHANNEL_ERROR';
 /** Subscribes; calls `signal` per message and `status` per channel state; returns the unsubscribe. */
@@ -34,6 +39,8 @@ export type LiveOptions = {
   /** false: fetch at start and on refresh() only (a page whose every read is logged). */
   readonly poll?: boolean;
   readonly debounceMs?: number;
+  /** The safety poll while subscribed (default `SAFETY_MS`). */
+  readonly safetyMs?: number;
   /** A Realtime subscription; absent = polling only. */
   readonly subscribe?: Subscribe;
   readonly clock?: Clock;
@@ -54,6 +61,7 @@ export function startLive(o: LiveOptions): Live {
   const clock = o.clock ?? browserClock;
   const vis = o.visibility ?? documentVisibility;
   const debounceMs = o.debounceMs ?? LIVE_REFRESH.debounceMs;
+  const safetyMs = o.safetyMs ?? SAFETY_MS;
   let mode: LiveMode = 'polling';
   let failures = 0;
   let stopped = false;
@@ -68,14 +76,15 @@ export function startLive(o: LiveOptions): Live {
   let everSubscribed = false;
 
   const clearPoll = (): void => { if (pollTimer !== null) { clock.clearTimeout(pollTimer); pollTimer = null; } };
+  /** The next poll: every `pollMs` while polling, the safety poll while subscribed. */
   function schedule(): void {
     clearPoll();
-    if (stopped || mode !== 'polling' || o.poll === false) return;
+    if (stopped || o.poll === false) return;
     pollTimer = clock.setTimeout(() => {
       pollTimer = null;
       if (stopped) return;
       if (vis.visible()) void run(); else due = true;
-    }, pollDelay(o.pollMs, failures, o.random));
+    }, pollDelay(mode === 'polling' ? o.pollMs : safetyMs, failures, o.random));
   }
 
   function run(): Promise<boolean> {
@@ -86,7 +95,7 @@ export function startLive(o: LiveOptions): Live {
       inFlight = null;
       if (!stopped) {
         if (again) { again = false; signal(); }
-        if (mode === 'polling') schedule();
+        schedule();
       }
       return ok;
     });
@@ -106,7 +115,7 @@ export function startLive(o: LiveOptions): Live {
     if (s === 'SUBSCRIBED') {
       if (mode !== 'realtime') o.onMode?.('realtime');
       mode = 'realtime';
-      clearPoll();
+      if (!inFlight) schedule();         // the safety poll replaces the polling (a fetch in flight schedules it when done)
       if (everSubscribed) signal();      // back after a gap that polling covered: catch up once
       everSubscribed = true;
     } else if (mode !== 'polling') {

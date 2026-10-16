@@ -27,9 +27,13 @@ const noHtmlFromData = async (page) => {
 async function staff(who = ACCOUNTS.admin, opts = {}) {
   const s = await open(browser, base, { prefix: '/mana', ...opts });
   await signIn(s.page, who);
-  await s.page.locator('[data-page=clients] [data-totals]').waitFor();
+  await s.page.locator('[data-page=clients] [data-count]').waitFor();
   return s;
 }
+const focused = (page) => page.evaluate(() => {
+  const a = document.activeElement;
+  return a ? (a.hasAttribute('data-reason') ? 'reason' : a.hasAttribute('data-write-done') ? 'result' : a.hasAttribute('data-confirm') ? 'review' : a.tagName) : null;
+});
 async function toVenue(page, slug) {
   await page.locator(`[data-venue=${slug}] [data-open]`).first().click();
   await page.locator(`[data-page=venue][data-venue=${slug}] [data-panel=timeline]`).waitFor();
@@ -124,14 +128,41 @@ test('clients (desk): every venue with its warnings as chips, demo labelled; sea
   clean(problems);
 });
 
-test('clients (phone): cards, chips and the same filters, no sideways scroll', async () => {
+test('clients (phone): cards, chips and the same filters, no sideways scroll; the first venue shows without scrolling (L8)', async () => {
   const { page, problems } = await staff(ACCOUNTS.admin, { viewport: PHONE });
   await page.locator('[data-cards=clients] [data-venue=cafe-demo]').waitFor();
   assert.equal(await page.locator('[data-cards=clients] > li').count(), 3);
   assert.equal(await page.locator('[data-cards=clients] [data-venue=cafe-demo] [data-demo]').count(), 1);
+  const top = (await page.locator('[data-cards=clients] > li').first().boundingBox()).y;
+  assert.ok(top < PHONE.height - 120, `the first card starts at ${Math.round(top)} px, in the first screen`);
+  assert.match(await page.locator('[data-totals-line]').innerText(), /2 venues · 1 live · 1 waiting · \d+ opens today/, 'the totals in one line');
+  assert.equal(await page.locator('[data-search]').isVisible(), true, 'the search stays out');
+  assert.equal(await page.locator('[data-filter=warning]').isVisible(), false, 'the other filters fold away');
+  await page.locator('[data-filters-fold] summary').click();
+  await page.locator('[data-filter=warning]').selectOption('import_failed');
+  await until(() => page.locator('[data-cards=clients] > li').count(), 1, 'the folded filters work');
+  assert.match(await page.locator('[data-filters-fold] summary').innerText(), /\(1 on\)/);
   await noSideScroll(page);
   await shot(page, 'v2-clients-phone');
   clean(problems);
+});
+
+test('clients (L3, L7): the menu state in words; a poll never dims the page', async () => {
+  const { page } = await staff();
+  assert.equal(await page.locator('[data-venue=cafe-demo] [data-menu-state]').innerText(), 'waiting for approval · revision 2 · 5 h ago', 'published, not live');
+  assert.match(await page.locator('[data-venue=bistro-sim] [data-menu-state]').innerText(), /^live · revision 4/);
+  assert.equal(await page.locator('[data-venue=pita-lab] [data-menu-state]').innerText(), 'never published');
+  await control({ delays: { ops_venues: 1500 } });
+  await page.locator('[data-refresh]').click();
+  await until(() => page.locator('[data-refresh]').isDisabled(), true, 'refreshing');
+  assert.equal(await page.locator('.is-stale, .is-busy').count(), 0, 'nothing dims');
+  assert.equal(await page.locator('[data-table=clients] tbody tr').count(), 3, 'the last answer stays on screen while it refreshes');
+  await until(() => page.locator('[data-refresh]').isDisabled(), false, 'refreshed', 6000);
+  assert.deepEqual(await page.evaluate(() => {
+    const probe = (c) => { const s = document.createElement('span'); s.style.color = c; document.body.append(s); const v = getComputedStyle(s).color; s.remove(); return v; };
+    const zero = getComputedStyle(document.querySelector('.v2 .zero')).color;
+    return [zero === probe('var(--muted)'), zero === probe('var(--faint)')];
+  }), [true, false], 'the "none" placeholder is muted text, not the faint one');
 });
 
 // ------------------------------------------------------------------ a venue
@@ -171,12 +202,21 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
     await approve.locator('[data-review]').click();
     assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish \(revision 2\)/);
+    assert.equal(await focused(page), 'review', 'the review gets the focus');
     await approve.locator('[data-go]').click();
     await page.locator('[data-badge=review-approved]').waitFor();
-    assert.deepEqual(calls('ops_approve_venue')[0].args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner by phone' });
+    assert.deepEqual(calls('ops_approve_venue')[0].args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner by phone', p_expected_revision: 2 });
+    assert.match(await page.locator('[data-panel=approved] [data-write-result]').innerText(), /Approved\. Guests can open the menu now; the trial runs until \d+ \w{3} \d{4}\./);
+    await until(() => focused(page), 'result', 'the result gets the focus (L5)');
+    assert.match(await page.locator('[data-badge=menu-live]').innerText(), /Menu live · revision 2/);
+    await page.locator('[data-panel=guests] [data-menu-view]').waitFor();
+    assert.match(await page.locator('[data-panel=guests]').innerText(), /Revision 2, published/, 'guests get the revision approved');
     const approved = page.locator('[data-panel=timeline] [data-action="venue.approve"]').first();
     assert.match(await approved.innerText(), /Halom \(you\)|Halom/);
     assert.match(await approved.locator('[data-reason-shown]').innerText(), /Menu checked with the owner by phone/);
+    const audit = page.locator('[data-panel=timeline] [data-action="venues.update"]').first();
+    assert.match(await audit.locator('[data-reason-shown][data-paired=yes]').innerText(), /Reason \(of the same action\): “Menu checked with the owner by phone”/,
+      'the audit row of the same call shows the reason (L4)');
 
     // guests see the menu now; the espresso is off; restore it for the owner from there
     const espresso = page.locator(`[data-menu-row=dish][data-id="${ID.espresso}"]`);
@@ -186,12 +226,14 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     const act = page.locator('[data-write=act]');
     await until(() => act.locator('[data-act-action]').inputValue(), 'availability.restore', 'the form opens on that action');
     await until(() => act.locator('[data-act-target]').inputValue(), `dish:${ID.espresso}`, 'and that dish');
+    await until(() => focused(page), 'reason', 'with the focus on the reason (L5)');
     await act.locator('[data-reason]').fill('Owner asked by phone: the machine works again');
     await act.locator('[data-review]').click();
     assert.match(await act.locator('[data-what]').innerText(), /Bring “Espresso” \(dish\) back on Café Demo’s menu now/);
     await shot(page, `v2-act-review-${tag}`, { fullPage: false });
     await act.locator('[data-go]').click();
     await act.locator('[data-write-result]').waitFor();
+    await until(() => focused(page), 'result', 'the result gets the focus (L5)');
     assert.deepEqual(calls('act_for_owner')[0].args, { p_venue: VENUE.demo, p_reason: 'Owner asked by phone: the machine works again',
       p_action: 'availability.restore', p_payload: { targetKind: 'dish', targetId: ID.espresso } });
     await until(() => espresso.getAttribute('data-off'), 'no', 'back on the menu');
@@ -225,6 +267,209 @@ test('act for owner: closed when the owner’s switch is off, and refused plainl
   await act.locator('[data-go]').click();
   assert.match(await act.locator('[data-write-error]').innerText(), /Not done: The owner has turned off Halom acting for them .* Nothing was changed\./);
   assert.equal(await page.locator('[data-panel=timeline] [data-action="support.act_for_owner"]').count(), 0);
+});
+
+test('act for owner (H1): Go sends what was reviewed; a "Restore…" click during the review drops it and sends nothing', async () => {
+  await control({ approve: VENUE.demo });
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('availability.set');
+  await act.locator('[data-act-target]').selectOption(`dish:${ID.burger}`);
+  await act.locator('[data-reason]').fill('The grill is down for an hour');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /Take “Burger” \(dish\) off Café Demo’s menu, for 2 hours/);
+  // while that review is open, Restore… on another dish
+  await page.locator(`[data-menu-row=dish][data-id="${ID.espresso}"] [data-restore]`).click();
+  await act.locator('[data-write-dropped]').waitFor();
+  assert.match(await act.locator('[data-write-dropped]').innerText(), /You chose “Restore…” on “Espresso” while reviewing another change\. Nothing was sent/);
+  assert.equal(await act.locator('[data-confirm], [data-go]').count(), 0, 'no Go for a review that no longer matches the form');
+  assert.equal(calls('act_for_owner').length, 0);
+  assert.equal(await act.locator('[data-act-action]').inputValue(), 'availability.restore');
+  assert.equal(await act.locator('[data-act-target]').inputValue(), `dish:${ID.espresso}`);
+  await until(() => focused(page), 'reason', 'the reason field, to go on');
+  assert.equal(await act.locator('[data-reason]').inputValue(), 'The grill is down for an hour', 'the reason typed is kept');
+  await act.locator('[data-reason]').fill('Owner asked by phone: the machine works again');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /Bring “Espresso” \(dish\) back/);
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-result]').waitFor();
+  assert.deepEqual(calls('act_for_owner').map((c) => [c.args.p_action, c.args.p_payload]), [['availability.restore', { targetKind: 'dish', targetId: ID.espresso }]],
+    'exactly the reviewed input, once');
+  clean(problems);
+});
+
+test('approve (H2): only the revision reviewed; a newer publish is refused by the database, or drops the open review', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  await page.locator('[data-panel=revision] [data-revision="2"]').waitFor();
+  await page.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
+  const approve = page.locator('[data-write=approve]');
+  await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
+  await approve.locator('[data-review]').click();
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 2\)/);
+  await control({ publish: VENUE.demo });                        // the owner publishes revision 3 before Halom clicks Approve
+  await approve.locator('[data-go]').click();
+  await approve.locator('[data-write-error]').waitFor();
+  assert.match(await approve.locator('[data-write-error]').innerText(), /Not done: The owner published a newer revision since your review\. Nothing was approved/);
+  assert.deepEqual(calls('ops_approve_venue').map((c) => c.args.p_expected_revision), [2]);
+  assert.equal(await approve.locator('[data-review]').count(), 1, 'back to the fields');
+  await page.locator('[data-panel=revision] [data-revision="3"]').waitFor();   // the page refreshed and read the new menu
+  assert.equal(await page.locator('[data-badge=review-pending]').count(), 1, 'still waiting');
+  await approve.locator('[data-review]').click();
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 3\)/);
+  await control({ publish: VENUE.demo });                        // and again, while this review is open
+  await page.locator('[data-refresh]').click();
+  await approve.locator('[data-write-dropped]').waitFor();
+  assert.match(await approve.locator('[data-write-dropped]').innerText(), /The owner published revision 4 while you were reviewing\. Nothing was approved/);
+  assert.equal(calls('ops_approve_venue').length, 1, 'nothing sent');
+  await page.locator('[data-panel=revision] [data-revision="4"]').waitFor();
+  await approve.locator('[data-review]').click();
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 4\)/);
+  await approve.locator('[data-go]').click();
+  // the approval panel gives way to its result once the venue is approved
+  await page.locator('[data-panel=approved] [data-write-result]').waitFor();
+  assert.deepEqual(calls('ops_approve_venue').map((c) => c.args.p_expected_revision), [2, 4]);
+  await page.locator('[data-badge=review-approved]').waitFor();
+  clean(problems);
+});
+
+test('plan (M1): a venue waiting for approval says a plan does not approve it, and the form refuses a running plan', async () => {
+  const { page } = await staff(ACCOUNTS.admin);
+  await toVenue(page, 'cafe-demo');
+  assert.match(await page.locator('[data-approval-first]').innerText(), /A plan does not approve it: approve it above/);
+  const plan = page.locator('[data-write=plan]');
+  await plan.locator('[data-plan-state]').selectOption('trialing');
+  await plan.locator('[data-reason]').fill('Starting the pilot early');
+  await plan.locator('[data-review]').click();
+  assert.match(await plan.locator('[data-write-error]').innerText(), /A plan does not approve a venue: approve its first publish first/);
+  assert.equal(calls('ops_set_plan').length, 0);
+  await plan.locator('[data-plan-state]').selectOption('active');
+  await plan.locator('[data-review]').click();
+  assert.equal(await plan.locator('[data-go]').count(), 0);
+  assert.equal(calls('ops_set_plan').length, 0);
+});
+
+test('act for owner (M4): a dish change starts from the owner\'s dish now; a change by the owner since is refused with what it is now', async () => {
+  await control({ approve: VENUE.demo });
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('dish.update');
+  await act.locator('[data-act-dish]').selectOption(ID.burger);
+  await act.locator('[data-act-price]').fill('70');
+  await act.locator('[data-reason]').fill('Owner asked by phone for the new price');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(),
+    /Change the price of “Burger” from ₪72 \(the owner’s price now; guests see ₪68 until the next publish\) to ₪70\./);
+  assert.equal(calls('dishes').length, 1, 'read at the review');
+  const seen = stub.world.venues[0].dishes.find((d) => d.id === ID.burger).updated_at;
+  await control({ ownerEdit: { dishId: ID.burger, patch: { price: 7400 } } });   // the owner changes it meanwhile
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-error]').waitFor();
+  assert.match(await act.locator('[data-write-error]').innerText(),
+    /Not done: The owner changed this dish since your review\. Nothing was changed: review it again\. Now the owner’s price is ₪74 and it is shown to guests\./);
+  assert.deepEqual(calls('act_for_owner')[0].args.p_payload, { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen });
+  assert.equal(await act.locator('[data-review]').count(), 1, 'back to the fields');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /from ₪74 \(the owner’s price now; guests see ₪68 until the next publish\) to ₪70/);
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-result]').waitFor();
+  const now = calls('act_for_owner')[1].args.p_payload.expectedUpdatedAt;
+  assert.notEqual(now, seen);
+  assert.equal(stub.world.venues[0].dishes.find((d) => d.id === ID.burger).price, 7000);
+  assert.match(await page.locator(`[data-menu-row=dish][data-id="${ID.burger}"]`).innerText(), /₪68/, 'guests still see the published price');
+  clean(problems);
+});
+
+test('what the owner sees (M5): their dashboard with the venue; their menu as it is now only on request, never on a poll', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support, { init: { __OPS_POLL_MS: 700 } });
+  await toVenue(page, 'cafe-demo');
+  assert.equal(await page.locator('#guests-h').innerText(), 'What guests see');
+  const owner = page.locator('[data-panel=owner]');
+  assert.match(await owner.locator('[data-nudge=approval_pending]').innerText(), /The first publish waits for Halom’s approval/);
+  assert.match(await owner.locator('[data-nudge=onboarding_step]').innerText(), /5 onboarding steps left/);
+  assert.match(await owner.locator('[data-owner-off]').innerText(), /Espresso \(dish\) · until \d\d:\d\d/);
+  assert.match(await owner.locator('[data-export]').innerText(), /Read the owner’s menu now/);
+  assert.match(await owner.innerText(), /The owner sees each read in their activity log/);
+  const polls = calls('ops_venue').length;
+  await until(() => calls('ops_venue').length >= polls + 2, true, 'two polls');
+  assert.equal(calls('export_menu').length, 0, 'not read by itself');
+  assert.ok(calls('my_dashboard').length >= 3, 'the dashboard comes with each refresh (it is not logged)');
+  await owner.locator('[data-export]').click();
+  const burger = owner.locator(`[data-owner-dish="${ID.burger}"]`);
+  await burger.waitFor();
+  assert.match(await burger.innerText(), /Burger.*₪72/s, 'the owner’s price, not yet published');
+  assert.equal(calls('export_menu').length, 1);
+  const after = calls('ops_venue').length;
+  await until(() => calls('ops_venue').length >= after + 2, true, 'two more polls');
+  assert.equal(calls('export_menu').length, 1, 'once, when asked');
+  assert.match(await page.locator('[data-panel=timeline] [data-action="menu.export"]').first().innerText(), /Menu exported/);
+  await noHtmlFromData(page);
+  clean(problems);
+});
+
+test('timeline (M3): past the newest 100 entries, older pages on request', async () => {
+  await control({ padLog: { venueId: VENUE.bistro, n: 130 } });
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'bistro-sim');
+  const entries = page.locator('[data-panel=timeline] [data-entry]');
+  assert.equal(await entries.count(), 100);
+  assert.equal(await page.locator('[data-panel=timeline] [data-action="venue.create"]').count(), 0);
+  await page.locator('[data-show-older]').click();
+  await page.locator('[data-log-start]').waitFor();
+  assert.equal(await entries.count(), 133);
+  assert.equal(await page.locator('[data-panel=timeline] [data-action="venue.create"]').count(), 1);
+  const bistro = stub.world.venues.find((v) => v.row.id === VENUE.bistro);
+  assert.deepEqual(calls('venue_activity').map((c) => c.args), [{ p_venue: VENUE.bistro, p_before: bistro.activity[99].id, p_limit: 100, p_actor: null, p_via: null }],
+    'the page after the oldest of the newest 100');
+  assert.equal(await page.locator('[data-show-older]').count(), 0);
+  clean(problems);
+});
+
+test('routes (L1, N5): an address with a malformed or non-uuid id asks nothing and says there is no such venue', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support);
+  const before = calls('ops_venue').length;
+  for (const hash of ['#/venues/%E0%A4%A', '#/venues/not-a-uuid', `#/venues/${VENUE.demo},x`]) {
+    await page.evaluate((h) => { location.hash = h; }, hash);
+    await page.locator('[data-no-venue]').waitFor();
+    assert.match(await page.locator('[data-no-venue]').innerText(), /There is no venue at this address/);
+  }
+  assert.equal(calls('ops_venue').length, before, 'no call with a made-up id');
+  await page.evaluate((h) => { location.hash = h; }, `#/venues/${VENUE.demo.toUpperCase()}`);
+  await page.locator('[data-page=venue][data-venue=cafe-demo]').waitFor();
+  assert.equal(calls('ops_venue').at(-1).args.p_venue, VENUE.demo, 'a uuid in capitals is the same venue');
+  clean(problems);
+});
+
+test('accessibility (L6, L10): no live region for polls; the reason counter is not in the label, and counts characters as the database does', async () => {
+  const { page } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  assert.equal(await page.locator('[data-fresh][aria-live], [aria-live] [data-fresh]').count(), 0);
+  const reason = page.locator('[data-write=approve] [data-reason]');
+  const { label, described } = await reason.evaluate((el) => ({
+    label: [...el.labels].map((l) => l.textContent).join('|'),
+    described: (el.getAttribute('aria-describedby') ?? '').split(' ').map((id) => document.getElementById(id)?.textContent ?? ''),
+  }));
+  assert.match(label, /^Reason \(/);
+  assert.doesNotMatch(label, /left/, 'the label is the field’s name only');
+  assert.deepEqual(described, ['500 left'], 'described once, by the counter');
+  await reason.fill('  👍👍👍  ');
+  assert.equal(await page.locator('[data-write=approve] [data-left]').innerText(), '497 left', 'three characters, the blank ends stripped');
+});
+
+test('analytics (M2): another venue starts from nothing: the last venue\'s numbers never show under the new name', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await page.locator('[data-tab=analytics]').click();
+  await until(() => page.locator('[data-analytics-of]').innerText(), '· all venues', 'all venues');
+  await control({ delays: { ops_analytics: 1500 } });
+  await page.locator('[data-filter=venue]').selectOption(VENUE.bistro);
+  await until(() => page.locator('[data-analytics-totals]').count(), 0, 'the old numbers go at once');
+  assert.equal(await page.locator('[data-analytics-of]').count(), 0, 'no name over numbers that are not its own');
+  assert.match(await page.locator('[data-page=analytics] .boot').innerText(), /Loading the analytics/);
+  await until(() => page.locator('[data-analytics-of]').innerText(), '· Bistro Sim', 'the answer, with its own name', 6000);
+  assert.equal(await page.locator('[data-analytics-answer]').getAttribute('data-analytics-answer'), `${VENUE.bistro}|exclude`);
+  clean(problems);
 });
 
 test('cases: change a case with a reason; its words are shown as text', async () => {

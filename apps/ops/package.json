@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Mana (Halom's 3D-menu product): staff back office. Sources in src/ (v1) and src/v2/ (schema 2, ADR-007), built static output in dist/.",
+  "description": "Mana (Halom's menu product): staff back office. Sources in src/ (v1) and src/v2/ (schema 2, ADR-007), built static output in dist/.",
   "scripts": {
     "build": "node tools/build.mjs",
     "check": "tsc -p tsconfig.json",

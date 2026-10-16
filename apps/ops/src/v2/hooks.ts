@@ -1,18 +1,21 @@
 /**
  * `useLive`: a page's data, kept current by the live controller (live.ts): Realtime signals when the environment has
- * Realtime and the page names a channel, polling otherwise. The last good answer stays on screen while a new one loads
- * or when a refresh fails (shown dimmed, with the error), so nothing jumps.
+ * Realtime and the page names a channel, polling otherwise. A poll or a refresh keeps the last good answer on screen
+ * while it loads, and when it fails (with the error), so nothing jumps. A new question (other deps: another venue, range
+ * or filter) starts from nothing: an answer about something else is never shown under the new question.
  */
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { LIVE_REFRESH } from '@mana/contracts';
 import type { Fail, Result } from './api.ts';
-import { startLive, type Live, type LiveMode, type Subscribe } from './live.ts';
+import { SAFETY_MS, startLive, type Live, type LiveMode, type Subscribe } from './live.ts';
 import { useCtx } from './ui.tsx';
 
 declare global {
   interface Window {
     /** Tests shorten the polling interval (the default is LIVE_REFRESH.pollMs.ops). */
     __OPS_POLL_MS?: number;
+    /** Tests shorten the safety poll while subscribed (the default is SAFETY_MS). */
+    __OPS_SAFETY_MS?: number;
   }
 }
 
@@ -34,7 +37,7 @@ export function useLive<T>(fetch: () => Promise<Result<T>>, deps: readonly unkno
   const live = useRef<Live | null>(null);
   useEffect(() => {
     let alive = true;
-    setState((s) => ({ ...s, busy: true }));
+    setState((s) => ({ data: null, fail: null, loadedAt: null, busy: true, mode: s.mode }));
     const load = async (): Promise<boolean> => {
       setState((s) => ({ ...s, busy: true }));
       const r = await fetch();
@@ -51,7 +54,8 @@ export function useLive<T>(fetch: () => Promise<Result<T>>, deps: readonly unkno
     const subscribe = ctx.realtime && o.subscribe ? o.subscribe : undefined;
     // a page that does not poll (leads: every read is logged) fetches once and on demand
     live.current = startLive({
-      load, pollMs: window.__OPS_POLL_MS || LIVE_REFRESH.pollMs.ops, poll: o.poll !== false, ...(subscribe ? { subscribe } : {}),
+      load, pollMs: window.__OPS_POLL_MS || LIVE_REFRESH.pollMs.ops, safetyMs: window.__OPS_SAFETY_MS || SAFETY_MS, poll: o.poll !== false,
+      ...(subscribe ? { subscribe } : {}),
       onMode: (mode) => { if (alive) setState((s) => ({ ...s, mode })); },
     });
     return () => { alive = false; live.current?.stop(); live.current = null; };

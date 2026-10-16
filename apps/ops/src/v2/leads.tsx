@@ -109,9 +109,13 @@ function Lead({ l, card = false, onDone }: { l: OpsLead; card?: boolean; onDone:
       <details class="case-edit" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary data-edit>Edit</summary>
         <Write id={`lead-${l.ref}`} submit="Save" reason={false}
-          plan={() => { const c = changes(); return c.length ? { ok: true, what: `Save for ${l.ref}: ${c.join(', ')}.` } : { ok: false, why: 'Nothing would change.' }; }}
-          run={() => api.updateLead({ id: l.id, ...(status !== l.status ? { status } : {}), ...(owner.trim() !== (l.owner ?? '') ? { owner: owner.trim() } : {}),
-            ...(notes.trim() !== (l.notes ?? '') ? { notes: notes.trim() } : {}) })}
+          plan={() => {
+            const c = changes();
+            return c.length ? { ok: true, what: `Save for ${l.ref}: ${c.join(', ')}.`, input: { id: l.id, ...(status !== l.status ? { status } : {}),
+              ...(owner.trim() !== (l.owner ?? '') ? { owner: owner.trim() } : {}), ...(notes.trim() !== (l.notes ?? '') ? { notes: notes.trim() } : {}) } }
+              : { ok: false, why: 'Nothing would change.' };
+          }}
+          run={(input) => api.updateLead(input)}
           done={() => 'Saved.'} onDone={onDone}>
           <label class="field"><span>Status</span>
             <select value={status} onChange={(e) => setStatus(e.currentTarget.value as LeadStatus)} data-lead-status>

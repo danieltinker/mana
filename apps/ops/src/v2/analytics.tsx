@@ -27,16 +27,17 @@ export function Analytics({ venue }: { venue: string | null }) {
     return r.ok ? { ok: true, data: { range, a: r.data } } : r;
   }, [range, demo, venueId]);
   const venues = list.data?.venues ?? [];
-  const chosen = venues.find((v) => v.id === venueId) ?? null;
   const pick = (id: string) => { location.hash = id ? `#/analytics?venue=${encodeURIComponent(id)}` : '#/analytics'; };
   const a = live.data?.a ?? null;
+  // every label describes the answer on screen (its venue, traffic and range), never the question still loading
+  const chosen = a?.venueId ? venues.find((v) => v.id === a.venueId) ?? null : null;
   const r = ANALYTICS_RANGES.find((x) => x.id === live.data?.range) ?? ANALYTICS_RANGES[0];
   const per = r.resolution === 'minute' ? 'per minute' : 'per day';
 
   return (
     <div class="stack" data-page="analytics">
       <div class="page-head">
-        <h1 class="page-title">Analytics {chosen && <span class="muted count">· {names(chosen.name, chosen.slug).main}</span>}</h1>
+        <h1 class="page-title">Analytics {a && <span class="muted count" data-analytics-of>· {chosen ? names(chosen.name, chosen.slug).main : a.venueId ? 'one venue' : 'all venues'}</span>}</h1>
         <Freshness live={live} rolledUpAt={a?.rolledUpAt ?? null} />
       </div>
       <div class="filters" role="group" aria-label="What to show">
@@ -57,14 +58,14 @@ export function Analytics({ venue }: { venue: string | null }) {
           </select>
         </label>
       </div>
-      {chosen?.isDemo && demo === 'exclude' && (
+      {a && chosen?.isDemo && a.demo === 'exclude' && (
         <Notice tone="info">{names(chosen.name, chosen.slug).main} is a demo venue: its guests are demo traffic. Choose “{DEMO_LABEL.include}” or “{DEMO_LABEL.only}” to see them.</Notice>
       )}
       {!a && live.fail && <LoadError fail={live.fail} retry={() => void live.refresh()} what="the analytics" />}
       {a && live.fail && <Notice tone="bad">Refresh failed: {live.fail.message} Showing the last answer.</Notice>}
       {!a && !live.fail && <p class="boot" role="status">Loading the analytics…</p>}
       {a && (
-        <div class={'stack' + (live.busy ? ' is-stale' : '')}>
+        <div class="stack" data-analytics-answer={`${a.venueId ?? 'all'}|${a.demo}`}>
           <section class="tiles tiles-7" aria-label="Totals in this range" data-analytics-totals>
             {ANALYTICS_NAMES.map((n) => (
               <div key={n} class="tile" data-kpi={n}><span class="tile-label">{EVENT_LABEL[n].title}</span><span class="tile-value">{fmtInt(a.totals[n] ?? 0)}</span></div>

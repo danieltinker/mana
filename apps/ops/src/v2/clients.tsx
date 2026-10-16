@@ -11,7 +11,7 @@ import {
 } from '@mana/contracts';
 import { useLive } from './hooks.ts';
 import {
-  PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STEP_LABEL, WARNING_LABEL, ago, fmtDate, fmtInt, fmtPct, stageLabel, warningChips,
+  PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STEP_LABEL, WARNING_LABEL, ago, fmtDate, fmtInt, fmtPct, menuState, stageLabel, warningChips,
 } from './model.ts';
 import { realtime } from './session.ts';
 import { Badge, DemoLabel, Icon, LoadError, Name, Notice, WarningChip, useCtx, useNarrow } from './ui.tsx';
@@ -39,6 +39,8 @@ export function queryOf(f: Filters, offset: number): OpsVenuesQuery {
 export function Clients() {
   const { api, conn } = useCtx();
   const narrow = useNarrow(1100);
+  // a phone: the totals fold into one line and the filters (but the search) into a disclosure, so a venue shows at once
+  const phone = useNarrow(700);
   const [f, setF] = useState<Filters>(EMPTY);
   const [typed, setTyped] = useState('');
   const [offset, setOffset] = useState(0);
@@ -49,36 +51,52 @@ export function Clients() {
   const live = useLive<OpsVenues>(() => api.venues(query), [JSON.stringify(query)], { subscribe });
   const set = (patch: Partial<Filters>) => { setF((x) => ({ ...x, ...patch })); setOffset(0); };
   const filtered = JSON.stringify({ ...f, q: typed }) !== JSON.stringify(EMPTY);
+  const on = [f.stage, f.warning, f.review, f.planState].filter(Boolean).length + (f.demo !== EMPTY.demo ? 1 : 0) + (f.sort !== EMPTY.sort ? 1 : 0);
   const d = live.data;
+  const selects = (
+    <>
+      <Select label="Onboarding stage" value={f.stage} onChange={(v) => set({ stage: v as Filters['stage'] })} data="stage"
+        options={[['', 'Any stage'], ...ONBOARDING_STEPS.map((s): [string, string] => [s, `At: ${STEP_LABEL[s]}`]), ['complete', 'Onboarding complete']]} />
+      <Select label="Warning" value={f.warning} onChange={(v) => set({ warning: v as Filters['warning'] })} data="warning"
+        options={[['', 'Any warnings'], ...OPS_WARNINGS.map((w): [string, string] => [w, WARNING_LABEL(w)])]} />
+      <Select label="Approval" value={f.review} onChange={(v) => set({ review: v as Filters['review'] })} data="review"
+        options={[['', 'Any approval'], ...REVIEW_STATES.map((r): [string, string] => [r, REVIEW_LABEL[r]])]} />
+      <Select label="Plan" value={f.planState} onChange={(v) => set({ planState: v as Filters['planState'] })} data="plan"
+        options={[['', 'Any plan state'], ...ENTITLEMENT_STATUSES.map((s): [string, string] => [s, `Plan ${PLAN_STATE_LABEL[s]}`])]} />
+      <Select label="Demo venues" value={f.demo} onChange={(v) => set({ demo: v as DemoScope })} data="demo" options={DEMO_SCOPE.map((x): [string, string] => [x.id, x.label])} />
+      <Select label="Sort" value={f.sort} onChange={(v) => set({ sort: v as OpsSort })} data="sort" options={OPS_SORTS.map((s): [string, string] => [s, SORT_LABEL[s]])} />
+    </>
+  );
 
   return (
     <div class="stack" data-page="clients">
       <div class="page-head">
         <h1 class="page-title">Clients {d && <span class="muted count" data-count>{fmtInt(d.total)}{d.total !== d.totals.venues + d.totals.demoVenues ? ` of ${fmtInt(d.totals.venues + d.totals.demoVenues)}` : ''}</span>}</h1>
-        <Freshness live={live} rolledUpAt={d?.rolledUpAt ?? null} />
+        <Freshness live={live} rolledUpAt={d?.rolledUpAt ?? null} liveWhat="opens: live" />
       </div>
-      {d && <Totals d={d} />}
+      {d && (phone ? (
+        <details class="fold" data-totals-fold>
+          <summary data-totals-line>{fmtInt(d.totals.venues)} venues · {fmtInt(d.totals.live)} live · {fmtInt(d.totals.awaitingReview)} waiting · {fmtInt(d.totals.opensToday)} opens today</summary>
+          <Totals d={d} />
+        </details>
+      ) : <Totals d={d} />)}
       <div class="filters" role="group" aria-label="Find and filter venues">
         <label class="field field-inline search"><span class="sr">Search</span>
           <input type="search" placeholder="Search a name (either language) or a slug" maxLength={80} value={typed} onInput={(e) => setTyped(e.currentTarget.value)} data-search />
         </label>
-        <Select label="Onboarding stage" value={f.stage} onChange={(v) => set({ stage: v as Filters['stage'] })} data="stage"
-          options={[['', 'Any stage'], ...ONBOARDING_STEPS.map((s): [string, string] => [s, `At: ${STEP_LABEL[s]}`]), ['complete', 'Onboarding complete']]} />
-        <Select label="Warning" value={f.warning} onChange={(v) => set({ warning: v as Filters['warning'] })} data="warning"
-          options={[['', 'Any warnings'], ...OPS_WARNINGS.map((w): [string, string] => [w, WARNING_LABEL(w)])]} />
-        <Select label="Approval" value={f.review} onChange={(v) => set({ review: v as Filters['review'] })} data="review"
-          options={[['', 'Any approval'], ...REVIEW_STATES.map((r): [string, string] => [r, REVIEW_LABEL[r]])]} />
-        <Select label="Plan" value={f.planState} onChange={(v) => set({ planState: v as Filters['planState'] })} data="plan"
-          options={[['', 'Any plan state'], ...ENTITLEMENT_STATUSES.map((s): [string, string] => [s, `Plan ${PLAN_STATE_LABEL[s]}`])]} />
-        <Select label="Demo venues" value={f.demo} onChange={(v) => set({ demo: v as DemoScope })} data="demo" options={DEMO_SCOPE.map((x): [string, string] => [x.id, x.label])} />
-        <Select label="Sort" value={f.sort} onChange={(v) => set({ sort: v as OpsSort })} data="sort" options={OPS_SORTS.map((s): [string, string] => [s, SORT_LABEL[s]])} />
+        {phone ? (
+          <details class="fold filters-more" data-filters-fold>
+            <summary>Filters and sort{on ? ` (${on} on)` : ''}</summary>
+            <div class="filters">{selects}</div>
+          </details>
+        ) : selects}
         {filtered && <button type="button" class="link" onClick={() => { setTyped(''); set(EMPTY); }} data-clear>Clear</button>}
       </div>
       {!d && live.fail && <LoadError fail={live.fail} retry={() => void live.refresh()} what="the clients" />}
       {d && live.fail && <Notice tone="bad">Refresh failed: {live.fail.message} Showing the last answer.</Notice>}
       {!d && !live.fail && <p class="boot" role="status">Loading the clients…</p>}
       {d && (
-        <div class={live.busy ? 'is-stale' : ''}>
+        <div>
           {d.venues.length === 0 ? (
             <div class="panel pad empty" data-empty>
               <p>{filtered ? 'No venue matches these filters.' : 'No venue yet. When an owner creates one in the owner app it appears here.'}</p>
@@ -182,7 +200,7 @@ function Table({ venues, now }: { venues: readonly OpsVenueRow[]; now: number })
               </th>
               <td class="c-stage"><Stage v={v} now={now} /></td>
               <td class="c-review"><Review v={v} />
-                <span class="sub">{v.menu.live ? `live · revision ${v.menu.revision ?? '—'}` : v.menu.firstPublishedAt ? 'offline' : 'never published'}{v.menu.lastPublishedAt ? ` · ${ago(v.menu.lastPublishedAt, now)}` : ''}</span>
+                <span class="sub" data-menu-state={menuState(v).code}>{menuState(v).label}{v.menu.lastPublishedAt ? ` · ${ago(v.menu.lastPublishedAt, now)}` : ''}</span>
               </td>
               <td class="num"><strong data-opens-today>{fmtInt(v.opens.today)}</strong>
                 <span class="sub">{fmtInt(v.opens.lastHour)} last hour · {fmtInt(v.opens.last7d)} in 7d</span>{v.cappedToday && <span class="sub flag-bad">capped today</span>}
@@ -210,7 +228,7 @@ function Card({ v, now }: { v: OpsVenueRow; now: number }) {
       <Chips v={v} />
       <dl class="card-stats">
         <div><dt>Onboarding</dt><dd><Stage v={v} now={now} /></dd></div>
-        <div><dt>Approval</dt><dd><Review v={v} /></dd></div>
+        <div><dt>Approval</dt><dd><Review v={v} /> <span class="muted" data-menu-state={menuState(v).code}>menu {menuState(v).label}</span></dd></div>
         <div><dt>Opens today</dt><dd><strong data-opens-today>{fmtInt(v.opens.today)}</strong> <span class="muted">· {fmtInt(v.opens.last7d)} in 7d</span></dd></div>
         <div><dt>Suggestions 7d</dt><dd>{fmtPct(v.suggestions7d.accepted, v.suggestions7d.shown)} <span class="muted">of {fmtInt(v.suggestions7d.shown)}</span></dd></div>
         <div><dt>Photos</dt><dd>{fmtInt(v.photos.withPhoto)}/{fmtInt(v.photos.dishes)}</dd></div>

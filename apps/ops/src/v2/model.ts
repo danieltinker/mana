@@ -4,15 +4,37 @@
  * ranges. Unit-tested in test/v2/model.test.ts.
  */
 import {
-  ACT_FOR_OWNER_ACTIONS, OPS_WARNINGS, TIMELINE_KINDS, activityChanges, addDays, allDishes, localParts, oneOf, timelineKind,
+  ACT_FOR_OWNER_ACTIONS, NAMED_ACTIONS, OPS_WARNINGS, TIMELINE_KINDS, activityChanges, addDays, allDishes, localParts, oneOf, timelineKind,
   type ActForOwnerAction, type ActivityEntry, type ActorKind, type AnalyticsResolution, type CaseStatus, type CaseTopic, type DemoScope,
-  type EntitlementStatus, type EventName, type ImportExceptionCode, type ImportSource, type ImportStatus, type LiveOverlay,
+  type EntitlementStatus, type EventName, type ImportExceptionCode, type ImportSource, type ImportStatus, type LiveOverlay, type NudgeCode,
   type OnboardingState, type OnboardingStep, type OpsAnalyticsQuery, type OpsVenueRow, type OpsWarning, type Plan, type ReviewState,
   type SnapshotV2, type TargetKind, type Text, type TimelineKind, type UntilSpec,
 } from '@mana/contracts';
 
 export const PRODUCT = { name: 'Mana', by: 'Halom' } as const;
 export const TZ = 'Asia/Jerusalem';
+
+// ---------------------------------------------------------------- routes
+
+export type Route =
+  | { readonly view: 'clients' }
+  | { readonly view: 'venue'; readonly id: string }
+  | { readonly view: 'analytics'; readonly venue: string | null }
+  | { readonly view: 'leads' };
+
+const decode = (s: string): string => { try { return decodeURIComponent(s); } catch { return ''; } };
+
+/** The hash as a route; works under any path prefix. Never throws: a malformed address leads to a page that says it
+ * found nothing (the venue page refuses an id that is not a uuid before it asks anything). */
+export function parseRoute(hash: string): Route {
+  const [path = '', qs = ''] = hash.replace(/^#\/?/, '').split('?');
+  const seg = path.split('/').filter(Boolean);
+  const q = new URLSearchParams(qs);
+  if (seg[0] === 'venues' && seg[1]) return { view: 'venue', id: decode(seg[1]) };
+  if (seg[0] === 'analytics') return { view: 'analytics', venue: q.get('venue') };
+  if (seg[0] === 'leads') return { view: 'leads' };
+  return { view: 'clients' };
+}
 
 // ---------------------------------------------------------------- numbers and times (Israel time)
 
@@ -137,6 +159,51 @@ export function warningChips(warnings: readonly string[], row?: Pick<OpsVenueRow
 }
 export const WARNING_LABEL = (code: OpsWarning): string => WARNING_CHIP[code].label;
 
+// ---------------------------------------------------------------- the menu's state, for guests
+
+export type MenuState = { readonly code: 'live' | 'waiting' | 'plan' | 'offline' | 'never'; readonly label: string; readonly tone: Tone };
+
+/**
+ * What guests get from a venue's menu now, in words. "Live" only when the first publish is approved and the plan lets
+ * guests in (trial running or active); a published menu waiting for approval says so, with its revision.
+ */
+export function menuState(r: Pick<OpsVenueRow, 'review' | 'menu' | 'plan'>): MenuState {
+  const rev = r.menu.revision !== null ? ` · revision ${r.menu.revision}` : '';
+  if (!r.menu.firstPublishedAt) return { code: 'never', label: 'never published', tone: 'plain' };
+  if (r.review === 'pending') return { code: 'waiting', label: `waiting for approval${rev}`, tone: 'warn' };
+  if (r.review === 'approved' && r.menu.live) {
+    if (r.plan.state === 'trialing' || r.plan.state === 'active') return { code: 'live', label: `live${rev}`, tone: 'good' };
+    return { code: 'plan', label: `offline: the plan is ${PLAN_STATE_LABEL[r.plan.state]}${rev}`, tone: 'bad' };
+  }
+  return { code: 'offline', label: 'offline', tone: 'plain' };
+}
+
+// ---------------------------------------------------------------- the owner's nudges, in words
+
+const plural = (n: number, one: string, many: string): string => `${fmtInt(n)} ${n === 1 ? one : many}`;
+export const NUDGE_LABEL: Readonly<Record<NudgeCode, (n: number) => string>> = {
+  approval_pending: () => 'The first publish waits for Halom’s approval',
+  onboarding_step: (n) => `${plural(n, 'onboarding step', 'onboarding steps')} left`,
+  import_waiting: (n) => `${plural(n, 'import is', 'imports are')} read and waiting for the owner’s review`,
+  case_waiting_owner: (n) => `${plural(n, 'case waits', 'cases wait')} for the owner`,
+  dish_no_price: (n) => `${plural(n, 'dish', 'dishes')} guests can see without a price`,
+  dish_no_photo: (n) => `${plural(n, 'dish', 'dishes')} guests can see without a photo or relief of its own`,
+  group_without_limits: (n) => `${plural(n, 'add-on group', 'add-on groups')} with limits an import guessed, not confirmed yet`,
+};
+
+// ---------------------------------------------------------------- how fresh a page is
+
+/**
+ * The words beside "Updated hh:mm:ss": with Realtime, only what the channel covers is live (`liveWhat`) and the rest is
+ * the safety poll's; without it, the polling interval; a page that never polls says so.
+ */
+export function freshnessWords(o: { mode: 'realtime' | 'polling'; polls: boolean; pollMs: number; safetyMs: number; liveWhat?: string | undefined }): string {
+  const s = (ms: number) => `${Math.round(ms / 1000)} s`;
+  if (!o.polls) return 'loaded on demand';
+  if (o.mode === 'realtime') return `${o.liveWhat ?? 'live'} · the rest every ${s(o.safetyMs)}`;
+  return `refreshes every ${s(o.pollMs)}`;
+}
+
 // ---------------------------------------------------------------- the timeline
 
 export const TIMELINE_LABEL: Readonly<Record<TimelineKind, string>> = {
@@ -144,33 +211,56 @@ export const TIMELINE_LABEL: Readonly<Record<TimelineKind, string>> = {
   menu: 'Menu', settings: 'Settings',
 };
 
-export type TimelineItem = ActivityEntry & { readonly kind: TimelineKind; readonly halom: boolean };
+export type TimelineItem = ActivityEntry & {
+  readonly kind: TimelineKind;
+  readonly halom: boolean;
+  /** The reason to show: the entry's own, or, for a row Halom's function wrote without one, the reason of the named
+   * entry the same call logged (same instant). */
+  readonly shownReason: string | null;
+  /** `shownReason` came from that named entry. */
+  readonly paired: boolean;
+};
 export type TimelineDay = { readonly day: string; readonly items: readonly TimelineItem[] };
 export type Timeline = {
   readonly items: readonly TimelineItem[];
-  /** How many entries each strand has (every strand, zeros included, in the contract's order). */
+  /** How many entries each strand shows (every strand, zeros included, in the contract's order). The Halom strand counts
+   * what Halom did, whatever its other strand. */
   readonly counts: Readonly<Record<TimelineKind, number>>;
 };
 
 /** Halom did it: staff acting for the owner, or staff through their own functions (approve, plans, cases, demo). */
 export const isHalom = (e: Pick<ActivityEntry, 'actorKind' | 'via'>): boolean => e.actorKind === 'staff' || e.via === 'act_for_owner';
+const NAMED = new Set<string>(NAMED_ACTIONS);
 
-/** The venue's log with each entry's strand (`timelineKind`), newest first. */
+/**
+ * The venue's log (any number of pages; an entry twice counts once) with each entry's strand, newest first. An entry
+ * the contract files under "Halom" that Halom did not make (a plan the system expired) is a setting; Halom's audit rows
+ * without a reason show the reason of the named entry their call logged at the same instant.
+ */
 export function timeline(entries: readonly ActivityEntry[]): Timeline {
   const counts = Object.fromEntries(TIMELINE_KINDS.map((k) => [k, 0])) as Record<TimelineKind, number>;
-  const items = [...entries].sort((a, b) => b.id - a.id).map((e): TimelineItem => {
-    const kind = timelineKind(e.action);
-    counts[kind] += 1;
-    return { ...e, kind, halom: isHalom(e) };
+  const byId = new Map<number, ActivityEntry>();
+  for (const e of entries) if (!byId.has(e.id)) byId.set(e.id, e);
+  const sorted = [...byId.values()].sort((a, b) => b.id - a.id);
+  const named = new Map<string, string>();
+  for (const e of sorted) if (isHalom(e) && e.reason && NAMED.has(e.action) && !named.has(e.at)) named.set(e.at, e.reason);
+  const items = sorted.map((e): TimelineItem => {
+    const halom = isHalom(e);
+    const k = timelineKind(e.action);
+    const kind = k === 'halom' && !halom ? 'settings' : k;
+    counts[kind] += kind === 'halom' ? 0 : 1;
+    if (halom) counts.halom += 1;
+    const paired = halom && !e.reason ? named.get(e.at) ?? null : null;
+    return { ...e, kind, halom, shownReason: e.reason ?? paired, paired: paired !== null };
   });
   return { items, counts };
 }
 
-/** One strand (or all), grouped by the Israel date, newest day first. */
+/** One strand (or all), grouped by the Israel date, newest day first. The Halom strand is everything Halom did. */
 export function timelineDays(items: readonly TimelineItem[], kind: TimelineKind | 'all' = 'all'): TimelineDay[] {
   const out: { day: string; items: TimelineItem[] }[] = [];
   for (const it of items) {
-    if (kind !== 'all' && it.kind !== kind) continue;
+    if (kind === 'halom' ? !it.halom : kind !== 'all' && it.kind !== kind) continue;
     const t = Date.parse(it.at);
     const day = Number.isFinite(t) ? localDate(t) : '—';
     const last = out[out.length - 1];

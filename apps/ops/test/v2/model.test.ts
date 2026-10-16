@@ -2,10 +2,11 @@
 // entry says, the guest's menu as staff read it, the analytics ranges.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OPS_WARNINGS, TIMELINE_KINDS, validateOpsAnalyticsQuery, type ActivityEntry } from '@mana/contracts';
+import { NUDGE_CODES, OPS_WARNINGS, TIMELINE_KINDS, validateOpsAnalyticsQuery, type ActivityEntry } from '@mana/contracts';
 import { ID, cafeDemo, liveOf } from '@mana/contracts/fixtures';
 import {
-  analyticsQuery, bucketLabel, compareSnapshots, describe, diffSize, fmtMoney, fmtPct, menuView, names, snapshotNames, timeline, timelineDays, warningChips,
+  NUDGE_LABEL, analyticsQuery, bucketLabel, compareSnapshots, describe, diffSize, fmtDate, fmtMoney, fmtPct, freshnessWords, menuState, menuView, names,
+  parseRoute, snapshotNames, timeline, timelineDays, warningChips,
 } from '../../src/v2/model.ts';
 
 const entry = (id: number, at: string, action: ActivityEntry['action'], o: Partial<ActivityEntry> = {}): ActivityEntry => ({
@@ -41,7 +42,81 @@ test('timeline: each entry gets its strand (timelineKind), Halom\'s actions are 
   assert.deepEqual(t.items.map((i) => i.kind), ['menu', 'case', 'publish', 'halom', 'availability', 'onboarding', 'import', 'settings']);
   assert.deepEqual(t.items.map((i) => i.halom), [false, true, true, true, true, false, false, false]);
   assert.deepEqual(Object.keys(t.counts), [...TIMELINE_KINDS]);
-  assert.deepEqual(t.counts, { onboarding: 1, import: 1, publish: 1, case: 1, halom: 1, availability: 1, menu: 1, settings: 1 });
+  assert.deepEqual(t.counts, { onboarding: 1, import: 1, publish: 1, case: 1, halom: 4, availability: 1, menu: 1, settings: 1 },
+    'the Halom strand counts everything Halom did');
+  assert.deepEqual(timelineDays(t.items, 'halom').flatMap((d) => d.items.map((i) => i.id)), [7, 6, 5, 4]);
+});
+
+test('timeline (L4): only Halom is in the Halom strand; Halom\'s audit rows show the reason their call gave', () => {
+  const at = '2026-10-16T07:20:00.000Z';
+  const t = timeline([
+    entry(1, '2026-10-15T00:00:00Z', 'entitlements.update', { actorKind: 'system', via: 'system', detail: { columns: ['status'] } }),   // a trial the system ended
+    entry(2, at, 'venues.update', { actorKind: 'staff', via: 'rpc' }),
+    entry(3, at, 'entitlements.update', { actorKind: 'staff', via: 'rpc' }),
+    entry(4, at, 'venue.approve', { actorKind: 'staff', via: 'rpc', reason: 'Menu checked with the owner' }),
+    entry(5, '2026-10-16T08:00:00Z', 'venues.update', { actorKind: 'owner' }),
+    entry(6, '2026-10-16T09:00:00Z', 'venues.update', { actorKind: 'staff', via: 'rpc' }),                                             // no named entry with it
+  ]);
+  const by = new Map(t.items.map((i) => [i.id, i]));
+  assert.deepEqual([by.get(1)!.kind, by.get(1)!.halom], ['settings', false], 'not Halom: a setting');
+  assert.deepEqual([by.get(3)!.kind, by.get(3)!.halom], ['halom', true]);
+  assert.deepEqual(timelineDays(t.items, 'halom').flatMap((d) => d.items.map((i) => i.id)), [6, 4, 3, 2]);
+  assert.deepEqual([2, 3].map((id) => [by.get(id)!.shownReason, by.get(id)!.paired]), [['Menu checked with the owner', true], ['Menu checked with the owner', true]]);
+  assert.deepEqual([by.get(4)!.shownReason, by.get(4)!.paired], ['Menu checked with the owner', false], 'its own reason');
+  assert.deepEqual([by.get(5)!.shownReason, by.get(6)!.shownReason, by.get(1)!.shownReason], [null, null, null], 'never borrowed across calls or for the owner');
+  assert.equal(t.counts.halom, 4);
+  assert.equal(t.counts.settings, 4, 'the system’s plan change, the owner’s and Halom’s venue settings');
+});
+
+test('timeline (M3): pages merge, an entry on two pages counts once', () => {
+  const page1 = [entry(5, '2026-10-16T09:00:00Z', 'dishes.update'), entry(4, '2026-10-16T08:00:00Z', 'dishes.update')];
+  const page2 = [entry(4, '2026-10-16T08:00:00Z', 'dishes.update'), entry(2, '2026-10-16T07:00:00Z', 'venue.create')];
+  const t = timeline([...page1, ...page2]);
+  assert.deepEqual(t.items.map((i) => i.id), [5, 4, 2]);
+  assert.equal(t.counts.menu, 2);
+});
+
+test('menu state (L3): live only when approved and the plan lets guests in; waiting says so, with the revision', () => {
+  const row = (review: 'not_requested' | 'pending' | 'approved', state: 'pending' | 'trialing' | 'active' | 'expired' | 'suspended', live = true, published = true) => ({
+    review, plan: { plan: 'trial' as const, state, trialEndsAt: null },
+    menu: { live, revision: published ? 2 : null, lastPublishedAt: published ? '2026-10-16T07:00:00Z' : null, firstPublishedAt: published ? '2026-10-15T07:00:00Z' : null },
+  });
+  assert.deepEqual(menuState(row('approved', 'trialing')), { code: 'live', label: 'live · revision 2', tone: 'good' });
+  assert.deepEqual(menuState(row('approved', 'active')).code, 'live');
+  assert.deepEqual(menuState(row('pending', 'pending')), { code: 'waiting', label: 'waiting for approval · revision 2', tone: 'warn' },
+    'published but not approved is not live');
+  assert.deepEqual(menuState(row('approved', 'suspended')), { code: 'plan', label: 'offline: the plan is suspended · revision 2', tone: 'bad' });
+  assert.deepEqual(menuState(row('approved', 'expired')).code, 'plan');
+  assert.deepEqual(menuState(row('approved', 'trialing', false)).code, 'offline');
+  assert.deepEqual(menuState(row('not_requested', 'pending', false, false)), { code: 'never', label: 'never published', tone: 'plain' });
+});
+
+test('dates (L2): an instant is shown on its Israel date, never its UTC one', () => {
+  assert.equal(fmtDate('2026-10-15T22:30:00Z'), '16 Oct 2026', '01:30 in Israel');
+  assert.equal(fmtDate('2026-10-15T20:30:00Z'), '15 Oct 2026');
+  assert.equal(fmtDate(null), '—');
+});
+
+test('routes (L1): a malformed address never throws; ids are passed on for the venue page to refuse', () => {
+  assert.deepEqual(parseRoute('#/venues/%E0%A4%A'), { view: 'venue', id: '' });
+  assert.deepEqual(parseRoute(`#/venues/${encodeURIComponent(ID.venue)}`), { view: 'venue', id: ID.venue });
+  assert.deepEqual(parseRoute('#/venues/x%2Cy'), { view: 'venue', id: 'x,y' });
+  assert.equal(parseRoute('#/analytics?venue=%E0%A4%A').view, 'analytics', 'the search params decode leniently (the page then refuses a non-uuid)');
+  assert.deepEqual(parseRoute('#/leads'), { view: 'leads' });
+  assert.deepEqual(parseRoute('#/nowhere'), { view: 'clients' });
+  assert.deepEqual(parseRoute(''), { view: 'clients' });
+});
+
+test('freshness words (M6): "live" only for what the channel covers; the rest comes with the safety poll', () => {
+  assert.equal(freshnessWords({ mode: 'realtime', polls: true, pollMs: 30_000, safetyMs: 60_000, liveWhat: 'opens: live' }), 'opens: live · the rest every 60 s');
+  assert.equal(freshnessWords({ mode: 'polling', polls: true, pollMs: 30_000, safetyMs: 60_000, liveWhat: 'opens: live' }), 'refreshes every 30 s');
+  assert.equal(freshnessWords({ mode: 'polling', polls: false, pollMs: 30_000, safetyMs: 60_000 }), 'loaded on demand');
+});
+
+test('nudges: every code of the contract has words', () => {
+  for (const code of NUDGE_CODES) assert.ok(NUDGE_LABEL[code](2).length > 10, code);
+  assert.equal(NUDGE_LABEL.dish_no_price(1), '1 dish guests can see without a price');
+  assert.equal(NUDGE_LABEL.onboarding_step(5), '5 onboarding steps left');
 });
 
 test('timeline days: grouped by the Israel date (a UTC evening is the next day there), one strand or all', () => {

@@ -3,14 +3,16 @@
  * targets come from what guests see (the published menu and its "off now"), so staff pick, never type, an id. When the
  * owner's support switch is off the form says so and stays closed; if it was turned off since the page loaded, the
  * database's refusal says so plainly. After it runs, the venue is fetched again and the entry is in the timeline.
+ * A change to a dish starts from the dish as the owner has it now (read at the review, not the published menu), and
+ * carries that row's `updated_at`: if the owner changed it since, the database refuses (`stale`) and says what it is now.
  */
 import { useEffect, useState } from 'preact/hooks';
 import {
-  ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, allDishes, isAutoStep, validateActForOwner,
-  type ActForOwnerAction, type ActForOwnerInput, type CaseStatus, type OnboardingState, type OnboardingStep, type OpsVenueDetail,
+  ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, allDishes, isAutoStep, isObject,
+  type ActForOwnerAction, type CaseStatus, type OnboardingState, type OnboardingStep, type OpsVenueDetail,
   type PublicMenuResponse, type SnapshotV2, type TargetKind,
 } from '@mana/contracts';
-import type { Result } from './api.ts';
+import { checkAct, type ActInput, type DishNow, type Fail, type Result } from './api.ts';
 import {
   ACT_LABEL, CASE_STATUS_LABEL, STATE_LABEL, STEP_LABEL, TARGET_LABEL, UNTIL_CHOICES, fmtMoney, fmtTime, isAct, names, type NameOf, snapshotNames,
 } from './model.ts';
@@ -53,57 +55,80 @@ const splitTarget = (v: string): { kind: TargetKind; id: string } | null => {
   return kind === 'section' || kind === 'dish' || kind === 'option' ? (id ? { kind, id } : null) : null;
 };
 
-/** The input and the sentence for the review step, from the fields. */
-export function actPlan(f: Fields, venueId: string, d: OpsVenueDetail, s: SnapshotV2 | null, nameOf: NameOf): { input: ActForOwnerInput; plan: WritePlan } {
+const money = (agorot: number | null): string => (agorot === null ? 'no price' : fmtMoney(agorot));
+
+/** The dish as the owner has it now, read at the review: the row, null when it is gone, or why it could not be read. */
+export type DishNowRead = DishNow | null | Fail;
+
+/**
+ * The review's sentence and the input it describes, from the fields (and, for a dish, from the dish as the owner has
+ * it now). The reason is <Write>'s; everything else is checked here as act_for_owner checks it.
+ */
+export function actPlan(f: Fields, venueId: string, d: OpsVenueDetail, s: SnapshotV2 | null, nameOf: NameOf, now: DishNowRead = null): WritePlan<ActInput> {
   const venue = names(d.venue.name, d.venue.slug).main;
   const quote = (id: string) => `“${nameOf(id) ?? 'this item'}”`;
   const republish = 'The owner’s menu changes now; guests see it after the next publish.';
   const base = { venueId, reason: '' };
-  const fail = (why: string, input: ActForOwnerInput) => ({ input, plan: { ok: false as const, why } });
+  const no = (why: string): WritePlan<ActInput> => ({ ok: false, why });
+  const yes = (input: ActInput, what: string, note?: string): WritePlan<ActInput> => {
+    const errors = checkAct(input).filter((e) => e.path !== 'reason');
+    return errors.length ? no(`This cannot be sent: ${errors.map((e) => e.code.replace(/_/g, ' ')).join(', ')}.`) : { ok: true, what, input, ...(note ? { note } : {}) };
+  };
   switch (f.action) {
     case 'availability.set': case 'availability.restore': {
       const t = splitTarget(f.target);
-      if (!t) return fail(f.action === 'availability.restore' ? 'Choose what to bring back.' : 'Choose what to take off.', { ...base, action: f.action, payload: { targetKind: 'dish', targetId: '' } } as ActForOwnerInput);
+      if (!t) return no(f.action === 'availability.restore' ? 'Choose what to bring back.' : 'Choose what to take off.');
       if (f.action === 'availability.restore') {
-        const input: ActForOwnerInput = { ...base, action: 'availability.restore', payload: { targetKind: t.kind, targetId: t.id } };
-        return { input, plan: { ok: true, what: `Bring ${quote(t.id)} (${TARGET_LABEL[t.kind].toLowerCase()}) back on ${venue}’s menu now.`, note: 'Guests see it at once.' } };
+        return yes({ ...base, action: 'availability.restore', payload: { targetKind: t.kind, targetId: t.id } },
+          `Bring ${quote(t.id)} (${TARGET_LABEL[t.kind].toLowerCase()}) back on ${venue}’s menu now.`, 'Guests see it at once.');
       }
       const u = UNTIL_CHOICES.find((x) => x.id === f.until) ?? UNTIL_CHOICES[0]!;
-      const input: ActForOwnerInput = { ...base, action: 'availability.set', payload: { targetKind: t.kind, targetId: t.id, until: u.spec } };
-      return { input, plan: { ok: true, what: `Take ${quote(t.id)} (${TARGET_LABEL[t.kind].toLowerCase()}) off ${venue}’s menu, ${u.label.toLowerCase()}.`, note: 'Guests see it at once.' } };
+      return yes({ ...base, action: 'availability.set', payload: { targetKind: t.kind, targetId: t.id, until: u.spec } },
+        `Take ${quote(t.id)} (${TARGET_LABEL[t.kind].toLowerCase()}) off ${venue}’s menu, ${u.label.toLowerCase()}.`, 'Guests see it at once.');
     }
     case 'dish.update': {
       const dish = s ? allDishes(s).find((x) => x.dish.id === f.dish)?.dish ?? null : null;
-      if (!dish) return fail('Choose a dish.', { ...base, action: 'dish.update', payload: { dishId: '', patch: {} } });
+      if (!dish) return no('Choose a dish.');
+      if (now === null) return no(`${quote(dish.id)} is no longer in the owner’s menu (it was deleted after the last publish). Nothing to change.`);
+      if ('ok' in now) return no(`Could not read ${quote(dish.id)} as the owner has it now. ${now.message}`);
+      const at = { expectedUpdatedAt: now.updated_at };
       if (f.field === 'price') {
         const txt = f.price.trim().replace(',', '.');
         const amount = txt === '' ? null : Math.round(Number(txt) * 100);
         if (amount !== null && !(Number.isFinite(amount) && amount >= 0 && amount <= LIMITS.price)) {
-          return fail('Write the price in shekels (for example 54 or 54.50), or leave it empty for no price.', { ...base, action: 'dish.update', payload: { dishId: dish.id, patch: {} } });
+          return no('Write the price in shekels (for example 54 or 54.50), or leave it empty for no price.');
         }
-        const input: ActForOwnerInput = { ...base, action: 'dish.update', payload: { dishId: dish.id, patch: { price: amount } } };
-        const was = dish.price ? fmtMoney(dish.price.amount) : 'no price';
-        return { input, plan: { ok: true, what: `Change the price of ${quote(dish.id)} from ${was} to ${amount === null ? 'no price' : fmtMoney(amount)}.`, note: republish } };
+        if (amount === now.price) return no(`Nothing would change: the owner’s price of ${quote(dish.id)} is already ${money(amount)}.`);
+        const published = dish.price?.amount ?? null;
+        const was = published === now.price ? money(now.price) : `${money(now.price)} (the owner’s price now; guests see ${money(published)} until the next publish)`;
+        return yes({ ...base, action: 'dish.update', payload: { dishId: dish.id, patch: { price: amount }, ...at } },
+          `Change the price of ${quote(dish.id)} from ${was} to ${money(amount)}.`, republish);
       }
-      const input: ActForOwnerInput = { ...base, action: 'dish.update', payload: { dishId: dish.id, patch: { hidden: f.hidden === 'hide' } } };
-      return { input, plan: { ok: true, what: `${f.hidden === 'hide' ? 'Hide' : 'Show'} ${quote(dish.id)} ${f.hidden === 'hide' ? 'from' : 'to'} guests.`, note: republish } };
+      const hide = f.hidden === 'hide';
+      if (now.hidden === hide) return no(`Nothing would change: ${quote(dish.id)} is already ${hide ? 'hidden from' : 'shown to'} guests in the owner’s menu.`);
+      return yes({ ...base, action: 'dish.update', payload: { dishId: dish.id, patch: { hidden: hide }, ...at } },
+        `${hide ? 'Hide' : 'Show'} ${quote(dish.id)} ${hide ? 'from' : 'to'} guests.`, republish);
     }
-    case 'menu.publish': {
-      const input: ActForOwnerInput = { ...base, action: 'menu.publish', payload: {} };
-      return { input, plan: { ok: true, what: `Publish ${venue}’s menu as it is in the owner app now, as a new revision.`,
-        note: d.venue.review === 'pending' ? 'Guests see it once the first publish is approved.' : d.venue.review === 'not_requested' ? 'This is the first publish: it waits for Halom’s approval.' : 'Guests see it at once.' } };
-    }
-    case 'onboarding.set': {
-      const input: ActForOwnerInput = { ...base, action: 'onboarding.set', payload: { step: f.step, state: f.state } };
-      return { input, plan: { ok: true, what: `Mark the onboarding step “${STEP_LABEL[f.step]}” as ${STATE_LABEL[f.state].toLowerCase()}.` } };
-    }
+    case 'menu.publish':
+      return yes({ ...base, action: 'menu.publish', payload: {} }, `Publish ${venue}’s menu as it is in the owner app now, as a new revision.`,
+        d.venue.review === 'pending' ? 'Guests see it once the first publish is approved.' : d.venue.review === 'not_requested' ? 'This is the first publish: it waits for Halom’s approval.' : 'Guests see it at once.');
+    case 'onboarding.set':
+      return yes({ ...base, action: 'onboarding.set', payload: { step: f.step, state: f.state } }, `Mark the onboarding step “${STEP_LABEL[f.step]}” as ${STATE_LABEL[f.state].toLowerCase()}.`);
     case 'support_case.update': {
       const c = d.cases.find((x) => x.id === f.caseId);
-      if (!c) return fail('Choose a case.', { ...base, action: 'support_case.update', payload: { caseId: '', status: f.caseStatus } });
-      const input: ActForOwnerInput = { ...base, action: 'support_case.update', payload: { caseId: c.id, status: f.caseStatus } };
-      return { input, plan: { ok: true, what: `Set the case “${c.subject.slice(0, 80)}” to ${CASE_STATUS_LABEL[f.caseStatus].toLowerCase()}.` } };
+      if (!c) return no('Choose a case.');
+      return yes({ ...base, action: 'support_case.update', payload: { caseId: c.id, status: f.caseStatus } }, `Set the case “${c.subject.slice(0, 80)}” to ${CASE_STATUS_LABEL[f.caseStatus].toLowerCase()}.`);
     }
   }
+}
+
+/** A `stale` refusal carries the dish as it is now: that, in words. */
+export function staleNow(f: Fail): string | null {
+  const cur = f.code === 'stale' && f.reply && isObject(f.reply.current) ? f.reply.current : null;
+  if (!cur) return null;
+  const parts = [typeof cur.price === 'number' || cur.price === null ? `the owner’s price is ${money(cur.price as number | null)}` : null,
+    typeof cur.hidden === 'boolean' ? (cur.hidden ? 'it is hidden from guests' : 'it is shown to guests') : null].filter(Boolean);
+  return parts.length ? `Now ${parts.join(' and ')}.` : null;
 }
 
 export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
@@ -127,18 +152,20 @@ export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
   const blocked = v.supportCanAct ? null
     : 'The owner has turned off Halom acting for them (their support switch). Halom can read this venue but not change it; ask the owner to turn it on in the owner app.';
 
+  // a "Restore…" click while a review is open drops that review: the form shows the new choice, to review
+  const presetName = preset ? `“${nameOf(preset.id) ?? TARGET_LABEL[preset.kind].toLowerCase()}”` : '';
+  const changed = { key: preset?.key, note: `You chose “Restore…” on ${presetName} while reviewing another change. Nothing was sent: the form now brings ${presetName} back; review that.` };
+
   return (
-    <Write id="act" submit="Act for the owner" blocked={blocked}
-      plan={() => {
-        const { input, plan } = actPlan(f, v.id, detail, snapshot, nameOf);
-        if (!plan.ok) return plan;
-        // the reason is <Write>'s to check; everything else as act_for_owner checks it
-        const checked = validateActForOwner(input);
-        const errors = checked.ok ? [] : checked.errors.filter((e) => e.path !== 'reason');
-        return errors.length ? { ok: false, why: `This cannot be sent: ${errors.map((e) => e.code.replace(/_/g, ' ')).join(', ')}.` } : plan;
+    <Write id="act" submit="Act for the owner" blocked={blocked} changed={changed} focusKey={preset?.key}
+      plan={async () => {
+        if (f.action !== 'dish.update' || !snapshot || !f.dish) return actPlan(f, v.id, detail, snapshot, nameOf);
+        const r = await api.dish(f.dish);
+        return actPlan(f, v.id, detail, snapshot, nameOf, r.ok ? r.data : r);
       }}
-      run={(reason) => api.actForOwner({ ...actPlan(f, v.id, detail, snapshot, nameOf).input, reason } as ActForOwnerInput)}
+      run={(input, reason) => api.actForOwner({ ...input, reason })}
       done={(d) => `Done${isAct(d.action) ? `: ${ACT_LABEL[d.action].toLowerCase()}` : ''}. It is in the timeline, with your reason.`}
+      onFail={(r) => { if (r.kind === 'refused') void onDone(); return staleNow(r); }}
       onDone={() => { set({ target: '' }); return onDone(); }}>
       <label class="field"><span>Action</span>
         <select value={f.action} onChange={(e) => set({ action: e.currentTarget.value as ActForOwnerAction })} data-act-action>
