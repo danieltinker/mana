@@ -14,11 +14,14 @@
    (c) Secrets: no sb_secret_, service_role, -----BEGIN (a private key) or .env content (a file named .env*, or a line
        that assigns a SUPABASE_/HALOM_/…_SECRET/…_KEY variable) anywhere in _site.
    (d) gitleaks: when `gitleaks` is on PATH (or $GITLEAKS names it), `gitleaks dir _site` runs with the repository's
-       .gitleaksignore; absent (as in CI) it is skipped and said so. */
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+       .gitleaksignore; absent (as in CI) it is skipped and said so. A local build (config.js says env 'local' and points
+       at this machine) may also carry the simulator's local anon key, a JWT, on config.js's key line. */
+import { readFileSync, existsSync, statSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, dirname, join, relative, basename } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { envOf, isLoopback, keyLine, readConfig } from './env.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = resolve(process.argv[2] || '_site');
@@ -111,8 +114,21 @@ for (const f of text) {
     /* run from inside _site on ".", so a finding's fingerprint is "config.js:generic-api-key:4", the form .gitleaksignore
        names for the publishable key (an absolute path would not match the ignore file) */
     const ignore = join(ROOT, '.gitleaksignore'), args = ['dir', '.', '--no-banner', '--exit-code', '1', '--redact', '-v'];
-    if (existsSync(ignore)) args.push('--gitleaks-ignore-path', ROOT);
+    let ignoreDir = existsSync(ignore) ? ROOT : null;
+    /* a local build (npm run dev:local) carries the simulator's anon key, a JWT signed with its local-only secret, on
+       config.js's key line: allowed on that line only, and only while config.js points at this machine */
+    const cfgFile = join(SITE, 'config.js');
+    if (existsSync(cfgFile)) {
+      let cfg = null; try { cfg = readConfig(cfgFile); } catch (e) { /* (b) above already said what is wrong with it */ }
+      if (cfg && envOf(cfg) === 'local' && isLoopback(cfg.supabaseUrl)) {
+        ignoreDir = mkdtempSync(join(tmpdir(), 'mana-gitleaks-'));
+        writeFileSync(join(ignoreDir, '.gitleaksignore'), (existsSync(ignore) ? readFileSync(ignore, 'utf8') : '') + `\nconfig.js:jwt:${keyLine(readFileSync(cfgFile, 'utf8'))}\n`);
+        notes.push('(d) a local build: the simulator\'s local key on config.js\'s key line is allowed');
+      }
+    }
+    if (ignoreDir) args.push('--gitleaks-ignore-path', ignoreDir);
     const r = spawnSync(which, args, { encoding: 'utf8', cwd: SITE });
+    if (ignoreDir && ignoreDir !== ROOT) rmSync(ignoreDir, { recursive: true, force: true });
     const out = (r.stdout || '') + (r.stderr || '');
     if (r.status === 0) notes.push('(d) gitleaks dir: no leaks (' + (out.match(/scanned[^\n]*/) || [''])[0].trim() + ')');
     else if (r.status === 1) { breaches.push('(d) gitleaks found leaks in _site:'); out.split('\n').filter((l) => /Finding|File:|Line:|RuleID|Fingerprint/.test(l)).forEach((l) => breaches.push('    ' + l.trim())); }

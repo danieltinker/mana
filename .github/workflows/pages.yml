@@ -29,8 +29,11 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      # production's settings only (config.js: halom-studio); demo and local builds are never published (docs/environments.md)
       - name: Build the site
         run: bash tools/build-site.sh
+        env:
+          MANA_ENV: production
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

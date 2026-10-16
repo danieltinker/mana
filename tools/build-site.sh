@@ -2,11 +2,17 @@
 # Builds everything halom.io/mana serves into _site/. GitHub Actions runs it on every push to main
 # (.github/workflows/pages.yml) and publishes _site/ to GitHub Pages; halom.io proxies /mana/ and /m/<name> to it.
 #
-#     bash tools/build-site.sh        # or: npm run build (at the root); then: npx serve _site, or look at _site/ directly
+#     bash tools/build-site.sh        # or: npm run build (at the root); then: npm run serve (http://127.0.0.1:4180/mana/)
+#     MANA_ENV=demo bash tools/build-site.sh     # the same site with another environment's settings (docs/environments.md)
+#
+# MANA_ENV picks the settings the site carries: production (the default, and all pages.yml ever builds: config.js),
+# demo (config/demo.js: the Supabase project `mana`, schema 2; npm run demo) or local (config/local.js, written by
+# npm run dev:local for the simulator's stack). Only production is published.
 #
 # What goes where (the addresses are halom.io's):
 #   brand/site/   → /mana/             the product page, photo guide, privacy, terms, their pictures, films and fonts
 #   config.js     → /mana/config.js    the Supabase address, the publishable key, the short-link base, feature switches
+#                                      (config/demo.js or config/local.js instead, for MANA_ENV=demo or local)
 #   apps/view/    → /mana/view/, /m/<name>   the guest menu (built by esbuild into app.js and chunks/)
 #   apps/studio/  → /mana/studio/      the owner app (built by Vite into apps/studio/dist/)
 #   apps/ops/     → /mana/ops/         the back office (built by esbuild into apps/ops/dist/)
@@ -16,6 +22,15 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 OUT="$ROOT/_site"
+MANA_ENV="${MANA_ENV:-production}"
+case "$MANA_ENV" in
+  production) CONFIG=config.js ;;
+  demo)       CONFIG=config/demo.js ;;
+  local)      CONFIG=config/local.js ;;
+  *) echo "✗ MANA_ENV is \"$MANA_ENV\": production, demo or local"; exit 1 ;;
+esac
+[ -s "$CONFIG" ] || { echo "✗ $CONFIG is missing (config/local.js: npm run dev:local writes it)"; exit 1; }
+echo "· settings: $MANA_ENV ($CONFIG)"
 # One install for the three apps (an npm workspace): the root lock, package-lock.json, puts each app's packages in its
 # own apps/<app>/node_modules at its own versions (typescript and pg, used by several workspaces, sit once at the
 # root, same versions). It runs when an app has no node_modules yet.
@@ -32,7 +47,7 @@ echo "· product page"; node brand/tools/build-land.mjs
 # /remaster
 rm -rf "$OUT"; mkdir -p "$OUT"
 cp -R brand/site/. "$OUT/"
-cp config.js "$OUT/config.js"
+cp "$CONFIG" "$OUT/config.js"
 V=apps/view
 mkdir -p "$OUT/view"
 for f in index.html app.css app.js; do cp "$V/$f" "$OUT/view/$f"; done
@@ -55,6 +70,9 @@ for p in index.html land/main.js config.js view/index.html view/app.js studio/in
   [ -s "$OUT/$p" ] || { echo "✗ _site/$p is missing"; exit 1; }
 done
 grep -q "'/mana/view/'" "$OUT/view/index.html" || { echo "✗ the guest menu's short-link base is not /mana/view/"; exit 1; }
+# the settings are the environment's (production: halom-studio, untouched); a demo or local build names its own Supabase
+# origin in the pages' Content-Security-Policy and nowhere names halom-studio (tools/site-env.mjs)
+echo "· environment"; node tools/site-env.mjs "$OUT" "$MANA_ENV"
 # night:gates — the _site checks, static (no browser, no network), so CI runs them too: the performance budgets
 # (tools/check-budgets.mjs: the first dish's bytes, the page's scripts, media) and what the site may not contain or
 # talk to (tools/check-site.mjs: source venue names, outside loads, secrets; gitleaks when it is on PATH).

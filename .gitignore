@@ -34,6 +34,8 @@ brand/site/land/
 
 # Private demo seeds (real venues), never committed
 private/
+# the local environment's settings: npm run dev:local writes them from the simulator's stack (docs/environments.md)
+config/local.js
 
 # Claude Code worktrees and local state
 .claude/
