@@ -18,4 +18,7 @@ const seat = await build({ ...common, entryPoints: { seat: join(root, 'src/seat/
 /* lima: Café Lima's place system (view/floor/): the board and the guest's phone share one build, so three.js and the 3D
    place sit in one chunk, loaded only when the stage goes 3D (?gl=off never loads it) */
 const floor = await build({ ...common, entryPoints: { floor: join(root, 'src/floor/board.js'), 'floor-guest': join(root, 'src/floor/guest.js') }, chunkNames: 'chunks/floor-[name]-[hash]' });
-for (const f of [...Object.keys(res.metafile.outputs), ...Object.keys(seat.metafile.outputs), /* timers */ ...Object.keys(host.metafile.outputs) /* /timers */, ...Object.keys(floor.metafile.outputs)]) console.log(f.replace(root + '/', ''), statSync(f).size);
+/* schema 2: the guest menu on the clean schema (src/v2/, with @mana/contracts) is a build of its own, v2.js, which
+   main.js loads by address only for such a menu: app.js shares no chunk with it, so a v1 menu fetches exactly what it did */
+const v2 = await build({ ...common, entryPoints: { v2: join(root, 'src/v2/guest.js') }, chunkNames: 'chunks/v2-[name]-[hash]' });
+for (const f of [...Object.keys(res.metafile.outputs), ...Object.keys(seat.metafile.outputs), /* timers */ ...Object.keys(host.metafile.outputs) /* /timers */, ...Object.keys(floor.metafile.outputs), ...Object.keys(v2.metafile.outputs)]) console.log(f.replace(root + '/', ''), statSync(f).size);

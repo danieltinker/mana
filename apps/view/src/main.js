@@ -9,8 +9,9 @@
    One clock (clock.js) turns all of it; with ?capture=1 or ?test=1 it is turned by hand (see __mana below). */
 import { buildModel, initialState, createStore, select, parseHash, routeOf, isRtl, swipeToStep, tx } from './store.js';
 import { bindHistory } from './history.js';
-import { sourceOf, loadSnapshot, formatMoney, usesStock, loadStock, resolveStock, createTracker } from './snapshot.js';
-import { createUI, showStatus } from './ui.js';
+import { sourceOf, loadSnapshot, formatMoney, usesStock, loadStock, resolveStock, createTracker, text, asset, assetUrl, details, httpsUrl } from './snapshot.js';
+import { createUI, showStatus, h, svg, TAG_ICON } from './ui.js';
+import { ROOM_IDS } from './scenes/rooms.js';
 import { bindGestures } from './gestures.js';
 import { createGlide } from './glide.js';
 import { createTicker, createTweens } from './clock.js';
@@ -27,6 +28,9 @@ const mark = (name) => { try { performance.mark(name); } catch (e) { /* optional
 const mem = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage is optional */ } } };
 const source = sourceOf(location), live = source.kind === 'slug';
 let store = null, ui = null, stage = null, stageLoading = false, glFailed = false, autoSimple = false, rev = 0, skipDraw = false, firstHero = true, hintShown = false, current = null, track = () => false;
+/* schema 2 (config.schema === 2, the clean schema): the guest's choices, the basket, suggestions, the filter and the
+   events, from src/v2/ (its own chunk, never loaded by a v1 menu). null on every v1 path. */
+let v2 = null;
 let readyResolve, tableResolve;
 const ready = new Promise((r) => { readyResolve = r; }), tableReady = new Promise((r) => { tableResolve = r; });
 const ticker = createTicker({ manual: TEST, onFrameTime: (raw) => { if (stage && Q.get('adapt') !== 'off') stage.perf(raw); } });
@@ -80,8 +84,15 @@ async function boot() {
   /* the language the menu will open in, as far as it can be known before the menu is here: what this guest chose earlier
      or what the link asks for; otherwise Hebrew, the default of nearly every menu */
   const env = Object.assign(envOf(), { lang: lang0 === 'en' ? 'en' : 'he', src: Q.get('t') === '1' ? 'qr' : 'link', onUpdate: (res) => { if (res.state === 'ok') start(res.snapshot); } });
-  track = createTracker(source, env);
-  const res = await loadSnapshot(source, env);
+  let res;
+  if (live && cfg().schema === 2) {
+    const mod = await env.importModule(new URL('v2.js', document.baseURI).href).catch(() => null), kit ={ text, asset, assetUrl, details, httpsUrl, rooms: ROOM_IDS, h, svg, TAG_ICON, tx, formatMoney };      // the v1 pieces it uses, handed in (src/v2/menu.js says why)
+    res = mod ? await mod.loadMenu(source.slug, env, kit) : { state: 'error', message: 'the menu did not load' };
+    if (res.state === 'ok') { v2 = mod.createGuest(res.snapshot, { env, mem, src: env.src, kit }); track = (id, kind) => v2.track(id, kind); }
+  } else {
+    track = createTracker(source, env);
+    res = await loadSnapshot(source, env);
+  }
   if (res.state === 'ok') return start(res.snapshot);
   if (res.state === 'unavailable') { const l = lang0 || 'he'; return showStatus('unavailable', { lang: l, name: tx(res.business.name, l) }); }
   if (res.state === 'not_found') return showStatus('not_found', { lang: lang0 || 'he' });
@@ -105,38 +116,40 @@ function open(snapshot) {
   const look = applyLook(snapshot.theme, PRESETS);                      // the look's surface, accent and lamp (an owner's own table photo still wins); null = today's theme
   if (look && look.motion === 'none' && !stage) reduce = true;
   /* /night:templates */
-  const model = buildModel(snapshot, { rooms: ROOMS_ON });
+  const model = buildModel(v2 ? v2.shown(snapshot) : snapshot, { rooms: ROOMS_ON });      // schema 2: as the guest's tag filter shows it
   if (!model.cats.length) return showStatus('empty', { lang: snapshot.locale.default });
   applyTheme(snapshot.theme);
   /* night:templates */ applyLookDom(document.documentElement, $('app'), look); /* /night:templates */
-  let tray = null; try { tray = JSON.parse(mem.get('halom-menu-tray:' + model.slug) || 'null'); } catch (e) { tray = null; }
+  let tray = null; try { tray = v2 ? v2.counts() : JSON.parse(mem.get('halom-menu-tray:' + model.slug) || 'null'); } catch (e) { tray = null; }
   if (store) {                                                         // the same page, new content (a live preview, or the placeholder library arriving late)
     const cur = store.getState(); rev++;
     if (stage) { stage.setTheme(snapshot.theme); stage.reset(); }
-    ui.rebuild(); store.replace(model, initialState(model, { lang: cur.lang, simple: cur.simple, tray: cur.tray, route: routeOf(cur) }));
+    ui.rebuild(); store.replace(model, initialState(model, { lang: cur.lang, simple: cur.simple, tray: v2 ? tray : cur.tray, route: routeOf(cur) }));
     return;
   }
   const wantList = Q.get('view') === 'list';
   store = createStore(model, initialState(model, { lang: Q.get('lang') || mem.get('halom-menu-lang'), simple: wantList, tray, route: parseHash(location.hash) }));
-  ui = createUI(store, {
+  if (v2) v2.attach(store);                                            // the first to hear of a change: the sheet and the basket follow the state before the page draws it
+  ui = createUI(store, { v2: v2 && v2.hooks,
     reduce, tweens, demo: source.kind === 'demo', sitePath: new URL(cfg().sitePath || '../', document.baseURI).href, path: location.pathname + location.search,
     instant: () => TEST && !CAPTURE, capture: CAPTURE, walk: () => WALK, onSheet: () => ticker.wake(), flying, landing,
     setLang(l) { mem.set('halom-menu-lang', l); store.dispatch({ type: 'setLang', lang: l }); },
     onPick(id) { const s = store.getState(); if (s.simple) store.dispatch({ type: 'open', what: 'dish', id }, { via: 'list' }); else store.dispatch({ type: 'focus', id }, { via: 'list' }); },
     onCategory(id) { store.dispatch({ type: 'setCategory', id }, { via: 'chip' }); },
     onLift(on) { store.dispatch(on ? { type: 'open', what: 'dish' } : { type: 'close' }, { via: 'card' }); },
-    onAdd(id) { const q = store.getState().tray[id] || 0; store.dispatch({ type: 'trayAdd', id }); if ((store.getState().tray[id] || 0) > q) track(id, 'add'); },
+    onAdd(id) { if (v2) return v2.add(id); const q = store.getState().tray[id] || 0; store.dispatch({ type: 'trayAdd', id }); if ((store.getState().tray[id] || 0) > q) track(id, 'add'); },
     retryTable() { autoSimple = false; ui.setNotice(null); if (stage && stage.resetPerf) stage.resetPerf(); store.dispatch({ type: 'setSimple', on: false }); }
   });
   store.subscribe((s, prev, a, meta) => {
     const load = a.type === 'load';
     ui.render(s, load ? null : prev, load ? { fromLoad: true } : meta);
-    if (a.type === 'trayAdd' || a.type === 'traySet' || a.type === 'trayClear' || load) mem.set('halom-menu-tray:' + store.getModel().slug, JSON.stringify(s.tray));
+    if (!v2 && (a.type === 'trayAdd' || a.type === 'traySet' || a.type === 'trayClear' || load)) mem.set('halom-menu-tray:' + store.getModel().slug, JSON.stringify(s.tray));      // schema 2 keeps its basket itself
     follow(s, prev, meta, load);
   });
   bindHistory(store, { history: window.history, location: window.location, on: (n, f) => window.addEventListener(n, f), setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: (t) => clearTimeout(t) });
   const s0 = store.getState(), v0 = select(s0, model);
   glide.enter(v0.count, v0.index);
+  if (v2) v2.bind(ui, { redraw() { ui.render(store.getState(), null, null); if (stage) stage.repaintCards(); ticker.wake(); }, remodel: () => open(current), reload: (snap) => start(snap) });
   ui.render(s0, null, null);
   if (s0.open === 'dish') track(s0.itemId, 'open');
   showStatus(null); mark('menu-text'); readyResolve();
@@ -303,7 +316,9 @@ const api = {
   key: (k) => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true })),
   info: () => (stage ? stage.info() : null), pending: () => (stage ? stage.pending() : -1), glide: () => Object.assign({}, glide.state, { samples: undefined }),
   frameTime: (ms) => { if (stage) stage.feedFrameTime(ms / 1000); }, hit: (x, y) => (stage ? stage.hit(x, y) : null), walk: () => WALK, now: () => ticker.now(),
-  marks: () => performance.getEntriesByType('mark').filter((m) => m.name.indexOf('menu-') === 0).map((m) => ({ name: m.name, t: Math.round(m.startTime) }))
+  marks: () => performance.getEntriesByType('mark').filter((m) => m.name.indexOf('menu-') === 0).map((m) => ({ name: m.name, t: Math.round(m.startTime) })),
+  /* schema 2 only: what the basket, the sheet and the suggestions hold; send the queued events now; ask public_menu again now */
+  v2: () => (v2 ? v2.debug() : null), flush: () => (v2 ? v2.flush() : Promise.resolve()), refresh: () => (v2 ? v2.refresh() : Promise.resolve())
 };
 window.__mana = window.__menu = api;
 if (CAPTURE) $('app').classList.add('capture');

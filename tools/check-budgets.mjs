@@ -100,6 +100,9 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     if (!stage.length) breaches.push('view/app.js names no stage chunk');
     for (const c of stage) walk(c, 'the stage chunk (on demand, before the first dish)');
     for (const [c, why] of seen) rows.push(need(c, why));
+    /* schema 2: a menu on the clean schema also fetches v2.js before its first dish (main.js loads it by address, so the
+       walk above cannot see it). Counted for every menu, so the one budget holds on both paths. */
+    rows.push(need(join(V, 'v2.js'), 'the v2 menu (config schema 2: choices, basket, events), before the first dish'));
   }
   rows.push(need(join(V, 'themes/oak.jpg'), 'the default table'), need(join(V, 'themes/oak_h.jpg'), 'the default table, height'));
   if (existsSync(join(V, 'app.css'))) {

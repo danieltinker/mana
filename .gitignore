@@ -22,6 +22,7 @@ brand/.shots-raw/
 brand/.scratch/
 # the guest menu's build output: made by `cd apps/view && npm run build` (CI builds it in tools/build-site.sh)
 apps/view/app.js
+apps/view/v2.js
 apps/view/seat.js
 # timers: the host board's build
 apps/view/host.js
