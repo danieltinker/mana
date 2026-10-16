@@ -76,11 +76,14 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; ch
   '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8', '.ico': 'image/x-icon', '.mp4': 'video/mp4' };
 
-/** mounts: { '': dir } serves dir at the prefix; { name: dir } at prefix + name/. virtual: { 'config.js': text }. */
-export function startStatic({ port, prefix = '/', mounts, virtual = {} }) {
+/** mounts: { '': dir } serves dir at the prefix; { name: dir } at prefix + name/. virtual: { 'config.js': text }.
+    shortLinks: /m/<slug> (and /m/<slug>/) serve prefix + view/index.html, as halom.io and tools/serve-site.mjs do, so a
+    page's "Open the menu" and "Share" links (config.shortBase + slug) lead somewhere in a test too. */
+export function startStatic({ port, prefix = '/', mounts, virtual = {}, shortLinks = false }) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
     let p; try { p = decodeURIComponent(url.pathname); } catch { res.writeHead(400); return res.end(); }
+    if (shortLinks && /^\/m\/[^/]+\/?$/.test(p)) p = prefix + 'view/index.html';
     if (!p.startsWith(prefix)) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('not under ' + prefix); }
     const rel = p.slice(prefix.length);
     if (virtual[rel] !== undefined) { res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] || 'text/plain', 'cache-control': 'no-store' }); return res.end(virtual[rel]); }

@@ -6,8 +6,9 @@
 //   const page = await e.page();                         // a phone-sized page on the web server
 //   … await e.stop();
 //
-// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, with a generated config.js that
-// points the apps at the local stack; without a build it serves only /mana/e2e/blank.html (enough for the smoke test).
+// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, and /m/<slug> as the guest menu
+// (the short links the apps make), with a generated config.js that points the apps at the local stack; without a
+// build it serves only /mana/e2e/blank.html (enough for the smoke test).
 // The browser may reach 127.0.0.1 only (no proxy; every other host fails to resolve).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -48,7 +49,7 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
     const venue = seed ? await loadSeed(stack, readSeed(path.join(SEEDS, `${seed}.json`)).seed) : null;
     const config = localConfigText({ apiUrl: stack.apiUrl, anonKey: stack.anonKey });      // the local settings, as npm run dev:local writes them
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
-    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {},
+    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {}, shortLinks: true,
       virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>' } });
     browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: ARGS });
     fs.mkdirSync(OUT, { recursive: true });
