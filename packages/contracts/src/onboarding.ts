@@ -4,7 +4,7 @@
  */
 import { isUuid, oneOf, type Validation } from './common.ts';
 import { ONBOARDING_STATES, ONBOARDING_STEPS, type OnboardingState, type OnboardingStep } from './enums.ts';
-import { validateInput } from './rpc.ts';
+import { validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 
 /**
  * Steps only the database marks `done`:
@@ -12,8 +12,8 @@ import { validateInput } from './rpc.ts';
  * - `menu`: the venue's first dish (by hand or by an import);
  * - `review`: an applied import (`apply_import`);
  * - `publish`: a publish (`publish_menu`, or Halom's `act_for_owner`).
- * A client may set them to `doing` or `skipped` (a menu built by hand skips `review`), never to `done`, and a step
- * that is `done` by the database stays done.
+ * A client may set them to `doing`, never to `done`; of them only `review` may be `skipped` (a menu built by hand has
+ * nothing to review); and a step the database marked `done` stays done.
  */
 export const ONBOARDING_AUTO_STEPS = ['venue', 'menu', 'review', 'publish'] as const satisfies readonly OnboardingStep[];
 export type AutoOnboardingStep = (typeof ONBOARDING_AUTO_STEPS)[number];
@@ -63,7 +63,9 @@ export type SetStepInput = {
   readonly state: OnboardingState;
   readonly blockers?: readonly string[];
 };
-export type SetStepReply = { readonly ok: true; readonly progress: OnboardingProgress };
+export type SetStepReply =
+  | RpcOk<{ readonly progress: OnboardingProgress }>
+  | RpcFail<'venue_unknown' | 'step_done' | 'step_automatic' | 'enum_invalid' | 'blocker_invalid' | 'too_many'>;
 
 /** Codes: type, field_not_allowed, id_invalid, enum_invalid, blocker_invalid, too_many, step_automatic. The database
  * adds `step_done` (an automatic step it already marked done). */
@@ -72,7 +74,9 @@ export function validateSetStep(raw: unknown): Validation<SetStepInput> {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
     if (!oneOf(ONBOARDING_STEPS, o.step)) x.add('enum_invalid', 'step');
     if (!oneOf(ONBOARDING_STATES, o.state)) x.add('enum_invalid', 'state');
-    else if (oneOf(ONBOARDING_STEPS, o.step) && isAutoStep(o.step) && o.state === 'done') x.add('step_automatic', 'state');
+    else if (oneOf(ONBOARDING_STEPS, o.step) && isAutoStep(o.step) && (o.state === 'done' || (o.state === 'skipped' && o.step !== 'review'))) {
+      x.add('step_automatic', 'state');
+    }
     if (o.blockers !== undefined) {
       if (!Array.isArray(o.blockers)) x.add('type', 'blockers');
       else {

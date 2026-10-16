@@ -25,27 +25,27 @@ export const section = (key: string, he: string, en: string, dishes: DraftDish[]
   key, name: tx(he, en), translated: [], kind: 'food', room: null, dishes, ...o,
 });
 export const link = (g: string, min: number | null = null, max: number | null = null) => ({ group: g, min, max });
+export const draftOf = (sections: DraftSection[], groups: DraftGroup[] = [], o: Partial<ImportDraft> = {}): ImportDraft =>
+  ({ v: 1, source: 'wolt_text', sections, groups, dropped: 0, ...o });
 
 /** The base draft: two sections, three dishes, three groups (one nested), as a Wolt-text reader would produce it. */
 export function bistroDraft(): ImportDraft {
-  return {
-    v: 1,
-    source: 'wolt_text',
-    sections: [
+  return draftOf(
+    [
       section('s-mains', 'עיקריות', 'Mains', [
         dish('d-schnitzel', 'שניצל', 'Schnitzel', 6400, { groups: [link('g-side')] }),
         dish('d-burger', 'המבורגר', 'Burger', 7200, { tags: ['spicy'], groups: [link('g-side'), link('g-extras')] }),
       ]),
       section('s-drinks', 'שתייה', 'Drinks', [dish('d-lemonade', 'לימונדה', 'Lemonade', 1800)], { kind: 'drinks' }),
     ],
-    groups: [
+    [
       group('g-side', 'תוספת', 'Side of choice', { options: [opt('o-fries', 'צ׳יפס', 'Fries', 0, { opens: 'g-sauce' }), opt('o-salad', 'סלט', 'Salad', 0)] }),
       group('g-sauce', 'רוטב', 'Sauce', { options: [opt('o-aioli', 'איולי', 'Aioli', 0), opt('o-ketchup', 'קטשופ', 'Ketchup', 0)] }),
       group('g-extras', 'תוספות', 'Extras', {
         selection: 'multiple', min: null, max: null, options: [opt('o-cheese', 'גבינה', 'Cheese', 300, { maxQty: 2 }), opt('o-egg', 'ביצה', 'Egg', 400)],
       }),
     ],
-  };
+  );
 }
 
 /** A deep copy that a test may change. */
@@ -55,63 +55,59 @@ const REF_KIND: Record<string, PlanStep['kind']> = { section_id: 'section', grou
 
 /**
  * Checks what every plan must be: no op but create, update, keep or skip; `set` only on create and update (never
- * empty on update); an id exactly on update and keep (photos: keep names the existing asset); every ref names a node
- * the same plan creates, of the right kind, earlier in apply order.
+ * empty on update); an id exactly on update and keep; a reason exactly on skip; every ref names a node the same plan
+ * creates, of the right kind, earlier in apply order; no step key twice for one kind.
  */
 export function planProblems(plan: ImportPlan): string[] {
   const out: string[] = [];
   const created = new Map<string, PlanStep['kind']>();
+  const seen = new Set<string>();
   for (const s of plan.steps) {
+    if (seen.has(`${s.kind}:${s.key}`)) out.push(`${s.kind}:${s.key}: twice`);
+    seen.add(`${s.kind}:${s.key}`);
     if (!['create', 'update', 'keep', 'skip'].includes(s.op)) out.push(`${s.key}: op ${s.op}`);
     if ((s.op === 'keep' || s.op === 'skip') && Object.keys(s.set).length > 0) out.push(`${s.key}: set on ${s.op}`);
-    if (s.op === 'update' && Object.keys(s.set).length === 0) out.push(`${s.key}: empty update`);
-    if (s.op === 'update' && s.id === null) out.push(`${s.key}: update without id`);
-    if ((s.op === 'create' || s.op === 'skip') && s.id !== null) out.push(`${s.key}: id on ${s.op}`);
-    if (s.op === 'skip' && s.reason === null) out.push(`${s.key}: skip without reason`);
-    for (const [col, ref] of Object.entries(s.refs)) {
+    if (s.op === 'update' && Object.keys(s.set).length === 0 && Object.keys(s.refs).length === 0) out.push(`${s.key}: empty update`);
+    // the type already promises these; the plan arrives as JSON from the database too, so check them at run time
+    const loose = s as { op: string; id: string | null; key: string };
+    if ((loose.op === 'update' || loose.op === 'keep') && loose.id === null) out.push(`${loose.key}: ${loose.op} without id`);
+    if ((loose.op === 'create' || loose.op === 'skip') && loose.id !== null) out.push(`${loose.key}: id on ${loose.op}`);
+    if ((s.op === 'skip') !== (s.reason !== null)) out.push(`${s.key}: reason on ${s.op}`);
+    for (const [col, ref] of Object.entries(s.refs as Record<string, string>)) {
       if (created.get(ref) !== REF_KIND[col]) out.push(`${s.key}: ${col} → ${ref} is not a ${REF_KIND[col]} created earlier`);
       if (col in s.set) out.push(`${s.key}: ${col} both set and ref`);
     }
-    if (s.op === 'create') created.set(s.key, s.kind);
+    if (s.op === 'create' && !s.key.includes('@')) created.set(s.key, s.kind);
   }
   return out;
 }
 
-/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, deterministic). */
-export function applyPlan(menu: ExistingMenu, plan: ImportPlan, idBase = 0xa00000000000): ExistingMenu {
-  const out = copy(menu) as unknown as {
-    sections: Array<Record<string, unknown>>; dishes: Array<Record<string, unknown>>; groups: Array<Record<string, unknown>>;
-    options: Array<Record<string, unknown>>; dishGroups: Array<Record<string, unknown>>;
-  };
-  let n = idBase;
+let nextId = 0xa00000000000;
+const freshId = (): string => `00000000-0000-4000-8000-${(nextId++).toString(16).padStart(12, '0')}`;
+
+type Rows = { -readonly [K in keyof ExistingMenu]: Array<Record<string, unknown>> };
+
+/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call). */
+export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
+  const out = copy(menu) as unknown as Rows;
   const idOf = new Map<string, string>();
-  const newId = (key: string): string => {
-    const id = `00000000-0000-4000-8000-${(n++).toString(16).padStart(12, '0')}`;
-    idOf.set(key, id);
-    return id;
-  };
-  const resolved = (s: PlanStep): Record<string, unknown> => {
-    const row: Record<string, unknown> = { ...s.set };
-    for (const [col, ref] of Object.entries(s.refs)) row[col] = idOf.get(ref);
+  const resolved = (set: object, refs: object): Record<string, unknown> => {
+    const row: Record<string, unknown> = { ...set };
+    for (const [col, ref] of Object.entries(refs as Record<string, string>)) row[col] = idOf.get(ref);
     return row;
   };
-  const table = { section: out.sections, group: out.groups, option: out.options, dish: out.dishes } as const;
+  const table = { section: out.sections, group: out.groups, option: out.options, dish: out.dishes, dish_group: out.dishGroups, photo: out.assets } as const;
   for (const s of plan.steps) {
-    if (s.kind === 'photo' || s.op === 'keep' || s.op === 'skip') continue;
-    if (s.kind === 'dish_group') {
-      const r = resolved(s);
-      out.dishGroups.push({ dish_id: r.dish_id, group_id: r.group_id, position: r.position });
-      continue;
-    }
+    if (s.op === 'keep' || s.op === 'skip') continue;
     const rows = table[s.kind];
     if (s.op === 'create') {
-      const r = resolved(s);
-      const base = s.kind === 'dish' ? { asset_id: null } : {};
-      rows.push({ ...base, ...r, id: newId(s.key) });
-    } else {
-      const row = rows.find((r) => r.id === s.id)!;
-      Object.assign(row, s.set);
-    }
+      const id = freshId();
+      const r = resolved(s.set, s.refs);
+      if (!s.key.includes('@') && s.kind !== 'photo') idOf.set(s.key, id);
+      if (s.kind === 'dish') rows.push({ asset_id: null, ...r, id });
+      else if (s.kind === 'photo') rows.push({ id, dish_id: r.dish_id, status: 'uploaded' });
+      else rows.push({ ...r, id });
+    } else Object.assign(rows.find((r) => r.id === s.id)!, resolved(s.set, s.refs));
   }
   return out as unknown as ExistingMenu;
 }

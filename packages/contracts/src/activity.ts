@@ -21,11 +21,13 @@ export type AuditOp = 'insert' | 'update' | 'delete';
 const AUDIT_OPS: Readonly<Partial<Record<AuditedTable, readonly AuditOp[]>>> = { venues: ['update'], leads: ['update'] };
 export const auditOpsOf = (t: AuditedTable): readonly AuditOp[] => AUDIT_OPS[t] ?? ['insert', 'update', 'delete'];
 
-/** Actions a function logs by name, with what it did (phase 0, then phase 1's from `venue.set_demo` on). */
+/** Actions a function logs by name, with what it did (phase 0, then phase 1's from `venue.set_demo` on). `menu.read`:
+ * a staff read of a stored revision (`ops_revision`: target `menu_revisions`, the revision's id, detail
+ * `{revision}`). */
 export const NAMED_ACTIONS = [
   'venue.create', 'venue.approve', 'plan.set', 'menu.publish', 'menu.restore', 'menu.unpublish', 'support.act_for_owner',
   'upsell_rules.deactivated', 'staff.join', 'staff_invite.create', 'leads.read',
-  'venue.set_demo', 'menu.export', 'import.apply',
+  'venue.set_demo', 'menu.export', 'menu.read', 'import.apply',
 ] as const;
 export type NamedAction = (typeof NAMED_ACTIONS)[number];
 export type ActivityAction = NamedAction | `${AuditedTable}.${AuditOp}`;

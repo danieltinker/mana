@@ -5,7 +5,7 @@
  */
 import { isUuid, oneOf, type Validation } from './common.ts';
 import { CASE_STATUSES, CASE_TOPICS, type ActorKind, type CaseStatus, type CaseTopic } from './enums.ts';
-import { isReason, optionalText, requiredText, validateInput } from './rpc.ts';
+import { isReason, optionalText, requiredText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 
 export const CASE_SUBJECT_MAX = 160;
 export const CASE_BODY_MAX = 4000;
@@ -35,12 +35,15 @@ export type OpenCaseInput = {
   readonly venueId: string;
   readonly topic: CaseTopic;
   readonly subject: string;
-  readonly body?: string;
+  /** Absent or null = no body (''). */
+  readonly body?: string | null;
   readonly allowAct?: boolean;
 };
-export type OpenCaseReply = { readonly ok: true; readonly caseId: string; readonly supportCanAct: boolean };
+export type OpenCaseReply =
+  | RpcOk<{ readonly caseId: string; readonly supportCanAct: boolean }>
+  | RpcFail<'venue_unknown' | 'rate_limited' | 'owner_only' | 'enum_invalid' | 'text_missing' | 'text_invalid' | 'text_too_long'>;
 
-/** Codes: type, field_not_allowed, id_invalid, enum_invalid, text_missing, text_too_long. */
+/** Codes: type, field_not_allowed, id_invalid, enum_invalid, text_missing, text_invalid, text_too_long. */
 export function validateOpenCase(raw: unknown): Validation<OpenCaseInput> {
   return validateInput<OpenCaseInput>(raw, ['venueId', 'topic', 'subject', 'body', 'allowAct'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
@@ -52,16 +55,20 @@ export function validateOpenCase(raw: unknown): Validation<OpenCaseInput> {
 }
 
 /**
- * `ops_update_case`: Halom staff change a case's status or topic, with a reason the owner sees. This is Halom's own
- * record, so it does not need the owner's support switch (unlike `act_for_owner`).
+ * `ops_update_case(p_case, p_status, p_topic, p_reason)`: Halom staff change a case's status or topic, with a reason
+ * the owner sees. This is Halom's own record, so it does not need the owner's support switch (unlike
+ * `act_for_owner`). `p_reason` defaults to null in SQL and is checked inside (`reason_required` when it is missing,
+ * blank or shorter than 3); a caller who is not staff gets 42501 `not_staff`.
  */
 export type UpdateCaseInput = {
   readonly caseId: string;
   readonly status?: CaseStatus;
   readonly topic?: CaseTopic;
-  readonly reason: string;
+  readonly reason?: string | null;
 };
-export type UpdateCaseReply = { readonly ok: true; readonly case: SupportCase };
+export type UpdateCaseReply =
+  | RpcOk<{ readonly case: SupportCase }>
+  | RpcFail<'reason_required' | 'enum_invalid' | 'nothing_to_change' | 'case_unknown'>;
 
 /** Codes: type, field_not_allowed, id_invalid, enum_invalid, nothing_to_change, reason_required. */
 export function validateUpdateCase(raw: unknown): Validation<UpdateCaseInput> {

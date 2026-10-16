@@ -6,7 +6,7 @@ bundlers (esbuild, Vite) import them directly, so there is no build step.
 
 | File | What |
 |---|---|
-| `src/common.ts` | Shared checks, among them the one definition of a **blank** character (`BLANK_CLASS`, `isBlank`, `stripBlank`): Unicode spaces, controls like tab and newline, NBSP, BOM, soft hyphen, zero-width and direction marks, variation selectors, tags, and the fillers that draw nothing. Stripping keeps the variation selectors and tags that finish an emoji at the end of a name. The database's `app.strip_blank` uses the same class and rule (compared code point by code point, and on sample strings, in `supabase/tests`). |
+| `src/common.ts` | Shared checks, among them the one definition of a **blank** character (`BLANK_CLASS`, `isBlank`, `stripBlank`): Unicode spaces, controls like tab and newline, NBSP, BOM, soft hyphen, zero-width and direction marks, variation selectors, tags, and the fillers that draw nothing. Stripping keeps the variation selectors and tags that finish an emoji at the end of a name. The database's `app.strip_blank` uses the same class and rule (compared code point by code point, and on sample strings, in `supabase/tests`). `textLength` counts code points, as `char_length` does: every length limit in the contracts is measured this way. `isStorableText` refuses NUL and lone surrogates. |
 | `src/enums.ts` | Every closed list of words (venue kinds and modes, roles, triggers, onboarding steps, import sources…) and the size limits. The database's check constraints use the same lists (compared in `supabase/tests`). |
 | `src/domain.ts` | One row type per table of the clean schema, column for column, plus `TABLE_COLUMNS` (compared with the database). |
 | `src/snapshot.ts` | The published menu **snapshot v2**: everything the guest menu needs. Readers ignore fields they do not know. |
@@ -24,8 +24,10 @@ bundlers (esbuild, Vite) import them directly, so there is no build step.
 | `src/activity.ts` | `ActivityEntry` (the log as the owner reads it), the closed list of actions, `venue_activity`'s query. |
 | `src/dashboard.ts` | `ClientDashboard` (`my_dashboard` v2): today at a glance, what is off and until when, nudges, rules, progress; `LIVE_REFRESH` and `pollDelay` (Realtime or polling). |
 | `src/support.ts` | `SupportCase`, `open_case` ("get help") and `ops_update_case` inputs. |
-| `src/ops.ts` | The back office: `OpsVenueRow` and its warnings, `OpsVenueDetail`, `OpsAnalytics`, their queries, `ops_set_demo`. |
+| `src/ops.ts` | The back office: `OpsVenueRow` and its warnings, `OpsVenueDetail`, `OpsAnalytics`, `OpsRevision` (a stored revision, read by staff and logged), their queries, `ops_set_demo`. |
 | `src/export.ts` | `MenuExport`: the owner's menu as JSON (`export_menu`). |
+| `src/staff.ts` | Halom staff's writes and personal-data reads: `act_for_owner` (one payload per action), `ops_approve_venue`, `ops_set_plan`, `ops_leads`, `ops_update_lead`, each with a validator. |
+| `src/addons.ts` | `save_addon_group`: a group and its options saved as one (table-row shapes, client ids, idempotent, `stale`, `option_in_rules`); `validateAddonGroupInput` (the twin of `app.validate_addon_group_input`), `validateAddonGroup` for the editor's form, `addonGroupMenuIssues` against the loaded menu. |
 | `test/fixtures.ts` | "Café Demo", a synthetic menu (invented) whose ids match `supabase/seed/synthetic.sql`. |
 | `test/import-fixtures.ts` | "Bistro Draft", a synthetic import draft (invented), and an in-memory executor of an import plan. |
 
