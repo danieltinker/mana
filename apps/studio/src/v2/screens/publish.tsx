@@ -12,7 +12,7 @@ import { standingOf } from '../data/changes.ts';
 import { draft, hasChanges, refreshDraft, type Notice } from '../data/draft.ts';
 import { toV2Error } from '../data/errors.ts';
 import * as api from '../data/menu.ts';
-import { canEdit, flushSaves, menu, refreshVenue } from '../data/store.ts';
+import { canEdit, flushSaves, hasUnsaved, menu, refreshVenue, saveState } from '../data/store.ts';
 import { errText, fmtDate, fmtDateTime, lang, t, tn } from '../i18n.ts';
 
 export function PublishScreen() {
@@ -26,6 +26,10 @@ export function PublishScreen() {
   const [justPending, setJustPending] = useState(false);
   const live = d.revisions.find((r) => r.id === v.published_revision_id);
   const nothingNew = standing !== 'never' && dr.changes !== null && !dr.loading && !hasChanges.value && v.published_revision_id !== null;
+  // a change still on its way, one that did not save, or one waiting for the owner's decision: guests would get a menu
+  // without it, so publishing waits (and says why)
+  const s = saveState.value;
+  const unsaved = s === 'saving' || s === 'failed' || s === 'conflict' ? s : null;
 
   useEffect(() => { flushSaves().then(() => refreshDraft()); refreshVenue().catch(() => {}); }, []);
   // waiting for Halom: look again when the owner comes back to the app
@@ -41,6 +45,7 @@ export function PublishScreen() {
     setBusy('publish'); setError('');
     try {
       await flushSaves();
+      if (hasUnsaved()) { setError(t('pub2.blocked.' + (saveState.value === 'conflict' ? 'conflict' : 'failed'))); return; }
       const r = await api.publishMenu(v.id, null);
       await refreshVenue();
       refreshDraft();
@@ -105,7 +110,8 @@ export function PublishScreen() {
           <ul>{dr.warnings.map((x, i) => <li key={i} class="line line-warn"><Icon name="info" /><span>{noticeText(x, dr.snapshot)}</span></li>)}</ul>
         </div>}
         {error && <Note kind="error">{error}</Note>}
-        <Btn kind="primary" block busy={busy === 'publish'} disabled={!!blockedPlan || dr.issues.length > 0 || nothingNew || !dr.snapshot} onClick={publish} data-action="publish">
+        {unsaved && <p class={'fine' + (unsaved === 'saving' ? '' : ' ferr')} role={unsaved === 'saving' ? 'status' : 'alert'} data-blocked={unsaved}>{t('pub2.blocked.' + unsaved)}</p>}
+        <Btn kind="primary" block busy={busy === 'publish'} disabled={!!blockedPlan || dr.issues.length > 0 || nothingNew || !dr.snapshot || !!unsaved} onClick={publish} data-action="publish">
           {standing === 'never' ? t('pub2.publishFirst') : t('pub2.publishChanges')}
         </Btn>
         {standing === 'never' && <p class="fine center">{t('pub2.approvalNote')}</p>}

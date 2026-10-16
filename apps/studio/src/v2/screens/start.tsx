@@ -1,7 +1,7 @@
 // The start: the same one screen as v1 (a button per sign-in provider that is on, then e-mail and password with one
 // "Continue" that signs in, or opens an account when there is none), on Supabase Auth itself. The clean schema needs a
 // confirmed e-mail before a place can be made, so a new account waits for its confirmation link, and the screen says so.
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { PRODUCT } from '../../product.ts';
 import { ownAddress, sibling } from '../../lib/api.ts';
 import { cleanEmail, emailProblem } from '../../lib/email.ts';
@@ -18,6 +18,15 @@ export function StartScreen() {
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [waiting, setWaiting] = useState<Waiting | null>(null);
   const emailRef = useRef<HTMLInputElement>(null), pwRef = useRef<HTMLInputElement>(null);
   const providers = cfg!.auth.providers;
+  // whether "Continue" can open a new account here: the sign-in service says (sign-up may be off, as on the local stack)
+  const [signupOpen, setSignupOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch(cfg!.supabaseUrl.replace(/\/$/, '') + '/auth/v1/settings', { headers: { apikey: cfg!.supabaseKey } })
+      .then((r) => (r.ok ? r.json() : null)).then((s) => { if (live && s && typeof s.disable_signup === 'boolean') setSignupOpen(!s.disable_signup); })
+      .catch(() => { /* unknown: the usual note stays */ });
+    return () => { live = false; };
+  }, []);
 
   async function withProvider(p: string) {
     if (busy) return;
@@ -105,7 +114,7 @@ export function StartScreen() {
           )}</Field>
           {error && <Note kind="error">{error}</Note>}
           <Btn type="submit" kind="primary" block busy={busy === 'mail'} disabled={!!busy && busy !== 'mail'}>{t('auth.continue')}</Btn>
-          <p class="fine center">{t('start.newNote')}</p>
+          <p class="fine center" data-signup={signupOpen === false ? 'closed' : 'open'}>{t(signupOpen === false ? 'start.closedNote' : 'start.newNote')}</p>
         </form>
         <nav class="start-links" aria-label={t('auth.links')}>
           <LangToggle plain />

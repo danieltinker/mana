@@ -45,10 +45,13 @@ export function LangSeg({ value, onChange, langs }: { value: 'he' | 'en'; onChan
   return <Seg small value={value} label={t('item.lang')} onChange={onChange} options={langs.map((l) => ({ value: l, label: t('app.' + l + '.short') }))} />;
 }
 
-/** A whole number between min and max, with − and + (a stepper a thumb can use, and a screen reader can name). */
+/**
+ * A whole number between min and max, with − and + (a stepper a thumb can use, and a screen reader can name). Left to
+ * right in both languages, − then the number then +, as the guest app's steppers are (apps/view).
+ */
 export function Stepper({ value, min, max, onChange, label, id, disabled }: { value: number; min: number; max: number; onChange: (n: number) => void; label: string; id?: string; disabled?: boolean }) {
   return (
-    <div class="stepper" role="group" aria-label={label} data-stepper={id}>
+    <div class="stepper" dir="ltr" role="group" aria-label={label} data-stepper={id}>
       <GlyphBtn icon="minus" label={t('ed.less', { name: label })} disabled={disabled || value <= min} onClick={() => onChange(value - 1)} />
       <output class="stepper-n" aria-live="polite">{value}</output>
       <GlyphBtn icon="plus" label={t('ed.more', { name: label })} disabled={disabled || value >= max} onClick={() => onChange(value + 1)} />
@@ -57,11 +60,11 @@ export function Stepper({ value, min, max, onChange, label, id, disabled }: { va
 }
 
 /** A price in shekels: digits, the ₪ after them, left to right in both languages. */
-export function MoneyInput({ value, onInput, label, invalid, id, describedBy, placeholder }: { value: string; onInput: (v: string) => void; label?: string; invalid?: boolean; id?: string; describedBy?: string; placeholder?: string }) {
+export function MoneyInput({ value, onInput, label, invalid, id, describedBy, placeholder, field, disabled }: { value: string; onInput: (v: string) => void; label?: string; invalid?: boolean; id?: string; describedBy?: string; placeholder?: string; field?: string; disabled?: boolean }) {
   return (
     <span class="money">
       <input id={id} type="text" inputMode="decimal" dir="ltr" maxLength={12} value={value} aria-label={label} aria-invalid={invalid ? 'true' : undefined} aria-describedby={describedBy}
-        placeholder={placeholder} onInput={(e) => onInput((e.target as HTMLInputElement).value)} />
+        placeholder={placeholder} disabled={disabled} data-field={field} onInput={(e) => onInput((e.target as HTMLInputElement).value)} />
       <span class="cur" aria-hidden="true">₪</span>
     </span>
   );
@@ -78,18 +81,44 @@ export function Tabs<K extends string>({ value, tabs, onChange, label }: { value
     const next = tabs[(i + (rtl ? -dir : dir) + tabs.length) % tabs.length]!;
     onChange(next.key); refs.current[next.key]?.focus();
   };
+  // the row scrolls sideways when the words do not fit; the wrapper (not a scroller) keeps its full height in a sheet
   return (
-    <div class="tabs" role="tablist" aria-label={label}>
-      {tabs.map((tb, i) => (
-        <button key={tb.key} ref={(el) => { refs.current[tb.key] = el; }} type="button" role="tab" id={'tab-' + tb.key} aria-selected={value === tb.key ? 'true' : 'false'} aria-controls={value === tb.key ? 'panel-' + tb.key : undefined}
-          tabIndex={value === tb.key ? 0 : -1} onClick={() => onChange(tb.key)} onKeyDown={(e) => key(e as any, i)} data-tab={tb.key}>
-          {tb.label}{tb.badge ? <b class="tabs-n">{tb.badge}</b> : null}
-        </button>
-      ))}
+    <div class="tabs-wrap">
+      <div class="tabs" role="tablist" aria-label={label}>
+        {tabs.map((tb, i) => (
+          <button key={tb.key} ref={(el) => { refs.current[tb.key] = el; }} type="button" role="tab" id={'tab-' + tb.key} aria-selected={value === tb.key ? 'true' : 'false'} aria-controls={value === tb.key ? 'panel-' + tb.key : undefined}
+            tabIndex={value === tb.key ? 0 : -1} onClick={() => onChange(tb.key)} onKeyDown={(e) => key(e as any, i)} data-tab={tb.key}>
+            {tb.label}{tb.badge ? <b class="tabs-n">{tb.badge}</b> : null}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
 export const TabPanel = ({ id, children }: { id: string; children: ComponentChildren }) => <div role="tabpanel" id={'panel-' + id} aria-labelledby={'tab-' + id} class="tabpanel">{children}</div>;
+
+/**
+ * An editing area that an account which may not edit (a counter) sees read-only: one fieldset, so every field, switch,
+ * stepper, price and choice inside is disabled at once, whatever the component.
+ */
+export function ReadOnly({ when, children, class: cls, ...rest }: { when: boolean; children: ComponentChildren; class?: string; [k: string]: any }) {
+  return <fieldset class={'ro' + (cls ? ' ' + cls : '')} disabled={when} data-readonly={when ? '' : undefined} {...rest}>{children}</fieldset>;
+}
+
+/**
+ * After a move made with the up or down button: the focus stays on the moved row's button, or goes to the other one when
+ * the row reached the first or last place (a disabled button cannot hold it).
+ */
+export function refocusMove(row: string, dir: 'up' | 'down') {
+  const run = () => {
+    const li = document.querySelector(row);
+    const want = li?.querySelector(`[data-move="${dir}"]`) as HTMLButtonElement | null;
+    const other = li?.querySelector(`[data-move="${dir === 'up' ? 'down' : 'up'}"]`) as HTMLButtonElement | null;
+    const to = want && !want.disabled ? want : other && !other.disabled ? other : null;
+    if (to && document.activeElement !== to) to.focus();
+  };
+  requestAnimationFrame(() => requestAnimationFrame(run));
+}
 
 type Drag = { id: string; from: number; to: number; y0: number; h: number };
 
@@ -139,8 +168,8 @@ export function ReorderList<T extends { id: string }>({ items, arranging, nameOf
               {arranging && <span class="grip" aria-hidden="true" onPointerDown={(e) => down(e as any, x, i)} onPointerMove={(e) => moveP(e as any)} onPointerUp={up} onPointerCancel={up}><Icon name="grip" size={20} /></span>}
               {render(x, i)}
               {arranging && <div class="tools">
-                <IconBtn icon="up" label={t('menu.up', { name })} disabled={i === 0} onClick={() => move(i, i - 1)} />
-                <IconBtn icon="down" label={t('menu.down', { name })} disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />
+                <IconBtn icon="up" label={t('menu.up', { name })} disabled={i === 0} data-move="up" onClick={() => { move(i, i - 1); refocusMove(`li[data-row="${x.id}"]`, 'up'); }} />
+                <IconBtn icon="down" label={t('menu.down', { name })} disabled={i === items.length - 1} data-move="down" onClick={() => { move(i, i + 1); refocusMove(`li[data-row="${x.id}"]`, 'down'); }} />
               </div>}
             </li>
           );

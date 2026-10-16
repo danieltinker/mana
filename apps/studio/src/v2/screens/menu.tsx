@@ -6,13 +6,13 @@ import { ROOMS, SECTION_KINDS, type DishRow, type SectionRow } from '@mana/contr
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Sheet, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
-import { agorotOf, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
+import { agorotOf, changed, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
 import { menuPrice } from '../data/guest.ts';
-import { byPosition, named } from '../data/rows.ts';
+import { byPosition, named, newId } from '../data/rows.ts';
 import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { LangSeg, MoneyInput, Price, ReorderList, useEntryLang } from '../ui.tsx';
+import { LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEntryLang } from '../ui.tsx';
 import { DishSheet } from './dish.tsx';
 
 export function MenuScreen({ rest }: { rest: string[] }) {
@@ -23,12 +23,18 @@ export function MenuScreen({ rest }: { rest: string[] }) {
   const [arranging, setArranging] = useState(false);
   const [said, setSaid] = useState('');
   const sheetDish = rest[0] === 'd' && rest[1] ? rest[1] : null;
-  const sheetSection = rest[0] === 's' && rest[1] ? rest[1] : null;
+  // a section's sheet only edits: an account that may not edit is taken back to the menu (also when it came by address)
+  const sheetSection = rest[0] === 's' && rest[1] && editable ? rest[1] : null;
+  useEffect(() => { if (rest[0] === 's' && !editable) go('menu', true); }, [rest[0], editable]);
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {
     const p = moveRow('sections', sections, i, to);
-    if (p) { p.catch(fail); setSaid(t('menu.moved', { name: named(sections[i], L), n: to + 1 })); }
+    if (p) {
+      p.catch(fail);
+      setSaid(t('menu.moved', { name: named(sections[i], L), n: to + 1 }));
+      refocusMove(`section[data-section="${sections[i]!.id}"] .sec-head`, to < i ? 'up' : 'down');
+    }
   };
 
   return (
@@ -61,8 +67,8 @@ export function MenuScreen({ rest }: { rest: string[] }) {
               {sec.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
               {editable && <div class="tools">
                 {arranging && <>
-                  <IconBtn icon="up" label={t('menu.up', { name })} disabled={si === 0} onClick={() => moveSection(si, si - 1)} />
-                  <IconBtn icon="down" label={t('menu.down', { name })} disabled={si === sections.length - 1} onClick={() => moveSection(si, si + 1)} />
+                  <IconBtn icon="up" label={t('menu.up', { name })} disabled={si === 0} data-move="up" onClick={() => moveSection(si, si - 1)} />
+                  <IconBtn icon="down" label={t('menu.down', { name })} disabled={si === sections.length - 1} data-move="down" onClick={() => moveSection(si, si + 1)} />
                 </>}
                 <IconBtn icon="edit" label={t('menu.cat.edit') + ': ' + name} onClick={() => go('menu/s/' + sec.id)} />
               </div>}
@@ -108,6 +114,8 @@ function QuickAdd({ section }: { section: SectionRow }) {
   const entry = langsOf(d.venue)[0] ?? 'he';
   const [open, setOpen] = useState(false), [name, setName] = useState(''), [price, setPrice] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [said, setSaid] = useState('');
+  // the next dish's id: kept until it is stored, so trying again after a lost answer never adds the dish twice
+  const [nextId, setNextId] = useState(newId);
   const nameRef = useRef<HTMLInputElement>(null);
   const label = t('menu.quick.label', { name: named(section, lang.value) });
   useEffect(() => { if (open) nameRef.current?.focus(); }, [open]);
@@ -119,7 +127,8 @@ function QuickAdd({ section }: { section: SectionRow }) {
     if (p === 'invalid') { setError(t('menu.item.badPrice')); return; }
     setBusy(true); setError('');
     try {
-      await addDish(section.id, { ['name_' + entry]: n, price: p } as Partial<DishRow>);
+      await addDish(section.id, { ['name_' + entry]: n, price: p } as Partial<DishRow>, nextId);
+      setNextId(newId());
       setName(''); setPrice(''); setSaid(t('menu.quick.added', { name: n }));
       nameRef.current?.focus();
     } catch (err) { setError(errText(toV2Error(err).code)); }
@@ -147,6 +156,9 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
   const [form, setForm] = useState<SectionForm>(() => (row ? sectionToForm(row) : newSectionForm()));
+  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays)
+  const [opened] = useState(() => (row ? sectionToForm(row) : null));
+  const [newSectionId] = useState(newId);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [nameErr, setNameErr] = useState(''), [del, setDel] = useState(false);
   if (id && !row) return <Sheet open onClose={onClose} title={t('menu.cat.edit')} name="section"><p class="muted">{t('item.notFound')}</p></Sheet>;
   const dishes = row ? d.dishes.filter((x) => x.section_id === row.id).length : 0;
@@ -157,8 +169,12 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
     if (!m.ok) { if (m.errors.some((x) => x.field === 'name')) setNameErr(t('menu.cat.nameMissing')); else setError(errText(m.errors[0]!.code)); return; }
     setBusy(true);
     try {
-      if (row) { patchRow('sections', row.id, m.value, { now: true }); onClose(); }
-      else { await addSection(m.value); onClose(); }
+      if (row && opened) {
+        const was = sectionFromForm(opened);
+        const patch = was.ok ? changed(was.value, m.value) : m.value;
+        patchRow('sections', row.id, patch, { now: true });
+        onClose();
+      } else { await addSection(m.value, newSectionId); onClose(); }
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
   }

@@ -1,15 +1,17 @@
 // The owner app on the clean schema (apps/studio/src/v2), on a 390 × 844 phone, against the simulator's stack, with
 // invented data only: an owner bot's user signs in, makes a place, builds a schnitzel whose required "side of choice"
 // (fries, salad, rice) has fries opening a nested sauce, attaches the side to a second dish with a tighter maximum,
-// checks the guest preview's price for every combination, is refused a second nesting level, publishes and sees the
-// wait for Halom's approval; after a Halom bot approves, public_menu returns exactly what was built.
-// Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2/.
+// tries the guest preview's combinations, is refused a second nesting level, publishes and sees the wait for Halom's
+// approval; after a Halom bot approves, public_menu returns exactly what was built, and every total the preview showed is
+// what priceDish gives guests for the same choices. The edge cases (two tabs, lost answers, a counter, sign-up) are in
+// studio-v2-edges.test.mjs. Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { asAnon, createUser, HalomBot, OwnerBot } from '@mana/sim';
-import { OUT, startE2E } from './helpers.mjs';
+import { fromPrice, priceDish, pricingContext } from '@mana/contracts';
+import { needsFunction, OUT, startE2E } from './helpers.mjs';
 
 const SHOTS = path.join(OUT, 'studio-v2');
 const PASSWORD = 'sim-owner-pass-1';
@@ -18,6 +20,7 @@ let e;
 before(async () => {
   e = await startE2E({ seed: null });
   if (!e.hasSite) throw new Error('the site is not built: run bash tools/build-site.sh first');
+  await needsFunction(e.stack, 'public.save_addon_group(uuid,jsonb,jsonb,timestamptz,boolean)', 'the phase-1 schema (the group editor saves through it)');
   fs.mkdirSync(SHOTS, { recursive: true });
 }, { timeout: 180000 });
 after(async () => { await e?.stop(); });
@@ -173,11 +176,15 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   sheet = await attach('שניצל', 'תוספת לבחירה');
   const preview = sheet.locator('[data-guest-preview]');
   await preview.waitFor();
-  assert.equal(await preview.locator('[data-from]').innerText(), 'החל מ־₪62');
+  const fromShown = await preview.locator('[data-from]').innerText();
+  assert.equal(fromShown, 'החל מ־₪62');
   await shot(page, '08-schnitzel-addons');
 
-  // every combination: up to two sides; fries opens the sauce (ketchup pre-selected, aioli +₪3)
-  async function priceOf(s, picks) {
+  // every combination: up to two sides; fries opens the sauce (ketchup pre-selected, aioli +₪3). The totals the preview
+  // shows are kept, and checked below against priceDish on the snapshot guests get (public_menu), not against numbers
+  // written here.
+  const shown = [];
+  async function priceOf(s, dish, picks) {
     const p = s.locator('[data-guest-preview]');
     await p.locator('[data-action="preview-reset"]').click();
     for (const x of picks) {
@@ -185,16 +192,17 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
       const box = p.getByRole('checkbox', { name, exact: true });
       await ((await box.count()) ? box : p.getByRole('radio', { name, exact: true })).check();
     }
-    return p.locator('.gp-total').getAttribute('data-total');
+    const total = await p.locator('.gp-total').getAttribute('data-total');
+    shown.push({ dish, picks, total, words: await p.locator('[data-total]').innerText() });
+    return total;
   }
-  const schnitzel = { fries: 6200, 'fries+aioli': 6500, salad: 6600, rice: 6200, 'fries+salad': 6600, 'fries+aioli+salad': 6900, 'fries+rice': 6200, 'fries+aioli+rice': 6500, 'salad+rice': 6600 };
-  for (const [combo, want] of Object.entries(schnitzel)) assert.equal(await priceOf(sheet, combo.split('+')), String(want), 'schnitzel: ' + combo);
+  const combos = ['fries', 'fries+aioli', 'salad', 'rice', 'fries+salad', 'fries+aioli+salad', 'fries+rice', 'fries+aioli+rice', 'salad+rice'];
+  for (const combo of combos) assert.match(await priceOf(sheet, 'schnitzel', combo.split('+')), /^\d+$/, 'schnitzel: ' + combo);
   // nothing chosen: the guest is told what is missing; two sides chosen: the third is not offered
   await sheet.locator('[data-action="preview-reset"]').click();
   assert.match(await preview.locator('.gp-total').innerText(), /צריך לבחור לפחות 1 בתוספת לבחירה/);
-  await priceOf(sheet, ['fries', 'aioli', 'salad']);
+  await priceOf(sheet, 'schnitzel', ['fries', 'aioli', 'salad']);
   assert.equal(await preview.getByRole('checkbox', { name: 'אורז', exact: true }).isDisabled(), true);
-  assert.equal(await preview.locator('[data-total]').innerText().then((s) => s.includes(nis(6900))), true);
   await shot(page, '09-schnitzel-preview');
 
   sheet = await attach('שניצל ילדים', 'תוספת לבחירה');
@@ -206,8 +214,7 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await limits.locator('[data-action="save-limits"]').click();
   await sheet.locator('[data-tighter]').waitFor();
   assert.match(await sheet.locator('[data-rule]').innerText(), /בוחרים 1 · חובה/);
-  const kids = { fries: 4400, 'fries+aioli': 4700, salad: 4800, rice: 4400 };
-  for (const [combo, want] of Object.entries(kids)) assert.equal(await priceOf(sheet, combo.split('+')), String(want), 'kids: ' + combo);
+  for (const combo of ['fries', 'fries+aioli', 'salad', 'rice']) assert.match(await priceOf(sheet, 'kids', combo.split('+')), /^\d+$/, 'kids: ' + combo);
   assert.equal(await sheet.locator('[data-guest-preview]').getByRole('radio', { name: 'אורז', exact: true }).count(), 1, 'a group of one is a choice of one');
   await shot(page, '10-kids-tighter');
 
@@ -317,6 +324,27 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   assert.deepEqual(sch.related, [lemonade.id]);
   assert.deepEqual([kid.related, lemonade.addons], [[], []]);
   assert.deepEqual([sch.scheduleId, kid.scheduleId, s.schedules.map((x) => [x.id, x.name.en, x.windows[0].from])], [null, lunch.id, [[lunch.id, 'Lunch', '11:00']]]);
+  // every total the owner's preview showed is what priceDish gives for the same choices on what guests get
+  const ctx = pricingContext(s);
+  const opt = (g, en) => g.options.find((o) => o.name.en === en).id;
+  const selectionOf = (picks) => ({
+    quantity: 1,
+    groups: [{
+      groupId: side.id,
+      options: picks.filter((p) => p !== 'aioli').map((p) => {
+        const optionId = opt(side, { fries: 'Fries', salad: 'Salad', rice: 'Rice' }[p]);
+        return p !== 'fries' ? { optionId } : { optionId, nested: [{ groupId: sauce.id, options: [{ optionId: opt(sauce, picks.includes('aioli') ? 'Aioli' : 'Ketchup') }] }] };
+      }),
+    }],
+  });
+  assert.equal(shown.length, 14);
+  for (const x of shown) {
+    const r = priceDish(x.dish === 'kids' ? kid : sch, selectionOf(x.picks), ctx);
+    assert.equal(r.ok, true, x.dish + ' ' + x.picks.join('+'));
+    assert.equal(x.total, String(r.total), x.dish + ' ' + x.picks.join('+') + ': the preview showed ' + x.total);
+    assert.ok(x.words.includes(nis(r.total)), x.dish + ' ' + x.picks.join('+') + ': the preview said ' + x.words);
+  }
+  assert.equal(fromShown, 'החל מ־' + nis(fromPrice(sch, ctx).amount));
   // the owner's draft preview and what guests get are the same menu
   const draft = await owner.preview();
   const strip = (x) => ({ ...x, revision: 0, publishedAt: '' });

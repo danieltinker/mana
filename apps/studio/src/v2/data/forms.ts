@@ -3,7 +3,7 @@
 import { LIMITS, ROOMS, SECTION_KINDS, SELECTIONS, TAGS, isBlank, oneOf, stripBlank } from '@mana/contracts';
 import type { AddonGroupRow, AddonOptionRow, DishRow, Room, SectionKind, SectionRow, SelectionKind, Tag } from '@mana/contracts';
 import { formatMinor, parsePrice } from '../../lib/money.ts';
-import { byPosition } from './rows.ts';
+import { byPosition, newId } from './rows.ts';
 
 export type FieldError = { readonly field: string; readonly code: string };
 export type Mapped<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly errors: readonly FieldError[] };
@@ -106,10 +106,27 @@ export function dishDraft(f: DishForm): { value: DishWrite; errors: FieldError[]
 export const blockedColumns = (errors: readonly FieldError[]): Set<string> =>
   new Set(errors.flatMap((e) => (e.field === 'name' ? ['name_he', 'name_en'] : [e.field])));
 
+/**
+ * What one edit of a dish's form asks to store: only the columns that edit changed (so a column changed somewhere else
+ * is never written back from this screen), without those that now have a problem. A column that had a problem and has
+ * none now goes too. The section is its own write (a dish moving to another section takes a new position there).
+ */
+export function dishEdit(before: DishForm, after: DishForm): { patch: Partial<DishWrite>; errors: FieldError[] } {
+  const a = dishDraft(before), b = dishDraft(after);
+  const blocked = blockedColumns(b.errors), had = blockedColumns(a.errors);
+  const patch: Partial<DishWrite> = {};
+  for (const k of Object.keys(b.value) as (keyof DishWrite)[]) {
+    if (k === 'section_id' || blocked.has(k)) continue;
+    if (had.has(k) || JSON.stringify(a.value[k]) !== JSON.stringify(b.value[k])) (patch as Record<string, unknown>)[k] = b.value[k];
+  }
+  return { patch, errors: b.errors };
+}
+
 // ---------------------------------------------------------------- add-on groups (D37, ADR-002)
 export type OptionForm = {
-  /** A stable key for the list (the id, or a made-up one for an option not saved yet). */
+  /** The option's id: the stored one, or the one it will be stored under (made here, so a retry names the same row). */
   key: string;
+  /** null until stored. */
   id: string | null;
   nameHe: string; nameEn: string;
   /** Shekels added per unit, as typed; '' is free. */
@@ -120,11 +137,11 @@ export type OptionForm = {
   opensGroupId: string | null;
 };
 export type GroupForm = { label: string; nameHe: string; nameEn: string; selection: SelectionKind; min: number; max: number; options: OptionForm[] };
-export type OptionWrite = Pick<AddonOptionRow, 'position' | 'name_he' | 'name_en' | 'price' | 'max_qty' | 'is_default' | 'opens_group_id'> & { id: string | null };
+/** An option as save_addon_group takes it: its id is the stored one, or the client's own for a new option. */
+export type OptionWrite = Pick<AddonOptionRow, 'id' | 'position' | 'name_he' | 'name_en' | 'price' | 'max_qty' | 'is_default' | 'opens_group_id'>;
 export type GroupWrite = { group: Pick<AddonGroupRow, 'label' | 'name_he' | 'name_en' | 'selection' | 'min_units' | 'max_units'>; options: OptionWrite[] };
 
-let seq = 0;
-export const newOptionForm = (): OptionForm => ({ key: 'new-' + ++seq, id: null, nameHe: '', nameEn: '', price: '', maxQty: 1, isDefault: false, opensGroupId: null });
+export const newOptionForm = (): OptionForm => ({ key: newId(), id: null, nameHe: '', nameEn: '', price: '', maxQty: 1, isDefault: false, opensGroupId: null });
 /** "Choose one", required: the most common group (a side, a size). */
 export const newGroupForm = (): GroupForm => ({ label: '', nameHe: '', nameEn: '', selection: 'single', min: 1, max: 1, options: [newOptionForm()] });
 
@@ -172,7 +189,7 @@ export function groupFromForm(f: GroupForm, groupId: string | null): Mapped<Grou
       if (o.opensGroupId === groupId) errors.push({ field: p + '.opens', code: 'opens_self' });
       if (o.maxQty !== 1) errors.push({ field: p + '.maxQty', code: 'opener_qty' });
     }
-    return { id: o.id, position: i, name_he: on.he, name_en: on.en, price: price === 'invalid' || price === null ? 0 : price, max_qty: o.maxQty, is_default: o.isDefault, opens_group_id: o.opensGroupId };
+    return { id: o.id ?? o.key, position: i, name_he: on.he, name_en: on.en, price: price === 'invalid' || price === null ? 0 : price, max_qty: o.maxQty, is_default: o.isDefault, opens_group_id: o.opensGroupId };
   });
 
   if (!Number.isInteger(f.min) || !Number.isInteger(f.max) || f.min < 0 || f.max < 1 || f.min > f.max || f.max > 30) errors.push({ field: 'limits', code: 'limits_invalid' });

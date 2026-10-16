@@ -26,12 +26,32 @@ const S: Record<string, [string, string]> = {
   'start.confirm.back': ['חזרה לכניסה', 'Back to sign in'],
   'start.confirm.resend': ['לשלוח את הקישור שוב', 'Send the link again'],
   'auth.e.signup_closed': ['האימייל או הסיסמה לא נכונים. חשבונות חדשים עוד לא נפתחים כאן.', 'The email or the password is wrong. New accounts cannot be opened here yet.'],
+  'start.closedNote': ['חשבונות חדשים עוד לא נפתחים כאן. כדי לקבל גישה, כתבו לנו.', 'New accounts are not opened here yet. To get access, message us.'],
+
+  // ---- changed somewhere else (another tab or device saved the same row first)
+  'conflict.title': ['השתנה במקום אחר', 'Changed somewhere else'],
+  'conflict.bodyDish': ['המנה "{name}" נשמרה במסך או במכשיר אחר אחרי שפתחתם אותה. השינוי שלכם עוד לא נשמר. מה להשאיר?', 'The dish "{name}" was saved on another screen or device after you opened it. Your change is not saved yet. Which should stay?'],
+  'conflict.bodySection': ['הקטגוריה "{name}" נשמרה במסך או במכשיר אחר אחרי שפתחתם אותה. השינוי שלכם עוד לא נשמר. מה להשאיר?', 'The section "{name}" was saved on another screen or device after you opened it. Your change is not saved yet. Which should stay?'],
+  'conflict.body': ['"{name}" נשמר במסך או במכשיר אחר אחרי שפתחתם אותו. השינוי שלכם עוד לא נשמר. מה להשאיר?', '"{name}" was saved on another screen or device after you opened it. Your change is not saved yet. Which should stay?'],
+  'conflict.field': ['שדה', 'Field'],
+  'conflict.stored': ['שמור עכשיו', 'Stored now'],
+  'conflict.mine': ['שלכם', 'Yours'],
+  'conflict.alsoThere': ['שם השתנו גם: {fields}. זה נשאר כמו שנשמר שם.', 'Also changed there: {fields}. That stays as it was saved there.'],
+  'conflict.hint': ['"להשאיר את שלי" שומר רק את מה ששיניתם כאן.', '"Keep mine" saves only what you changed here.'],
+  'conflict.keepMine': ['להשאיר את שלי', 'Keep mine'],
+  'conflict.takeStored': ['לקחת את השמור', 'Take the stored one'],
+  'conflict.empty': ['ריק', 'Empty'],
+  'conflict.shown': ['מוצג', 'Shown'],
+  'conflict.position': ['מקום ברשימה', 'Place in the list'],
 
   // ---- a new place
   'venue.create': ['יצירת המקום', 'Create the place'],
   'venue.unconfirmed.title': ['קודם מאשרים את האימייל', 'First, confirm your email'],
   'venue.unconfirmed.body': ['אפשר ליצור מקום רק אחרי שכתובת האימייל אושרה. הקישור לאישור נשלח אל', 'A place can be created only once your email address is confirmed. The confirmation link went to'],
   'venue.unconfirmed.then': ['אחרי שתפתחו את הקישור, צאו והיכנסו שוב.', 'Once you have opened the link, sign out and sign in again.'],
+  'venue.unsaved.title': ['יש שינויים שלא נשמרו', 'Some changes are not saved'],
+  'venue.unsaved.body': ['השינויים האחרונים במקום הזה לא נשמרו. אם תעברו עכשיו למקום אחר, הם יאבדו.', 'The latest changes in this place did not save. If you switch now, they are lost.'],
+  'venue.unsaved.go': ['לעבור בלי לשמור', 'Switch without saving'],
 
   // ---- the menu
   'menu2.empty.title': ['התפריט עוד ריק', 'The menu is empty'],
@@ -142,6 +162,15 @@ const S: Record<string, [string, string]> = {
   'lib.leave.title': ['לצאת בלי לשמור?', 'Leave without saving?'],
   'lib.leave.body': ['השינויים בקבוצה הזאת עוד לא נשמרו, והם יאבדו.', 'The changes to this group are not saved yet and will be lost.'],
   'lib.leave.go': ['לצאת בלי לשמור', 'Leave without saving'],
+  'lib.stale.title': ['הקבוצה נשמרה במקום אחר', 'This group was saved somewhere else'],
+  'lib.stale.body': ['היא נשמרה במסך או במכשיר אחר אחרי שפתחתם אותה. כך היא שמורה עכשיו:', 'It was saved on another screen or device after you opened it. This is how it is stored now:'],
+  'lib.stale.keep': ['לשמור את שלי במקומה', 'Save mine over it'],
+  'lib.stale.take': ['לקחת את השמורה', 'Take the stored one'],
+  'lib.rules.title': ['כללי הצעה משתמשים באפשרויות האלה', 'Suggestion rules use these choices'],
+  'lib.rules.body': ['{n} כללי הצעה מציעים אפשרויות שמחקתם: {names}. אם תשמרו, הכללים יימחקו יחד איתן.', '{n} suggestion rules suggest choices you deleted: {names}. If you save, the rules are deleted with them.'],
+  'lib.rules.body1': ['כלל הצעה אחד מציע אפשרות שמחקתם: {names}. אם תשמרו, הכלל יימחק יחד איתה.', 'One suggestion rule suggests a choice you deleted: {names}. If you save, the rule is deleted with it.'],
+  'lib.rules.go': ['למחוק ולשמור', 'Delete and save'],
+  'lib.rules.unnamed': ['כלל בלי שם', 'an unnamed rule'],
 
   // ---- publishing
   'pub2.standing.never': ['עוד לא פורסם', 'Not published yet'],
@@ -167,6 +196,9 @@ const S: Record<string, [string, string]> = {
   'pub2.changes.groups1': ['קבוצת תוספות אחת השתנתה', '1 add-on group changed'],
   'pub2.restoreShort': ['להחזיר', 'Put back'],
   'pub2.revPending': ['מחכה לאישור', 'Waiting for approval'],
+  'pub2.blocked.saving': ['השינויים האחרונים עוד נשמרים. אפשר לפרסם ברגע שהם נשמרים.', 'Your latest changes are still saving. You can publish as soon as they are saved.'],
+  'pub2.blocked.failed': ['חלק מהשינויים לא נשמרו, ולכן הפרסום מחכה. נסו לשמור שוב (למעלה).', 'Some changes did not save, so publishing waits. Try saving again (at the top).'],
+  'pub2.blocked.conflict': ['שינוי אחד מחכה להחלטה שלכם (הוא השתנה גם במקום אחר), ולכן הפרסום מחכה.', 'A change is waiting for your decision (it was changed somewhere else too), so publishing waits.'],
   'issue.rule_left_out.scope_empty': ['כלל ההצעה לא ייכלל: המנות או הקטגוריות שהוא חל עליהן מוסתרות או נמחקו.', 'The suggestion rule is left out: the dishes or sections it applies to are hidden or gone.'],
   'issue.rule_left_out.basket_has_empty': ['כלל ההצעה לא ייכלל: מה שהוא מחכה לו בהזמנה מוסתר או נמחק.', 'The suggestion rule is left out: what it waits for in the basket is hidden or gone.'],
   'issue.rule_left_out.suggestion_hidden': ['כלל ההצעה לא ייכלל: מה שהוא מציע מוסתר או נמחק.', 'The suggestion rule is left out: what it suggests is hidden or gone.'],
@@ -190,6 +222,7 @@ const S: Record<string, [string, string]> = {
   'e.too_many': ['יש כאן יותר מדי פריטים.', 'There are too many items here.'],
   'e.ref_unknown': ['משהו כאן מפנה לפריט שכבר לא קיים.', 'Something here points to an item that no longer exists.'],
   'e.form_invalid': ['יש שדות לתקן. הם מסומנים למטה.', 'Some fields need fixing. They are marked below.'],
+  'e.stale': ['זה השתנה במסך או במכשיר אחר, ולכן מוצג עכשיו כפי שהוא שמור. נסו שוב.', 'This changed on another screen or device, so it is shown as it is stored now. Try again.'],
   'e.invalid_menu': ['יש בתפריט משהו שמונע פרסום. הבעיות מופיעות למעלה.', 'Something in the menu stops the publish. The problems are listed above.'],
   'e.slug_invalid': ['אי אפשר להשתמש בכתובת הזאת. נסו כתובת אחרת.', 'This address cannot be used. Try another one.'],
   'e.limit_sections': ['הגעתם ל־{n} קטגוריות, וזה המקסימום.', 'You have {n} sections, the maximum.'],
@@ -204,6 +237,9 @@ const S: Record<string, [string, string]> = {
 const ALIAS: Record<string, string> = {
   price_invalid: 'menu.item.badPrice', not_allowed: 'err.forbidden', venue_unknown: 'err.not_found', exists: 'auth.e.wrong_password',
   limit_venues: 'setup.e.limit_businesses', text_too_long: 'e.too_long', bad_login: 'auth.e.short',
+  // save_addon_group's input codes (the SQL twin of the contracts' validateAddonGroupInput)
+  units_invalid: 'e.limits_invalid', qty_invalid: 'e.option_qty_invalid', defaults_invalid: 'e.defaults_exceed', nesting_invalid: 'e.opens_self',
+  group_unknown: 'e.ref_unknown',
 };
 /** The numbers the limit messages name (the schema's own, as in @mana/contracts). */
 const LIMIT_N: Record<string, number> = {

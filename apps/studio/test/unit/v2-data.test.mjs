@@ -5,14 +5,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, defaultSelection, priceDish, validateSnapshotV2 } from '@mana/contracts';
 import {
-  agorotOf, blockedColumns, changed, dishDraft, dishLimitsFromForm, dishToForm, effectiveLimits, groupFromForm, groupToForm, limitChoices,
-  newGroupForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
+  agorotOf, blockedColumns, changed, dishDraft, dishEdit, dishLimitsFromForm, dishToForm, effectiveLimits, groupFromForm, groupToForm, limitChoices,
+  newGroupForm, newOptionForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
 } from '../../src/v2/data/forms.ts';
 import { canHoldOpeners, nestingProblem, openTargets } from '../../src/v2/data/nesting.ts';
 import { choose, clearGroup, guestModel, menuPrice, pricingOf, setQty, unitsIn } from '../../src/v2/data/guest.ts';
 import { menuChanges, standingOf, anyChange } from '../../src/v2/data/changes.ts';
 import { refusal, toV2Error, V2Error } from '../../src/v2/data/errors.ts';
-import { byPosition, reorder } from '../../src/v2/data/rows.ts';
+import { byPosition, newId, reorder } from '../../src/v2/data/rows.ts';
 
 // ---------------------------------------------------------------- an invented menu, as stored rows
 const V = '00000000-0000-4000-8000-0000000000aa';
@@ -67,6 +67,37 @@ test('a dish: the form shows shekels, the write stores agorot; a field with a pr
   const bad = dishDraft({ ...f, price: '6o', nameEn: '', nameHe: '' });
   assert.deepEqual(bad.errors.map((e) => e.code).sort(), ['name_missing', 'price_invalid']);
   assert.deepEqual([...blockedColumns(bad.errors)].sort(), ['name_en', 'name_he', 'price']);
+});
+
+test('one edit of a dish asks to store only the columns it changed (never a column changed elsewhere and stale here)', () => {
+  const f = dishToForm(schnitzel);
+  // the price is typed: the price only, though every other column of this (stale) form differs from some stored row
+  assert.deepEqual(dishEdit(f, { ...f, price: '65' }).patch, { price: 6500 });
+  assert.deepEqual(dishEdit(f, { ...f, descHe: ' פריך ' }).patch, { desc_he: 'פריך' });
+  assert.deepEqual(dishEdit(f, { ...f, tags: ['vegan'] }).patch, { tags: ['vegan'] });
+  // a price with a problem is held back (and said), the edit stores nothing; fixed, it goes, even back to "no price"
+  const typo = { ...f, price: '6o' };
+  assert.deepEqual(dishEdit(f, typo), { patch: {}, errors: [{ field: 'price', code: 'price_invalid' }] });
+  assert.deepEqual(dishEdit(typo, { ...typo, price: '60' }).patch, { price: 6000 });
+  assert.deepEqual(dishEdit(typo, { ...typo, price: '' }).patch, { price: null });
+  // both names emptied: held back; one typed again: both names go
+  const blank = { ...f, nameHe: '', nameEn: '' };
+  assert.deepEqual(dishEdit(f, blank).patch, {});
+  assert.deepEqual(dishEdit(blank, { ...blank, nameEn: 'Schnitzel' }).patch, { name_he: '', name_en: 'Schnitzel' });
+  // the section is not an autosave column (moving takes a new position: its own write)
+  assert.deepEqual(dishEdit(f, { ...f, sectionId: 'elsewhere' }).patch, {});
+});
+
+test('new rows get their ids here: a uuid, a new one each time; a new choice is saved under its own', () => {
+  const a = newId(), b = newId();
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.notEqual(a, b);
+  const f = groupToForm(side, rows.options);
+  const extra = newOptionForm();
+  assert.equal(extra.id, null);
+  const w = groupFromForm({ ...f, options: [...f.options, { ...extra, nameHe: 'צ׳יפס בטטה' }] }, side.id);
+  assert.equal(w.ok, true);
+  assert.deepEqual(w.value.options.map((o) => o.id), [fries.id, salad.id, rice.id, extra.key], 'the stored ones keep theirs; the new one is saved under the id made for it');
 });
 
 test('a group: the form round-trips, and every rule the validators hold is checked before a write', () => {
