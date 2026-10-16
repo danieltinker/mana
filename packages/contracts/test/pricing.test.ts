@@ -213,6 +213,16 @@ test('defaultSelection follows the owner\'s defaults and prices without errors',
   assert.deepEqual(d2.groups[0], { groupId: ID.side, options: [] });
 });
 
+test('defaultSelection skips a default opener whose required nested group is sold out entirely', () => {
+  // every sauce off: fries (the default side) could not be added, so the sheet starts with no side, not a dead end
+  const c = { groups: ctx.groups, unavailable: { dishes: new Set<string>(), options: new Set([ID.aioli, ID.ketchup, ID.chipotle]) } };
+  assert.deepEqual(defaultSelection(DISHES.burger, c).groups[0], { groupId: ID.side, options: [] });
+  assert.deepEqual(codes(priceDish(DISHES.burger, defaultSelection(DISHES.burger, c), off(ID.aioli, ID.ketchup, ID.chipotle))), ['below_min']);
+  // one sauce back (not the default one): fries is pre-selected again, and its sauce starts empty (aioli is off)
+  const one = { groups: ctx.groups, unavailable: { dishes: new Set<string>(), options: new Set([ID.aioli, ID.chipotle]) } };
+  assert.deepEqual(defaultSelection(DISHES.burger, one).groups[0], { groupId: ID.side, options: [{ optionId: ID.fries, nested: [{ groupId: ID.sauce, options: [] }] }] });
+});
+
 test('a total too large for exact arithmetic is refused, not rounded', () => {
   const huge: DishV2 = { ...DISHES.lemonade, price: { amount: Math.floor(Number.MAX_SAFE_INTEGER / 4), note: { he: '', en: '' } } };
   assert.deepEqual(codes(priceDish(huge, sel([], 3), ctx)), ['total_overflow']);
