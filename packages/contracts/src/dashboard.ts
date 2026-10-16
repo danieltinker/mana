@@ -114,6 +114,7 @@ export type ClientDashboard = {
   readonly rules: readonly RuleNumbers[];
   readonly offNow: readonly OffNowEntry[];
   readonly menu: DashboardMenu;
+  /** All nine steps of `ONBOARDING_STEPS`, in journey order (a step never written is `todo`). */
   readonly onboarding: readonly OnboardingStepView[];
   readonly progress: Omit<OnboardingProgress, 'steps'>;
   readonly nudges: readonly Nudge[];
@@ -148,8 +149,9 @@ export const LIVE_REFRESH = {
 /** The subscription filter for one venue's rows (`postgres_changes` filter syntax). */
 export const venueFilter = (venueId: string): string => `venue_id=eq.${venueId}`;
 
-/** The wait before the next poll: the base, doubled per consecutive failure up to `maxBackoffMs`, with ±10 % jitter. */
+/** The wait before the next poll: the base, doubled per consecutive failure, with ±10 % jitter, never above
+ * `maxBackoffMs`. */
 export function pollDelay(baseMs: number, failures: number, random: () => number = Math.random): number {
   const raw = Math.min(baseMs * 2 ** Math.max(0, failures), LIVE_REFRESH.maxBackoffMs);
-  return Math.round(raw * (0.9 + 0.2 * random()));
+  return Math.min(Math.round(raw * (0.9 + 0.2 * random())), LIVE_REFRESH.maxBackoffMs);
 }

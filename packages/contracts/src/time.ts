@@ -231,7 +231,8 @@ export const MAX_DURATION_MINUTES = 60 * 24 * 30;
  * When an override that starts `now` ends (null = indefinitely). The database computes the same moment when the
  * override is stored (app.resolve_until), so the restore happens by the clock with no job.
  * - duration: now + minutes (absolute time; a DST change does not stretch it), rounded up to the whole minute, so the
- *   moment the guest's phone shows ("back at 14:32") is the moment the database restores it, to the second;
+ *   moment the guest's phone shows ("back at 14:32") is the moment the database restores it, to the second (the
+ *   database rounds the same way from the phase-1 migration on);
  * - time: the next time the wall clock shows HH:MM (today, or tomorrow when it has passed);
  * - next_opening: the next opening after now, skipping closed dates; without hours, the start of tomorrow;
  * - date: 00:00 of that local date (back on that day).
