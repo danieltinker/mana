@@ -109,5 +109,16 @@ export const CSS = `
 .v2-tag:disabled{opacity:.4;cursor:default}
 .v2-tag.t-vegan svg,.v2-tag.t-vegetarian svg{color:#a9c98a}
 .v2-tag.t-spicy svg{color:#f0a184}
+/* a look with a light card (templates: casablanca-white): the same pieces in ink on whitewash */
+.app[data-card="light"] .card .g-hint,.app[data-card="light"] .card .o-price,.app[data-card="light"] .card .o-name small,.app[data-card="light"] .card .r-price,.app[data-card="light"] .card .s-what,.app[data-card="light"] .card .v2-related h2{color:var(--look-ink-soft,#4a4541)}
+.app[data-card="light"] .card .s-what b,.app[data-card="light"] .card .r-name{color:var(--look-ink,#0f0f0f)}
+.app[data-card="light"] .card .v2-group>legend{border-color:rgba(15,15,15,.14)}
+.app[data-card="light"] .card .o-mark,.app[data-card="light"] .card .stepper button,.app[data-card="light"] .card .v2-rel button{border-color:rgba(15,15,15,.32)}
+.app[data-card="light"] .card .opt.sold .o-name,.app[data-card="light"] .card .opt.full:not(.on) .o-name{color:var(--look-ink-faint,#57514c)}
+.app[data-card="light"] .card .v2-need,.app[data-card="light"] .card .s-kicker{color:var(--look-price,#6d5319)}
+.app[data-card="light"] .card .v2-nested{border-color:rgba(15,15,15,.18)}
+.app[data-card="light"] .card .v2-rel .thumb{background:rgba(15,15,15,.06);color:var(--look-ink-soft,#4a4541)}
+.app[data-card="light"] .card .v2-sug{background:linear-gradient(var(--accent-soft),var(--accent-soft)),rgb(252,248,246)}
+.app[data-card="light"] .card.v2-choices .actions{background:linear-gradient(to bottom,rgba(252,248,246,0),rgb(252,248,246) 22px)}
 @media (forced-colors:active){ .opt input:checked+.o-mark{background:Highlight} .v2-tag[aria-pressed="true"]{border-width:2px} }
 `;

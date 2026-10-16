@@ -44,11 +44,16 @@ export function createGuest(model, { env, mem, src, kit }) {
   let lines = (() => { try { return readLines(JSON.parse(mem.get(basketKey) || 'null')); } catch (e) { return []; } })();
   let session = null, sessions = 0, pendingEdit = null, sheetFromSuggestion = null, tried = false, flashUntil = 0, flashTimer = null;
   const visit = createVisit(full.v2.snap.upsellRules, full.v2.menu), viewed = new Set();
-  let tags = [], panelOpen = false, barLang = null, availKey = '', builtKey = '', sugKeys = {}, polling = false;
+  let tags = [], panelOpen = false, barLang = null, availKey = '', builtKey = '', sugKeys = {}, polling = null;
   const els = {};
   const ev = createEvents({
     venueId: full.v2.snap.venueId, tz: full.v2.snap.venue.timeZone,
-    send: (batch, { keepalive }) => rpc(env, 'track_events', { p_events: batch }, { keepalive }).then((r) => ({ ok: r.ok, status: r.status }))
+    /* a call that hangs is given up after 15 s and retried later with the same ids (otherwise nothing after it would ever be sent) */
+    send(batch, { keepalive }) {
+      const ac = typeof AbortController === 'function' ? new AbortController() : null, t = ac ? setTimeout(() => ac.abort(), 15000) : 0;
+      return rpc(env, 'track_events', { p_events: batch }, { keepalive, signal: ac ? ac.signal : undefined })
+        .then((r) => ({ ok: r.ok, status: r.status })).finally(() => clearTimeout(t));
+    }
   });
 
   const g = () => full.v2, ctx = () => full.v2.ctx;
@@ -426,17 +431,20 @@ export function createGuest(model, { env, mem, src, kit }) {
     if (page) page.redraw();
     renderBar();
   }
-  async function tick() {
-    if (polling) return;
-    polling = true;
-    try {
-      const r = await poll(full, env);
-      if (r.state === 'live') applyAvailability(setLive(full, r.live));
-      else if (r.state === 'revision') reload(toModel(r.raw.snapshot, r.raw.live, kit));
-      else applyAvailability(refresh(full));
-    } catch (e) {
-      applyAvailability(refresh(full));                        // offline: the clock still moves (day parts, "back at 14:30")
-    } finally { polling = false; }
+  /** Ask public_menu again. One call at a time: the timer skips a turn while one is out; `again` waits for it, then asks. */
+  function tick({ again = false } = {}) {
+    if (polling) return again ? polling.then(() => tick()) : polling;
+    polling = (async () => {
+      try {
+        const r = await poll(full, env);
+        if (r.state === 'live') applyAvailability(setLive(full, r.live));
+        else if (r.state === 'revision') reload(toModel(r.raw.snapshot, r.raw.live, kit));
+        else applyAvailability(refresh(full));
+      } catch (e) {
+        applyAvailability(refresh(full));                      // offline: the clock still moves (day parts, "back at 14:30")
+      } finally { polling = null; }
+    })();
+    return polling;
   }
   function reload(m) {                                         // the owner published again: the new menu, the same basket
     full = m; items = indexItems(full); session = null; visit.use(full.v2.snap.upsellRules, full.v2.menu); builtKey = ''; availKey = refresh(full);
@@ -506,11 +514,11 @@ export function createGuest(model, { env, mem, src, kit }) {
     add,
     track(id, kind) { if (kind !== 'open' || viewed.has(id)) return false; viewed.add(id); ev.emit('dish_viewed', { dishId: id }); return true; },
     flush: () => ev.drained(),
-    refresh: () => tick(),
+    refresh: () => tick({ again: true }),
     debug: () => ({ lines: lines.map((l) => ({ key: l.key, dishId: l.dishId, quantity: l.quantity, selection: l.selection })),
       pending: visit.pending && { ruleId: visit.pending.ruleId, trigger: visit.pending.trigger, where: visit.pending.where, suggest: visit.pending.suggest },
-      session: session && { dishId: session.dishId, selection: session.selection, editKey: session.editKey }, tags: [...tags], ...visit.memory(), queued: ev.pending(),
-      total: priced(lines, g().menu, ctx()).total, closed: g().closed })
+      session: session && { dishId: session.dishId, selection: session.selection, editKey: session.editKey }, tags: [...tags], ...visit.memory(), queued: ev.pending(), events: ev.state(),
+      total: priced(lines, g().menu, ctx()).total, closed: g().closed, offOptions: [...g().unavailable.options] })
   };
 }
 

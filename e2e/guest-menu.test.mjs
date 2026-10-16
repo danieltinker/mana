@@ -36,7 +36,8 @@ async function phone(query, { clock = null } = {}) {
   if (clock !== null) await page.clock.install({ time: clock });
   page.events = []; page.answers = [];
   page.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/rpc/track_events')) page.events.push(...JSON.parse(r.postData()).p_events); });
-  page.on('response', async (r) => { if (r.request().method() === 'POST' && r.url().endsWith('/rpc/track_events')) page.answers.push(await r.json().catch(() => null)); });
+  page.on('response', async (r) => { if (r.request().method() === 'POST' && r.url().endsWith('/rpc/track_events')) { const j = await r.json().catch(() => null); page.answers.push(j); if (r.status() !== 200) page.failures = (page.failures || []).concat({ status: r.status(), body: j }); } });
+  page.on('requestfailed', (r) => { if (r.url().endsWith('/rpc/track_events')) page.failures = (page.failures || []).concat({ failed: r.failure() && r.failure().errorText }); });
   await page.goto(e.webUrl + 'view/?' + query);
   await page.waitForFunction(() => window.__mana && window.__mana.state() && window.__mana.v2());
   pages.push(page);
@@ -49,6 +50,9 @@ const opt = (page, optionId, opener = null) => page.locator((opener ? `.v2-neste
 const sheetSug = (page) => page.locator('#v2SheetSug .v2-sug');
 const openDish = async (page, id) => { await page.click(`.row[data-id="${id}"]`); await page.locator('#addBtn2').waitFor(); };
 const closeSheet = (page) => page.keyboard.press('Escape');
+/** Every event the phone has queued, sent (a test fails here, with what is left, rather than hanging). */
+const flushed = (page) => page.evaluate(() => Promise.race([window.__mana.flush().then(() => null),
+  new Promise((r) => setTimeout(() => r(window.__mana.v2().events), 45000))])).then((left) => assert.equal(left, null, 'events still queued after 45 s: ' + JSON.stringify({ left, failures: (page.failures || []).slice(-3) })));
 
 test('the sheet: a size, a nested sauce, "from" prices, one suggestion accepted and one dismissed, the basket and its total', { timeout: 180000 }, async () => {
   const page = await phone('m=bistro-sim&lang=en&gl=off&test=1&t=1');
@@ -128,7 +132,7 @@ test('the sheet: a size, a nested sauce, "from" prices, one suggestion accepted 
   assert.deepEqual((await lines())[0], ['Burger', 'Sweet potato · Ketchup · Cheese × 2', '₪84']);
   assert.equal(await text(page, '#trayTotal'), '₪114');
 
-  await page.evaluate(() => window.__mana.flush());
+  await flushed(page);
   assert.deepEqual(names(page.events), { menu_opened: 1, dish_viewed: 2, suggestion_shown: 3, addon_chosen: 5, suggestion_accepted: 2, basket_added: 3, suggestion_dismissed: 1 });
   assert.deepEqual(page.events.find((x) => x.name === 'menu_opened').props, { src: 'qr', lang: 'en', revision: 1 });
   assert.deepEqual(page.events.filter((x) => x.name === 'basket_added').map((x) => [x.props.dishId, x.props.fromSuggestion]), [[D().burger, false], [D().espresso, false], [D().croissant, true]]);
@@ -166,42 +170,66 @@ test('the vegan filter says it is on, shows only vegan dishes, and what it hides
   await page.click('.v2-pill.on button');                                                   // clear: everything is back
   assert.equal(await page.locator('#list .row').count(), 6);
   assert.equal(await page.locator('.v2-pill.on').count(), 0);
-  await page.evaluate(() => window.__mana.flush());
+  await flushed(page);
   assert.deepEqual(page.problems, []);
 });
 
-test('an owner takes a dish off mid-visit: the phone greys it at once, and the basket line that holds it is marked and left out of the total', { timeout: 120000 }, async () => {
+test('an owner takes a dish and a sauce off mid-visit: the phone greys them at once; the basket lines that hold them are marked, explained and left out of the total', { timeout: 120000 }, async () => {
   const page = await phone('m=bistro-sim&lang=en&gl=off&test=1');
-  await openDish(page, D().lemonade);
-  await page.click('#addBtn2');
-  await closeSheet(page);
-  await openDish(page, D().cookie);
+  for (const id of [D().lemonade, D().cookie]) { await openDish(page, id); await page.click('#addBtn2'); await closeSheet(page); }
+  await openDish(page, D().burger);
+  await opt(page, O()['sweet-potato']).click(); await opt(page, O().harissa, O()['sweet-potato']).click();
   await page.click('#addBtn2');
   await closeSheet(page);
   await bistro.owner.soldOut('dish', D().lemonade, { kind: 'duration', minutes: 120 }, 'ice machine');
+  await bistro.owner.soldOut('option', O().harissa, { kind: 'indefinite' });
   const row = `.row[data-id="${D().lemonade}"]`;
   await page.locator(row + ' .badge.sold').waitFor({ timeout: 10000 });                     // the next live refresh (800 ms here, 30 s by default)
   assert.match(await text(page, row + ' .badge.sold'), /^Sold out · back (at \d\d:\d\d|on \w+)$/);
   assert.equal(await page.evaluate((id) => window.__mana.model().itemById.get(id).item.available, D().lemonade), false);
+  await page.evaluate(() => window.__mana.refresh());                                       // both changes are in (a poll may have landed between the two)
+  assert.deepEqual(await page.evaluate(() => window.__mana.v2().offOptions), [O().harissa]);
   await page.click(row);
   assert.equal(await page.isDisabled('#addBtn2'), true, 'never addable');
   assert.match(await text(page, '#addBtn2'), /^Sold out/);
   await closeSheet(page);
+
+  await openDish(page, D().burger);                                                         // the sauce: greyed, never selectable
+  await opt(page, O()['sweet-potato']).click();
+  const harissa = opt(page, O().harissa, O()['sweet-potato']);
+  assert.equal(await harissa.locator('input').isDisabled(), true);
+  assert.match(await harissa.innerText(), /Harissa\s*Sold out/);
+  assert.equal(await harissa.evaluate((el) => el.classList.contains('sold')), true);
+  await shot(page, '07-sauce-sold-out-in-the-sheet');
+  await closeSheet(page);
+
   await page.click('#trayBtn');
   await page.locator('#traySheet.open').waitFor();
-  const lemonade = page.locator('#trayList li.v2-line', { hasText: 'Lemonade' });
-  assert.equal(await lemonade.locator('.l-why').innerText(), 'Sold out now. You can remove it.');
-  assert.equal(await lemonade.locator('.l-price').innerText(), 'Not in the total');
+  const line = (name) => page.locator('#trayList li.v2-line', { hasText: name });
+  assert.equal(await line('Lemonade').locator('.l-why').innerText(), 'Sold out now. You can remove it.');
+  assert.equal(await line('Lemonade').locator('.l-price').innerText(), 'Not in the total');
+  assert.equal(await line('Burger').locator('.l-why').innerText(), 'Harissa is sold out now. Change your choice.');
+  assert.equal(await line('Burger').locator('[data-act="edit"]').count(), 1, 'fixable from the line');
   assert.equal(await text(page, '#trayTotal'), '₪9', 'the cookie only');
-  await shot(page, '07-sold-out-mid-visit-basket');
-  await lemonade.locator('[data-act="remove"]').click();
-  assert.equal(await page.locator('#trayList li.v2-line').count(), 1);
+  await shot(page, '08-sold-out-mid-visit-basket');
+  await line('Lemonade').locator('[data-act="remove"]').click();
+  assert.equal(await page.locator('#trayList li.v2-line').count(), 2);
   await page.keyboard.press('Escape');
 
   await bistro.owner.restore('dish', D().lemonade);
+  await bistro.owner.restore('option', O().harissa);
   await page.locator(row + ' .badge.sold').waitFor({ state: 'detached', timeout: 10000 });
+  await page.evaluate(() => window.__mana.refresh());
   assert.equal(await page.evaluate((id) => window.__mana.model().itemById.get(id).item.available, D().lemonade), true);
-  await page.evaluate(() => window.__mana.flush());
+  assert.equal(await page.evaluate(() => window.__mana.v2().total), 7900 + 900, 'the burger counts again');
+  await page.click('#trayBtn');
+  await page.locator('#traySheet.open').waitFor();
+  await page.click('#trayClear');
+  assert.equal(await page.locator('#trayList li').count(), 0);
+  assert.equal(await page.isVisible('#trayCount'), false);
+  assert.deepEqual(await page.evaluate(() => window.__mana.v2().lines), []);
+  await page.keyboard.press('Escape');
+  await flushed(page);
   assert.deepEqual(page.problems, []);
 });
 
@@ -215,13 +243,13 @@ test('the table (WebGL) and the list offer the same choices; the table greys a d
   await table.evaluate(() => window.__mana.settle());
   assert.equal(await table.evaluate(() => window.__mana.state().simple), false, 'the table is drawn');
   const frames = (n = 12) => table.evaluate(async (k) => { for (let i = 0; i < k; i++) await window.__mana.frame(50); }, n);
-  await shot(table, '08-table-card-from-price');
+  await shot(table, '09-table-card-from-price');
   await table.evaluate(() => window.__mana.lift(true)); await frames();
   assert.deepEqual(await optionsOf(table), fromList, 'the same groups and options, nested included');
   await opt(table, O()['sweet-potato']).click(); await opt(table, O().harissa, O()['sweet-potato']).click(); await frames(4);
   assert.equal(await text(table, '#addBtn2'), 'Add to my table · ₪79');
   assert.equal(await table.evaluate(() => document.getElementById('app').scrollTop), 0, 'the sheet scrolls, never the page');
-  await shot(table, '09-table-sheet-nested');
+  await shot(table, '10-table-sheet-nested');
   await table.evaluate(() => window.__mana.lift(false)); await frames();
   await table.evaluate((id) => window.__mana.goTo(id), D().toast); await frames(30);
   await bistro.owner.soldOut('dish', D().toast, { kind: 'duration', minutes: 60 });
@@ -230,14 +258,14 @@ test('the table (WebGL) and the list offer the same choices; the table greys a d
   assert.equal(await table.locator('#dSold').isVisible(), true);
   assert.match(await text(table, '#dSold'), /^Sold out/);
   assert.equal(await table.evaluate(() => window.__mana.info().actors.find((a) => a.id === window.__mana.state().itemId).sat < 0.3), true, 'the stage has taken its colour');
-  await shot(table, '10-table-sold-out-greyed');
+  await shot(table, '11-table-sold-out-greyed');
   await bistro.owner.restore('dish', D().toast);
   await table.evaluate((id) => window.__mana.goTo(id), D().cookie); await frames(30);
   await table.click('#addBtn');                                                             // no choices: added from the card itself
   await table.locator('#v2Float .v2-sug').waitFor();
   assert.match(await text(table, '#v2Float'), /A cold lemonade\?[\s\S]*Lemonade[\s\S]*₪14/, 'the "add" suggestion, over the card');
   assert.equal(await text(table, '#trayCount'), '1');
-  await shot(table, '11-table-added-suggestion');
+  await shot(table, '12-table-added-suggestion');
   await table.click('#v2Float .ghost');
   assert.equal(await table.locator('#v2Float').isVisible(), false);
 
@@ -247,8 +275,8 @@ test('the table (WebGL) and the list offer the same choices; the table greys a d
   assert.match((await text(he, '#dPriceRow')).replace(/\s+/g, ''), /^החלמ־(68₪|₪68)$/);
   assert.deepEqual(await he.$$eval('#v2Groups > .v2-group > legend', (ls) => ls.map((l) => l.innerText.replace(/\s+/g, ' '))), ['תוספת לבחירה לבחור 1 · חובה', 'תוספות עד 3 · לא חובה']);
   assert.match(await text(he, '#addBtn2'), /^להוסיף לשולחן שלי · /);
-  await shot(he, '12-hebrew-sheet');
-  for (const p of [list, table, he]) { await p.evaluate(() => window.__mana.flush()); assert.deepEqual(p.problems, []); }
+  await shot(he, '13-hebrew-sheet');
+  for (const p of [list, table, he]) { await flushed(p); assert.deepEqual(p.problems, []); }
 });
 
 test('keyboard and screen reader: every choice is a named control, reachable and operable by keys; text has contrast', { timeout: 120000 }, async () => {
@@ -274,7 +302,7 @@ test('keyboard and screen reader: every choice is a named control, reachable and
     return ['.g-name', '.g-hint', '.o-name', '.o-price', '#addBtn2', '.s-line', '.s-kicker', '.r-price'].map((q) => { const el = document.querySelector(q); return [q, el ? +ratio(getComputedStyle(el).color, q === '#addBtn2' ? getComputedStyle(el).backgroundColor : bg).toFixed(2) : null]; });
   });
   for (const [q, r] of contrast) assert.ok(r === null || r >= 4.5, q + ' contrast ' + r);
-  await page.evaluate(() => window.__mana.flush());
+  await flushed(page);
   assert.deepEqual(page.problems, []);
 });
 
@@ -289,13 +317,23 @@ test('Café Demo on its own clock: before opening the menu says "closed now", br
   assert.equal(await badge(C.shakshuka).innerText(), 'Served from 07:00');
   assert.equal(await badge(C['friday-cake']).innerText(), 'Served from Friday, 07:00');
   assert.equal(await badge(C.burger).count(), 0, 'a menu stays readable while the venue is closed');
-  await shot(page, '13-cafe-demo-closed-day-parts');
+  await shot(page, '14-cafe-demo-closed-day-parts');
   await page.clock.fastForward('36:00');                                                    // 07:06
   await page.evaluate(() => window.__mana.refresh());
   await badge(C.shakshuka).waitFor({ state: 'detached' });
   assert.equal(await page.locator('.v2-pill.closed').count(), 0);
   await openDish(page, C.shakshuka);
   assert.equal(await page.isDisabled('#addBtn2'), false);
+  await closeSheet(page);
+  await openDish(page, C.espresso);                                                         // an optional single choice: "None" until the guest picks one
+  const O2 = cafe.ids.options, milk = page.locator(`#v2Groups > .v2-group[data-g="${cafe.ids.groups.milk}"]`);
+  assert.equal((await milk.locator('legend').innerText()).replace(/\s+/g, ' '), 'Milk Optional');
+  assert.equal(await milk.locator('.opt.none input').isChecked(), true);
+  await milk.locator(`[data-o="${O2.oat}"]`).click();
+  assert.equal(await text(page, '#addBtn2'), 'Add to my table · ₪14');
+  await milk.locator('.opt.none').click();
+  assert.equal(await milk.locator(`[data-o="${O2.oat}"] input`).isChecked(), false);
+  assert.equal(await text(page, '#addBtn2'), 'Add to my table · ₪12');
   assert.deepEqual(page.problems, []);
 });
 
@@ -309,13 +347,13 @@ test('events reach the rollups: after the job, the owner\'s dashboard shows exac
   });
   await openDish(page, D().cookie);
   await page.click('#addBtn2');
-  await page.evaluate(() => window.__mana.flush());
+  await flushed(page);
   const batches = page.events.length;
   assert.ok(new Set(page.events.map((x) => x.id)).size < batches, 'some ids were sent twice');
   page.problems = page.problems.filter((p) => !/Failed to load resource|ERR_CONNECTION_RESET|track_events/.test(p));
 
   // every Bistro Sim event any phone in this file sent, once per id, as the database must have counted them
-  for (const p of pages) await p.evaluate(() => window.__mana.flush()).catch(() => {});
+  for (const p of pages) await flushed(p);
   const sent = new Map();
   for (const p of pages) for (const ev of p.events) if (ev.venueId === bistro.venueId) sent.set(ev.id, ev);
   // (Café Demo's phone ran on a clock days in the past: the database refuses those times, as it should; not counted here)

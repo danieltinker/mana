@@ -69,6 +69,8 @@ export function createEvents({ send, venueId, tz, now = Date.now, id = newId, de
   return {
     emit, flush,
     pending: () => queue.length,
+    /** For tests and debugging: what is queued, whether a send is out, how many failed in a row. */
+    state: () => ({ queued: queue.length, sending: !!busy, failures, waiting: timer !== null }),
     /** Resolves once everything queued so far has been sent (for tests and for leaving the page). */
     drained: () => (queue.length ? new Promise((r) => { waiters.push(r); flush(); }) : Promise.resolve())
   };
