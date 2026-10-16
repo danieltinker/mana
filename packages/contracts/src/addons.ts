@@ -12,7 +12,7 @@
  * rows.
  */
 import { Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, type Issue, type Validation } from './common.ts';
-import type { AddonGroupRow, AddonOptionRow } from './domain.ts';
+import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow } from './domain.ts';
 import { LIMITS, SELECTIONS } from './enums.ts';
 import { GROUP_UNITS_MAX } from './import.ts';
 import { onlyKeys, optionalText } from './rpc.ts';
@@ -57,16 +57,23 @@ export type AddonOptionWrite = Pick<AddonOptionRow, 'id'> &
  *      the RPC changes the group or any of its options. It is compared as `timestamptz`, so the client sends the value
  *      exactly as it read it (a table read and this reply give microseconds).
  *    A group that does not exist is inserted, whatever version was sent (a group deleted elsewhere is created again).
- * 6. `option_in_rules` with `rules` (ids, sorted): options the input leaves out are suggested by upsell rules. With
+ * 6. **The dishes that use the group** (its `dish_addon_groups` links, in `id` order; the first one refused answers),
+ *    against the input's limits (`min_units`, `max_units`, defaults 0 and 1) and its options' capacity (the sum of their
+ *    `max_qty`, default 1), with path `dishGroups.<link id>`: `limits_loosened` when the link's own `min_units` is
+ *    below the group's new min or its own `max_units` above the new max (what `app.guard_dish_addon` refuses when a link
+ *    is written); otherwise `limits_invalid` when the link's minimum (its own, else the group's) is above its maximum
+ *    (its own, else the group's) or above the capacity. A dish's limits never end up looser than its group's, or out of
+ *    reach, because the group changed under it.
+ * 7. `option_in_rules` with `rules` (ids, sorted): options the input leaves out are suggested by upsell rules. With
  *    `p_confirm_rule_removal` the save goes on and those rules are deleted with the options (the foreign key's
  *    cascade; the audit logs each deletion).
- * 7. The writes, `via = rpc`, audited per statement: the group inserted or updated (changing `min_units` or `max_units`
+ * 8. The writes, `via = rpc`, audited per statement: the group inserted or updated (changing `min_units` or `max_units`
  *    sets `limits_confirmed`; otherwise the input's `limits_confirmed`, when given, is stored); the left-out options
  *    deleted; the options inserted or updated (only those that differ); the group's `updated_at` touched when only its
  *    options changed (not logged as activity).
- * 8. A trigger that refuses a row rolls the whole save back and answers its code: `nesting_too_deep`,
- *    `limit_options_per_group`, `limit_addon_groups`, `limits_loosened`, …; a foreign key `group_unknown`, a unique key
- *    `conflict`, another check `invalid` (with the `constraint`'s name).
+ * 9. A trigger that refuses a row rolls the whole save back and answers its code: `nesting_too_deep`,
+ *    `limit_options_per_group`, `limit_addon_groups`, …; a foreign key `group_unknown`, a unique key `conflict`, another
+ *    check `invalid` (with the `constraint`'s name).
  *
  * The reply's rows are the stored rows as `to_jsonb` gives them; options by `position`, then `id`.
  */
@@ -88,12 +95,12 @@ export type AddonGroupCheck = Pick<SaveAddonGroupInput, 'venueId' | 'group' | 'o
 export type AddonGroupCode =
   | 'type' | 'field_not_allowed' | 'id_invalid' | 'id_duplicate' | 'text_too_long' | 'text_invalid' | 'name_missing'
   | 'enum_invalid' | 'units_invalid' | 'single_max' | 'price_invalid' | 'qty_invalid' | 'position_invalid'
-  | 'nesting_invalid' | 'defaults_invalid';
+  | 'nesting_invalid' | 'defaults_invalid' | 'options_empty' | 'min_unreachable';
 
-/** The codes the database finds against stored rows (steps 4, 6 and 8 above). */
+/** The codes the database finds against stored rows (steps 1, 4, 6, 7 and 9 above). */
 export type SaveAddonGroupStoredCode =
-  | 'venue_unknown' | 'not_allowed' | 'group_unknown' | 'nesting_too_deep' | 'limit_options_per_group' | 'limit_addon_groups'
-  | 'limits_loosened' | 'conflict' | 'invalid';
+  | 'venue_unknown' | 'not_allowed' | 'group_unknown' | 'limits_loosened' | 'limits_invalid' | 'nesting_too_deep'
+  | 'limit_options_per_group' | 'limit_addon_groups' | 'conflict' | 'invalid';
 
 export type StoredAddonGroup = { readonly group: AddonGroupRow; readonly options: readonly AddonOptionRow[] };
 
@@ -116,6 +123,7 @@ const blankName = (o: Readonly<Record<string, unknown>>): boolean =>
 function check(x: Issues, g: unknown, options: unknown): void {
   let gid: string | null = null;
   let hi: number | null = null;
+  let min: number | null = null; // the group's min, when its units are valid (no units_invalid)
   if (!isObject(g)) x.add('type', 'group');
   else {
     for (const k of Object.keys(g)) if (!GROUP_KEYS.includes(k)) x.add('field_not_allowed', `group.${k}`);
@@ -133,17 +141,27 @@ function check(x: Issues, g: unknown, options: unknown): void {
       const lo = given(g, 'min_units') ? (g.min_units as number) : 0;
       const single = !given(g, 'selection') || g.selection === null || g.selection === 'single';
       if (lo > hi) x.add('units_invalid', 'group.max_units');
-      else if (single && hi !== 1) x.add('single_max', 'group.max_units');
+      else {
+        min = lo;
+        if (single && hi !== 1) x.add('single_max', 'group.max_units');
+      }
     }
     if (given(g, 'limits_confirmed') && typeof g.limits_confirmed !== 'boolean') x.add('type', 'group.limits_confirmed');
   }
 
   if (!Array.isArray(options)) return void x.add('type', 'options');
+  if (options.length === 0) x.add('options_empty', 'options');
   const ids = new Set<string>();
   let defaults = 0;
+  let capacity: number | null = 0; // the sum of max_qty (default 1); null once an option or its max_qty is unreadable
   options.forEach((o: unknown, i) => {
     const at = `options[${i}]`;
-    if (!isObject(o)) return void x.add('type', at);
+    if (!isObject(o)) {
+      capacity = null;
+      return void x.add('type', at);
+    }
+    if (given(o, 'max_qty') && !between(o.max_qty, 1, LIMITS.optionQuantity)) capacity = null;
+    else if (capacity !== null) capacity += given(o, 'max_qty') ? (o.max_qty as number) : 1;
     for (const k of Object.keys(o)) if (!OPTION_KEYS.includes(k)) x.add('field_not_allowed', `${at}.${k}`);
     if (!isUuid(o.id)) x.add('id_invalid', `${at}.id`);
     else if (ids.has(o.id.toLowerCase())) x.add('id_duplicate', `${at}.id`);
@@ -164,6 +182,8 @@ function check(x: Issues, g: unknown, options: unknown): void {
     }
   });
   if (hi !== null && defaults > hi) x.add('defaults_invalid', 'options');
+  const cap = capacity as number | null; // (assigned inside the callback above)
+  if (min !== null && cap !== null && options.length > 0 && min > cap) x.add('min_unreachable', 'group.min_units');
 }
 
 /**
@@ -176,8 +196,13 @@ function check(x: Issues, g: unknown, options: unknown): void {
  * - `qty_invalid`: max_qty not 1–10, or an option that opens a group with max_qty other than 1;
  * - `nesting_invalid`: an option opens its own group; `defaults_invalid`: more defaults than the group's max;
  * - `name_missing`: neither name says anything (`group`, `options[i]`); `text_too_long`: above 60 code points once
- *   blank edges are stripped.
- * An empty list of options is valid here (publishing refuses an empty group, `options_empty`).
+ *   blank edges are stripped;
+ * - `options_empty` (`options`): a group needs at least one option (right after the list is read, before the options'
+ *   own issues);
+ * - `min_unreachable` (`group.min_units`, last): the group's min is above its options' capacity (the sum of their
+ *   `max_qty`, default 1). Checked only when the units are valid (no `units_invalid`), the list is not empty, and every
+ *   option is an object whose `max_qty` is absent or 1–10.
+ * The RPC is the owner app's only writer of groups, so a group the editor saves can always be published.
  */
 export function validateAddonGroupInput(raw: unknown): Validation<AddonGroupCheck> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
@@ -199,15 +224,18 @@ export function validateAddonGroup(group: unknown, options: unknown): Validation
 export type AddonGroupMenu = {
   readonly groups: ReadonlyArray<Pick<AddonGroupRow, 'id'>>;
   readonly options: ReadonlyArray<Pick<AddonOptionRow, 'id' | 'group_id' | 'opens_group_id'>>;
+  /** The dishes' links to groups; without them the links are not checked. */
+  readonly dishGroups?: ReadonlyArray<Pick<DishAddonGroupRow, 'id' | 'group_id' | 'min_units' | 'max_units'>>;
 };
 
 /**
  * What the RPC would refuse against the venue's stored rows, found on the editor's copy of them before the call (every
  * one, where the RPC answers the first): `not_allowed` (`options[i].id` is an option of another group),
  * `group_unknown` (`options[i].opens_group_id` is not one of the venue's groups) and `nesting_too_deep` (an option
- * opens a group whose options open one, or this group holds an opener while an option of another group opens it). The
- * group's own stored options are left out, since the input replaces them. Run it on an input that passed
- * `validateAddonGroup`.
+ * opens a group whose options open one, or this group holds an opener while an option of another group opens it); then
+ * the group's dish links in `id` order, `limits_loosened` or `limits_invalid` with `dishGroups.<link id>` (step 6 of
+ * `SaveAddonGroupInput`). The group's own stored options are left out, since the input replaces them. Run it on an
+ * input that passed `validateAddonGroup`.
  */
 export function addonGroupMenuIssues(group: AddonGroupWrite, options: readonly AddonOptionWrite[], menu: AddonGroupMenu): Issue[] {
   const x = new Issues();
@@ -224,5 +252,15 @@ export function addonGroupMenuIssues(group: AddonGroupWrite, options: readonly A
     if (!groupIds.has(t)) x.add('group_unknown', `options[${i}].opens_group_id`);
     else if (opened || openers.has(t)) x.add('nesting_too_deep', `options[${i}].opens_group_id`);
   });
+  const gmin = group.min_units ?? 0;
+  const gmax = group.max_units ?? 1;
+  const capacity = options.reduce((n, o) => n + (o.max_qty ?? 1), 0);
+  const links = (menu.dishGroups ?? []).filter((d) => d.group_id.toLowerCase() === gid).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const d of links) {
+    const lo = d.min_units ?? gmin;
+    const hi = d.max_units ?? gmax;
+    if ((d.min_units !== null && d.min_units < gmin) || (d.max_units !== null && d.max_units > gmax)) x.add('limits_loosened', `dishGroups.${d.id}`);
+    else if (lo > hi || lo > capacity) x.add('limits_invalid', `dishGroups.${d.id}`);
+  }
   return x.list;
 }

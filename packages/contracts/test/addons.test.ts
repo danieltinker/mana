@@ -26,8 +26,6 @@ test('valid inputs: whole rows, the shortest group, and defaults from the table'
   assert.deepEqual(errs(validateAddonGroupInput(check())), []);
   // only the id: label and names '' would leave no name, so a name is the least a group needs
   assert.deepEqual(errs(validateAddonGroupInput({ venueId: V, group: { id: G, name_en: 'Sides' }, options: [{ id: optId(1), name_he: 'צ׳יפס' }] })), []);
-  // an empty list is a valid save (publishing refuses the empty group)
-  assert.deepEqual(errs(validateAddonGroupInput(check({ options: [] }))), []);
   assert.deepEqual(errs(validateAddonGroupInput(check({ group: group({ limits_confirmed: true, min_units: 2, max_units: 2 }) }))), []);
   // 60 emoji are 60 code points, and blank edges do not count
   const burgers = String.fromCodePoint(0x1f354).repeat(ADDON_TEXT_MAX);
@@ -79,6 +77,26 @@ test('every option code, with the path the database gives', () => {
   assert.deepEqual(o([1, 2, 3].map((n) => opt(n, { is_default: true })), { max_units: 40 }), ['units_invalid@group.max_units']);
 });
 
+test('a group the editor saves can be published: at least one option, a reachable minimum', () => {
+  const o = (options: unknown, gr: Record<string, unknown> = {}) => errs(validateAddonGroupInput(check({ group: group(gr), options })));
+  assert.deepEqual(o([]), ['options_empty@options']);
+  assert.deepEqual(o([], { min_units: 2 }), ['options_empty@options'], 'an empty list is only empty, not also out of reach');
+  // two options of one unit each cannot make three; one of three units can
+  assert.deepEqual(o([opt(1), opt(2)], { min_units: 3, max_units: 3 }), ['min_unreachable@group.min_units']);
+  assert.deepEqual(o([opt(1, { max_qty: 3 })], { min_units: 3, max_units: 3 }), []);
+  // max_qty left out counts one unit
+  assert.deepEqual(o([{ id: optId(1), name_en: 'Fries' }, { id: optId(2), name_en: 'Rice' }], { min_units: 2, max_units: 2 }), []);
+  assert.deepEqual(o([{ id: optId(1), name_en: 'Fries' }], { min_units: 2, max_units: 2 }), ['min_unreachable@group.min_units']);
+  // last, after the options' own issues
+  assert.deepEqual(o([opt(1, { price: -1 })], { min_units: 2, max_units: 2 }), ['price_invalid@options[0].price', 'min_unreachable@group.min_units']);
+  assert.deepEqual(o([opt(1)], { selection: 'single', min_units: 2, max_units: 2 }), ['single_max@group.max_units', 'min_unreachable@group.min_units']);
+  // not computed on unreadable units or quantities (their own codes say what to fix)
+  assert.deepEqual(o([opt(1)], { min_units: 3, max_units: 2 }), ['units_invalid@group.max_units']);
+  assert.deepEqual(o([opt(1, { max_qty: 0 })], { min_units: 2, max_units: 2 }), ['qty_invalid@options[0].max_qty']);
+  assert.deepEqual(o([opt(1), 'rice'], { min_units: 2, max_units: 2 }), ['type@options[1]']);
+  assert.deepEqual(errs(validateAddonGroup(group({ min_units: 2 }), [])), ['options_empty@options'], 'the per-group entry point too');
+});
+
 test('the input: its own keys, and the first issue in the twin order', () => {
   assert.deepEqual(errs(validateAddonGroupInput('x')), ['type@']);
   assert.deepEqual(errs(validateAddonGroupInput(check({ venueId: 'x', expectedUpdatedAt: null }))), ['field_not_allowed@expectedUpdatedAt', 'id_invalid@venueId']);
@@ -112,6 +130,36 @@ test('the checks against the stored menu, before the call', () => {
   assert.deepEqual(issues({ id: G }, [opt(1, { opens_group_id: EXTRAS })]), ['nesting_too_deep@options[0].opens_group_id'], 'extras opens a group already');
   assert.deepEqual(issues({ id: SAUCE }, [opt(60, { opens_group_id: G })]), ['nesting_too_deep@options[0].opens_group_id'], 'sauce is opened by extras');
   assert.deepEqual(issues({ id: G }, [opt(1), opt(50)]), ['not_allowed@options[1].id'], 'an option never moves between groups');
+});
+
+test('the checks against the stored menu: the dishes that use the group', () => {
+  const L1 = '00000000-0000-4000-8000-00000000d0a1';
+  const L2 = '00000000-0000-4000-8000-00000000d0a2';
+  const links = (min: number | null, max: number | null, other = { min: null as number | null, max: null as number | null }): AddonGroupMenu => ({
+    groups: [{ id: G }], options: [],
+    dishGroups: [
+      { id: L2, group_id: G, min_units: other.min, max_units: other.max },
+      { id: L1, group_id: G, min_units: min, max_units: max },
+      { id: '00000000-0000-4000-8000-00000000d0a3', group_id: SAUCE, min_units: 9, max_units: 9 }, // another group's link
+    ],
+  });
+  const three = [opt(1), opt(2), opt(3)];
+  const run = (menu: AddonGroupMenu, g: AddonGroupWrite, options: AddonOptionWrite[] = three) =>
+    addonGroupMenuIssues(g, options, menu).map((e) => `${e.code}@${e.path}`);
+  const multi = (min: number, max: number): AddonGroupWrite => ({ id: G, name_en: 'Sides', selection: 'multiple', min_units: min, max_units: max });
+  assert.deepEqual(run(links(1, 2), multi(0, 3)), []);
+  assert.deepEqual(run(links(1, 2), multi(2, 3)), [`limits_loosened@dishGroups.${L1}`], 'the dish asks for less than the new minimum');
+  assert.deepEqual(run(links(null, 3), multi(0, 2)), [`limits_loosened@dishGroups.${L1}`], 'the dish allows more than the new maximum');
+  assert.deepEqual(run(links(null, 2), { id: G, name_en: 'Sides' }), [`limits_loosened@dishGroups.${L1}`], 'a single group (the default): max 1');
+  assert.deepEqual(run(links(3, null), multi(0, 2)), [`limits_invalid@dishGroups.${L1}`], 'its own min above the new max');
+  assert.deepEqual(run(links(3, null), multi(0, 3), [opt(1), opt(2)]), [`limits_invalid@dishGroups.${L1}`], 'its own min above the capacity');
+  assert.deepEqual(run(links(null, 1), multi(2, 3)), [`limits_invalid@dishGroups.${L1}`], 'the new min above its own max');
+  // one issue per link, loosened first; links in id order
+  assert.deepEqual(run(links(4, 5, { min: 0, max: 1 }), multi(1, 3)),
+    [`limits_loosened@dishGroups.${L1}`, `limits_loosened@dishGroups.${L2}`]);
+  // a dish that keeps the group's own limits follows the group (the validator checks the group itself)
+  assert.deepEqual(run(links(null, null), multi(2, 2), [opt(1), opt(2)]), []);
+  assert.deepEqual(addonGroupMenuIssues(multi(2, 3), three, { groups: [{ id: G }], options: [] }), [], 'no links given, none checked');
 });
 
 test('the reply: stale carries the stored rows, option_in_rules the rules, the rest a code and a path', () => {
