@@ -10,14 +10,17 @@
 
      node tools/serve-site.mjs [--port 4180] [--host 127.0.0.1] [--site _site] [--live]       (= npm run serve)
    It says which environment the build is for. A production build talks to halom-studio, the live database, so its
-   config.js is withheld (no page can reach the database; the in-build demo still works) unless --live is given.
+   config.js is withheld (no page can reach the database; the in-build demo still works) unless --live is given. The
+   settings are checked on every request: if _site/ is rebuilt for another environment while it runs, config.js is
+   refused and the terminal says so.
    --host 0.0.0.0 opens it to the local network (a phone on the same Wi-Fi). */
+import crypto from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { envOf, readConfig, ROOT, schemaOf } from './env.mjs';
+import { envOf, readConfig, readConfigText, ROOT, schemaOf } from './env.mjs';
 
 export const DEFAULT_PORT = 4180;
 const TYPES = {
@@ -31,20 +34,52 @@ const TYPES = {
 /* halom.io's vercel.json sets these for every path, /mana/ and /m/ included */
 const HALOM_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' };
 
+/** The settings guard, decided on every request, never once at start: `_site/` can be rebuilt under a running server.
+    A file is the site's settings when it is config.js, a hard link to it (the same inode) or a copy (the same content);
+    it is identified by what it holds now:
+      production's settings  withheld (404), unless `live` (npm run serve -- --live);
+      another environment's than `expected` (the one checked at start)  refused (409), and `warn` says so once.
+    Returns, for a request of `file` (stat `st`): null (not the settings), { code, body } (not served) or { body }. */
+function settingsGuard(root, { expected = null, live = false, warn = (line) => console.error(line) } = {}) {
+  const settings = path.join(root, 'config.js'), verdicts = new Map(), warned = new Set();
+  const digest = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+  const judge = (text) => {
+    let env = null; try { env = envOf(readConfigText(text)); } catch { /* unreadable */ }
+    if (!env) return { code: 409, body: 'refused: config.js is unreadable', warn: '! _site/config.js is unreadable: refused' };
+    if (expected && env !== expected) {
+      return { code: 409, body: `refused: _site/ was rebuilt for ${env}, not ${expected}; restart the server`,
+        warn: `! _site/config.js is now ${env}'s${env === 'production' ? ' (halom-studio, the live database)' : ''}, not the ${expected} build this server checked at start: refused; restart it after a rebuild` };
+    }
+    if (env === 'production' && !live) return { code: 404, body: 'withheld: a production build\'s settings are served only with --live' };
+    return null;
+  };
+  return (file, st) => {
+    let cur = null; try { cur = fs.statSync(settings); } catch { /* none now */ }
+    if (!cur) return null;
+    const linked = file === settings || (st.dev === cur.dev && st.ino === cur.ino);
+    if (!linked && st.size !== cur.size) return null;
+    const body = fs.readFileSync(file), id = digest(body);
+    if (!linked && id !== digest(fs.readFileSync(settings))) return null;
+    if (!verdicts.has(id)) verdicts.set(id, judge(body.toString('utf8')));
+    const v = verdicts.get(id);
+    if (v?.warn && !warned.has(id)) { warned.add(id); warn(v.warn); }
+    return v ? { code: v.code, body: v.body } : { body };
+  };
+}
+
 /** An http.Server for `site`, routed as halom.io routes Mana. It never serves a file whose real path (symbolic links
-    resolved) is outside `site`, and a request it cannot make sense of gets a 4xx, never a crash. `withhold`: paths in
-    the site it answers 404 for (a production build's config.js, unless --live). */
-export function createSiteServer({ site, withhold = [] }) {
+    resolved) is outside `site`, and a request it cannot make sense of gets a 4xx, never a crash. `settings` configures
+    the settings guard above ({ expected, live, warn }); by default production's settings are withheld. */
+export function createSiteServer({ site, settings = {} }) {
   const root = fs.realpathSync(path.resolve(site));
   const inside = (f) => f === root || f.startsWith(root + path.sep);
-  /* the file's stat, if its real path is inside the site and not withheld; null when missing, outside the site,
-     withheld (by its real path, so no other name or link reaches it), a name too long, a NUL */
+  const guard = settingsGuard(root, settings);
+  /* the file's stat, if its real path is inside the site; null when missing, outside the site, a name too long, a NUL */
   const realOf = (f) => { try { return fs.realpathSync(f); } catch { return null; } };
-  const held = new Set(withhold.map((w) => realOf(path.resolve(root, w))).filter(Boolean));
   const look = (f) => {
     try {
       const st = fs.statSync(f, { throwIfNoEntry: false }), real = st && realOf(f);
-      return real && inside(real) ? Object.assign(st, { withheld: held.has(real) }) : null;
+      return real && inside(real) ? st : null;
     } catch { return null; }
   };
   return http.createServer((req, res) => {
@@ -76,8 +111,10 @@ export function createSiteServer({ site, withhold = [] }) {
     }
 
     function send(f, s) {
-      if (s.withheld) return text(404, 'withheld: a production build\'s settings are served only with --live');
       const type = TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream';
+      const held = guard(f, s);
+      if (held?.code) return text(held.code, held.body);
+      if (held) { head(200, { 'Content-Type': type, 'Content-Length': held.body.length }); return res.end(req.method === 'HEAD' ? undefined : held.body); }   // the bytes that were checked
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
       let start = 0, end = s.size - 1, code = 200;
       if (range && (range[1] || range[2])) {
@@ -94,9 +131,9 @@ export function createSiteServer({ site, withhold = [] }) {
 }
 
 /** Starts the server; resolves with its origin (as this machine opens it) and close(). */
-export function serveSite({ site = path.join(ROOT, '_site'), port = DEFAULT_PORT, host = '127.0.0.1', withhold = [] } = {}) {
+export function serveSite({ site = path.join(ROOT, '_site'), port = DEFAULT_PORT, host = '127.0.0.1', settings = {} } = {}) {
   if (!fs.existsSync(path.join(site, 'index.html'))) throw new Error(`no built site in ${site} (bash tools/build-site.sh)`);
-  const server = createSiteServer({ site, withhold });
+  const server = createSiteServer({ site, settings });
   return new Promise((resolve, reject) => {
     server.once('error', (e) => reject(e.code === 'EADDRINUSE' ? new Error(`port ${port} is taken: pass --port <another>`) : e));
     server.listen(port, host, () => {
@@ -145,7 +182,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const site = path.resolve(a.site || path.join(ROOT, '_site'));
     let cfg; try { cfg = readConfig(path.join(site, 'config.js')); } catch (e) { throw new Error(`no readable config.js in ${site} (bash tools/build-site.sh): ${e.message}`); }
     const production = envOf(cfg) === 'production', guarded = production && !a.live;
-    const s = await serveSite({ site, port: a.port ? Number(a.port) : DEFAULT_PORT, host: a.host || '127.0.0.1', withhold: guarded ? ['config.js'] : [] });
+    const s = await serveSite({ site, port: a.port ? Number(a.port) : DEFAULT_PORT, host: a.host || '127.0.0.1', settings: { expected: envOf(cfg), live: !!a.live } });
     console.log(`serving ${path.relative(ROOT, site) || '.'} as halom.io would; Ctrl-C stops it`);
     console.log(`settings: ${envOf(cfg)} (${cfg.supabaseUrl}, schema ${schemaOf(cfg)})`);
     if (guarded) {

@@ -41,11 +41,14 @@ export const schemaOf = (cfg) => cfg.schema ?? 1;
 export const realtimeOf = (cfg) => cfg.realtime ?? true;
 
 /** Runs a config.js as a page runs it (a classic script, `location` at `origin`) and returns its HALOM_MENUS_CONFIG. */
-export function readConfig(file, { origin = 'http://127.0.0.1:4180' } = {}) {
+export const readConfig = (file, opts) => readConfigText(fs.readFileSync(file, 'utf8'), { ...opts, filename: file });
+
+/** The same, for a config.js's text (serve-site reads the bytes it is about to send). */
+export function readConfigText(text, { origin = 'http://127.0.0.1:4180', filename = 'config.js' } = {}) {
   const window = {};
-  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { window, location: new URL(origin) }, { filename: file, timeout: 1000 });
+  vm.runInNewContext(text, { window, location: new URL(origin) }, { filename, timeout: 1000 });
   const cfg = window.HALOM_MENUS_CONFIG;
-  if (!cfg || typeof cfg !== 'object') throw new Error(`${file} does not set window.HALOM_MENUS_CONFIG`);
+  if (!cfg || typeof cfg !== 'object') throw new Error(`${filename} does not set window.HALOM_MENUS_CONFIG`);
   return structuredClone(cfg);      // plain data of this realm (the script ran in its own)
 }
 

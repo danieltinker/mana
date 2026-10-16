@@ -53,13 +53,30 @@ function gitSees(root) {
   return out;
 }
 
+/* what a private scenario's failure may say about the error: a built-in type (by its prototype, so a class of the
+   scenario's own, whatever its name, is "an error"), never its name or message */
+const BUILT_IN = [Error, TypeError, RangeError, SyntaxError, ReferenceError, EvalError, URIError, AggregateError];
+const kindOf = (e) => BUILT_IN.find((C) => e !== null && typeof e === 'object' && Object.getPrototypeOf(e) === C.prototype)?.name ?? (e instanceof Error ? 'an error' : 'a thrown value');
+const PRIVATE_FAILED = 'the private scenario failed%s; MANA_DEMO_DEBUG=1 shows the error, which may name it';
+let processGuarded = false;
+/** While a private scenario is loaded, an exception or rejection it leaves behind (a timer, a promise nobody awaits)
+    ends the demo with the generic message instead of Node's, which would print its stack (its path, maybe its name). */
+function guardProcess() {
+  if (processGuarded) return;
+  processGuarded = true;
+  const bye = (e) => { console.error('✗ ' + PRIVATE_FAILED.replace('%s', ` after it ran (${kindOf(e)})`)); process.exit(1); };
+  process.on('uncaughtException', bye); process.on('unhandledRejection', bye);
+}
+
 /** Runs a scenario ({ file, label, private } from findScenario); it writes under `outDir` (private/demo-output/<name>/)
     or _site/, and nowhere git sees: a file it adds or changes there, tracked or not, fails it. A private scenario's
-    failure names neither the scenario nor its files (MANA_DEMO_DEBUG=1 shows the error as it is). Returns its links. */
-export async function runScenario({ file, label, private: secret = false }, { config, origin, root = ROOT, log = (...m) => console.log('  ', ...m) }) {
+    failure names neither the scenario nor its files, nor its error's name (MANA_DEMO_DEBUG=1 shows the error as it
+    is), and `guard` keeps whatever it leaves running from crashing the demo with its stack. Returns its links. */
+export async function runScenario({ file, label, private: secret = false }, { config, origin, root = ROOT, log = (...m) => console.log('  ', ...m), guard = true }) {
   const outDir = path.join(root, 'private/demo-output', path.basename(file, '.mjs'));
-  const before = gitSees(root);
+  const before = gitSees(root), debug = process.env.MANA_DEMO_DEBUG === '1';
   if (!before) log('(not a git checkout: the check for files changed outside private/ and _site/ is skipped)');
+  if (secret && guard && !debug) guardProcess();
   let r;
   try {
     const mod = await import(pathToFileURL(file).href);
@@ -67,8 +84,8 @@ export async function runScenario({ file, label, private: secret = false }, { co
     fs.mkdirSync(outDir, { recursive: true });
     r = (await mod.run({ config, origin, root, outDir, log })) || {};
   } catch (e) {
-    if (!secret || process.env.MANA_DEMO_DEBUG === '1') throw e;
-    throw new Error(`the private scenario failed (${e.name}); MANA_DEMO_DEBUG=1 shows the error, which may name it`);
+    if (!secret || debug) throw e;
+    throw new Error(PRIVATE_FAILED.replace('%s', ` (${kindOf(e)})`));
   }
   const after = before && gitSees(root);
   const changed = after ? [...new Set([...before.keys(), ...after.keys()])].filter((f) => before.get(f) !== after.get(f)).sort() : [];
@@ -95,7 +112,7 @@ async function main(argv) {
   const config = readConfig(built, { origin: originOf(host, port) });
   const problems = configProblems('demo', config, { origin: originOf(host, port) });
   if (problems.length) throw new Error(`_site/ is not a demo build (${problems[0]}): run npm run demo without --no-build`);
-  const s = await serveSite({ site, port, host });
+  const s = await serveSite({ site, port, host, settings: { expected: 'demo' } });      // config.js is checked again on every request
   try {
     const links = siteLinks(s.origin);
     if (scenario) {
