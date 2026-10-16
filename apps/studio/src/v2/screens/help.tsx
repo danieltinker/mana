@@ -4,13 +4,13 @@
 // screen says plainly what happens next, lists the place's requests that are not resolved, and keeps a person one tap
 // away (WhatsApp). The shell's help button leads here from every screen.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, stripBlank, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
 import { toV2Error } from '../data/errors.ts';
 import { openCase, openCases, type CaseLine } from '../data/records.ts';
-import { canEdit, menu, refreshVenue } from '../data/store.ts';
+import { canEdit, mayWrite, menu, refreshVenue } from '../data/store.ts';
 import { errText, fmtDate, t } from '../i18n.ts';
 import { ErrorLine } from '../ui.tsx';
 
@@ -42,19 +42,37 @@ export function HelpScreen() {
   useEffect(() => { if (records) void loadCases(); }, [v.id, records]);
   useEffect(() => { setAllow(v.support_can_act); }, [v.support_can_act]);
 
+  /** Sent: say what happens next. `supportCanAct` null = as the place says once read again (the reply was lost). */
+  async function done(caseId: string, supportCanAct: boolean | null) {
+    setSubject(''); setBody('');
+    toast(t('help.sent'));
+    if (supportCanAct !== null) setSent({ caseId, supportCanAct });
+    await Promise.all([loadCases(), refreshVenue().catch(() => {})]);
+    if (supportCanAct === null) setSent({ caseId, supportCanAct: menu.value?.venue.support_can_act ?? v.support_can_act });
+  }
+  /**
+   * open_case takes no id of ours, so an answer lost on the way back cannot be told from a request never sent: before
+   * offering to send it again, look for it among the place's open requests (same topic and line, opened just now).
+   */
+  async function sentMeanwhile(started: number): Promise<CaseLine | null> {
+    const line = stripBlank(subject);
+    const list = await openCases(v.id);
+    return list.find((c) => c.topic === topic && c.subject === line && Date.parse(c.created_at) >= started - 120_000) ?? null;
+  }
   async function send(e: Event) {
     e.preventDefault();
     if (busy) return;
     setError(''); setSubjectErr('');
+    const started = Date.now();
     setBusy(true);
     try {
+      mayWrite();
       const r = await openCase({ venueId: v.id, topic, subject, body, ...(owner && allow !== v.support_can_act ? { allowAct: allow } : {}) });
-      setSent({ caseId: r.caseId, supportCanAct: r.supportCanAct });
-      setSubject(''); setBody('');
-      toast(t('help.sent'));
-      await Promise.all([loadCases(), refreshVenue().catch(() => {})]);
+      await done(r.caseId, r.supportCanAct);
     } catch (err) {
       const code = toV2Error(err).code;
+      const found = code === 'network' ? await sentMeanwhile(started).catch(() => null) : null;
+      if (found) { await done(found.id, null); return; }
       if (code === 'text_missing' || code === 'text_too_long' || code === 'text_invalid') { setSubjectErr(errText(code, 'help.e')); subjectRef.current?.focus(); }
       else setError(errText(code, 'help.e'));
     } finally { setBusy(false); }

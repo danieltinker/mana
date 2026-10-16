@@ -22,7 +22,8 @@ const TZ = 'Asia/Jerusalem';
 let e, owner, ids, slug, page, halom;
 
 const shot = (name) => page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true });
-const problems = () => page.problems.filter((p) => !/Failed to load resource: the server responded with a status of (400|404)/.test(p));
+// a refused read (400, 404) is the browser's own console line; the lost answer is one the help test makes on purpose
+const problems = () => page.problems.filter((p) => !/Failed to load resource: (the server responded with a status of (400|404)|net::ERR_INTERNET_DISCONNECTED)/.test(p));
 const go = async (hash) => { await page.goto(e.webUrl + 'studio/#/' + hash); };
 const live = async () => (await asAnon(e.stack).rpc('public_menu', { p_slug: slug })).live;
 /** The numbers the glance card shows, by key (each carries its raw value). */
@@ -169,8 +170,17 @@ test('from Home: a dish off for two hours in two taps, back in one; everything t
   await page.locator('[data-act="hours"]').click();
   const hrs = page.locator('dialog[data-sheet="today-hours"]');
   await hrs.locator('[data-today-hours] li.weekday').waitFor();
+  // the first answer is lost on the way back; the same tap again stores one closed date, not two (its id is made here)
+  let armed = true;
+  const closures = (u) => u.pathname.endsWith('/rest/v1/venue_closures');
+  await page.route(closures, async (r) => { if (armed && r.request().method() === 'POST') { armed = false; await r.fetch(); return r.abort('internetdisconnected'); } return r.continue(); });
+  await hrs.locator('[data-action="close-today"]').click();
+  await hrs.locator('.note-error').waitFor();
   await hrs.locator('[data-action="close-today"]').click();
   await hrs.locator('[data-action="reopen-today"]').waitFor();
+  await page.unroute(closures);
+  const today = localParts(Date.now(), TZ).date;
+  assert.equal((await owner.api.select('venue_closures', { select: 'id', venue_id: `eq.${owner.venueId}`, from_date: `eq.${today}` })).length, 1, 'one closed date');
   assert.equal((await live()).open, false, 'closed today');
   await shot('07-today-hours-closed');
   await hrs.locator('[data-action="reopen-today"]').click();
@@ -300,6 +310,21 @@ test('get help: a case the back office sees (ops_venues); Halom\'s answer is a n
   await nudge.locator('a').click();
   await help.locator(`[data-case="${caseId}"][data-status="waiting_owner"]`).waitFor();
   assert.match(await help.locator(`[data-case="${caseId}"]`).innerText(), /מחכה לכם/);
+
+  // an answer lost on the way back (open_case takes no id of ours): the request is found among the open ones, once
+  const subject = 'e2e: a request whose answer is lost';
+  await help.locator('[data-topic="menu"]').click();
+  await help.locator('[data-field="help-subject"]').fill(subject);
+  let armed = true;
+  const match = (u) => u.pathname.endsWith('/rest/v1/rpc/open_case');
+  await page.route(match, async (r) => { if (armed) { armed = false; await r.fetch(); return r.abort('internetdisconnected'); } return r.continue(); });
+  await help.locator('[data-action="send-help"]').click();
+  const again = help.locator('[data-case-sent]');
+  await again.waitFor();
+  await page.unroute(match);
+  const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${owner.venueId}`, subject: `eq.${subject}` });
+  assert.equal(stored.length, 1, 'one request, not two');
+  assert.equal(await again.getAttribute('data-case-sent'), stored[0].id);
   assert.deepEqual(problems(), []);
 });
 

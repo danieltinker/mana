@@ -20,11 +20,11 @@ import { exportFileName, menuCsv, menuJson } from '../data/export.ts';
 import { closureFromForm, dayHours, newClosureForm, venueHoursOf } from '../data/hours.ts';
 import { bringBack, clock, overrides, restoreToday, takeOff } from '../data/live.ts';
 import { exportMenu } from '../data/records.ts';
-import { byPosition, named } from '../data/rows.ts';
+import { byPosition, named, newId } from '../data/rows.ts';
 import { addRows, canEdit, canOperate, menu, removeRows } from '../data/store.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { screenAt } from '../routes.tsx';
-import { ErrorLine, Icon2 } from '../ui.tsx';
+import { ErrorLine, Icon2, ReadOnly } from '../ui.tsx';
 import { dateText, dayName, momentText } from '../words.ts';
 import { ActivityItems } from './activity.tsx';
 import { DayRow, NowCard } from './hours.tsx';
@@ -176,12 +176,15 @@ function TodayHoursSheet({ onClose }: { onClose: () => void }) {
   const d = menu.value!, tz = d.venue.time_zone;
   const p = localParts(clock.value, tz), today = p.date;
   const closure = d.closures.find((c) => c.from_date <= today && today <= c.to_date) ?? null;
+  const editable = canEdit();
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  // the closed date's id, made here and kept until it is stored: trying again after a lost answer adds it once
+  const [closureId, setClosureId] = useState(newId);
   async function closeToday() {
     const m = closureFromForm(newClosureForm(today));
     if (!m.ok) { setError(errText(m.errors[0]!.code)); return; }
     setBusy(true); setError('');
-    try { await addRows('venue_closures', [m.value]); toast(t('home2.hours.closedDone')); }
+    try { await addRows('venue_closures', [{ id: closureId, ...m.value }]); setClosureId(newId()); toast(t('home2.hours.closedDone')); }
     catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
   }
@@ -194,10 +197,13 @@ function TodayHoursSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet open onClose={onClose} title={t('home2.a.hours')} name="today-hours">
       <NowCard />
-      <ul class="weekdays" data-today-hours={p.weekday}><DayRow day={p.weekday} rows={dayHours(d.hours, p.weekday)} editable={canEdit()} /></ul>
+      {!editable && <Note>{t('ro.settings')}</Note>}
+      <ReadOnly when={!editable}>
+        <ul class="weekdays" data-today-hours={p.weekday}><DayRow day={p.weekday} rows={dayHours(d.hours, p.weekday)} editable={editable} /></ul>
+      </ReadOnly>
       <p class="hint">{t('home2.hours.every', { day: dayName(p.weekday, true) })}</p>
-      {!closure && <Btn kind="primary" block busy={busy} icon="power" onClick={closeToday} data-action="close-today">{t('home2.hours.close')}</Btn>}
-      {closure && closure.from_date === today && closure.to_date === today
+      {editable && !closure && <Btn kind="primary" block busy={busy} icon="power" onClick={closeToday} data-action="close-today">{t('home2.hours.close')}</Btn>}
+      {editable && closure && closure.from_date === today && closure.to_date === today
         && <Btn block busy={busy} icon="refresh" onClick={() => reopen(closure.id)} data-action="reopen-today">{t('home2.hours.reopen')}</Btn>}
       {closure && !(closure.from_date === today && closure.to_date === today) && <p class="strong">{t('home2.hours.closedRange', { date: dateText(closure.to_date) })}</p>}
       {error && <Note kind="error">{error}</Note>}

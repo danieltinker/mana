@@ -511,6 +511,8 @@ test('a counter sees every screen read-only and cannot reach an edit screen by a
   // back in the owner's own place: editable again
   await page.locator('[data-action="switch-venue"]').click();
   await page.locator(`dialog[data-sheet="account"] [data-venue="${SLUG}"]`).click();
+  await page.locator('[data-screen="home"]').waitFor();                        // a place that has published opens on Home
+  await page.goto(e.webUrl + 'studio/#/menu');
   await page.getByRole('heading', { name: 'עיקריות', level: 2 }).waitFor();
   assert.equal(await page.locator('[data-tool="arrange"]').count(), 1);
   await page.context().close();
@@ -520,7 +522,7 @@ test('a counter sees every screen read-only and cannot reach an edit screen by a
   const mgr = await createUser(e.stack, { email: 'edge-manager@sim.local', password: PASSWORD });
   await e.stack.addMember(venueId, mgr.id, 'manager');
   const m = await signedIn('edge-manager@sim.local');
-  await m.getByRole('heading', { name: 'עיקריות', level: 2 }).waitFor();
+  await m.locator('[data-screen="home"]').waitFor();                           // the place has published: Home
   const ms = await openDish(m, 'plain');
   await ms.locator('[data-field="dish-desc-he"]').fill('מהמנהל');
   await until(async () => (await dishRow('plain')).desc_he === 'מהמנהל', 'the manager\'s edit saved');
