@@ -3,13 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mana's clean schema for the Supabase project `mana`: migrations, the synthetic seed, and database tests run on a throwaway local PostgreSQL 16.",
+  "description": "Mana's clean schema for the Supabase project `mana`: migrations, the synthetic seed, and database tests run on a throwaway local PostgreSQL 16; and the v2 scanner (functions/menus-ai), whose modules Node tests run with mocks.",
   "engines": { "node": ">=22.18" },
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:functions": "node --test functions/menus-ai/test/*.test.ts",
+    "check:functions": "tsc -p functions/menus-ai/tsconfig.json",
     "migrate:local": "node tests/harness/smoke.mjs"
   },
   "devDependencies": {
-    "pg": "^8.23.1"
+    "@mana/contracts": "0.1.0",
+    "@mana/import": "0.1.0",
+    "@types/node": "^22.20.5",
+    "pg": "^8.23.1",
+    "typescript": "^7.0.2"
   }
 }

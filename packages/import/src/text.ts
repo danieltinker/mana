@@ -86,7 +86,7 @@ export function clip(s: string, max: number): { text: string; clipped: boolean }
   return { text: stripBlank(out), clipped: true };
 }
 
-export const wordCount = (s: string): number => s.split(' ').filter((w) => w !== '').length;
+const wordCount = (s: string): number => s.split(' ').filter((w) => w !== '').length;
 
 /**
  * Rule `heading_shape`: a line that reads like a section heading: at most 5 words and 40 characters, with no sentence

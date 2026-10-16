@@ -3,8 +3,8 @@
  * and its dishes and prices are made up. No real venue's menu, and no text copied from a real Wolt page, belongs in
  * this repository.
  *
- * The Wolt texts are written in the shape this package ASSUMES a copied Wolt page has (packages/import/README.md lists
- * each assumption for the tuning pass on a real paste the owner makes in `private/`).
+ * The Wolt texts are written in the shape this package ASSUMES a copied Wolt page has (`src/wolt-text.ts` lists each
+ * assumption for the tuning pass on a real paste, which stays in `private/`).
  */
 
 /** The venue page in English, copied top to bottom: header, the section list, "Most ordered", sections, footer. */

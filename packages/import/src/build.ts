@@ -93,8 +93,6 @@ const allSame = <T>(values: readonly T[]): T | null => (values.length > 0 && val
 
 // ---------------------------------------------------------------- normalising one reading (a copy; inputs are left as they are)
 
-type Normal = { model: MenuModel };
-
 function within(lim: { min: number | null; max: number | null }, selection: 'single' | 'multiple'): boolean {
   const { min, max } = lim;
   const lo = min === null || (isInt(min) && min >= 0 && min <= GROUP_UNITS_MAX);
@@ -112,7 +110,7 @@ function clipText(t: Text, max: number, notes: PendingNote[], line: number | nul
 const translatedOf = (tr: readonly Lang[], ...texts: Text[]): Lang[] => LANGS.filter((l) => tr.includes(l) && texts.some((t) => !isBlank(t[l])));
 const named = (t: Text): boolean => !isBlank(t.he) || !isBlank(t.en);
 
-function normalise(model: MenuModel): Normal {
+function normalise(model: MenuModel): MenuModel {
   const groups = new Map<MGroup, MGroup | null>();
   const group = (g: MGroup): MGroup | null => {
     if (groups.has(g)) return groups.get(g)!;
@@ -174,7 +172,7 @@ function normalise(model: MenuModel): Normal {
   }
   // a nested group left with no option (all its names blank) opens nothing
   for (const g of groups.values()) for (const o of g?.options ?? []) if (o.opens && o.opens.options.length === 0) o.opens = null;
-  return { model: { sections } };
+  return { sections };
 }
 
 // ---------------------------------------------------------------- the build
@@ -199,7 +197,7 @@ export function buildDraft(source: ImportSource, readings: readonly Reading[]): 
     dropped += r.dropped;
     for (const n of r.notes) book.add(n.code, n.lines, { key: n.key, rule: n.rule, count: n.count });
   }
-  const models = readings.map((r) => normalise(r.model).model);
+  const models = readings.map((r) => normalise(r.model));
 
   // ---- sections: the same name is the same section
   const sectionOccs = new Map<string, SectionOcc[]>();

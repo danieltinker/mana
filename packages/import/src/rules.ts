@@ -150,24 +150,24 @@ export function nameMarkers(name: string): { name: string; tags: Tag[] } {
 }
 
 /** Rule `sold_out`: the dish is marked sold out or unavailable. */
-export const SOLD_OUT = words(
+const SOLD_OUT = words(
   'sold out', 'out of stock', 'unavailable', 'not available', 'currently unavailable', 'temporarily unavailable',
   'אזל', 'אזל מהמלאי', 'אזלו', 'לא זמין', 'לא זמין כרגע', 'לא זמינה', 'לא במלאי', 'אזל זמנית',
 );
 /** Rule `label_popular`: the "popular" mark on a dish (never a tag). */
-export const POPULAR = words('popular', 'פופולרי', 'פופולארי', 'פופולרית', 'bestseller', 'best seller', 'רב מכר', 'רבי מכר', 'הכי נמכר');
+const POPULAR = words('popular', 'פופולרי', 'פופולארי', 'פופולרית', 'bestseller', 'best seller', 'רב מכר', 'רבי מכר', 'הכי נמכר');
 /** Rule `label_new`. */
-export const NEW = words('new', 'new!', 'חדש', 'חדשה', 'חדש!');
+const NEW = words('new', 'new!', 'חדש', 'חדשה', 'חדש!');
 /** Rule `label_discount`: "-20%", "Sale", "מבצע". */
-export const DISCOUNT = words('discount', 'sale', 'deal', 'offer', 'special offer', 'מבצע', 'הנחה', 'דיל');
+const DISCOUNT = words('discount', 'sale', 'deal', 'offer', 'special offer', 'מבצע', 'הנחה', 'דיל');
 const DISCOUNT_RE = /^-?\d{1,2}%(?: off| הנחה)?$/u;
 /** Rule `label_other`: labels that are not among Mana's tags; left out with a note. */
-export const OTHER_LABELS = words(
+const OTHER_LABELS = words(
   'kosher', 'kosher dairy', 'kosher meat', 'כשר', 'כשר למהדרין', 'בשרי', 'חלבי', 'פרווה', 'halal', 'organic', 'אורגני', 'contains alcohol', 'מכיל אלכוהול', '18+',
   'sugar free', 'ללא סוכר', 'ללא תוספת סוכר', 'dairy free', 'ללא חלב', 'lactose free', 'ללא לקטוז', 'keto', 'קטו', 'low carb', 'דל פחמימות',
 );
 /** Section headings of a Wolt page that repeat dishes shown in other sections. */
-export const POPULAR_SECTIONS = words(
+const POPULAR_SECTIONS = words(
   'popular', 'most ordered', 'most popular', 'popular items', 'popular dishes', 'top picks', 'bestsellers',
   'פופולרי', 'פופולריים', 'פופולארי', 'הכי מוזמנים', 'הכי פופולרי', 'הכי פופולריים', 'המנות הפופולריות', 'הפריטים הפופולריים', 'רבי מכר',
 );
@@ -212,7 +212,7 @@ export function guessKind(heading: string): SectionKind {
 }
 
 /** Rule `common_section`: headings menus often use (a strong sign that a pasted line opens a section). */
-export const COMMON_SECTIONS = words(
+const COMMON_SECTIONS = words(
   'starters', 'appetizers', 'first courses', 'mains', 'main courses', 'main dishes', 'desserts', 'drinks', 'beverages', 'soft drinks', 'hot drinks',
   'cold drinks', 'salads', 'soups', 'pizzas', 'pasta', 'sandwiches', 'burgers', 'sides', 'side dishes', 'extras', 'kids', 'kids menu', 'breakfast',
   'brunch', 'lunch', 'dinner', 'cocktails', 'wines', 'wine', 'beers', 'beer', 'coffee', 'specials', 'menu',

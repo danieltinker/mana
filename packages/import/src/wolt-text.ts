@@ -2,8 +2,34 @@
  * `parseWoltText(text)`: text an owner copied from their own Wolt venue page (D33: we never fetch Wolt; this is only
  * what the owner pastes), in Hebrew or English, with or without the copied text of dish sheets and their choices.
  *
- * Two steps, each rule named so a real paste can tune it (packages/import/README.md lists what a real paste must
- * confirm):
+ * Written before any real paste existed (Mana HQ m051 asks for one in `private/`), from how such pages read when
+ * copied. What a real paste must confirm, by rule (the tuning pass changes the rule named):
+ *  1. Each element (name, description, price, label, button) is a line of its own; a name and its price may run
+ *     together ("Schnitzel₪64.00", `text_price`).
+ *  2. A listed dish reads name, then a one-line description, then its price; its labels come after the name or after
+ *     the price, never before the name (`resolveDish`, `attach`).
+ *  3. Every price shows the shekel sign, so a bare number is never a price ("9.2" is a rating: `noise_rating`).
+ *  4. A discount shows two prices side by side, and the higher one is the regular price (`price_discount`).
+ *  5. A sold-out dish still shows its price (`label_sold_out`).
+ *  6. The venue's header comes first, then the page's own list of sections, then the sections (`nav_headings`);
+ *     without the list, headings are told by their shape (`heading_shape`, `desc_shape`).
+ *  7. "Popular" / "Most ordered" / "פופולרי" is the first section and repeats dishes of other sections
+ *     (`popular_heading`); the same word on a dish is a mark, not a heading.
+ *  8. A dish sheet reads: name, price and description (either order), allergens, then its groups; each group is a
+ *     heading, a rule line, then its options, each option's "+₪" price after its name (same line or the next), a
+ *     free option showing no price; the sheet ends with "Add to order" (with or without the total) (`sheet_end`).
+ *  9. Every group shows a rule line under its heading ("Required", "Optional", "Choose up to 2", "חובה", "בחרו עד 2"):
+ *     without one, a later heading reads as a free option of the group before (`group_rule`).
+ * 10. "Required" alone is one required choice; "Optional" alone states no limits (`ruleLimits`).
+ * 11. A nested choice shows as "<option> › <group>", "<group> for <option>", "<group> (for <option>)",
+ *     "<group> עבור <option>" or "<group> ל<option>" (`NESTED`); otherwise a group is never nested.
+ * 12. Allergens read "Allergens: …" / "אלרגנים: …", or a bare heading with the list on the next line (`allergens`).
+ * 13. The card's own "Add" button does not come between a dish's name and its price; a quantity stepper copies as a
+ *     bare "1" (`noise_quantity`).
+ * 14. The words of every noise list (buttons, footer, fees, delivery, hours, ratings) and label list (`rules.ts`),
+ *     in both languages, are the ones the page uses.
+ *
+ * Two steps, each rule named:
  * 1. **Lines** (`classifyWoltLine`): every line is noise (the venue header, ratings, delivery times, opening hours,
  *    fees, buttons, the footer), a label (popular, new, sold out, a tag, another label), allergens, a group's rule
  *    ("Required", "Choose up to 2"), an option's price ("+₪5.00"), a dish's price ("₪42.00", "from ₪42", "₪42–58"),
@@ -239,7 +265,7 @@ class WoltReader {
     if (this.run.length === 0) return this.unknown([n]);
     if (!this.group) {
       // choices with no rule line under their heading: the first line of the run is the heading
-      if (!this.dish || this.run.length < 2) { this.orphanLines([...this.run.map((l) => l.n), n]); this.run = []; this.pending = []; return; }
+      if (!this.dish || this.run.length < 2) { this.orphanLines([...this.run.map((l) => l.n), n]); this.run = []; this.dropPending(); return; }
       const h = this.run.shift()!;
       this.startGroup(h.text, NO_RULE, h.n);
     }
