@@ -874,9 +874,10 @@ function byIndex<T>(rows: readonly Row<T>[]): { he: Map<string, Row<T>[]>; en: M
   }
   return { he, en };
 }
+/** The rows whose name matches `k` (`scoreKeys` > 0: an English match does not count when the Hebrew names differ). */
 function candidates<T>(index: { he: Map<string, Row<T>[]>; en: Map<string, Row<T>[]> }, k: Keys): Row<T>[] {
   const a = k.he !== '' ? (index.he.get(k.he) ?? []) : [];
-  const b = k.en !== '' ? (index.en.get(k.en) ?? []) : [];
+  const b = k.en !== '' ? (index.en.get(k.en) ?? []).filter((r) => scoreKeys(k, r.keys) > 0) : [];
   return b.length === 0 ? a : [...new Set([...a, ...b])];
 }
 const compareIds = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);

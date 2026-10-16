@@ -159,7 +159,8 @@ test('L2 (h2b.ts): two draft groups landing on one existing group give a dish on
   const m = applyPlan(EMPTY_MENU, plan(base));
   const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-new', 'פרגית', 'Chicken', 7000, { groups: [link('g-side'), link('g-extras')] })])], [
     group('g-side', 'תוספת', 'Side', { options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
-    group('g-extras', 'תוספות', 'Extras', { options: [opt('b1', 'אורז', 'Rice', 0)] }),
+    // an English-only name (L10: with a Hebrew name that differs, "Extras" alone would not match at all)
+    group('g-extras', '', 'Extras', { options: [opt('b1', 'אורז', 'Rice', 0)] }),
   ]);
   const p = plan(d, m);
   assert.deepEqual(p.steps.filter((s) => s.kind === 'dish_group').map((s) => `${s.key}:${s.op}${s.reason ? `(${s.reason})` : ''}`),
@@ -235,4 +236,15 @@ test('L10 (rr2.ts P6): when the Hebrew names differ, an English match does not m
   // one side without Hebrew: the English decides
   const r = plan(draftOf([section('s', '', 'Salads', [dish('d1', '', 'Salad', 3800)])]), m);
   assert.equal(step(r, 'dish', 'd1').op, 'keep');
+  // the same rule everywhere a name is compared: duplicates, repeats, and an existing group
+  const two = draftOf([
+    section('s1', 'סלטים', 'Salads', [dish('d1', 'סלט קיסר', 'Salad', 4600), dish('d2', 'סלט ירקות', 'Salad', 3800)]),
+    section('s2', 'מומלצים', 'Popular', [dish('d3', 'סלט טונה', 'Salad', 4600)]),
+  ]);
+  assert.deepEqual(draftExceptions(two).filter((e) => e.code === 'dish_duplicate' || e.code === 'dish_repeated'), []);
+  const withSide = applyPlan(EMPTY_MENU, plan(draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'סטייק', 'Steak', 9000, { groups: [link('g')] })])],
+    [group('g', 'רוטב', 'Side', { options: [opt('o', 'צ׳יפס', 'Fries', 0)] })])));
+  const side = plan(draftOf([section('s', 'עיקריות', 'Mains', [dish('d2', 'פרגית', 'Chicken', 7000, { groups: [link('g2')] })])],
+    [group('g2', 'תוספת', 'Side', { options: [opt('o2', 'צ׳יפס', 'Fries', 0)] })]), withSide);
+  assert.equal(step(side, 'group', 'g2').op, 'create', '"תוספת / Side" is not the venue\'s "רוטב / Side"');
 });
