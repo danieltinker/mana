@@ -1,11 +1,12 @@
 // The dashboard (my_dashboard v2) for the open place, kept live while a screen that shows its numbers is open (Home,
 // and the suggestion rules, whose per-rule numbers it fills with setRuleNumbers), as ADR-007 says: one Realtime channel
 // per venue with a listener on each of LIVE_REFRESH.realtimeTables (filtered to the venue; RLS applies to every
-// message) when the environment has Realtime, each message a signal to fetch again; otherwise polling every
-// LIVE_REFRESH.pollMs.owner, only while the page is visible, with pollDelay's backoff. The page never patches itself
-// from a message: the numbers, nudges and "off now" are the database's. It also fetches after the owner's own writes,
-// when the page comes back to the foreground, and when the range changes. The last numbers stay on screen while the
-// owner is elsewhere in the app, and go with the place.
+// message) when the environment has Realtime, each message a signal to fetch again, with a safety poll every
+// LIVE_REFRESH.safetyMs beside it; otherwise polling every LIVE_REFRESH.pollMs.owner; only while the page is visible,
+// with pollDelay's backoff (data/refresher.ts). The page never patches itself from a message: the numbers, nudges and
+// "off now" are the database's. It also fetches after the owner's own writes, when the page comes back to the
+// foreground, and when the range changes. The last numbers stay on screen while the owner is elsewhere in the app, and
+// go with the place.
 import { effect, signal } from '@preact/signals';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { DASHBOARD_RANGES, LIVE_REFRESH, oneOf, venueFilter, type ClientDashboard, type DashboardRange } from '@mana/contracts';

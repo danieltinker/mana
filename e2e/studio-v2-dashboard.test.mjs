@@ -158,12 +158,13 @@ test('from Home: a dish off for two hours in two taps, back in one; everything t
   await page.locator('[data-off-list]').waitFor({ state: 'detached' });
   assert.deepEqual((await live()).off, []);
 
-  // a special: one tap opens its editor, a special already
+  // a special: one tap opens its sheet (the timed flow is its own test below)
   await page.locator('[data-act="special"]').click();
-  const sch = page.locator('dialog[data-sheet="schedule"]');
-  await sch.waitFor();
-  assert.equal(await sch.getByRole('button', { name: 'ספיישל', exact: true }).getAttribute('aria-pressed'), 'true');
-  await sch.getByRole('button', { name: 'סגירה' }).click();
+  const sp = page.locator('dialog[data-sheet="special"]');
+  await sp.waitFor();
+  assert.equal(await sp.locator('[data-days="special"] [aria-pressed="true"]').count(), 1, 'today\'s weekday, already chosen');
+  await shot('05b-special-sheet');
+  await sp.getByRole('button', { name: 'סגירה' }).click();
 
   // today's hours: closed today in two taps, guests see it at once; then open again
   await go('home');
@@ -189,6 +190,52 @@ test('from Home: a dish off for two hours in two taps, back in one; everything t
   await hrs.locator('[data-action="close-today"]').waitFor();
   assert.equal((await live()).open, true, 'open again');
   await hrs.getByRole('button', { name: 'סגירה' }).click();
+  assert.deepEqual(problems(), []);
+});
+
+/** Hopa H53, timed: the budget for the scripted taps and typing of the whole flow on the phone, from Home's quick action
+ * to "published" (the network and the database's answers included; nothing is skipped or prefilled by the test). */
+const H53_BUDGET_MS = 60_000;
+
+test('H53, timed: a Wednesday special in one sheet (name, price, section, day, hours), saved and published, within the budget', { timeout: 300000 }, async (t) => {
+  await go('home');
+  await page.locator('[data-glance]').waitFor();
+  const t0 = performance.now();
+  await page.locator('[data-act="special"]').click();
+  const sp = page.locator('dialog[data-sheet="special"]');
+  await sp.locator('[data-field="special-name-he"]').fill('ספיישל רביעי');
+  await sp.locator('[data-field="special-name-en"]').fill('Wednesday special');
+  await sp.locator('[data-field="special-price"]').fill('58');
+  await sp.locator('[data-field="special-section"]').selectOption(ids.sections.mains);
+  // Wednesday only: today's weekday comes chosen; tap it off unless it is Wednesday, then tap Wednesday on
+  const days = sp.locator('[data-days="special"]');
+  for (const d of await days.locator('[data-day][aria-pressed="true"]').evaluateAll((els) => els.map((x) => x.dataset.day))) if (d !== '3') await days.locator(`[data-day="${d}"]`).click();
+  if (await days.locator('[data-day="3"]').getAttribute('aria-pressed') !== 'true') await days.locator('[data-day="3"]').click();
+  await sp.locator('[data-field="special-from"]').fill('12:00');
+  await sp.locator('[data-field="special-to"]').fill('15:00');
+  await sp.locator('[data-action="special-publish"]').click();
+  const doneCard = sp.locator('[data-special-done="approved"]');
+  await doneCard.waitFor();
+  const ms = Math.round(performance.now() - t0);
+  t.diagnostic(`H53 special flow: ${(ms / 1000).toFixed(1)} s on a 390x844 phone (budget ${H53_BUDGET_MS / 1000} s)`);
+  fs.writeFileSync(path.join(SHOTS, 'h53-timing.txt'), `H53 special flow: ${ms} ms (budget ${H53_BUDGET_MS} ms)\n`);
+  assert.ok(ms < H53_BUDGET_MS, `${ms} ms`);
+  assert.match(await doneCard.innerText(), /פורסם/);
+  await shot('14-special-published');
+
+  // stored: the dish, linked to a schedule of kind special; what guests get carries both
+  const dishId = await doneCard.getAttribute('data-dish');
+  const [dish] = await owner.api.select('dishes', { select: '*', id: `eq.${dishId}` });
+  const [sched] = await owner.api.select('schedules', { select: '*', id: `eq.${dish.schedule_id}` });
+  assert.deepEqual([dish.name_he, dish.name_en, dish.price, dish.section_id], ['ספיישל רביעי', 'Wednesday special', 5800, ids.sections.mains]);
+  assert.deepEqual([sched.kind, sched.name_en, sched.windows], ['special', 'Wednesday special', [{ days: [3], from: '12:00', to: '15:00' }]]);
+  const m = await asAnon(e.stack).rpc('public_menu', { p_slug: slug });
+  const guest = m.snapshot.sections.flatMap((s) => s.dishes).find((x) => x.id === dishId);
+  assert.ok(guest, 'published');
+  assert.deepEqual([guest.scheduleId, guest.price.amount], [sched.id, 5800]);
+  assert.deepEqual(m.snapshot.schedules.find((s) => s.id === sched.id), { id: sched.id, kind: 'special', name: { he: 'ספיישל רביעי', en: 'Wednesday special' },
+    windows: [{ days: [3], from: '12:00', to: '15:00' }], validFrom: null, validTo: null });
+  await sp.locator('[data-action="special-close"]').click();
   assert.deepEqual(problems(), []);
 });
 
@@ -218,7 +265,8 @@ test('Halom acts for the owner with a reason, reads and exports the menu: the lo
   const reason = 'e2e: the owner phoned, the cookies ran out';
   const r = await halom.actForOwner(owner.venueId, reason, 'availability.set', { targetKind: 'dish', targetId: ids.dishes.cookie, until: { kind: 'duration', minutes: 60 } });
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal((await halom.revision(owner.venueId)).revision.number, 1, 'ops_revision: Halom reads the stored menu');
+  const read = await halom.revision(owner.venueId);                               // ops_revision: Halom reads the stored menu
+  assert.ok(read.revision.number >= 1, JSON.stringify(read.revision));
   assert.equal((await halom.api.rpc('export_menu', { p_venue: owner.venueId })).kind, 'mana.menu_export');
 
   // Home: what is off now carries Halom's mark
@@ -236,7 +284,7 @@ test('Halom acts for the owner with a reason, reads and exports the menu: the lo
     assert.equal(await entry(action).locator('[data-halom]').innerText(), 'חלום', action);
   }
   assert.equal(await entry('menu.export').locator('.actrow-what').innerText(), 'ייצוא התפריט');
-  assert.equal(await entry('menu.read').locator('.actrow-what').innerText(), 'קריאה בתפריט, גרסה 1');
+  assert.equal(await entry('menu.read').locator('.actrow-what').innerText(), 'קריאה בתפריט, גרסה ' + read.revision.number);
   assert.equal(await entry('support.act_for_owner').locator('[data-reason]').innerText(), 'הסיבה: ' + reason);
   assert.equal(await entry('availability_overrides.insert').locator('[data-reason]').innerText(), 'הסיבה: ' + reason);
   assert.match(await entry('availability_overrides.insert').innerText(), /הורדה מהתפריט: מנה[\s\S]*עד \d\d:\d\d/);
@@ -383,6 +431,14 @@ test('a first publish waiting for Halom flips to live by itself when Halom appro
   await pub.locator('[data-action="publish"]').click();
   await page.locator('[data-standing-card="pending"]').waitFor();
   await shot('12-publish-pending');
+  // a special now says plainly that guests see it once Halom approves
+  await go('home');
+  await page.locator('[data-act="special"]').click();
+  await page.locator('dialog[data-sheet="special"] [data-approval-note="pending"]').waitFor();
+  assert.match(await page.locator('[data-approval-note="pending"]').innerText(), /מחכה לאישור של חלום/);
+  await page.locator('dialog[data-sheet="special"]').getByRole('button', { name: 'סגירה' }).click();
+  await go('publish');
+  await page.locator('[data-standing-card="pending"]').waitFor();
 
   assert.equal((await halom.approve(made.id, 'e2e: approval pushed to the open screen')).ok, true);
   await page.locator('[data-standing-card="live"]').waitFor({ timeout: 45000 });  // no tap on "check again"

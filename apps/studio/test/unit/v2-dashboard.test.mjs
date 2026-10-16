@@ -3,7 +3,7 @@
 // export (Hebrew and English side by side, commas, quotes and line breaks, agorot as shekels, formulas kept as text),
 // the activity log in plain words (you, a teammate, Halom with its reason, the system; every action the log may hold
 // has words in both languages), and the live timer (polling only while visible, pollDelay's backoff, a burst of
-// Realtime messages as one fetch, a channel that subscribes stopping the polling). Invented data only.
+// Realtime messages as one fetch, the safety poll beside a subscription). Invented data only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIVITY_ACTIONS, LIVE_REFRESH, NUDGE_CODES, zonedTime } from '@mana/contracts';
@@ -12,6 +12,7 @@ import { activityWords, dayTitle, whoOf } from '../../src/v2/data/activity.ts';
 import { axisTop, dayBars, hasVisits, labelledBars, minuteBars, nudgeHref, share } from '../../src/v2/data/dashboard.ts';
 import { csvCell, exportFileName, menuCsv, menuJson, shekelCell } from '../../src/v2/data/export.ts';
 import { refresher } from '../../src/v2/data/refresher.ts';
+import { newSpecialForm, specialFromForm } from '../../src/v2/data/special.ts';
 import { ruleLine } from '../../src/v2/format.ts';
 
 const TZ = 'Asia/Jerusalem';
@@ -264,6 +265,26 @@ test('days in the log: today, yesterday, then the date', () => {
   inLang('he', () => assert.equal(dayTitle('2026-10-15', now, TZ), 'אתמול'));
 });
 
+// ---------------------------------------------------------------- a special in one sheet (H53)
+test('a special from one form: a schedule of kind special named after the dish, the dish priced in agorot, each mistake at its field', () => {
+  const sec = uid();
+  const f = { ...newSpecialForm(sec, 3), nameHe: '  ספיישל רביעי ', nameEn: 'Wednesday special', price: '58.50', to: '15:00' };
+  assert.deepEqual(specialFromForm(f, [sec]), { ok: true, value: {
+    schedule: { kind: 'special', name_he: 'ספיישל רביעי', name_en: 'Wednesday special', windows: [{ days: [3], from: '12:00', to: '15:00' }], valid_from: null, valid_to: null },
+    sectionId: sec, dish: { name_he: 'ספיישל רביעי', name_en: 'Wednesday special', price: 5850 } } });
+  const codes = (o) => { const m = specialFromForm({ ...f, ...o }, [sec]); return m.ok ? [] : m.errors.map((e) => e.field + ':' + e.code); };
+  assert.deepEqual(codes({ nameHe: ' ', nameEn: '' }), ['name:name_missing']);
+  assert.deepEqual(codes({ nameEn: 'x'.repeat(61) }), ['name_en:too_long']);
+  assert.deepEqual(codes({ nameEn: '🍕'.repeat(60) }), [], 'sixty code points fit, emoji included');
+  assert.deepEqual(codes({ price: '' }), ['price:price_missing'], 'a special is sold: it has a price');
+  assert.deepEqual(codes({ price: 'soon' }), ['price:price_invalid']);
+  assert.deepEqual(codes({ sectionId: uid() }), ['section:section_missing']);
+  assert.deepEqual(codes({ days: [] }), ['days:days_empty']);
+  assert.deepEqual(codes({ from: '25:00' }), ['time:time_invalid']);
+  assert.deepEqual(codes({ nameHe: '', nameEn: '', price: '', days: [] }), ['name:name_missing', 'price:price_missing', 'days:days_empty'], 'every mistake at once');
+  assert.deepEqual(newSpecialForm(sec, 5).days, [5], 'today\'s weekday first');
+});
+
 // ---------------------------------------------------------------- the live timer
 function fakeClock() {
   let now = 0;
@@ -343,32 +364,38 @@ test('a failure doubles the wait (pollDelay), at most 120 s; a success brings it
   r.stop();
 });
 
-test('Realtime: a burst of messages is one fetch after 1.5 s; SUBSCRIBED stops polling, a failed channel starts it', async () => {
+test('Realtime: a burst of messages is one fetch after 1.5 s; beside the channel a safety poll every 60 s; a failed channel polls every 15 s', async () => {
   const { r, clock, calls } = rig();
   r.start({ poll: false });
   await clock.advance(0);
   assert.deepEqual(calls, [0], 'the first numbers at once');
-  await clock.advance(60_000);
-  assert.deepEqual(calls, [0], 'no polling while the channel is expected');
+  assert.equal(r.mode, 'safety');
+  await clock.advance(59_999);
+  assert.deepEqual(calls, [0], 'no 15 s polling beside the channel');
+  await clock.advance(1);
+  assert.deepEqual(calls, [0, LIVE_REFRESH.safetyMs], 'the safety poll (LIVE_REFRESH.safetyMs)');
   r.signal(); await clock.advance(500); r.signal(); await clock.advance(500); r.signal();
   await clock.advance(499);
-  assert.deepEqual(calls, [0]);
+  assert.deepEqual(calls, [0, 60_000]);
   await clock.advance(1);
-  assert.deepEqual(calls, [0, 61_500], 'one fetch, LIVE_REFRESH.debounceMs after the first message');
+  assert.deepEqual(calls, [0, 60_000, 61_500], 'one fetch, LIVE_REFRESH.debounceMs after the first message');
   r.status('CHANNEL_ERROR');
+  assert.equal(r.mode, 'poll');
   await clock.advance(15_000);
-  assert.deepEqual(calls, [0, 61_500, 76_500], 'the channel failed: polling');
-  assert.equal(r.polling, true);
+  assert.deepEqual(calls, [0, 60_000, 61_500, 76_500], 'the channel failed: every 15 s');
   r.status('SUBSCRIBED');
   await clock.advance(0);
-  assert.deepEqual(calls, [0, 61_500, 76_500, 76_500], 'subscribed again: one catch-up fetch');
-  await clock.advance(60_000);
-  assert.equal(calls.length, 4, 'and no more polling');
-  assert.equal(r.polling, false);
+  assert.deepEqual(calls, [0, 60_000, 61_500, 76_500, 76_500], 'subscribed again: one catch-up fetch');
+  assert.equal(r.mode, 'safety');
+  await clock.advance(59_999);
+  assert.equal(calls.length, 5, 'and the safety poll only');
+  await clock.advance(1);
+  assert.deepEqual(calls.slice(-1), [136_500]);
   r.stop();
+  assert.equal(r.mode, 'off');
   r.signal();
-  await clock.advance(5_000);
-  assert.equal(calls.length, 4, 'a message after stop is ignored');
+  await clock.advance(120_000);
+  assert.equal(calls.length, 6, 'nothing after stop');
 });
 
 test('asking again while a fetch is running folds into one more fetch', async () => {

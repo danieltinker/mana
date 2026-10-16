@@ -29,6 +29,7 @@ import { dateText, dayName, momentText } from '../words.ts';
 import { ActivityItems } from './activity.tsx';
 import { DayRow, NowCard } from './hours.tsx';
 import { OffBadge } from './off.tsx';
+import { SpecialSheet } from './special.tsx';
 
 const fmt = (n: number) => n.toLocaleString(lang.value === 'he' ? 'he-IL' : 'en-GB');
 const hm = (minutes: number) => String(Math.floor(minutes / 60)).padStart(2, '0') + ':' + String(minutes % 60).padStart(2, '0');
@@ -96,7 +97,7 @@ function QuickActions() {
   const d = menu.value!;
   const editable = canEdit();
   const today = offToday(overrides.value, clock.value, d.venue.time_zone).length;
-  const [sheet, setSheet] = useState<'off' | 'hours' | null>(null);
+  const [sheet, setSheet] = useState<'off' | 'hours' | 'special' | null>(null);
   const [ask, setAsk] = useState(false), [busy, setBusy] = useState(false);
   async function restore() {
     setBusy(true);
@@ -111,13 +112,14 @@ function QuickActions() {
         <button type="button" class="act" disabled={today === 0} onClick={() => setAsk(true)} data-act="restore-today" data-n={today}>
           <span class="act-ico"><Icon name="refresh" size={22} />{today > 0 && <b>{today}</b>}</span><span>{t('home2.a.restore')}</span>
         </button>
-        {editable && <a class="act" href="#/hours/parts/new-special" data-act="special"><span class="act-ico"><Icon name="sparkle" size={22} /></span><span>{t('parts.newSpecial')}</span></a>}
+        {editable && <button type="button" class="act" onClick={() => setSheet('special')} data-act="special"><span class="act-ico"><Icon name="sparkle" size={22} /></span><span>{t('parts.newSpecial')}</span></button>}
         {editable && <button type="button" class="act" onClick={() => setSheet('hours')} data-act="hours"><span class="act-ico"><Icon name="clock" size={22} /></span><span>{t('home2.a.hours')}</span></button>}
       </nav>
       <Confirm open={ask} title={t('off.restoreToday.title')} body={tn('off.restoreToday.body', today)} confirmLabel={t('off.restoreToday.go')} busy={busy}
         onConfirm={restore} onClose={() => setAsk(false)} />
       {sheet === 'off' && <Off2hSheet onClose={() => setSheet(null)} />}
       {sheet === 'hours' && <TodayHoursSheet onClose={() => setSheet(null)} />}
+      {sheet === 'special' && <SpecialSheet onClose={() => setSheet(null)} />}
     </>
   );
 }

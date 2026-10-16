@@ -1,8 +1,8 @@
 // A first publish waits for Halom's approval (publish_requires_approval). While the open place waits, the app learns of
 // the approval by itself (backlog B4), so the publish screen and Home flip to "live" without "check again": with
-// Realtime, a channel on the place's own venues row (an approval is an update of it); without, or when that channel
-// fails, the venue row is read every LIVE_REFRESH.pollMs.owner while the page is visible (ADR-007's polling). When it is
-// no longer waiting, the place is read again (refreshVenue) and the watch ends.
+// Realtime, a channel on the place's own venues row (an approval is an update of it) and the safety poll beside it;
+// without, or when that channel fails, the venue row is read every LIVE_REFRESH.pollMs.owner while the page is visible
+// (ADR-007's polling). When it is no longer waiting, the place is read again (refreshVenue) and the watch ends.
 //
 // Note for the backend: the Realtime publication holds only the rollups and availability_overrides (ADR-007), so on a
 // database where `venues` is not in it the channel fails and this falls back to polling.
