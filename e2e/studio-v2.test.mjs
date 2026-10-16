@@ -106,6 +106,15 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await page.locator('[data-save="saved"]').waitFor();
   await shot(page, '04-dish-details');
 
+  // a day part (the schedules are F05's screen; one is made through the API, as that lane's screen would): the
+  // kids' schnitzel is served at lunch only
+  owner.forVenue((await owner.api.select('venues', { select: 'id', slug: 'eq.schnitzel-sim' }))[0].id);
+  const [lunch] = await owner.insert('schedules', [{ kind: 'day_part', name_he: 'צהריים', name_en: 'Lunch', windows: [{ days: [0, 1, 2, 3, 4, 5, 6], from: '11:00', to: '16:00' }] }]);
+  await page.reload();
+  sheet = await openDish('שניצל ילדים');
+  await sheet.locator('[data-field="dish-daypart"]').selectOption({ label: 'צהריים' });
+  await page.locator('[data-save="saved"]').waitFor();
+
   // ---- the add-on library: the sauce first, then the side whose fries opens it
   async function newGroup({ he, en, label, single, required = true, min, max, options }) {
     await page.goto(e.webUrl + 'studio/#/addons/new');
@@ -211,7 +220,6 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
 
   // ---- order, by keyboard and by dragging: the kids' schnitzel moves up and back down
   const dishOrder = async () => (await owner.api.select('dishes', { select: 'name_he,position', venue_id: `eq.${owner.venueId}`, order: 'position' })).map((d) => d.name_he).filter((n) => n.startsWith('שניצל'));
-  owner.forVenue((await owner.api.select('venues', { select: 'id', slug: 'eq.schnitzel-sim' }))[0].id);
   await page.goto(e.webUrl + 'studio/#/menu');
   await page.locator('[data-tool="arrange"]').click();
   const up = page.getByRole('button', { name: 'להעלות את שניצל ילדים' });
@@ -308,11 +316,43 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   assert.deepEqual(kid.addons, [{ groupId: side.id, min: 1, max: 1 }]);
   assert.deepEqual(sch.related, [lemonade.id]);
   assert.deepEqual([kid.related, lemonade.addons], [[], []]);
+  assert.deepEqual([sch.scheduleId, kid.scheduleId, s.schedules.map((x) => [x.id, x.name.en, x.windows[0].from])], [null, lunch.id, [[lunch.id, 'Lunch', '11:00']]]);
   // the owner's draft preview and what guests get are the same menu
   const draft = await owner.preview();
   const strip = (x) => ({ ...x, revision: 0, publishedAt: '' });
   assert.deepEqual(strip(s), strip(draft.snapshot));
   assert.deepEqual(problems(page), []);
+
+  // ---- versions: a change published as version 2, then version 1 put back
+  sheet = await openDish('לימונדה');
+  await sheet.getByLabel('מחיר', { exact: true }).fill('15');
+  await page.locator('[data-save="saved"]').waitFor();
+  await page.goto(e.webUrl + 'studio/#/publish');
+  await pub.locator('[data-changes]', { hasText: 'מנה אחת עודכנה' }).waitFor();
+  await pub.locator('[data-action="publish"]').click();
+  await page.locator('[data-revision="2"] .badge-ok').waitFor();
+  let menuNow = await asAnon(e.stack).rpc('public_menu', { p_slug: slug });
+  assert.deepEqual([menuNow.snapshot.revision, menuNow.snapshot.sections[1].dishes[0].price.amount], [2, 1500]);
+  await pub.locator('[data-restore="1"]').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'להחזיר את הגרסה הזאת' }).click();
+  await page.locator('[data-revision="1"] .badge-ok').waitFor();
+  menuNow = await asAnon(e.stack).rpc('public_menu', { p_slug: slug });
+  assert.deepEqual([menuNow.snapshot.revision, menuNow.snapshot.sections[1].dishes[0].price.amount], [1, 1400]);
+  await pub.locator('[data-changes]', { hasText: 'מנה אחת עודכנה' }).waitFor();    // the draft keeps the edit, unpublished
+  await shot(page, '18-versions');
+
+  // ---- a second place, and the switch between the two
+  await page.locator('[data-action="account"]').click();
+  await page.locator('[data-menu="add-venue"]').click();
+  await page.locator('#place-name').fill('Bistro Two Sim');
+  await page.locator('[data-avail="free"]').waitFor();
+  await page.getByRole('button', { name: 'יצירת המקום' }).click();
+  await page.getByRole('heading', { name: 'התפריט עוד ריק' }).waitFor();
+  await page.locator('[data-action="switch-venue"]').click();
+  await shot(page, '19-switch-place');
+  await page.locator('dialog[data-sheet="account"] [data-venue="schnitzel-sim"]').click();
+  await page.getByRole('heading', { name: 'עיקריות', level: 2 }).waitFor();
+  assert.match(await page.locator('.top-biz').innerText(), /Schnitzel Sim/);
 
   // the same app in English, left to right
   await page.locator('[data-action="account"]').click();
@@ -327,6 +367,6 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await en.getByRole('checkbox', { name: 'Fries', exact: true }).check();
   await en.getByRole('radio', { name: 'Aioli +₪3' }).check();
   assert.equal(await en.locator('.gp-total').getAttribute('data-total'), '6500');
-  await shot(page, '18-english-addons');
+  await shot(page, '20-english-addons');
   assert.deepEqual(problems(page), []);
 });

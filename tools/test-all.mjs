@@ -40,7 +40,8 @@ const SUITES = [
   ['ops-e2e', 'apps/ops', 'npm run -s build && npm run -s test:e2e', true],
   ['studio-e2e', 'apps/studio', 'npm run -s build && npm run -s test:e2e', true],
   ['brand', 'brand', 'node tools/test-site.mjs', true],
-  ['e2e', 'e2e', 'npm test', true],             // the browser on the simulator's stack (phase 0: one smoke test)
+  // the browser on the simulator's stack, over the built site (the owner app v2 among it)
+  ['e2e', 'e2e', 'bash ../tools/build-site.sh > /dev/null && npm test', true],
 ];
 /* the seating contracts' tests run inside view-unit (apps/view/package.json names them) */
 

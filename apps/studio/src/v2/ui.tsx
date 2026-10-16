@@ -81,7 +81,7 @@ export function Tabs<K extends string>({ value, tabs, onChange, label }: { value
   return (
     <div class="tabs" role="tablist" aria-label={label}>
       {tabs.map((tb, i) => (
-        <button key={tb.key} ref={(el) => { refs.current[tb.key] = el; }} type="button" role="tab" id={'tab-' + tb.key} aria-selected={value === tb.key ? 'true' : 'false'} aria-controls={'panel-' + tb.key}
+        <button key={tb.key} ref={(el) => { refs.current[tb.key] = el; }} type="button" role="tab" id={'tab-' + tb.key} aria-selected={value === tb.key ? 'true' : 'false'} aria-controls={value === tb.key ? 'panel-' + tb.key : undefined}
           tabIndex={value === tb.key ? 0 : -1} onClick={() => onChange(tb.key)} onKeyDown={(e) => key(e as any, i)} data-tab={tb.key}>
           {tb.label}{tb.badge ? <b class="tabs-n">{tb.badge}</b> : null}
         </button>

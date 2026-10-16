@@ -73,3 +73,8 @@
 .notices{display:grid;gap:8px}
 .notices ul{display:grid;gap:6px}
 .price-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;align-items:start}
+
+/* an empty screen: the icon, a line, what to do, centred on a quiet card */
+.v2 .empty{display:grid;gap:10px;justify-items:center;text-align:center;padding:32px 18px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
+.v2 .empty p{color:var(--muted);max-width:40ch}
+.v2 .empty-actions{margin-top:6px}

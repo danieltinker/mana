@@ -135,11 +135,14 @@ one, paste one into a PR, or load one into a page anyone else can open.
 ## e2e/ (browser tests)
 
 `e2e/helpers.mjs` → `startE2E({ seed })`: the sim stack, a synthetic venue, a static server for `_site/` (when
-`bash tools/build-site.sh` has built it) at `/mana/` with a generated `config.js` pointing at the local stack, and the
-system Chromium (`CHROME`, default `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) with playwright-core, found as
-the apps' browser tests find it (the apps' installs, then `/opt/npm-tools`). The browser reaches 127.0.0.1 only.
-`e2e/smoke.test.mjs` fetches `public_menu` for the seeded venue from a page, through the gateway. The apps' own browser
-tests move here in phase 1, when they speak the new schema. `cd e2e && npm test`; screenshots in `e2e/.out/`.
+`bash tools/build-site.sh` has built it) at `/mana/` with a generated `config.js` pointing at the local stack (`env:
+'local'`, `schema: 2`, `realtime: false`, so the apps run their v2 code), and the system Chromium (`CHROME`, default
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) with playwright-core, found as the apps' browser tests find it
+(the apps' installs, then `/opt/npm-tools`). The browser reaches 127.0.0.1 only.
+`e2e/smoke.test.mjs` fetches `public_menu` for the seeded venue from a page, through the gateway.
+`e2e/studio-v2.test.mjs` drives the owner app v2 on a phone (it needs the built site): sign-in, a new place, a menu with
+a nested add-on group, the guest preview's prices, publishing and Halom's approval, and `public_menu` at the end.
+`node tools/test-all.mjs e2e` builds the site first; `cd e2e && npm test` uses the last build; screenshots in `e2e/.out/`.
 
 ## Not yet
 

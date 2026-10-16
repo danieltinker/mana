@@ -9,7 +9,7 @@ import { toV2Error } from '../data/errors.ts';
 import { blockedColumns, capacityOf, changed, dishDraft, dishLimitsFromForm, dishToForm, effectiveLimits, groupToForm, limitChoices, type DishForm, type FieldError } from '../data/forms.ts';
 import { guestModel } from '../data/guest.ts';
 import { byCreated, byPosition, named } from '../data/rows.ts';
-import { addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, relatedOf, removeRows, setDishLimits } from '../data/store.ts';
+import { addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, refused, relatedOf, removeRows, setDishLimits } from '../data/store.ts';
 import { langsOf, ruleLine } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { Icon2, LangSeg, MoneyInput, ReorderList, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
@@ -49,6 +49,8 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
   const [del, setDel] = useState(false), [busy, setBusy] = useState(false);
   const sections = byPosition(d.sections);
   const parts = d.schedules;
+  // a refused save: the form shows the dish as stored again (the app says why)
+  useEffect(() => { const r = refused.value; if (r && r.table === 'dishes' && r.id === row.id) { setForm(dishToForm(row)); setErrors([]); } }, [refused.value]);
 
   /** Every change is saved shortly after, except the fields that have a problem (shown under them). */
   const set = (patch: Partial<DishForm>) => {

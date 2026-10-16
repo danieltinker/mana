@@ -11,6 +11,7 @@ import { toV2Error } from '../data/errors.ts';
 import * as api from '../data/menu.ts';
 import { loadMemberships, session, signOut } from '../data/store.ts';
 import { errText, lang, t } from '../i18n.ts';
+import { landing } from '../routes.tsx';
 
 const HEBREW = /[֐-׿]/;
 
@@ -56,7 +57,7 @@ export function VenueNewScreen({ first }: { first: boolean }) {
     setBusy(true);
     try {
       const r = await api.createVenue({ slug, nameHe: isHe ? clean : '', nameEn: isHe ? '' : clean, kind, defaultLang: lang.value });
-      go('menu', true);
+      go(landing(), true);
       await loadMemberships(r.id);
     } catch (e2) {
       const code = toV2Error(e2).code;
@@ -121,7 +122,7 @@ export function VenueNewScreen({ first }: { first: boolean }) {
           <Btn type="submit" kind="primary" block busy={busy} disabled={unconfirmed || (avail === 'checking' && !!clean)}>{t('venue.create')}</Btn>
         </form>
         <p class="start-who fine center">
-          {!first ? <button type="button" class="linkbtn" onClick={() => go('menu')}>{t('app.cancel')}</button>
+          {!first ? <button type="button" class="linkbtn" onClick={() => go(landing())}>{t('app.cancel')}</button>
             : <>{mail && <Ltr>{mail}</Ltr>} <button type="button" class="linkbtn" onClick={() => signOut()}>{t('app.signOut')}</button></>}
         </p>
       </main>

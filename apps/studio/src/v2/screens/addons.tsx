@@ -7,7 +7,7 @@ import { useState } from 'preact/hooks';
 import { LIMITS, type AddonGroupRow } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
-import { toV2Error, type V2Error } from '../data/errors.ts';
+import { toV2Error } from '../data/errors.ts';
 import { capacityOf, groupToForm, newGroupForm, newOptionForm, withSelection, type FieldError, type GroupForm, type OptionForm } from '../data/forms.ts';
 import { canHoldOpeners, openTargets } from '../data/nesting.ts';
 import { byCreated, named } from '../data/rows.ts';
@@ -82,8 +82,8 @@ function GroupEditor({ id }: { id: string | null }) {
   const nested = !canHoldOpeners(id, d.options);
   const targets = openTargets(id, byCreated(d.groups), d.options);
   const u = row ? useOf(row) : { dishes: [], opens: [], openedBy: [] };
-  const stored = row ? JSON.stringify(groupToForm(row, d.options)) : JSON.stringify(newGroupForm());
-  const dirty = JSON.stringify(form) !== stored;
+  const shape = (f: GroupForm) => JSON.stringify({ ...f, options: f.options.map(({ key: _key, ...o }) => o) });
+  const dirty = shape(form) !== shape(row ? groupToForm(row, d.options) : newGroupForm());
   const many = form.selection === 'multiple';
   const nameKey = L === 'he' ? 'nameHe' : 'nameEn';
   const errAt = (field: string) => { const e = errors.find((x) => x.field === field || x.field.startsWith(field + '_')); return e ? fieldText(e) : undefined; };
@@ -100,7 +100,7 @@ function GroupEditor({ id }: { id: string | null }) {
       toast(t('lib.saved'));
       if (!id) go('addons/' + g.id, true); else setForm(groupToForm(g, menu.value!.options));
     } catch (e) {
-      const err = toV2Error(e) as V2Error;
+      const err = toV2Error(e);
       if (err.code === 'form_invalid') { setErrors(err.detail as FieldError[]); return; }
       setError(errText(err.code));
       if (err.code === 'nesting_too_deep') {

@@ -2,6 +2,7 @@
 // One place in memory at a time; switching place or account drops everything, and late answers are ignored.
 // Every write goes through here so the rows on screen are what the database stored.
 import { batch, signal } from '@preact/signals';
+import type { Session } from '@supabase/supabase-js';
 import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, SectionRow } from '@mana/contracts';
 import { sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
@@ -12,7 +13,7 @@ import type { MenuData, MenuTable, Membership } from './menu.ts';
 import { nestingProblem } from './nesting.ts';
 import { byPosition, nextPosition, reorder } from './rows.ts';
 
-export const session = signal<any | null | undefined>(undefined);          // undefined = still finding out
+export const session = signal<Session | null | undefined>(undefined);      // undefined = still finding out
 export const memberships = signal<Membership[] | null>(null);
 export const venueId = signal<string | null>(null);
 export const menu = signal<MenuData | null>(null);
@@ -62,7 +63,7 @@ export async function loadMemberships(prefer?: string) {
   const gen = generation;
   loadState.value = 'loading';
   try {
-    const list = await api.myVenues(session.value.user.id);
+    const list = await api.myVenues(session.value!.user.id);
     if (gen !== generation) return;
     memberships.value = list;
     let want = prefer || null;
@@ -134,8 +135,8 @@ const pending = new Map<string, Pending>();
 const failed = new Map<string, Pending>();
 const chains = new Map<string, Promise<void>>();
 let inflight = 0;
-/** A refusal the screens explain (the field shows the stored value again). */
-export const refused = signal<{ code: string; at: number } | null>(null);
+/** An autosave the database refused: the row is back as stored, the screens say why and show it again. */
+export const refused = signal<{ code: string; at: number; table: MenuTable; id: string } | null>(null);
 
 function settle() {
   saveState.value = failed.size ? 'failed' : inflight || pending.size || chains.size ? 'saving' : 'saved';
@@ -196,8 +197,8 @@ function flush(key: string): Promise<void> {
         if (err.code === 'signed_out') signOut();
       } else {
         // the database said no: show what is really stored, and say why
-        refused.value = { code: err.code, at: Date.now() };
         await reloadOne(p.table, p.id, gen);
+        if (gen === generation) refused.value = { code: err.code, at: Date.now(), table: p.table, id: p.id };
       }
     }
   };
