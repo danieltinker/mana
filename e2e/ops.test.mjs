@@ -3,8 +3,7 @@
 //   a non-staff user is refused; a staff user finds Café Demo, follows its onboarding, approves its first publish, acts
 //   for the owner to restore a dish (with a reason, then sees it in the timeline), and sees simulated guest traffic
 //   appear after stack.buildRollups(); leads are read and updated.
-// Needs `npm run build` in apps/ops first (dist/). The flows that need ADR-008's back-office functions (ops_venues,
-// ops_venue, ops_analytics) skip, saying so, until the schema has them (the backend lane's migration).
+// Needs `npm run build` in apps/ops first (dist/).
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -21,10 +20,7 @@ const DESK = { width: 1440, height: 900 };
 const PHONE = { width: 390, height: 844 };
 const STAFF = { email: 'staff.ops-e2e@example.invalid', password: 'sim-staff-pass-1' };
 const OWNER_PASSWORD = 'sim-owner-pass-1';
-/** The back office's functions of ADR-008, by name; the flows below need some of them. */
-const ADR8 = ['ops_venues', 'ops_venue', 'ops_analytics', 'ops_update_case', 'ops_set_demo'];
-
-let e, site, staff, has;
+let e, site, staff;
 /** Café Demo, twice: one for the desk run, one for the phone run (an approval happens once per venue). */
 const venues = {};
 
@@ -43,18 +39,15 @@ before(async () => {
   const seed = readSeed(path.join(SEEDS, 'cafe-demo.json')).seed;
   for (const [tag, slug] of [['desk', 'cafe-demo'], ['phone', 'cafe-demo-phone']]) {
     // built by its owner bot and published: the first publish waits for Halom's approval
-    const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug });
+    const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug, halom: staff });
+    // the owner is still testing the menu on a phone: one step left for Halom to follow
+    assert.equal((await v.owner.setStep('test', 'doing')).ok, true);
     const pub = await v.owner.publish('first publish');
     assert.equal(pub.review, 'pending');
     venues[tag] = v;
   }
-  const rows = await e.stack.sql(`select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = any($1)`, [ADR8]);
-  has = new Set(rows.map((r) => r.proname));
 }, { timeout: 240_000 });
 after(async () => { await e?.stop(); if (site) fs.rmSync(site, { recursive: true, force: true }); });
-
-const missing = (...fns) => fns.filter((f) => !has.has(f));
-const skipUnless = (t, ...fns) => { const m = missing(...fns); if (m.length) { t.skip(`waits for ${m.join(', ')} (ADR-008, the backend lane's migration)`); return true; } return false; };
 
 async function page(viewport) {
   const phone = viewport.width < 700;
@@ -154,16 +147,21 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
     return { api: opsApi(supabaseBackend(client)), id: data.user.id };
   };
   const seed = readSeed(path.join(SEEDS, 'cafe-demo.json')).seed;
-  const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug: 'cafe-demo-api' });
+  const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug: 'cafe-demo-api', halom: staff });
   await v.owner.publish('first publish');
   const admin = await as(STAFF);
   const owner = await as({ email: 'owner.cafe-demo-api@example.invalid', password: OWNER_PASSWORD });
   assert.deepEqual(await admin.api.staffRole(admin.id), { ok: true, data: 'admin' });
   assert.deepEqual(await owner.api.staffRole(owner.id), { ok: true, data: null }, 'an owner has no staff row');
 
-  // the guest menu waits for approval; approve; the guest menu answers
+  // the guest menu waits for approval; staff read the stored revision they approve (logged); approve; the guest menu answers
   const before = await admin.api.publicMenu('cafe-demo-api');
   assert.ok(before.ok && before.data.state === 'unavailable');
+  const rev = await admin.api.revision({ venueId: v.venueId });
+  assert.ok(rev.ok && rev.data.revision.number === 1 && rev.data.latest === 1 && rev.data.review === 'pending', JSON.stringify(rev));
+  assert.ok(rev.ok && rev.data.snapshot.sections.some((sec) => sec.dishes.some((d) => d.id === v.ids.dishes.espresso)));
+  const ownerRev = await owner.api.revision({ venueId: v.venueId });
+  assert.ok(!ownerRev.ok && ownerRev.kind === 'not_staff', 'staff only');
   const short = await admin.api.approve({ venueId: v.venueId, reason: 'no' });
   assert.ok(!short.ok && short.kind === 'invalid', 'refused before the call');
   const ok = await admin.api.approve({ venueId: v.venueId, reason: 'Synthetic menu checked, api' });
@@ -173,7 +171,7 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
 
   // act for owner: the payload names are act_for_owner's
   const espresso = v.ids.dishes.espresso;
-  await v.owner.soldOut('dish', espresso, { kind: 'duration', minutes: 120 });
+  assert.equal((await v.owner.setAvailability('dish', espresso, { kind: 'duration', minutes: 120 })).ok, true);
   const menu = await admin.api.publicMenu('cafe-demo-api');
   assert.ok(menu.ok && menu.data.state === 'ok' && menu.data.live.off.some((o) => o.id === espresso));
   const restored = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'availability.restore', payload: { targetKind: 'dish', targetId: espresso } });
@@ -205,8 +203,7 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
 // ------------------------------------------------------------------ the support flow (needs ADR-008's functions)
 
 for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
-  test(`${tag}: staff find Café Demo, follow its onboarding, approve its first publish, restore a dish for the owner; guest traffic appears`, async (t) => {
-    if (skipUnless(t, 'ops_venues', 'ops_venue', 'ops_analytics')) return;
+  test(`${tag}: staff find Café Demo, follow its onboarding, read its menu and approve its first publish, restore a dish for the owner; guest traffic appears`, async () => {
     const v = venues[tag];
     const p = await page(viewport);
     await signIn(p, STAFF);
@@ -223,11 +220,24 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     await row.locator('[data-open]').click();
     await p.locator(`[data-page=venue][data-venue="${v.slug}"] [data-panel=timeline]`).waitFor();
 
-    // follow its onboarding: what the owner bot did is what the page shows
-    const [steps] = await e.stack.sql(`select count(*) filter (where state in ('done', 'skipped'))::int as done from public.onboarding_progress where venue_id = $1`, [v.venueId]);
-    assert.match(await p.locator('[data-onboarding-summary]').innerText(), new RegExp(`^${steps.done} of 9 steps done`));
-    assert.equal(await p.locator('[data-step=menu]').getAttribute('data-state'), 'done');
+    // follow its onboarding: every step as the database has it, the one left named
+    const rows = await e.stack.sql('select step, state from public.onboarding_progress where venue_id = $1', [v.venueId]);
+    const state = Object.fromEntries(rows.map((r) => [r.step, r.state]));
+    for (const step of ['venue', 'menu', 'review', 'addons', 'photos', 'hours', 'style', 'test', 'publish']) {
+      assert.equal(await p.locator(`[data-step=${step}]`).getAttribute('data-state'), state[step] ?? 'todo', step);
+    }
+    assert.deepEqual([state.menu, state.review, state.publish, state.test], ['done', 'skipped', 'done', 'doing'], 'the database\'s steps and the owner\'s');
+    assert.match(await p.locator('[data-onboarding-summary]').innerText(), /^8 of 9 steps done · next: Test on a phone/);
     assert.match(await p.locator('[data-guests-unavailable]').innerText(), /waits for Halom’s approval/);
+
+    // read the menu to approve (ops_revision): the newest stored revision, its dishes; the read is on the timeline
+    const rev = p.locator('[data-panel=revision] [data-revision="1"]');
+    await rev.waitFor();
+    assert.equal(await rev.locator(`[data-id="${v.ids.dishes.espresso}"]`).count(), 1);
+    assert.match(await rev.innerText(), /Espresso/);
+    await p.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
+    const [read] = await e.stack.sql(`select count(*)::int as n from public.activity_log where venue_id = $1 and action = 'menu.read'`, [v.venueId]);
+    assert.equal(read.n, 1, 'one read, logged');
 
     // approve the first publish, with a reason
     const approve = p.locator('[data-write=approve]');
@@ -241,7 +251,7 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
 
     // the owner sells out the espresso; Halom restores it for the owner from what guests see
     const espresso = v.ids.dishes.espresso;
-    await v.owner.soldOut('dish', espresso, { kind: 'duration', minutes: 120 });
+    assert.equal((await v.owner.setAvailability('dish', espresso, { kind: 'duration', minutes: 120 })).ok, true);
     const dish = p.locator(`[data-menu-row=dish][data-id="${espresso}"]`);
     await until(() => dish.getAttribute('data-off'), 'yes', 'the sold-out shows on the next refresh');
     await dish.locator('[data-restore]').click();
