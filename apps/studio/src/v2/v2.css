@@ -17,6 +17,7 @@
 .stepper-n{min-width:2.2em;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:var(--black)}
 
 /* tabs: one row of pills under the sheet's title */
+.tabs-wrap{min-width:0}
 .tabs{display:flex;gap:4px;padding:3px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
 .tabs button{flex:1 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border:0;border-radius:999px;background:transparent;font-weight:500;color:var(--charcoal);white-space:nowrap}
 .tabs button[aria-selected=true]{background:var(--paper);color:var(--black);box-shadow:0 1px 3px rgba(67,40,30,.16)}
@@ -137,6 +138,30 @@ span.hourchip{cursor:default;min-height:0;padding:3px 11px}
 .v2 .empty{display:grid;gap:10px;justify-items:center;text-align:center;padding:32px 18px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
 .v2 .empty p{color:var(--muted);max-width:40ch}
 .v2 .empty-actions{margin-top:6px}
+
+/* an editing area that a read-only account sees disabled (ReadOnly in ui.tsx): a fieldset with no look of its own */
+fieldset.ro{border:0;margin:0;padding:0;min-width:0}
+.group-form{display:grid;gap:18px}
+fieldset.ro:disabled .switch,fieldset.ro:disabled .stepper,fieldset.ro:disabled .tagchip,fieldset.ro:disabled .kindchip,fieldset.ro:disabled .seg{opacity:.6}
+.v2 :is(input,textarea,select):disabled{background:var(--soft);color:var(--charcoal);cursor:not-allowed}
+
+/* the group was saved somewhere else: what is stored now, and the two ways on (in the sticky bar, above the fold) */
+.stale{display:grid;gap:8px;padding:12px 14px;border-radius:var(--r);background:var(--warn-bg,#fff6e5);border:1px solid #ecd3a3;color:var(--black)}
+.stale-now{max-height:30vh;overflow:auto;font-size:.92rem}
+.stale-now ul{display:grid;gap:2px;margin-top:4px;padding-inline-start:18px;list-style:disc}
+.stale .btnrow{display:flex;flex-wrap:wrap;gap:8px}
+
+/* changed somewhere else: the stored values beside the owner's, then the owner's choice */
+.conflict-table{width:100%;border-collapse:collapse;font-size:.92rem;margin:10px 0}
+.conflict-table th,.conflict-table td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:start;vertical-align:top;overflow-wrap:anywhere}
+.conflict-table thead th{font-weight:500;color:var(--muted);font-size:.84rem}
+.conflict-table tbody th{font-weight:600;color:var(--black)}
+.conflict .dialog-foot{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+
+/* toasts over the top bar in v2, for a moment: they never cover the screen's content (the sticky bar with its error
+   line and button, the "not saved" line, the versions list), and taps go through them */
+html[data-app=v2] .toasts{inset:calc(6px + env(safe-area-inset-top)) 0 auto 0}
+html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 
 /* Home (F08): the help button, quick actions, what is off now, at a glance, the latest changes */
 .helpbtn{text-decoration:none}

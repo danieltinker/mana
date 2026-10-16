@@ -5,10 +5,11 @@ import { PRODUCT } from '../product.ts';
 import { sibling } from '../lib/api.ts';
 import { toast } from '../lib/store.ts';
 import { Brand } from '../brand.tsx';
-import { Btn, Icon, Loading, Ltr, Note, SaveFailed, Sheet, Toasts, go, route } from '../ui.tsx';
+import { Btn, Confirm, Icon, Loading, Ltr, Note, SaveFailed, Sheet, Toasts, go, route } from '../ui.tsx';
+import { ConflictDialog } from './conflict.tsx';
 import { cfg } from './data/client.ts';
 import { named } from './data/rows.ts';
-import { hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveProblem, saveState, session, signOut, venueId } from './data/store.ts';
+import { flushSaves, hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveProblem, saveState, session, signOut, venueId } from './data/store.ts';
 import { errText, lang, setLang, t } from './i18n.ts';
 import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
 import { HelpButton } from './screens/help.tsx';
@@ -83,6 +84,7 @@ function Shell() {
         {screen ? screen.render(r.slice(1)) : <Loading />}
       </main>
       <AccountSheet open={account} onClose={() => setAccount(false)} />
+      <ConflictDialog />
     </div>
   );
 }
@@ -90,10 +92,11 @@ function Shell() {
 function SaveBadge() {
   const s = saveState.value;
   if (s === 'idle') return <span class="savebadge" aria-live="polite" />;
+  const bad = s === 'failed' || s === 'conflict';
   return (
-    <span class={'savebadge save-' + s} aria-live="polite" data-save={s}>
-      {s === 'failed' ? <Icon name="alert" size={15} /> : s === 'saved' ? <Icon name="check" size={15} /> : <span class="spin spin-sm" aria-hidden="true" />}
-      <span class="savebadge-txt">{t(s === 'saving' ? 'save.saving' : 'save.' + s)}</span>
+    <span class={'savebadge save-' + (bad ? 'failed' : s)} aria-live="polite" data-save={s}>
+      {bad ? <Icon name="alert" size={15} /> : s === 'saved' ? <Icon name="check" size={15} /> : <span class="spin spin-sm" aria-hidden="true" />}
+      <span class="savebadge-txt">{t(s === 'saving' ? 'save.saving' : bad ? 'save.failed' : 'save.' + s)}</span>
     </span>
   );
 }
@@ -128,14 +131,26 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
   const list = memberships.value || [];
   const email = session.value?.user?.email || '';
   const other = lang.value === 'he' ? 'en' : 'he';
+  // a change that did not save belongs to this place: switching drops it, so the owner is asked first
+  const [ask, setAsk] = useState<string | null>(null);
+  // the place being opened decides where it opens (Home once it has published), not the one still on screen
+  const switchTo = (id: string) => { setAsk(null); openVenue(id); go(landing(list.find((m) => m.venue.id === id)?.venue ?? null)); };
+  async function pick(id: string) {
+    onClose();
+    if (id === venueId.value) return;
+    await flushSaves().catch(() => {});
+    if (hasUnsaved()) setAsk(id); else switchTo(id);
+  }
   return (
+    <>
+    <Confirm open={!!ask} title={t('venue.unsaved.title')} body={t('venue.unsaved.body')} confirmLabel={t('venue.unsaved.go')} danger onConfirm={() => switchTo(ask!)} onClose={() => setAsk(null)} />
     <Sheet open={open} onClose={onClose} title={t('app.account')} name="account">
       {email && <p class="muted acct-mail"><Ltr>{email}</Ltr></p>}
       {list.length > 1 && (
         <div class="bizlist" role="group" aria-label={t('app.switchBusiness')}>
           {list.map((m) => (
             <button key={m.venue.id} type="button" class="bizrow" aria-current={m.venue.id === venueId.value ? 'true' : undefined} data-venue={m.venue.slug}
-              onClick={() => { onClose(); if (m.venue.id !== venueId.value) { openVenue(m.venue.id); go(landing(m.venue)); } }}>
+              onClick={() => { pick(m.venue.id); }}>
               <Icon name="store" size={20} /><span class="bizrow-name">{named(m.venue, lang.value)}</span>
               {m.venue.id === venueId.value && <Icon name="check" size={18} />}
             </button>
@@ -150,5 +165,6 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
         <li><button type="button" onClick={() => { onClose(); signOut(); }} data-menu="sign-out"><Icon name="logout" /><span>{t('app.signOut')}</span></button></li>
       </ul>
     </Sheet>
+    </>
   );
 }

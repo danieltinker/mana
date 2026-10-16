@@ -6,13 +6,13 @@ import { LIMITS, TAGS, type DishAddonGroupRow, type DishRow } from '@mana/contra
 import { Btn, Confirm, Field, Icon, IconBtn, Note, Sheet, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
-import { blockedColumns, capacityOf, changed, dishDraft, dishLimitsFromForm, dishToForm, effectiveLimits, groupToForm, limitChoices, type DishForm, type FieldError } from '../data/forms.ts';
+import { capacityOf, dishEdit, dishLimitsFromForm, dishToForm, effectiveLimits, groupToForm, limitChoices, type DishForm, type FieldError } from '../data/forms.ts';
 import { guestModel } from '../data/guest.ts';
 import { byCreated, byPosition, named } from '../data/rows.ts';
-import { addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, refused, relatedOf, removeRows, setDishLimits } from '../data/store.ts';
+import { ANY_ROW, addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo, moveRow, patchRow, relatedOf, removeRows, resync, setDishLimits } from '../data/store.ts';
 import { langsOf, ruleLine } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
-import { Icon2, LangSeg, MoneyInput, ReorderList, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
+import { Icon2, LangSeg, MoneyInput, ReadOnly, ReorderList, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
 import { GuestPreview } from './guest-preview.tsx';
 
 type Tab = 'details' | 'addons' | 'related';
@@ -29,6 +29,7 @@ export function DishSheet({ id, tab, onClose }: { id: string; tab?: string; onCl
   const groups = attachedTo(row.id).length, related = relatedOf(row.id).length;
   return (
     <Sheet open onClose={onClose} title={name} side tall name="dish" head={current !== 'related' ? <LangSeg value={L} onChange={setL} langs={langs} /> : undefined}>
+      {!canEdit() && <Note>{t('menu2.readOnly')}</Note>}
       <Tabs label={t('dish.tabs')} value={current} onChange={(k) => go(`menu/d/${row.id}/${k}`, true)}
         tabs={[{ key: 'details', label: t('dish.tab.details') }, { key: 'addons', label: t('dish.tab.addons'), badge: groups }, { key: 'related', label: t('dish.tab.related'), badge: related }]} />
       <TabPanel id={current}>
@@ -49,20 +50,16 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
   const [del, setDel] = useState(false), [busy, setBusy] = useState(false);
   const sections = byPosition(d.sections);
   const parts = d.schedules;
-  // a refused save: the form shows the dish as stored again (the app says why)
-  useEffect(() => { const r = refused.value; if (r && r.table === 'dishes' && r.id === row.id) { setForm(dishToForm(row)); setErrors([]); } }, [refused.value]);
+  // after a refusal, a change made elsewhere, or the owner's choice between the two: the form shows the dish as it is now
+  useEffect(() => { const r = resync.value; if (r && r.table === 'dishes' && (r.id === row.id || r.id === ANY_ROW)) { setForm(dishToForm(row)); setErrors([]); } }, [resync.value]);
 
-  /** Every change is saved shortly after, except the fields that have a problem (shown under them). */
+  /** Every change is saved shortly after (only what this change touched), except the fields that have a problem (shown under them). */
   const set = (patch: Partial<DishForm>) => {
     const next = { ...form, ...patch };
+    const edit = dishEdit(form, next);
     setForm(next);
-    const draft = dishDraft(next);
-    setErrors(draft.errors);
-    const blocked = blockedColumns(draft.errors);
-    const { section_id: _s, ...cols } = draft.value;
-    const diff = changed(row as Partial<typeof cols>, cols);
-    for (const k of Object.keys(diff)) if (blocked.has(k)) delete (diff as Record<string, unknown>)[k];
-    if (Object.keys(diff).length) patchRow('dishes', row.id, diff);
+    setErrors(edit.errors);
+    if (Object.keys(edit.patch).length) patchRow('dishes', row.id, edit.patch);
   };
   const errOf = (...fields: string[]) => { const e = errors.find((x) => fields.includes(x.field)); return e ? (e.code === 'name_missing' ? t('menu.item.nameMissing') : e.code === 'price_invalid' ? t('menu.item.badPrice') : errText(e.code)) : undefined; };
   const k = (base: 'name' | 'desc' | 'priceNote' | 'allergens') => (base + (L === 'he' ? 'He' : 'En')) as keyof DishForm;
@@ -76,7 +73,7 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
   }
 
   return (
-    <div class="dish2" data-dish-details={row.id}>
+    <ReadOnly when={!editable} class="dish2" data-dish-details={row.id}>
       <Field label={t('item.name') + ' · ' + t('app.' + L)} error={errOf('name', 'name_' + L)}>{(p) => (
         <input {...p} type="text" dir="auto" lang={L} maxLength={LIMITS.nameLength} value={form[k('name')] as string} disabled={!editable} data-field={'dish-name-' + L} onInput={(e) => set({ [k('name')]: input(e) })} />
       )}</Field>
@@ -85,10 +82,10 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
       )}</Field>
       <div class="price-row">
         <Field label={t('item.price')} error={errOf('price')}>{(p) => (
-          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={form.price} onInput={(v) => set({ price: v })} />
+          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={form.price} onInput={(v) => set({ price: v })} field="dish-price" disabled={!editable} />
         )}</Field>
         <Field label={t('item.priceNote') + ' · ' + t('app.' + L)} optional>{(p) => (
-          <input {...p} type="text" dir="auto" lang={L} maxLength={LIMITS.noteLength} placeholder={t('item.priceNoteEg')} value={form[k('priceNote')] as string} disabled={!editable} onInput={(e) => set({ [k('priceNote')]: input(e) })} />
+          <input {...p} type="text" dir="auto" lang={L} maxLength={LIMITS.noteLength} placeholder={t('item.priceNoteEg')} value={form[k('priceNote')] as string} disabled={!editable} data-field={'dish-note-' + L} onInput={(e) => set({ [k('priceNote')]: input(e) })} />
         )}</Field>
       </div>
       <p class="fine">{t('gp.vat')}</p>
@@ -107,7 +104,7 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
           <select {...p} value={form.sectionId} disabled={!editable} data-field="dish-section" onChange={(e) => {
             const to = (e.target as HTMLSelectElement).value;
             setForm({ ...form, sectionId: to });
-            moveDishTo(row.id, to).catch((err) => { setForm({ ...form }); toast(errText(toV2Error(err).code), 'error'); });
+            moveDishTo(row.id, to);
           }}>{sections.map((s) => <option key={s.id} value={s.id}>{named(s, lang.value) || t('menu2.unnamed')}</option>)}</select>
         )}</Field>
         <Field label={t('dish.daypart')} hint={parts.length ? undefined : t('dish.daypart.none')}>{(p) => (
@@ -120,7 +117,7 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
       <div class="switchrow"><span>{t('ed.hide')}</span><Switch checked={form.hidden} disabled={!editable} onChange={(v) => set({ hidden: v })} label={t('ed.hide')} /></div>
       {editable && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-dish">{t('item.delete')}</Btn>}
       <Confirm open={del} title={t('item.delete')} body={t('item.deleteConfirm', { name: named(row, lang.value) })} confirmLabel={t('app.delete')} danger busy={busy} onConfirm={remove} onClose={() => setDel(false)} />
-    </div>
+    </ReadOnly>
   );
 }
 
@@ -207,7 +204,13 @@ function LimitsEditor({ dag, onDone }: { dag: DishAddonGroupRow; onDone: () => v
     if (!m.ok) { setError(errText(m.errors[0]!.code)); return; }
     setBusy(true);
     try { await setDishLimits(dag.id, m.value); onDone(); }
-    catch (e) { setError(errText(toV2Error(e).code)); }
+    catch (e) {
+      const err = toV2Error(e);
+      setError(errText(err.code));
+      // changed elsewhere meanwhile: the limits as stored now are what the editor shows
+      const now = err.code === 'stale' ? menu.value!.dishGroups.find((x) => x.id === dag.id) : null;
+      if (now) { const ef = effectiveLimits(g, now); setMin(ef.min); setMax(ef.max); }
+    }
     finally { setBusy(false); }
   }
   return (
