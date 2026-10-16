@@ -15,6 +15,8 @@ export type Validation<T> = { readonly ok: true; readonly value: T } | { readonl
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+/** A stock illustration's id (`stock/<id>`): a dish's `stock_id`, a draft's `illustration`, a snapshot's stock asset. */
+export const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
