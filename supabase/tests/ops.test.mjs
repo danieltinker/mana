@@ -169,7 +169,7 @@ describe('ops_revision: the stored menu Halom approves', () => {
     assert.deepEqual([newest.revision.number, newest.revision.live, newest.latest, newest.review], [2, true, 2, 'approved']);
     assert.deepEqual([first.revision.number, first.revision.live, first.latest, first.revision.note], [1, false, 2, 'first']);
     assert.deepEqual(await rpc(w.url, U.admin, 'ops_revision', { p_venue: w.B, p_revision: 3 }), { ok: false, code: 'revision_unknown' });
-    assert.deepEqual(await rpc(w.url, U.admin, 'ops_revision', { p_venue: w.B, p_revision: 0 }), { ok: false, code: 'revision_unknown' });
+    assert.deepEqual(await rpc(w.url, U.admin, 'ops_revision', { p_venue: w.B, p_revision: 0 }), { ok: false, code: 'revision_invalid' });
     assert.deepEqual(await rpc(w.url, U.admin, 'ops_revision', { p_venue: '00000000-0000-4000-8000-00000000ffff' }), { ok: false, code: 'venue_unknown' });
     assert.equal((await rpc(w.url, U.ownerB, 'unpublish_menu', { p_venue: w.B })).ok, true);
     const off = await rpc(w.url, U.admin, 'ops_revision', { p_venue: w.B });

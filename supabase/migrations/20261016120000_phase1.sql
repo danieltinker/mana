@@ -78,13 +78,13 @@ create function app.js_rel_path(p jsonb) returns boolean language sql immutable 
   else false end
 $$;
 
--- isLocalDate: 'YYYY-MM-DD' that exists (JavaScript's Date.UTC reads a year below 100 as 19xx, so those never round-trip)
+-- isLocalDate: 'YYYY-MM-DD' that exists, in the years 2000 to 2100
 create function app.js_local_date(p jsonb) returns boolean language plpgsql immutable set search_path = '' as $$
 declare s text;
 begin
   if jsonb_typeof(p) is distinct from 'string' then return false; end if;
   s := p #>> '{}';
-  if s !~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' or left(s, 4)::integer < 100 then return false; end if;
+  if s !~ '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$' or left(s, 4)::integer not between 2000 and 2100 then return false; end if;
   return to_char(make_date(left(s, 4)::integer, substr(s, 6, 2)::integer, substr(s, 9, 2)::integer), 'YYYY-MM-DD') = s;
 exception when others then
   return false;
@@ -227,6 +227,8 @@ begin
   -- call); app.onboarding_auto_steps() holds the same list, and supabase/tests compares both with the contracts
   if current_user in ('anon', 'authenticated') and new.step in ('venue', 'menu', 'review', 'publish') then
     if new.state = 'done' and (tg_op = 'INSERT' or old.state <> 'done') then raise exception 'step_automatic'; end if;
+    -- of them only the review may be skipped (a menu built by hand has nothing to review)
+    if new.state = 'skipped' and new.step <> 'review' then raise exception 'step_automatic'; end if;
     if tg_op = 'UPDATE' and old.state = 'done' and new.state <> 'done' then raise exception 'step_done'; end if;
   end if;
   new.updated_by := (select auth.uid());
@@ -494,11 +496,12 @@ create function app.v_only_keys(p jsonb, p_allowed text[]) returns jsonb languag
   from jsonb_object_keys(p) k where not (k = any (p_allowed))
 $$;
 
--- optionalText: null or absent is fine; else a string of at most p_max
+-- optionalText: null or absent is fine; else a string of at most p_max code points once its blank edges are stripped
+-- (the text as stored). NUL and lone surrogates (the contracts' text_invalid) cannot reach PostgreSQL at all.
 create function app.v_optional_text(p jsonb, p_path text, p_max integer) returns jsonb language sql immutable set search_path = '' as $$
   select case when p is null or p = 'null'::jsonb then '[]'::jsonb
               when jsonb_typeof(p) <> 'string' then app.issue('type', p_path)
-              when char_length(p #>> '{}') > p_max then app.issue('text_too_long', p_path)
+              when char_length(app.strip_blank(p #>> '{}')) > p_max then app.issue('text_too_long', p_path)
               else '[]'::jsonb end
 $$;
 
@@ -538,7 +541,8 @@ begin
   errs := app.v_only_keys(p, array['venueId', 'step', 'state', 'blockers']) || app.v_uuid_at(p->'venueId', 'venueId');
   if not app.one_of(p->'step', app.onboarding_steps()) then errs := errs || app.issue('enum_invalid', 'step'); end if;
   if not app.one_of(p->'state', array['todo', 'doing', 'done', 'skipped', 'blocked']) then errs := errs || app.issue('enum_invalid', 'state');
-  elsif app.one_of(p->'step', app.onboarding_auto_steps()) and p->>'state' = 'done' then errs := errs || app.issue('step_automatic', 'state');
+  elsif app.one_of(p->'step', app.onboarding_auto_steps())
+        and (p->>'state' = 'done' or (p->>'state' = 'skipped' and p->>'step' <> 'review')) then errs := errs || app.issue('step_automatic', 'state');
   end if;
   if p ? 'blockers' then
     if jsonb_typeof(p->'blockers') <> 'array' then errs := errs || app.issue('type', 'blockers');
@@ -635,18 +639,21 @@ create function app.validate_set_demo(p jsonb) returns jsonb language sql immuta
       || case when not app.v_reason(p->'reason') then app.issue('reason_required', 'reason') else '[]'::jsonb end end
 $$;
 
+-- validateOpsRevisionQuery
+create function app.validate_ops_revision_query(p jsonb) returns jsonb language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(p) is distinct from 'object' then app.issue('type', '')
+    else app.v_only_keys(p, array['venueId', 'revision']) || app.v_uuid_at(p->'venueId', 'venueId')
+      || case when p ? 'revision' and not app.js_null(p->'revision') and not (app.js_int(p->'revision') and (p->>'revision')::numeric >= 1)
+              then app.issue('revision_invalid', 'revision') else '[]'::jsonb end end
+$$;
+
 -- validateOpsVenuesQuery
 create function app.validate_ops_venues_query(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
 declare errs jsonb;
 begin
   if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
   errs := app.v_only_keys(p, array['q', 'stage', 'warning', 'review', 'planState', 'plan', 'demo', 'sort', 'limit', 'offset']);
-  if p ? 'q' then
-    if jsonb_typeof(p->'q') <> 'string' then errs := errs || app.issue('type', 'q');
-    elsif app.js_blank(p->>'q') then errs := errs || app.issue('text_missing', 'q');
-    elsif char_length(p->>'q') > 80 then errs := errs || app.issue('text_too_long', 'q');
-    end if;
-  end if;
+  if p ? 'q' then errs := errs || app.v_required_text(p->'q', 'q', 80); end if;
   if p ? 'stage' and p->'stage' is distinct from '"complete"'::jsonb and not app.one_of(p->'stage', app.onboarding_steps()) then errs := errs || app.issue('enum_invalid', 'stage'); end if;
   if p ? 'warning' and not app.one_of(p->'warning', app.ops_warnings()) then errs := errs || app.issue('enum_invalid', 'warning'); end if;
   if p ? 'review' and not app.one_of(p->'review', array['not_requested', 'pending', 'approved']) then errs := errs || app.issue('enum_invalid', 'review'); end if;
@@ -699,18 +706,21 @@ begin
   return errs;
 end $$;
 
--- validateCreateImport (no unknown-key check: the contract has none)
+-- validateCreateImport. Image sources name the import's id themselves and upload under <venue>/imports/<id>/.
 create function app.validate_create_import(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
-declare errs jsonb := '[]'; text_src boolean; v_text jsonb; v_paths jsonb; v_sha jsonb; i integer; x jsonb;
+declare errs jsonb := '[]'; text_src boolean; v_text jsonb; v_paths jsonb; v_sha jsonb; v_id jsonb; folder text; i integer; x jsonb;
 begin
   if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
-  errs := app.v_uuid_at(p->'venueId', 'venueId');
+  errs := app.v_only_keys(p, array['venueId', 'source', 'importId', 'text', 'paths', 'inputSha256', 'rightsConfirmed'])
+       || app.v_uuid_at(p->'venueId', 'venueId');
   if not app.one_of(p->'source', array['scan', 'paste', 'wolt_screenshots', 'wolt_text']) then return errs || app.issue('enum_invalid', 'source'); end if;
   text_src := p->>'source' in ('paste', 'wolt_text');
   -- a field left out counts as null
   v_text := coalesce(p->'text', 'null'::jsonb);
   v_paths := coalesce(p->'paths', 'null'::jsonb);
   v_sha := coalesce(p->'inputSha256', 'null'::jsonb);
+  v_id := coalesce(p->'importId', 'null'::jsonb);
+  if not app.js_null(v_id) and not app.uuid_ok(v_id) then errs := errs || app.issue('id_invalid', 'importId'); end if;
   if text_src then
     if not app.js_null(v_paths) or not app.js_null(v_sha) then errs := errs || app.issue('input_mismatch', 'paths'); end if;
     if not app.js_str(v_text) or app.strip_blank(v_text #>> '{}') = '' then errs := errs || app.issue('text_missing', 'text');
@@ -718,13 +728,14 @@ begin
     end if;
   else
     if not app.js_null(v_text) then errs := errs || app.issue('input_mismatch', 'text'); end if;
+    if app.js_null(v_id) then errs := errs || app.issue('id_invalid', 'importId'); end if;
+    if app.uuid_ok(p->'venueId') and app.uuid_ok(v_id) then folder := lower(p->>'venueId') || '/imports/' || lower(v_id #>> '{}') || '/'; end if;
     if jsonb_typeof(v_paths) <> 'array' or jsonb_array_length(v_paths) = 0 then errs := errs || app.issue('paths_missing', 'paths');
     elsif jsonb_array_length(v_paths) > 20 then errs := errs || app.issue('too_many', 'paths');
     else
       for i in 0 .. jsonb_array_length(v_paths) - 1 loop
         x := v_paths->i;
-        if not app.js_rel_path(x) or char_length(x #>> '{}') > 200
-           or (app.uuid_ok(p->'venueId') and not starts_with(x #>> '{}', lower(p->>'venueId') || '/')) then
+        if not app.js_rel_path(x) or char_length(x #>> '{}') > 200 or (folder is not null and not starts_with(x #>> '{}', folder)) then
           errs := errs || app.issue('path_invalid', format('paths[%s]', i));
         end if;
       end loop;
@@ -763,18 +774,20 @@ create function app.draft_counts(p jsonb) returns jsonb language sql immutable s
 $$;
 
 -- ================================================================ the import (ADR-006): create, claim a scan, save the draft, apply, discard
--- create_import: text sources send the text (stored stripped, hashed here); image sources the private paths and their
--- hash. The same input as a live import of the venue returns that import (reused) and writes nothing.
+-- create_import: text sources send the text (stored stripped, hashed here); image sources the import's id (made by the
+-- client before uploading under <venue>/imports/<id>/), the private paths and their hash. The same input as a live
+-- import of the venue returns that import (reused) and writes nothing; an id already used otherwise is id_taken.
 create function public.create_import(p_venue uuid, p_source text, p_text text default null, p_paths text[] default null,
-                                     p_input_sha256 text default null, p_rights_confirmed boolean default false) returns jsonb
+                                     p_input_sha256 text default null, p_rights_confirmed boolean default false,
+                                     p_import_id uuid default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare errs jsonb; body text; sha text; n integer; imp record;
   cap integer := coalesce((app.cfg('import_caps')->>'per_venue_day')::integer, 20);
 begin
   if (select auth.uid()) is null or not app.can_edit(p_venue) then raise exception 'not_allowed' using errcode = '42501'; end if;
   if not exists (select 1 from public.venues where id = p_venue and archived_at is null) then return app.fail('venue_unknown'); end if;
-  errs := app.validate_create_import(jsonb_build_object('venueId', p_venue, 'source', p_source, 'text', p_text, 'paths', to_jsonb(p_paths),
-                                                        'inputSha256', p_input_sha256, 'rightsConfirmed', p_rights_confirmed));
+  errs := app.validate_create_import(jsonb_build_object('venueId', p_venue, 'source', p_source, 'importId', p_import_id, 'text', p_text,
+                                                        'paths', to_jsonb(p_paths), 'inputSha256', p_input_sha256, 'rightsConfirmed', p_rights_confirmed));
   if jsonb_array_length(errs) > 0 then return app.fail(errs->0->>'code'); end if;
   perform pg_advisory_xact_lock(hashtext('mana:import:' || p_venue::text));
   if p_source in ('paste', 'wolt_text') then
@@ -785,11 +798,12 @@ begin
   end if;
   select id, status into imp from public.menu_imports where venue_id = p_venue and input_sha256 = sha and status <> 'discarded';
   if found then return jsonb_build_object('ok', true, 'importId', imp.id, 'status', imp.status, 'reused', true); end if;
+  if p_import_id is not null and exists (select 1 from public.menu_imports where id = p_import_id) then return app.fail('id_taken'); end if;
   select count(*) into n from public.menu_imports where venue_id = p_venue and created_at >= app.local_day_start(p_venue);
   if n >= cap then return app.fail('rate_limited'); end if;
   perform set_config('mana.via', 'rpc', true);
-  insert into public.menu_imports (venue_id, source, raw_text, raw_paths, input_sha256, rights_confirmed)
-  values (p_venue, p_source, body, case when body is null then p_paths else '{}' end, sha, p_rights_confirmed)
+  insert into public.menu_imports (id, venue_id, source, raw_text, raw_paths, input_sha256, rights_confirmed)
+  values (coalesce(p_import_id, gen_random_uuid()), p_venue, p_source, body, case when body is null then p_paths else '{}' end, sha, p_rights_confirmed)
   returning id, status into imp;
   perform set_config('mana.via', '', true);
   return jsonb_build_object('ok', true, 'importId', imp.id, 'status', imp.status, 'reused', false);
@@ -1058,13 +1072,17 @@ end $$;
 --   group and its options. The group's updated_at moves whenever this function changes the group or any of its
 --   options, so it versions both.
 -- * Deleting options that upsell rules suggest needs the owner's confirmation; the rules are deleted with them.
+-- * A group with no options, or a minimum its options cannot reach, is refused (options_empty, min_unreachable), as
+--   publishing would refuse it later; so are new limits that a dish offering the group could no longer keep
+--   (limits_invalid, limits_loosened, with the path dishGroups.<link id>).
 -- The menu tables' triggers still apply. A refusal rolls back everything and answers with its code. The audit rows
 -- come from the per-statement audit, via 'rpc'.
 -- The group and its options travel as their table rows (the columns the owner may set), the way the owner app reads them.
 
 -- validateAddonGroupInput: {venueId, group, options}
 create function app.validate_addon_group_input(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
-declare errs jsonb; g jsonb; o jsonb; x jsonb; i integer; at text; ids text[] := '{}'; gid text; hi integer; defaults integer := 0;
+declare errs jsonb; g jsonb; o jsonb; x jsonb; i integer; at text; ids text[] := '{}'; gid text; lo integer; hi integer; defaults integer := 0;
+  units integer := 0;
 begin
   if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
   errs := app.v_only_keys(p, array['venueId', 'group', 'options']) || app.v_uuid_at(p->'venueId', 'venueId');
@@ -1090,17 +1108,26 @@ begin
     else
       hi := coalesce((g->>'max_units')::integer, 1);
       if coalesce((g->>'min_units')::integer, 0) > hi then errs := errs || app.issue('units_invalid', 'group.max_units');
-      elsif coalesce(g->>'selection', 'single') = 'single' and hi <> 1 then errs := errs || app.issue('single_max', 'group.max_units');
+      else
+        -- the group's min, kept only when its units are valid (min_unreachable needs it)
+        lo := coalesce((g->>'min_units')::integer, 0);
+        if coalesce(g->>'selection', 'single') = 'single' and hi <> 1 then errs := errs || app.issue('single_max', 'group.max_units'); end if;
       end if;
     end if;
     if g ? 'limits_confirmed' and jsonb_typeof(g->'limits_confirmed') <> 'boolean' then errs := errs || app.issue('type', 'group.limits_confirmed'); end if;
   end if;
   o := p->'options';
   if jsonb_typeof(o) is distinct from 'array' then return errs || app.issue('type', 'options'); end if;
+  -- publishing refuses an empty group and one whose minimum its options cannot reach, and this is the groups' only writer
+  if jsonb_array_length(o) = 0 then errs := errs || app.issue('options_empty', 'options'); end if;
   for i in 0 .. jsonb_array_length(o) - 1 loop
     at := format('options[%s]', i);
     x := o->i;
-    if not app.js_obj(x) then errs := errs || app.issue('type', at); continue; end if;
+    if not app.js_obj(x) then units := null; errs := errs || app.issue('type', at); continue; end if;
+    -- the capacity: the sum of max_qty (default 1), unknown once an option's max_qty is unreadable
+    if x ? 'max_qty' and not (app.js_int(x->'max_qty') and (x->>'max_qty')::numeric between 1 and 10) then units := null;
+    else units := units + coalesce((x->>'max_qty')::integer, 1);
+    end if;
     errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', at || '.' || k)), '[]'::jsonb)
                      from jsonb_object_keys(x) k
                      where not k = any (array['id', 'position', 'name_he', 'name_en', 'price', 'max_qty', 'is_default', 'opens_group_id']));
@@ -1131,6 +1158,7 @@ begin
     end if;
   end loop;
   if hi is not null and defaults > hi then errs := errs || app.issue('defaults_invalid', 'options'); end if;
+  if lo is not null and units is not null and jsonb_array_length(o) > 0 and lo > units then errs := errs || app.issue('min_unreachable', 'group.min_units'); end if;
   return errs;
 end $$;
 
@@ -1198,6 +1226,22 @@ begin
       return jsonb_build_object('ok', false, 'code', 'stale', 'current', app.addon_group_json(gid));
     end if;
   end if;
+
+  -- the dishes that offer the group (its links, in id order; the first refused answers) keep limits that still hold,
+  -- against the input's limits and its options' capacity (a group's own change never fires the link's trigger):
+  -- never looser than the group (limits_loosened, what app.guard_dish_addon refuses when a link is written), else a
+  -- minimum within the maximum and the capacity (limits_invalid)
+  select format('dishGroups.%s', l.id),
+         case when (l.min_units is not null and l.min_units < ng.min_units) or (l.max_units is not null and l.max_units > ng.max_units)
+              then 'limits_loosened' else 'limits_invalid' end
+  into bad, msg
+  from public.dish_addon_groups l,
+       (select coalesce(sum((o->>'max_qty')::integer), 0) as units from jsonb_array_elements(opts) o) cap
+  where l.group_id = gid
+    and ((l.min_units is not null and l.min_units < ng.min_units) or (l.max_units is not null and l.max_units > ng.max_units)
+         or coalesce(l.min_units, ng.min_units) > coalesce(l.max_units, ng.max_units) or coalesce(l.min_units, ng.min_units) > cap.units)
+  order by l.id limit 1;
+  if bad is not null then return jsonb_build_object('ok', false, 'code', msg, 'path', bad); end if;
 
   select coalesce(array_agg(x.id order by x.id), '{}') into gone from public.addon_options x
   where x.group_id = gid and not exists (select 1 from jsonb_array_elements(opts) o where (o->>'id')::uuid = x.id);
@@ -1602,8 +1646,8 @@ begin
     select v.id, v.created_at, v.name_he, v.name_en, v.is_demo, app.ops_row(v) as j from public.venues v where v.archived_at is null),
   m as (
     select r.* from r
-    where (not (f ? 'q') or strpos(lower(r.name_he), lower(btrim(f->>'q'))) > 0 or strpos(lower(r.name_en), lower(btrim(f->>'q'))) > 0
-           or strpos(lower(r.j->>'slug'), lower(btrim(f->>'q'))) > 0)
+    where (not (f ? 'q') or strpos(lower(r.name_he), lower(app.strip_blank(f->>'q'))) > 0 or strpos(lower(r.name_en), lower(app.strip_blank(f->>'q'))) > 0
+           or strpos(lower(r.j->>'slug'), lower(app.strip_blank(f->>'q'))) > 0)
       and (not (f ? 'stage') or r.j->'onboarding'->>'stage' = f->>'stage')
       and (not (f ? 'warning') or r.j->'warnings' ? (f->>'warning'))
       and (not (f ? 'review') or r.j->>'review' = f->>'review')
@@ -1670,6 +1714,7 @@ language plpgsql volatile security definer set search_path = '' as $$
 declare v public.venues; r public.menu_revisions; latest integer;
 begin
   if not app.is_staff() then raise exception 'not_staff' using errcode = '42501'; end if;
+  if p_revision is not null and p_revision < 1 then return app.fail('revision_invalid'); end if;
   perform set_config('mana.via', 'rpc', true);
   select * into v from public.venues where id = p_venue;
   if not found then return app.fail('venue_unknown'); end if;
@@ -1870,7 +1915,7 @@ grant execute on function public.slug_available(text), public.create_venue(text,
   public.ops_set_plan(uuid, text, timestamptz, text, text), public.ops_leads(text, text, timestamptz, integer),
   public.ops_update_lead(uuid, text, text, text), public.act_for_owner(uuid, text, text, jsonb) to authenticated;
 -- phase 1 (ADR-008): each checks its caller
-grant execute on function public.create_import(uuid, text, text, text[], text, boolean), public.claim_import_scan(uuid),
+grant execute on function public.create_import(uuid, text, text, text[], text, boolean, uuid), public.claim_import_scan(uuid),
   public.discard_import(uuid), public.set_onboarding_step(uuid, text, text, text[]),
   public.open_case(uuid, text, text, text, boolean), public.ops_update_case(uuid, text, text, text),
   public.set_availability(uuid, text, uuid, jsonb, text), public.restore_today(uuid), public.export_menu(uuid),
@@ -1959,7 +2004,7 @@ declare expected text[] := array[
   'authenticated|function|app.windows_ok(jsonb)|EXECUTE',
   'authenticated|function|public.act_for_owner(uuid,text,text,jsonb)|EXECUTE',
   'authenticated|function|public.claim_import_scan(uuid)|EXECUTE',
-  'authenticated|function|public.create_import(uuid,text,text,text[],text,boolean)|EXECUTE',
+  'authenticated|function|public.create_import(uuid,text,text,text[],text,boolean,uuid)|EXECUTE',
   'authenticated|function|public.create_staff_invite(text,text)|EXECUTE',
   'authenticated|function|public.create_venue(text,text,text,text,text)|EXECUTE',
   'authenticated|function|public.discard_import(uuid)|EXECUTE',

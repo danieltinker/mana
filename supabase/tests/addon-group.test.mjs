@@ -152,6 +152,46 @@ describe('save_addon_group', () => {
     assert.equal(t.group.limits_confirmed, true, 'confirmed as they are');
   });
 
+  test('a group publishing would refuse is refused here: no options, a minimum its options cannot reach', async () => {
+    const { g, o } = sauces();
+    assert.deepEqual(await save(U.ownerA, g, []), { ok: false, code: 'options_empty', path: 'options' });
+    assert.deepEqual(await save(U.ownerA, { ...g, min_units: 2, max_units: 2 }, [o[0]]), { ok: false, code: 'min_unreachable', path: 'group.min_units' });
+    assert.equal((await save(U.ownerA, { ...g, min_units: 2, max_units: 2 }, [{ ...o[0], max_qty: 2 }])).ok, true, 'one option, two units');
+  });
+
+  test('the dishes that offer the group: new limits a dish link could not keep are refused, first link by id', async () => {
+    const { g, o } = sauces();
+    const v1 = await save(U.ownerA, { ...g, min_units: 0, max_units: 3 }, o);
+    const dish = '00000000-0000-4000-8000-00000000d002';
+    const other = '00000000-0000-4000-8000-00000000d003';
+    const [l1, l2] = await as(w.url, U.ownerA, async (c) => {
+      const a = (await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id, position, min_units, max_units) values ($1, $2, $3, 9, 1, 3) returning id`,
+        [A, dish, g.id])).rows[0].id;
+      const b = (await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id, position, min_units, max_units) values ($1, $2, $3, 9, 2, null) returning id`,
+        [A, other, g.id])).rows[0].id;
+      return [a, b].sort();
+    });
+    const links = (await w.admin.query(`select id, min_units, max_units from public.dish_addon_groups where group_id = $1 order by id`, [g.id])).rows;
+    assert.deepEqual(links.map((l) => l.id), [l1, l2]);
+    const at = (id) => `dishGroups.${id}`;
+    const since = await maxLog();
+    // max 3 → 2: the link that says max 3 is now looser than its group
+    const tighter = await save(U.ownerA, { ...g, min_units: 0, max_units: 2 }, o, { p_expected_updated_at: v1.group.updated_at });
+    const looser = links.find((l) => l.max_units === 3);
+    assert.deepEqual(tighter, { ok: false, code: 'limits_loosened', path: at(looser.id) });
+    // min 0 → 2: the link whose own min is 1 is now looser
+    const raised = await save(U.ownerA, { ...g, min_units: 2, max_units: 3 }, o, { p_expected_updated_at: v1.group.updated_at });
+    assert.deepEqual(raised, { ok: false, code: 'limits_loosened', path: at(links.find((l) => l.min_units === 1).id) });
+    // one option left: a link's own min of 2 is above the capacity
+    const fewer = await save(U.ownerA, { ...g, min_units: 0, max_units: 3 }, [o[0]], { p_expected_updated_at: v1.group.updated_at });
+    assert.deepEqual(fewer, { ok: false, code: 'limits_invalid', path: at(links.find((l) => l.min_units === 2).id) });
+    // both links refused: the first by id answers
+    const both = await save(U.ownerA, { ...g, min_units: 3, max_units: 3 }, o, { p_expected_updated_at: v1.group.updated_at });
+    assert.deepEqual(both, { ok: false, code: 'limits_loosened', path: at(l1) });
+    assert.deepEqual(await logsSince(since), [], 'nothing written');
+    assert.equal((await save(U.ownerA, { ...g, min_units: 0, max_units: 3, label: 'kept' }, o, { p_expected_updated_at: v1.group.updated_at })).ok, true);
+  });
+
   test('every code, with the path of what to fix; a refused save writes nothing', async () => {
     const { g, o } = sauces();
     assert.equal((await save(U.ownerA, g, o)).ok, true);

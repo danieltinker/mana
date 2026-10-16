@@ -9,6 +9,7 @@ import {
   EVENT_NAMES, isUntilSpec, NUDGE_CODES, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, OPS_WARNINGS, resolveUntil, validateActivityQuery,
   validateCreateImport, validateDashboardQuery, validateExportQuery, validateOpenCase, validateOpsAnalyticsQuery, validateOpsVenueQuery,
   validateOpsVenuesQuery, validateRestoreToday, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase,
+  validateAddonGroupInput, validateOpsRevisionQuery, DISH_PATCH_COLUMNS,
 } from '../../packages/contracts/src/index.ts';
 
 let w;
@@ -96,19 +97,64 @@ describe('the inputs\' validators', () => {
       { resolution: 'day', from: '2026-01-01', to: '2026-10-16' }, { from: dates, to: dates, resolution: [...ANY, 'day', 'minute'] }, { seed: 11 }));
   });
 
-  test('create_import: text for text sources, private paths and a hash for images, rights only for Wolt screenshots', async () => {
+  test('create_import: text for text sources; for images the import\'s id, paths in its folder and a hash; rights only for Wolt screenshots', async () => {
+    const I = '00000000-0000-4000-8000-0000000001a1';
+    const dir = `${V}/imports/${I}`;
     const pools = {
       venueId: ids, source: [...ANY, 'scan', 'paste', 'wolt_text', 'wolt_screenshots', 'wolt_page'],
-      text: [...ANY, ' \n ', `${cp(0x200b)}`, 'Soup 32', 'x'.repeat(60000), 'x'.repeat(60001)],
-      paths: [...ANY, [`${V}/a.jpg`], [`${OTHER}/a.jpg`], ['../x'], [`${V}/../x.jpg`], [`${V.toUpperCase()}/a.jpg`], ['/abs.jpg'], [5],
-        Array(20).fill(`${V}/a.jpg`), Array(21).fill(`${V}/a.jpg`), [`${V}/${'x'.repeat(200)}`]],
-      inputSha256: [...ANY, 'ABC', 'a'.repeat(64), 'A'.repeat(64), 'a'.repeat(63)], rightsConfirmed: ANY,
+      importId: [...ANY, I, I.toUpperCase(), 'i1'],
+      text: [...ANY, ' \n ', `${cp(0x200b)}`, 'Soup 32', 'x'.repeat(60000), 'x'.repeat(60001), cp(0x1f354).repeat(60000), `a${String.fromCharCode(0)}b`],
+      paths: [...ANY, [`${dir}/a.jpg`], [`${V}/a.jpg`], [`${V}/imports/a.jpg`], [`${OTHER}/imports/${I}/a.jpg`], ['../x'], [`${dir}/../x.jpg`],
+        [`${V.toUpperCase()}/imports/${I}/a.jpg`], ['/abs.jpg'], [5], Array(20).fill(`${dir}/a.jpg`), Array(21).fill(`${dir}/a.jpg`),
+        [`${dir}/${'x'.repeat(150)}`], [`${dir}/${cp(0x1f354).repeat(100)}`]],
+      inputSha256: [...ANY, 'ABC', 'a'.repeat(64), 'A'.repeat(64), 'a'.repeat(63)], rightsConfirmed: ANY, extra: [1],
     };
     await compareValidator(w.admin, 'app.validate_create_import', validateCreateImport, inputs(
-      { venueId: V, source: 'wolt_text', text: 'Mains\nSchnitzel 64', paths: null, inputSha256: null, rightsConfirmed: false }, pools, { random: 100 }));
+      { venueId: V, source: 'wolt_text', text: 'Mains\nSchnitzel 64', paths: null, inputSha256: null, rightsConfirmed: false }, pools, { random: 150 }));
     await compareValidator(w.admin, 'app.validate_create_import', validateCreateImport, inputs(
-      { venueId: V, source: 'wolt_screenshots', text: null, paths: [`${V}/imports/1.png`], inputSha256: 'a'.repeat(64), rightsConfirmed: true }, pools,
-      { random: 100, seed: 3 }));
+      { venueId: V, source: 'wolt_screenshots', importId: I, text: null, paths: [`${dir}/1.png`], inputSha256: 'a'.repeat(64), rightsConfirmed: true }, pools,
+      { random: 150, seed: 3 }));
+  });
+
+  test('ops_revision', async () => {
+    await compareValidator(w.admin, 'app.validate_ops_revision_query', validateOpsRevisionQuery, inputs(
+      { venueId: V, revision: 3 }, { venueId: ids, revision: [...ANY, 3, 2 ** 53 - 1, 2 ** 53, '3'] }));
+  });
+
+  test('save_addon_group: the group and its options', async () => {
+    const G = '00000000-0000-4000-8000-00000000a001';
+    const S = '00000000-0000-4000-8000-00000000a002';
+    const o = (n, x = {}) => ({ id: `00000000-0000-4000-8000-0000000b000${n}`, position: n, name_he: `תוספת ${n}`, name_en: `Side ${n}`, price: 0, max_qty: 1,
+      is_default: false, opens_group_id: null, ...x });
+    const base = { venueId: V, group: { id: G, label: 'Sides', name_he: 'תוספות', name_en: 'Sides', selection: 'multiple', min_units: 0, max_units: 2,
+      limits_confirmed: true }, options: [o(1), o(2), o(3)] };
+    const text = [...ANY, 'x'.repeat(60), 'x'.repeat(61), ` ${'x'.repeat(60)} `, cp(0x1f354).repeat(60), cp(0x1f354).repeat(61), cp(0x200b), `a${String.fromCharCode(0)}b`];
+    const pools = {
+      venueId: [...ANY, G.toUpperCase()],
+      group: [...ANY, { id: G }, { id: G, name_en: 'x' }],
+      'group.id': [...ANY, G.toUpperCase(), 'g1'],
+      'group.label': text, 'group.name_he': text, 'group.name_en': text,
+      'group.selection': [...ANY, 'single', 'multiple', 'any'],
+      'group.min_units': [...ANY, 2, 3, 4, 30, 31], 'group.max_units': [...ANY, 2, 3, 30, 31],
+      'group.limits_confirmed': ANY,
+      'group.venue_id': [G],
+      options: [...ANY, [], [o(1), o(1)], [o(1), { ...o(1), id: o(1).id.toUpperCase() }], [1, 2], [o(1, { is_default: true }), o(2, { is_default: true }), o(3, { is_default: true })],
+        [o(1, { max_qty: 3 })], [o(1, { max_qty: 'x' })], [o(1), 'x']],
+      'options.0': [...ANY, { id: G }],
+      'options.0.id': [...ANY, 'b1'],
+      'options.0.position': [...ANY, 100000, 100001],
+      'options.0.name_he': text, 'options.0.name_en': text,
+      'options.0.price': [...ANY, 10000000, 10000001],
+      'options.0.max_qty': [...ANY, 2, 10, 11],
+      'options.0.is_default': ANY,
+      'options.0.opens_group_id': [...ANY, S, G, G.toUpperCase(), 'sauce'],
+      'options.0.colour': ['red'],
+      'options.1.is_default': [true],
+      'options.2.is_default': [true],
+      'options.2.max_qty': [ABSENT, 5, 0],
+    };
+    const n = await compareValidator(w.admin, 'app.validate_addon_group_input', validateAddonGroupInput, inputs(base, pools, { random: 500, seed: 11 }));
+    assert.ok(n > 600);
   });
 });
 
@@ -122,6 +168,12 @@ describe('the closed lists the database keeps', () => {
     assert.deepEqual(rows[0].n, [...NUDGE_CODES]);
     assert.deepEqual(rows[0].e, [...EVENT_NAMES]);
     assert.ok(rows[0].g.includes(`in (${ONBOARDING_AUTO_STEPS.map((s) => `'${s}'`).join(', ')})`), 'the guard writes the same list out');
+  });
+
+  test('DISH_PATCH_COLUMNS is act_for_owner("dish.update")\'s allow-list', async () => {
+    const def = (await w.admin.query(`select pg_get_functiondef('app.afo_dish_update(uuid,jsonb)'::regprocedure) d`)).rows[0].d;
+    const list = /allowed text\[\] := array\[([^\]]*)\]/.exec(def)[1].match(/'([a-z_]+)'/g).map((s) => s.slice(1, -1));
+    assert.deepEqual(list, [...DISH_PATCH_COLUMNS]);
   });
 });
 

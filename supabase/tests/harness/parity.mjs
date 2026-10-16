@@ -49,11 +49,22 @@ export function inputs(base, pools, { random = 150, seed = 7 } = {}) {
 
 const key = (e) => `${e.code}@${e.path}`;
 
+/** Text PostgreSQL can hold: no NUL and no lone surrogate (the contracts refuse those as text_invalid before any call). */
+const UNSTORABLE = /\x00|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+export function storable(v) {
+  if (typeof v === 'string') return !UNSTORABLE.test(v);
+  if (Array.isArray(v)) return v.every(storable);
+  if (v && typeof v === 'object') return Object.entries(v).every(([k, x]) => storable(k) && storable(x));
+  return true;
+}
+
 /**
  * Runs the SQL twin on every input in one query and compares it with the contract's validator: the same issues (as a
- * set), and the same first issue when no key is unknown (the code an RPC answers).
+ * set), and the same first issue when no key is unknown (the code an RPC answers). Inputs that cannot reach
+ * PostgreSQL as JSON (unstorable text) are the contracts' alone and are left out.
  */
-export async function compareValidator(admin, sqlFn, tsFn, list) {
+export async function compareValidator(admin, sqlFn, tsFn, all) {
+  const list = all.filter(storable);
   const { rows } = await admin.query(`select coalesce(jsonb_agg(${sqlFn}(x) order by i), '[]') as r
     from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list)]);
   const sql = rows[0].r;

@@ -61,6 +61,9 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     assert.deepEqual(await set('review', 'done'), { ok: false, code: 'step_automatic' });
     assert.deepEqual(await set('menu', 'todo'), { ok: false, code: 'step_done' }, 'the first dish marked it done');
     assert.equal((await set('review', 'skipped')).ok, true, 'a menu built by hand skips the review');
+    assert.deepEqual(await set('publish', 'skipped'), { ok: false, code: 'step_automatic' }, 'of the automatic steps only the review is skipped');
+    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'skipped' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '',
+      /step_automatic/, 'nor by a direct write');
     assert.deepEqual(await set('hours', 'blocked', ['Free text!']), { ok: false, code: 'blocker_invalid' });
     assert.deepEqual(await set('hours', 'blocked', Array(21).fill('a_b')), { ok: false, code: 'too_many' });
     assert.deepEqual(await set('party', 'done'), { ok: false, code: 'enum_invalid' });

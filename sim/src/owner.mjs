@@ -230,9 +230,10 @@ export class OwnerBot {
   }
 
   // ---- the import (ADR-006): the client reads text sources itself; the scanner reads images
-  createImport({ source, text = null, paths = null, inputSha256 = null, rightsConfirmed = false }) {
+  /** Image sources pass `importId` (made before uploading under `<venue>/imports/<importId>/`); text sources may. */
+  createImport({ source, text = null, paths = null, inputSha256 = null, rightsConfirmed = false, importId = null }) {
     return this.api.rpc('create_import', { p_venue: this.venueId, p_source: source, p_text: text, p_paths: paths, p_input_sha256: inputSha256,
-      p_rights_confirmed: rightsConfirmed });
+      p_rights_confirmed: rightsConfirmed, p_import_id: importId });
   }
 
   discardImport(importId) { return this.api.rpc('discard_import', { p_import: importId }); }

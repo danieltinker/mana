@@ -3,6 +3,7 @@
 // What the reader saves and what applying does (save_import_draft, apply_import) is tested with their SQL twins.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
 import { IMPORT_CLIENT_COLUMNS, IMPORT_TEXT_MAX } from '../../packages/contracts/src/index.ts';
@@ -34,9 +35,12 @@ const row = async (id) => (await w.admin.query(`select * from public.menu_import
 const paste = (who, venue, text) => rpc(w.url, who, 'create_import', { p_venue: venue, p_source: 'paste', p_text: text });
 let shaN = 0;
 const sha = () => (++shaN).toString(16).padStart(64, 'a');
-const scan = (who, venue, files = 1, extra = {}) => rpc(w.url, who, 'create_import', {
-  p_venue: venue, p_source: 'scan', p_paths: pgArray(Array.from({ length: files }, (_, i) => `${venue}/imports/page-${shaN + 1}-${i}.jpg`)), p_input_sha256: sha(), ...extra,
-});
+/** Screenshots: the client makes the import's id, uploads under <venue>/imports/<id>/, then creates the import. */
+const scan = (who, venue, files = 1, extra = {}) => {
+  const id = randomUUID();
+  return rpc(w.url, who, 'create_import', { p_venue: venue, p_source: 'scan', p_import_id: id,
+    p_paths: pgArray(Array.from({ length: files }, (_, i) => `${venue}/imports/${id}/page-${i}.jpg`)), p_input_sha256: sha(), ...extra });
+};
 const clearImports = () => w.admin.query(`delete from public.menu_imports where venue_id in ($1, $2)`, [A, w.B]);
 
 describe('create_import', () => {
@@ -66,34 +70,53 @@ describe('create_import', () => {
     assert.deepEqual([c.reused, c.importId === a.importId], [false, false], 'a discarded import frees its input');
   });
 
-  test('screenshots: private paths of the venue and their hash; only Wolt screenshots carry the owner\'s rights', async () => {
+  test('screenshots: the import takes the client\'s id, its files lie in its own folder; only Wolt screenshots carry the rights', async () => {
     const s = await scan(U.ownerA, A, 2);
     assert.equal(s.ok, true, JSON.stringify(s));
-    assert.deepEqual((await row(s.importId)).raw_paths, [`${A}/imports/page-${shaN}-0.jpg`, `${A}/imports/page-${shaN}-1.jpg`]);
-    const wolt = await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, p_source: 'wolt_screenshots', p_paths: pgArray([`${A}/imports/wolt.png`]), p_input_sha256: sha(), p_rights_confirmed: true });
-    assert.equal(wolt.ok, true);
+    assert.deepEqual((await row(s.importId)).raw_paths, [`${A}/imports/${s.importId}/page-0.jpg`, `${A}/imports/${s.importId}/page-1.jpg`]);
+    const id = randomUUID();
+    const wolt = await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, p_source: 'wolt_screenshots', p_import_id: id,
+      p_paths: pgArray([`${A}/imports/${id}/wolt.png`]), p_input_sha256: sha(), p_rights_confirmed: true });
+    assert.deepEqual([wolt.ok, wolt.importId], [true, id]);
     assert.equal((await row(wolt.importId)).rights_confirmed, true);
-    const again = await rpc(w.url, U.managerA, 'create_import', { p_venue: A, p_source: 'scan', p_paths: pgArray([`${A}/imports/other-name.jpg`]),
-      p_input_sha256: (await row(s.importId)).input_sha256 });
+    const other = randomUUID();
+    const again = await rpc(w.url, U.managerA, 'create_import', { p_venue: A, p_source: 'scan', p_import_id: other,
+      p_paths: pgArray([`${A}/imports/${other}/other-name.jpg`]), p_input_sha256: (await row(s.importId)).input_sha256 });
     assert.deepEqual([again.importId, again.reused], [s.importId, true], 'the same files (by hash) are the same import');
+    const retry = await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, p_source: 'wolt_screenshots', p_import_id: id,
+      p_paths: pgArray([`${A}/imports/${id}/wolt.png`]), p_input_sha256: (await row(id)).input_sha256, p_rights_confirmed: true });
+    assert.deepEqual([retry.importId, retry.reused], [id, true], 'a retry after a lost answer');
+    const taken = await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, p_source: 'scan', p_import_id: id,
+      p_paths: pgArray([`${A}/imports/${id}/new.jpg`]), p_input_sha256: sha() });
+    assert.deepEqual(taken, { ok: false, code: 'id_taken' }, 'another input under an id already used');
+    const textId = randomUUID();
+    const t = await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, p_source: 'paste', p_text: 'Tea 12', p_import_id: textId });
+    assert.equal(t.importId, textId, 'a text import may name its id too');
   });
 
   test('every code, the validator\'s first', async () => {
     const code = async (args) => (await rpc(w.url, U.ownerA, 'create_import', { p_venue: A, ...args })).code;
+    const I = randomUUID();
+    const dir = `${A}/imports/${I}`;
+    const img = (paths, extra = {}) => code({ p_source: 'scan', p_import_id: I, p_paths: pgArray(paths), p_input_sha256: sha(), ...extra });
     assert.equal(await code({ p_source: 'pdf', p_text: 'x' }), 'enum_invalid');
     assert.equal(await code({ p_source: 'paste', p_text: ' \n\t ' }), 'text_missing');
     assert.equal(await code({ p_source: 'paste' }), 'text_missing');
     assert.equal(await code({ p_source: 'wolt_text', p_text: 'x'.repeat(IMPORT_TEXT_MAX + 1) }), 'text_too_long');
-    assert.equal(await code({ p_source: 'paste', p_text: 'Soup', p_paths: pgArray([`${A}/imports/a.jpg`]) }), 'input_mismatch');
+    assert.equal((await code({ p_source: 'wolt_text', p_text: String.fromCodePoint(0x1f354).repeat(IMPORT_TEXT_MAX) })), undefined, 'code points, not UTF-16 units');
+    assert.equal(await code({ p_source: 'paste', p_text: 'Soup', p_paths: pgArray([`${dir}/a.jpg`]) }), 'input_mismatch');
     assert.equal(await code({ p_source: 'paste', p_text: 'Soup', p_rights_confirmed: true }), 'rights_invalid');
-    assert.equal(await code({ p_source: 'scan', p_input_sha256: sha() }), 'paths_missing');
-    assert.equal(await code({ p_source: 'scan', p_paths: '{}', p_input_sha256: sha() }), 'paths_missing');
-    assert.equal(await code({ p_source: 'scan', p_text: 'x', p_paths: pgArray([`${A}/imports/a.jpg`]), p_input_sha256: sha() }), 'input_mismatch');
-    assert.equal(await code({ p_source: 'scan', p_paths: pgArray(Array.from({ length: 21 }, (_, i) => `${A}/imports/${i}.jpg`)), p_input_sha256: sha() }), 'too_many');
-    assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${w.B}/imports/a.jpg`]), p_input_sha256: sha() }), 'path_invalid', 'another venue\'s folder');
-    assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${A}/../a.jpg`]), p_input_sha256: sha() }), 'path_invalid');
-    assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${A}/imports/a.jpg`]), p_input_sha256: 'A'.repeat(64) }), 'sha_invalid');
-    assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${A}/imports/a.jpg`]), p_rights_confirmed: true, p_input_sha256: sha() }), 'rights_invalid');
+    assert.equal(await code({ p_source: 'scan', p_import_id: I, p_input_sha256: sha() }), 'paths_missing');
+    assert.equal(await img([]), 'paths_missing');
+    assert.equal(await code({ p_source: 'scan', p_text: 'x', p_import_id: I, p_paths: pgArray([`${dir}/a.jpg`]), p_input_sha256: sha() }), 'input_mismatch');
+    assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${dir}/a.jpg`]), p_input_sha256: sha() }), 'id_invalid', 'images name their import');
+    assert.equal(await img(Array.from({ length: 21 }, (_, i) => `${dir}/${i}.jpg`)), 'too_many');
+    assert.equal(await img([`${w.B}/imports/${I}/a.jpg`]), 'path_invalid', 'another venue\'s folder');
+    assert.equal(await img([`${A}/imports/${randomUUID()}/a.jpg`]), 'path_invalid', 'another import\'s folder');
+    assert.equal(await img([`${A}/imports/a.jpg`]), 'path_invalid', 'not in the import\'s own folder');
+    assert.equal(await img([`${dir}/../a.jpg`]), 'path_invalid');
+    assert.equal(await img([`${dir}/a.jpg`], { p_input_sha256: 'A'.repeat(64) }), 'sha_invalid');
+    assert.equal(await img([`${dir}/a.jpg`], { p_rights_confirmed: true }), 'rights_invalid');
     const O = '44444444-4444-4444-8444-4444444444a1';
     await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'archived-imp@example.invalid', now())`, [O]);
     const v = (await rpc(w.url, O, 'create_venue', { p_slug: 'archived-imp', p_name_en: 'Archived' })).id;
