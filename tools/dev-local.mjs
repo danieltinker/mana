@@ -53,9 +53,11 @@ async function main(argv) {
       const b = spawnSync('bash', [path.join(ROOT, 'tools/build-site.sh')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, MANA_ENV: 'local' } });
       if (b.status !== 0) throw new Error('the local build failed (above)');
     }
+    /* the build must be for this very stack: its address and its key (a --no-build after another stack is refused) */
+    const origin = `http://127.0.0.1:${stack.ports.web}`, built = path.join(ROOT, '_site/config.js');
+    const problems = fs.existsSync(built) ? configProblems('local', readConfig(built, { origin }), { origin, stack }) : ['there is no _site/config.js'];
+    if (problems.length) throw new Error(`_site/ is not a build for this stack (${problems[0]}${problems.length > 1 ? `; ${problems.length - 1} more` : ''}): run npm run dev:local without --no-build`);
     web = await serveSite({ site: path.join(ROOT, '_site'), port: stack.ports.web, host: '127.0.0.1' });
-    const problems = configProblems('local', readConfig(path.join(ROOT, '_site/config.js'), { origin: web.origin }), { origin: web.origin });
-    if (problems.length) throw new Error(`_site/ is not a build for this stack (${problems[0]}): run npm run dev:local without --no-build`);
 
     console.log(`\nMana on this machine: the simulator's stack, schema 2; Ctrl-C stops it`);
     printLinks([...siteLinks(web.origin, { slug: SLUG }), ['api', `${stack.apiUrl}  (/rest/v1, /auth/v1)`], ['postgres', stack.dbUrl]]);

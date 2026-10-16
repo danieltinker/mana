@@ -118,7 +118,8 @@ bash tools/build-site.sh       # builds the whole site into _site/, exactly as t
 npm run serve                  # serves _site/ as halom.io does: 127.0.0.1:4180/mana/, /m/<name>
 ```
 
-A production build talks to halom-studio: on this machine, open only the in-build demo (`/mana/view/?demo=olea`).
+A production build talks to halom-studio, so `npm run serve` withholds its `config.js` and offers only the in-build
+demo (`/mana/view/?demo=olea`); `npm run serve -- --live` serves it whole (`docs/environments.md`).
 
 `config.js` at the root holds production's Supabase address, the publishable key, the short-link base and the feature
 switches. It is shipped as it is. The demo's settings are `config/demo.js`; `MANA_ENV` picks them
