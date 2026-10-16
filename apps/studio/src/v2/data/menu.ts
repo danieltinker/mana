@@ -3,7 +3,7 @@
 // it in memory. Rows are typed with @mana/contracts.
 import type {
   AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, EntitlementRow, Issue, MemberRole, MenuRevisionRow,
-  PublishWarning, ScheduleRow, SectionRow, SnapshotV2, VenueKind, VenueRow,
+  PublishWarning, ScheduleRow, SectionRow, SnapshotV2, UpsellRuleRow, VenueClosureRow, VenueHoursRow, VenueKind, VenueRow,
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { V2Error } from './errors.ts';
@@ -23,11 +23,15 @@ export type MenuData = {
   dishGroups: DishAddonGroupRow[];
   relations: DishRelationRow[];
   schedules: ScheduleRow[];
+  rules: UpsellRuleRow[];
+  hours: VenueHoursRow[];
+  closures: VenueClosureRow[];
   revisions: RevisionInfo[];
 };
 
-/** The tables the menu editor writes (all under RLS: owner and manager). */
-export type MenuTable = 'sections' | 'dishes' | 'addon_groups' | 'addon_options' | 'dish_addon_groups' | 'dish_relations';
+/** The tables the owner app writes directly (all under RLS: owner and manager). */
+export type MenuTable = 'sections' | 'dishes' | 'addon_groups' | 'addon_options' | 'dish_addon_groups' | 'dish_relations' | 'schedules' | 'upsell_rules'
+  | 'venue_hours' | 'venue_closures';
 
 // ---------------------------------------------------------------- venues
 /** The places this account belongs to, oldest first, with its role in each. */
@@ -44,6 +48,8 @@ export function createVenue(v: { slug: string; nameHe: string; nameEn: string; k
 }
 
 export const venueRow = (id: string) => q<VenueRow>(sb.from('venues').select('*').eq('id', id).single());
+/** The place's own settings the owner may change (the columns the schema grants). */
+export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
 export const entitlementOf = (venueId: string) => q<EntitlementRow | null>(sb.from('entitlements').select('*').eq('venue_id', venueId).maybeSingle());
 export const revisionsOf = (venueId: string) =>
   q<RevisionInfo[]>(sb.from('menu_revisions').select('id, number, note, created_at').eq('venue_id', venueId).order('number', { ascending: false }).limit(50));
@@ -52,14 +58,15 @@ export const revisionsOf = (venueId: string) =>
 export async function loadMenu(venueId: string, role: MemberRole): Promise<MenuData> {
   const of = <T>(table: string) => q<T[]>(sb.from(table).select('*').eq('venue_id', venueId));
   const records = role === 'owner' || role === 'manager';
-  const [venue, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, revisions] = await Promise.all([
+  const [venue, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, rules, hours, closures, revisions] = await Promise.all([
     venueRow(venueId),
     records ? entitlementOf(venueId) : Promise.resolve(null),
     of<SectionRow>('sections'), of<DishRow>('dishes'), of<AddonGroupRow>('addon_groups'), of<AddonOptionRow>('addon_options'),
     of<DishAddonGroupRow>('dish_addon_groups'), of<DishRelationRow>('dish_relations'), of<ScheduleRow>('schedules'),
+    of<UpsellRuleRow>('upsell_rules'), of<VenueHoursRow>('venue_hours'), of<VenueClosureRow>('venue_closures'),
     records ? revisionsOf(venueId) : Promise.resolve([] as RevisionInfo[]),
   ]);
-  return { venue, role, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, revisions };
+  return { venue, role, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, rules, hours, closures, revisions };
 }
 
 // ---------------------------------------------------------------- rows

@@ -20,6 +20,7 @@ export class V2Error extends Error {
 export const DB_CODES: ReadonlySet<string> = new Set([
   'nesting_too_deep', 'limits_loosened', 'limits_invalid', 'single_max', 'venue_fixed', 'id_fixed', 'asset_not_approved',
   'rule_ref_unknown', 'rule_condition_emptied', 'owner_only', 'last_owner', 'append_only', 'target_unknown', 'not_allowed',
+  'until_invalid', 'until_in_past', 'override_fixed',
 ]);
 
 /** Supabase Auth's error codes (GoTrue), in the app's words. */

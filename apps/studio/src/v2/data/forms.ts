@@ -43,18 +43,19 @@ export function changed<T extends object>(row: Partial<T>, write: T): Partial<T>
 }
 
 // ---------------------------------------------------------------- sections
-export type SectionForm = { nameHe: string; nameEn: string; kind: SectionKind; room: Room | null; hidden: boolean };
-export type SectionWrite = Pick<SectionRow, 'name_he' | 'name_en' | 'kind' | 'room' | 'hidden'>;
+/** `scheduleId`: a day part or special the whole section follows (null: all opening hours). */
+export type SectionForm = { nameHe: string; nameEn: string; kind: SectionKind; room: Room | null; scheduleId: string | null; hidden: boolean };
+export type SectionWrite = Pick<SectionRow, 'name_he' | 'name_en' | 'kind' | 'room' | 'schedule_id' | 'hidden'>;
 
-export const newSectionForm = (kind: SectionKind = 'food'): SectionForm => ({ nameHe: '', nameEn: '', kind, room: null, hidden: false });
-export const sectionToForm = (r: SectionRow): SectionForm => ({ nameHe: r.name_he, nameEn: r.name_en, kind: r.kind, room: r.room, hidden: r.hidden });
+export const newSectionForm = (kind: SectionKind = 'food'): SectionForm => ({ nameHe: '', nameEn: '', kind, room: null, scheduleId: null, hidden: false });
+export const sectionToForm = (r: SectionRow): SectionForm => ({ nameHe: r.name_he, nameEn: r.name_en, kind: r.kind, room: r.room, scheduleId: r.schedule_id, hidden: r.hidden });
 
 export function sectionFromForm(f: SectionForm): Mapped<SectionWrite> {
   const errors: FieldError[] = [];
   const n = names(errors, f.nameHe, f.nameEn, SHORT);
   if (!oneOf(SECTION_KINDS, f.kind)) errors.push({ field: 'kind', code: 'enum_invalid' });
   if (f.room !== null && !oneOf(ROOMS, f.room)) errors.push({ field: 'room', code: 'enum_invalid' });
-  return done(errors, { name_he: n.he, name_en: n.en, kind: f.kind, room: f.room, hidden: f.hidden });
+  return done(errors, { name_he: n.he, name_en: n.en, kind: f.kind, room: f.room, schedule_id: f.scheduleId, hidden: f.hidden });
 }
 
 // ---------------------------------------------------------------- dishes

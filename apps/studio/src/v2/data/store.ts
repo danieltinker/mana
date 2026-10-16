@@ -3,7 +3,10 @@
 // Every write goes through here so the rows on screen are what the database stored.
 import { batch, signal } from '@preact/signals';
 import type { Session } from '@supabase/supabase-js';
-import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, SectionRow } from '@mana/contracts';
+import type {
+  AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, ScheduleRow, SectionRow, UpsellRuleRow, VenueClosureRow, VenueHoursRow,
+  VenueRow,
+} from '@mana/contracts';
 import { sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import type { DishLimits, GroupForm } from './forms.ts';
@@ -110,11 +113,17 @@ export async function refreshVenue() {
 }
 
 export const canEdit = () => menu.value?.role === 'owner' || menu.value?.role === 'manager';
+/** Take things off and bring them back (the phone's quick actions): the counter too. */
+export const canOperate = () => canEdit() || menu.value?.role === 'counter';
 
 // ---------------------------------------------------------------- the rows in memory
-type Rows = { sections: SectionRow; dishes: DishRow; addon_groups: AddonGroupRow; addon_options: AddonOptionRow; dish_addon_groups: DishAddonGroupRow; dish_relations: DishRelationRow };
-const KEY: { [T in MenuTable]: 'sections' | 'dishes' | 'groups' | 'options' | 'dishGroups' | 'relations' } = {
+export type Rows = {
+  sections: SectionRow; dishes: DishRow; addon_groups: AddonGroupRow; addon_options: AddonOptionRow; dish_addon_groups: DishAddonGroupRow; dish_relations: DishRelationRow;
+  schedules: ScheduleRow; upsell_rules: UpsellRuleRow; venue_hours: VenueHoursRow; venue_closures: VenueClosureRow;
+};
+const KEY: { [T in MenuTable]: 'sections' | 'dishes' | 'groups' | 'options' | 'dishGroups' | 'relations' | 'schedules' | 'rules' | 'hours' | 'closures' } = {
   sections: 'sections', dishes: 'dishes', addon_groups: 'groups', addon_options: 'options', dish_addon_groups: 'dishGroups', dish_relations: 'relations',
+  schedules: 'schedules', upsell_rules: 'rules', venue_hours: 'hours', venue_closures: 'closures',
 };
 function put<T extends MenuTable>(table: T, rows: Rows[T][]) {
   const d = menu.value; if (!d || !rows.length) return;
@@ -244,11 +253,42 @@ export function moveDishTo(dishId: string, sectionId: string): Promise<DishRow> 
   return write(() => api.updateRow<DishRow>('dishes', dishId, { section_id: sectionId, position }), (r) => put('dishes', [r]));
 }
 
-/** Delete rows; what the database removed with them (a section's dishes, a dish's groups) is reloaded. */
+/**
+ * Delete rows; what the database changed with them is reloaded (a section's dishes, a dish's groups, the rules that
+ * named them, the sections and dishes a schedule was on).
+ */
 export async function removeRows(table: MenuTable, ids: string[]): Promise<void> {
   await flushSaves();
   await write(() => api.deleteRows(table, ids), () => drop(table, ids));
-  if (table === 'sections' || table === 'dishes' || table === 'addon_groups') await reloadMenuQuietly();
+  if (table === 'sections' || table === 'dishes' || table === 'addon_groups' || table === 'schedules') await reloadMenuQuietly();
+}
+
+/** New rows of one table for the open place, in one statement (several opening windows at once are all or nothing). */
+export function addRows<T extends MenuTable>(table: T, rows: Partial<Rows[T]>[]): Promise<Rows[T][]> {
+  const venue_id = vid();
+  return write(() => api.insertRows<Rows[T]>(table, rows.map((r) => ({ venue_id, ...r }))), (out) => put(table, out));
+}
+
+/** One row's columns, stored now (the forms that save on a button, not as they are typed). */
+export function saveRow<T extends MenuTable>(table: T, id: string, patch: Partial<Rows[T]>): Promise<Rows[T]> {
+  return write(() => api.updateRow<Rows[T]>(table, id, patch), (r) => put(table, [r]));
+}
+
+/** The place's own settings (what guests see of something unavailable). */
+export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display'>>): Promise<VenueRow> {
+  return write(() => api.updateVenue(vid(), patch), (venue) => {
+    menu.value = { ...menu.value!, venue };
+    if (memberships.value) memberships.value = memberships.value.map((x) => (x.venue.id === venue.id ? { ...x, venue } : x));
+  });
+}
+
+/** Rules in a new order: the priorities rules.ts `reprioritize` chose, on screen at once, then stored. */
+export function setPriorities(priorities: ReadonlyMap<string, number>): Promise<void> | null {
+  if (!priorities.size) return null;
+  const d = menu.value!;
+  menu.value = { ...d, rules: d.rules.map((r) => (priorities.has(r.id) ? { ...r, priority: priorities.get(r.id)! } : r)) };
+  return write(() => Promise.all([...priorities].map(([id, priority]) => api.updateRow<UpsellRuleRow>('upsell_rules', id, { priority }))), (rows) => put('upsell_rules', rows))
+    .then(() => {}, async (e) => { await reloadMenuQuietly(); throw e; });
 }
 
 async function reloadMenuQuietly() {
@@ -280,7 +320,12 @@ export async function saveGroupForm(groupId: string | null, form: GroupForm): Pr
   try {
     const out = await write(() => api.saveGroup(d.venue.id, groupId, mapped.value, d.options), ({ group, options }) => {
       const m = menu.value!;
-      menu.value = { ...m, groups: [...m.groups.filter((g) => g.id !== group.id), group], options: [...m.options.filter((o) => o.group_id !== group.id), ...options] };
+      // a rule that suggested a choice deleted here went with it (the foreign key cascades)
+      const gone = new Set(m.options.filter((o) => o.group_id === group.id && !options.some((x) => x.id === o.id)).map((o) => o.id));
+      menu.value = {
+        ...m, groups: [...m.groups.filter((g) => g.id !== group.id), group], options: [...m.options.filter((o) => o.group_id !== group.id), ...options],
+        rules: m.rules.filter((r) => !(r.suggest_option_id && gone.has(r.suggest_option_id))),
+      };
     });
     return out.group;
   } catch (e) {
