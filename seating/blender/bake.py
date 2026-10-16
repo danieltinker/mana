@@ -39,7 +39,7 @@ def cyl(name, cx, cy, cz, r, h, mat, verts=32):
     o = bpy.context.active_object; o.name = name; o.data.materials.append(mat); return o
 
 
-def footprint(t):  # the same sizes as view/src/seat/plan.js
+def footprint(t):  # the same sizes as apps/view/src/seat/plan.js
     s = t['seats']
     if t['shape'] == 'round': r = 0.3 + min(8, s) * 0.045; return {'r': r, 'w': 2 * r, 'h': 2 * r}
     if t['shape'] == 'square': k = 0.72 if s <= 2 else 0.92; return {'w': k, 'h': k}

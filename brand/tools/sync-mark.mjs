@@ -1,8 +1,8 @@
 /* Writes every copy of the mark that cannot import tools/mark.mjs, from tools/mark.mjs, so the mark keeps one source.
    The copies (all generated; edit mark.mjs, then run this):
      - the data-URI favicon in the head of the owner app, the back office and the guest menu's demo pages (= favicon())
-     - the guest menu's credit (view/index.html, the small cut, ink = currentColor)
-     - studio/src/mark-shapes.ts and ops/src/mark-shapes.js: the two cuts' viewBox and inner markup, for the apps' <Mark>
+     - the guest menu's credit (apps/view/index.html, the small cut, ink = currentColor)
+     - apps/studio/src/mark-shapes.ts and apps/ops/src/mark-shapes.js: the two cuts' viewBox and inner markup, for the apps' <Mark>
 
      node brand/tools/sync-mark.mjs           write the copies
      node brand/tools/sync-mark.mjs --check   change nothing; exit 1 and name each copy that differs (tools/build-site.sh)
@@ -17,8 +17,8 @@ const check = process.argv.includes('--check');
 
 /* the favicon as a data URI: quotes made single, the characters a URL cannot carry escaped */
 const dataUri = 'data:image/svg+xml,' + favicon().replace(/"/g, "'").replace(/[<>#%{}\s]/g, (c) => encodeURIComponent(c));
-const FAVICON_PAGES = ['studio/index.html', 'ops/src/index.html', 'view/looks/index.html', 'view/seat/index.html', 'view/host/index.html',
-  'view/floor/index.html', 'view/floor/guest.html'];
+const FAVICON_PAGES = ['apps/studio/index.html', 'apps/ops/src/index.html', 'apps/view/looks/index.html', 'apps/view/seat/index.html',
+  'apps/view/host/index.html', 'apps/view/floor/index.html', 'apps/view/floor/guest.html'];
 const ICON = /(<link rel="icon" type="image\/svg\+xml" href=")data:image\/svg\+xml,[^"]*(")/;
 
 const CREDIT_NOTE = '<!-- the mark: Cloche, small cut (brand/tools/mark.mjs; written by brand/tools/sync-mark.mjs) -->';
@@ -47,9 +47,9 @@ function swap(rel, re, replacement) {
 }
 
 for (const rel of FAVICON_PAGES) swap(rel, ICON, (_, a, b) => a + dataUri + b);
-swap('view/index.html', CREDIT, () => credit);
-put('studio/src/mark-shapes.ts', shapesModule(true));
-put('ops/src/mark-shapes.js', shapesModule(false));
+swap('apps/view/index.html', CREDIT, () => credit);
+put('apps/studio/src/mark-shapes.ts', shapesModule(true));
+put('apps/ops/src/mark-shapes.js', shapesModule(false));
 /* the product page's own copies of three asset files (tools/build-assets.mjs writes brand/assets/) */
 for (const f of ['favicon.svg', 'mana-mark-light.svg', 'mana-mark-dark.svg']) put('brand/site/img/' + f, readFileSync(join(ROOT, 'brand/assets', f), 'utf8'));
 

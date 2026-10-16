@@ -1,0 +1,2 @@
+# npm workspaces (apps/*, packages/*) keep one lockfile at the repository root
+package-lock.json

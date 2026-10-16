@@ -1,0 +1,102 @@
+// Shared by the scenario tests: one fresh local stack per test file (free ports, removed afterwards), and the checks
+// that compare what each side sees. Tests read the database directly only as an oracle (to look at stored rows) and
+// for setup the README names; everything they assert about behaviour went through the public interfaces.
+import { after, before } from 'node:test';
+import { isDeepStrictEqual } from 'node:util';
+import { startStack } from '../stack/start.mjs';
+import { halomTeam, ownerWithMenu } from '../src/scenarios.mjs';
+
+/**
+ * A stack for this file, then `setup(stack)` once: `const S = useStack(async (stack) => ({ … }))`; inside tests,
+ * `S.stack` and `S.ctx` (what setup returned). One hook does both: node:test does not wait for one root `before`
+ * before starting the next.
+ */
+export function useStack(setup = null, opts = {}) {
+  const box = { stack: null, ctx: null };
+  before(async () => {
+    box.stack = await startStack({ ports: 'auto', ...opts });
+    if (setup) box.ctx = await setup(box.stack);
+  }, { timeout: 180000 });
+  after(async () => { await box.stack?.stop(); });
+  return box;
+}
+
+/** A published, approved venue from a seed, with its owner, ids and Halom's team. */
+export async function liveVenue(stack, seed, slug, team = null) {
+  const t = team ?? (await halomTeam(stack, slug));
+  const { owner, ids } = await ownerWithMenu(stack, seed, { slug });
+  const pub = await owner.publish('test');
+  if (!pub.ok) throw new Error(JSON.stringify(pub));
+  if (pub.review === 'pending') {
+    const ok = await t.support.approve(owner.venueId, 'Synthetic test venue checked');
+    if (!ok.ok) throw new Error(JSON.stringify(ok));
+  }
+  return { owner, ids, team: t, venueId: owner.venueId, slug };
+}
+
+const T = (t) => ({ he: t?.he ?? '', en: t?.en ?? '' });
+
+/**
+ * What in a published snapshot differs from the seed it was built from (an empty list = the guest gets exactly what the
+ * owner built): sections and dishes in order with names, prices, tags, groups and "goes well with"; the add-on groups
+ * with their options, prices, defaults and the nested group an option opens; the rules with their trigger, scope,
+ * suggestion, priority and cap.
+ */
+export function snapshotVsSeed(snap, seed, ids) {
+  const out = [];
+  const eq = (path, got, want) => { if (!isDeepStrictEqual(got, want)) out.push(`${path}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); };
+  const visible = (seed.sections ?? []).filter((s) => !s.hidden && (s.dishes ?? []).some((d) => !d.hidden));
+  eq('sections', snap.sections.map((s) => s.id), visible.map((s) => ids.sections[s.key]));
+  for (const [i, s] of visible.entries()) {
+    const got = snap.sections[i];
+    if (!got) continue;
+    eq(`sections[${i}].name`, got.name, T(s.name));
+    eq(`sections[${i}].kind`, got.kind, s.kind ?? 'food');
+    eq(`sections[${i}].scheduleId`, got.scheduleId, s.schedule ? ids.schedules[s.schedule] : null);
+    const dishes = (s.dishes ?? []).filter((d) => !d.hidden);
+    eq(`sections[${i}].dishes`, got.dishes.map((d) => d.id), dishes.map((d) => ids.dishes[d.key]));
+    for (const [j, d] of dishes.entries()) {
+      const gd = got.dishes[j];
+      if (!gd) continue;
+      const p = `sections[${i}].dishes[${j}]`;
+      eq(p + '.name', gd.name, T(d.name));
+      eq(p + '.price', gd.price?.amount ?? null, d.price ?? null);
+      eq(p + '.tags', gd.tags, d.tags ?? []);
+      eq(p + '.addons', gd.addons.map((a) => a.groupId), (d.groups ?? []).map((g) => ids.groups[typeof g === 'string' ? g : g.group]));
+      eq(p + '.related', gd.related, (d.related ?? []).map((k) => ids.dishes[k]));
+      eq(p + '.scheduleId', gd.scheduleId, d.schedule ? ids.schedules[d.schedule] : null);
+    }
+  }
+  const groups = new Map(snap.addonGroups.map((g) => [g.id, g]));
+  for (const g of seed.groups ?? []) {
+    const gg = groups.get(ids.groups[g.key]);
+    const reached = snap.sections.some((s) => s.dishes.some((d) => d.addons.some((a) => a.groupId === ids.groups[g.key])))
+      || (seed.groups ?? []).some((x) => (x.options ?? []).some((o) => o.opens === g.key));
+    if (!gg) { if (reached) out.push(`addonGroups: ${g.key} missing`); continue; }
+    eq(`group ${g.key}`, [gg.name, gg.selection, gg.min, gg.max], [T(g.name), g.selection ?? 'single', g.min ?? 0, g.max ?? 1]);
+    eq(`group ${g.key}.options`, gg.options.map((o) => [o.id, o.name, o.price, o.maxQty, o.default, o.opensGroupId]),
+      (g.options ?? []).map((o) => [ids.options[o.key], T(o.name), o.price ?? 0, o.maxQty ?? 1, !!o.default, o.opens ? ids.groups[o.opens] : null]));
+  }
+  const rules = new Map(snap.upsellRules.map((r) => [r.id, r]));
+  for (const r of seed.rules ?? []) {
+    const rr = rules.get(ids.rules[r.key]);
+    if (!rr) { out.push(`upsellRules: ${r.key} missing`); continue; }
+    const suggest = r.suggest.dish ? { kind: 'dish', dishId: ids.dishes[r.suggest.dish] } : { kind: 'option', optionId: ids.options[r.suggest.option] };
+    eq(`rule ${r.key}`, [rr.trigger, rr.priority, rr.cap, rr.suggest.kind, rr.suggest.dishId ?? rr.suggest.optionId, rr.line],
+      [r.trigger, r.priority ?? 50, r.cap ?? 1, suggest.kind, suggest.dishId ?? suggest.optionId, T(r.line)]);
+  }
+  return out;
+}
+
+const GUEST = new Set(['menu_opened', 'dish_viewed', 'addon_chosen', 'basket_added', 'suggestion_shown', 'suggestion_accepted', 'suggestion_dismissed']);
+
+/** The venue's guest-event day rollups per (name, key), summed over days, as the owner reads them (rollups_day under RLS). */
+export async function guestRollups(owner) {
+  const sums = new Map();
+  for (const r of await owner.rollupsDay()) {
+    if (!GUEST.has(r.name)) continue;
+    const k = r.name + '|' + r.key;
+    sums.set(k, (sums.get(k) ?? 0) + Number(r.n));
+  }
+  return [...sums].map(([k, n]) => ({ name: k.split('|')[0], key: k.split('|')[1], n })).sort((a, b) => (a.name + '|' + a.key < b.name + '|' + b.key ? -1 : 1));
+}
