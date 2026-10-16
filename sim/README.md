@@ -134,12 +134,18 @@ one, paste one into a PR, or load one into a page anyone else can open.
 
 ## e2e/ (browser tests)
 
-`e2e/helpers.mjs` → `startE2E({ seed })`: the sim stack, a synthetic venue, a static server for `_site/` (when
-`bash tools/build-site.sh` has built it) at `/mana/` with a generated `config.js` pointing at the local stack, and the
-system Chromium (`CHROME`, default `/opt/pw-browsers/chromium-1194/chrome-linux/chrome`) with playwright-core, found as
+`e2e/helpers.mjs` → `startE2E({ seed, mounts, config, gl })`: the sim stack, a synthetic venue, a static server for
+`_site/` (when `bash tools/build-site.sh` has built it) at `/mana/` with a generated `config.js` pointing at the local
+stack (`env: 'local'`, `schema: 2`, `realtime: false`, plus `config`), one app's own build without the whole site
+(`mounts`, e.g. `{ view: 'apps/view', stock: 'stock' }`), and the system Chromium (`CHROME`, default
+`/opt/pw-browsers/chromium-1194/chrome-linux/chrome`, with software WebGL when `gl: true`) with playwright-core, found as
 the apps' browser tests find it (the apps' installs, then `/opt/npm-tools`). The browser reaches 127.0.0.1 only.
-`e2e/smoke.test.mjs` fetches `public_menu` for the seeded venue from a page, through the gateway. The apps' own browser
-tests move here in phase 1, when they speak the new schema. `cd e2e && npm test`; screenshots in `e2e/.out/`.
+`e2e/smoke.test.mjs` fetches `public_menu` for the seeded venue from a page, through the gateway.
+`e2e/guest-menu.test.mjs` is the guest menu on schema 2 on a 390×844 phone (Bistro Sim and Café Demo): choices with a
+nested sauce, "from" prices, suggestions accepted and dismissed, the vegan filter, an owner taking a dish off mid-visit,
+the basket's total, day parts on a pinned clock, the table and the list offering the same choices, and the events,
+which after `stack.buildRollups()` must be exactly the owner's dashboard. The other apps' browser tests move here when
+they speak the new schema. `cd e2e && npm test`; screenshots in `e2e/.out/`.
 
 ## Not yet
 

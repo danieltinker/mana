@@ -8,6 +8,7 @@
 //
 // The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, with a generated config.js that
 // points the apps at the local stack; without a build it serves only /mana/e2e/blank.html (enough for the smoke test).
+// `mounts` serves one app's own build without the whole site (guest-menu.test.mjs: { view: apps/view, stock: stock }).
 // The browser may reach 127.0.0.1 only (no proxy; every other host fails to resolve).
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,8 @@ export const PHONE = { width: 390, height: 844 };
 export const PREFIX = '/mana/';
 const ARGS = ['--no-sandbox', '--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost',
   '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-pings'];
+/** Software WebGL (SwiftShader), as the guest menu's own browser tests use it: slow, but the table is drawn. */
+export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
 /** playwright-core, found the way the apps' browser tests find it: this workspace, the apps' installs, the machine's tools. */
 export function playwright() {
@@ -35,7 +38,14 @@ export function playwright() {
   throw new Error('playwright-core not found (npm ci at the root installs it for apps/ops and apps/studio)');
 }
 
-export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site') } = {}) {
+/**
+ * @param o.seed    a synthetic seed of sim/seeds (null = none)
+ * @param o.site    the built site, served at /mana/ when it has an index.html
+ * @param o.mounts  more folders by first path segment, e.g. { view: 'apps/view', stock: 'stock' } (a built app without the whole site)
+ * @param o.config  more fields for the generated config.js
+ * @param o.gl      true: the browser draws WebGL in software (without it, a page that needs WebGL falls back as a phone would)
+ */
+export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site'), mounts = {}, config: extra = {}, gl = false } = {}) {
   const stack = await startStack({ ports: 'auto' });
   let web = null, browser = null;
   const stop = async () => {
@@ -45,12 +55,14 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
   };
   try {
     const venue = seed ? await loadSeed(stack, readSeed(path.join(SEEDS, `${seed}.json`)).seed) : null;
+    // env/schema/realtime: the local stack speaks the clean schema (v2) and has no Realtime server (phase-1 RULES)
     const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ supabaseUrl: stack.apiUrl, supabaseKey: stack.anonKey, shortBase: `http://127.0.0.1:${stack.ports.web}/m/`,
-      shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false } }, null, 2)};\n`;
+      shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false },
+      env: 'local', schema: 2, realtime: false, ...extra }, null, 2)};\n`;
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
-    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {},
+    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: { ...(hasSite ? { '': site } : {}), ...mounts },
       virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>' } });
-    browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: ARGS });
+    browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: gl ? ARGS.concat(GL_ARGS) : ARGS });
     fs.mkdirSync(OUT, { recursive: true });
     const webUrl = `http://127.0.0.1:${stack.ports.web}${PREFIX}`;
     return {
