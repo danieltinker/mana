@@ -37,8 +37,30 @@ export class Issues {
   }
 }
 
+/**
+ * A text's length in code points: what PostgreSQL's `char_length` counts, so a limit means the same on both sides (a
+ * burger emoji is 1, not 2). **Every length limit in the contracts is measured this way.**
+ */
+export function textLength(s: string): number {
+  let n = s.length;
+  for (let i = 0; i < s.length - 1; i++) {
+    const c = s.charCodeAt(i);
+    const d = s.charCodeAt(i + 1);
+    if (c >= 0xd800 && c <= 0xdbff && d >= 0xdc00 && d <= 0xdfff) {
+      n -= 1;
+      i += 1;
+    }
+  }
+  return n;
+}
+
+const UNSTORABLE = new RegExp('\\x00|[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]');
+/** Text PostgreSQL can store: no NUL character and no lone surrogate (half of an emoji). Validators of typed text
+ * refuse anything else as `text_invalid`. */
+export const isStorableText = (s: string): boolean => !UNSTORABLE.test(s);
+
 export function textOk(v: unknown, max: number): v is Text {
-  return isObject(v) && isString(v.he) && isString(v.en) && v.he.length <= max && v.en.length <= max;
+  return isObject(v) && isString(v.he) && isString(v.en) && textLength(v.he) <= max && textLength(v.en) <= max;
 }
 
 /**
@@ -63,6 +85,7 @@ export const BLANK_EXTENDERS = '\\uFE00-\\uFE0F\\u{E0020}-\\u{E007F}';
 const BLANK_LEAD = new RegExp(`^[${BLANK_CLASS}]+`, 'u');
 const BLANK_TRAIL = new RegExp(`([^${BLANK_CLASS}][${BLANK_EXTENDERS}]*)[${BLANK_CLASS}]*$`, 'u');
 const BLANK_ONE = new RegExp(`^[${BLANK_CLASS}]$`, 'u');
+const BLANK_ALL = new RegExp(`^[${BLANK_CLASS}]*$`, 'u');
 
 /** Is this one character blank? */
 export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
@@ -71,8 +94,8 @@ export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
  * and tags that finish the last visible character. The database's app.strip_blank() does the same.
  */
 export const stripBlank = (s: string): string => s.replace(BLANK_LEAD, '').replace(BLANK_TRAIL, '$1');
-/** Nothing but blank characters (or nothing at all). */
-export const isBlank = (s: string): boolean => stripBlank(s) === '';
+/** Nothing but blank characters (or nothing at all): exactly when `stripBlank(s)` is ''. */
+export const isBlank = (s: string): boolean => BLANK_ALL.test(s);
 /** Both languages' text with blank edges removed: what the client app saves. */
 export const cleanText = (t: Text): Text => ({ he: stripBlank(t.he), en: stripBlank(t.en) });
 
