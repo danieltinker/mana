@@ -25,7 +25,7 @@ export const auditOpsOf = (t: AuditedTable): readonly AuditOp[] => AUDIT_OPS[t] 
 export const NAMED_ACTIONS = [
   'venue.create', 'venue.approve', 'plan.set', 'menu.publish', 'menu.restore', 'menu.unpublish', 'support.act_for_owner',
   'upsell_rules.deactivated', 'staff.join', 'staff_invite.create', 'leads.read',
-  'venue.set_demo', 'menu.export', 'import.apply', 'availability.restore_today',
+  'venue.set_demo', 'menu.export', 'import.apply',
 ] as const;
 export type NamedAction = (typeof NAMED_ACTIONS)[number];
 export type ActivityAction = NamedAction | `${AuditedTable}.${AuditOp}`;

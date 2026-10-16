@@ -182,7 +182,7 @@ export function timelineKind(action: ActivityAction): TimelineKind {
   if (action.startsWith('menu.') || action === 'venue.approve') return 'publish';
   if (action.startsWith('support_cases.')) return 'case';
   if (action === 'support.act_for_owner' || action === 'plan.set' || action === 'venue.set_demo' || action.startsWith('entitlements.')) return 'halom';
-  if (action.startsWith('availability_overrides.') || action === 'availability.restore_today') return 'availability';
+  if (action.startsWith('availability_overrides.')) return 'availability';
   if (/^(sections|dishes|assets|addon_groups|addon_options|dish_addon_groups|dish_relations|upsell_rules|schedules)\./.test(action) ||
       action === 'upsell_rules.deactivated') return 'menu';
   return 'settings';

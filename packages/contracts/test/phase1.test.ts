@@ -92,7 +92,7 @@ test('activity: query and the update detail', () => {
   assert.equal(timelineKind('venue.approve'), 'publish');
   assert.equal(timelineKind('support_cases.insert'), 'case');
   assert.equal(timelineKind('support.act_for_owner'), 'halom');
-  assert.equal(timelineKind('availability.restore_today'), 'availability');
+  assert.equal(timelineKind('availability_overrides.update'), 'availability');
   assert.equal(timelineKind('dish_addon_groups.insert'), 'menu');
   assert.equal(timelineKind('menu.export'), 'menu');
   assert.equal(timelineKind('venue_hours.update'), 'settings');
