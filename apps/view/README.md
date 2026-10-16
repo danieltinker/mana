@@ -23,7 +23,7 @@ src/
   gl/           the stage (three.js) and the shaders          drinks/   drawn wine and beer, the pour, taste.js (what a guest wants to know)
   tags.js       the taste tags of a wine or a beer (icons)    trayset.js   "my table" setting itself (a small canvas)
 test/  tools/  films/                  tests, local server with a backend stub, build, film tool and its scripts
-src/v2/  → v2.js                       the menu on the clean schema (config schema 2): choices, basket, suggestions, filter, events (below)
+src/v2/  → v2-<hash>.js                the menu on the clean schema (config schema 2): choices, basket, suggestions, filter, events (below)
 ```
 
 ## Getting a menu
@@ -171,18 +171,21 @@ lifted and `add` when it is put on "my table": once per dish and kind per page l
 
 ## Schema 2: the menu on the clean schema (`src/v2/`, F07)
 When `HALOM_MENUS_CONFIG.schema === 2` (the local stack and the demo database `mana`; production is 1 until the
-cutover, ADR-005), a real menu (`/m/<slug>`, `?m=`) loads `v2.js`, a build of its own: `app.js` shares no chunk with it,
-so a v1 menu fetches exactly what it did. Demos and the preview stay v1. Everything the table, the list and the card do
-is the v1 menu's own; v2 adds, through a few hooks in `ui.js` and `main.js` (each a no-op without `env.v2`):
+cutover, ADR-005; read through the contracts' `configFlags`), a real menu (`/m/<slug>`, `?m=`) loads `v2-<hash>.js`, a
+build of its own: `app.js` shares no chunk with it, so a v1 menu fetches exactly what it did. Its name carries a hash of
+its content and is written into `app.js` at build time, so an `app.js` always loads the v2 it was built with (never an
+older or newer one from a cache). `public_menu` is asked at the same time as the module, not after it. Demos and the
+preview stay v1. Everything the table, the list and the card do is the v1 menu's own; v2 adds, through a few hooks in
+`ui.js` and `main.js` (each a no-op without `env.v2`):
 
 | Piece | What |
 |---|---|
 | `menu.js` | `public_menu(slug)` → the snapshot v2 (checked with the contracts' `validateSnapshotV2`) and the live overlay → the model the menu already draws, with `snapshot.v2` beside it. Availability (`menuAvailability`, Asia/Jerusalem): each item's `available` and why not ("Sold out · back at 14:30", "Served from 07:00"); "closed now · opens at 07:00"; "from ₪…" (`fromPrice`). The tag filter (a vegan dish also counts as vegetarian). |
-| `choices.js` | The dish sheet's `DishSelection`: the owner's defaults (`defaultSelection`), a single choice replaces, an opener opens its group (with its defaults) inline, quantities up to `max_qty`; the running price is `priceDish` with the minimums set aside, then exactly `priceDish`; what is still needed comes from `priceDish`'s own errors. |
-| `basket.js` | "My table" as lines (dish, choices, quantity): the same choices add up; change, remove; every amount `priceDish`'s, VAT included; a line that can no longer be ordered is marked, explained and left out of the total (Hopa test 2). Kept on this phone (`mana-basket:<slug>`). `priced()` is the seam phase 2's checkout freezes into an order. |
-| `visit.js` | One suggestion at a time: `matchSuggestion` with this visit's `shown` (`recordShown`, the cap) and `dismissed`. Triggers: the sheet opening, an add, "my table" opening (checkout). Accept adds it (an option to the sheet, a dish with its defaults, or its sheet when it has choices to make); dismiss changes nothing chosen. |
-| `events.js` | The seven guest events to `track_events`: the contract's props only, an offset in every time, batches of at most 50 (sent 1.5 s after the first, at once when the page is hidden), retried with the same ids. No cookie, no visitor id. |
-| `guest.js`, `style.js`, `i18n.js` | The DOM: groups as fieldsets of radios, checkboxes and steppers, sold-out options greyed, "goes well with", the suggestion above the add button (or over the card, or in "my table"), the basket's lines, the filter (a tool in the bar, a line under it while it is on). Its own words (Hebrew needs a native read) and styles, injected so `app.css` stays as it is. |
+| `choices.js` | The dish sheet's `DishSelection`: the owner's defaults (`defaultSelection`), a single choice replaces, an opener opens its group (with its defaults) inline, quantities up to `max_qty`; the running price is `priceDish` with the minimums set aside, then exactly `priceDish`; what is still needed comes from `priceDish`'s own errors. An opener whose own required group has run out (every sauce sold out) is greyed with the reason ("Sauce: none left") and is never a default. |
+| `basket.js` | "My table" as lines (dish, choices, quantity): the same choices add up; change, remove; every amount `priceDish`'s, VAT included; a line that can no longer be ordered is marked, explained, left out of the total and not added to (Hopa test 2). Kept on this phone (`mana-basket:<slug>`); two tabs of one menu share it (a `storage` event: the last change wins, both show it). `priced()` is the seam phase 2's checkout freezes into an order. |
+| `visit.js` | One suggestion at a time: `matchSuggestion` with this visit's `shown` (`recordShown`, the cap) and `dismissed`. Triggers: the sheet opening, an add, "my table" opening (checkout). The one on screen is checked again (`still`) whenever availability, the filter, the sheet's choices or the basket change, and when it is accepted: one that no longer qualifies goes. Accept: an option goes on the sheet, or (after an add) on the one dish just added, a unit split off its line; a dish goes straight on the table only when it has nothing to choose and no default of the owner's, otherwise its sheet opens; dismiss changes nothing chosen. |
+| `events.js` | The seven guest events to `track_events`: the contract's props only, an offset in every time, batches of at most 50 (sent 1.5 s after the first, at once when the page is hidden), retried with the same ids; one send at a time, and never a send left marked as out when none is. No cookie, no visitor id. |
+| `guest.js`, `style.js`, `i18n.js` | The DOM: groups as fieldsets of radios, checkboxes and steppers, sold-out options greyed, "goes well with", the suggestion above the add button (or over the card, or in "my table"; its buttons named with what they add), the basket's lines, the filter (a tool in the bar, a line under it while it is on; "my table" still counts what it hides). In the list, the dish's sheet is a dialog: the focus goes into it, stays in it (the list and the bar are inert behind it) and returns to the dish's row. At 200% zoom (195 CSS px) nothing overlaps or is cut, and on a short screen the add button stops being sticky. Its own words (Hebrew needs a native read) and styles, injected so `app.css` stays as it is. |
 
 **Live.** `public_menu` is asked again every `config.liveEveryMs` (30 s by default), when the page comes back into view
 and when the phone is online again; a dish taken off greys where it stands (the walk is not reordered under the guest)
@@ -193,7 +196,9 @@ when its sheet opens; `addon_chosen` when the guest chooses an option (not the o
 (`fromSuggestion`); `suggestion_shown` / `_accepted` / `_dismissed`. Never in a demo or a preview.
 
 `__mana.v2()` (the basket, the sheet, the suggestion), `__mana.flush()` (send what is queued) and `__mana.refresh()` (ask
-`public_menu` now) are for tests. The browser tests run on the simulator's stack: `e2e/guest-menu.test.mjs`.
+`public_menu` now) are for tests. The browser tests run on the simulator's stack: `e2e/guest-menu.test.mjs` (with
+`e2e/seeds/guest-check.json`, a synthetic venue for paid defaults, an add-on suggested after an add and a sauce group
+that runs out).
 
 ## Filming and testing
 `?capture=1` (and `?test=1`) stop the page's own clock: nothing moves until it is told to.

@@ -220,6 +220,12 @@ export function createUI(store, env) {
     else if (prev && prev.simple && !s.simple) { tweens.cancel('lift'); $('backdrop').style.opacity = ''; $('backdrop').hidden = !listOpen && !trayOpen; setLift(s.open === 'dish' ? liftL : 0); }      // the table is back: the card follows its spring again, and nothing lies over the scene
     if (!prev || prev.nav.seq !== s.nav.seq || full) announce(s, v, prev);
     if (prev && prev.open === 'dish' && s.open !== 'dish' && document.activeElement && $('cardMore').contains(document.activeElement)) focusQuiet($('openBtn'));
+    if (env.v2 && s.simple) {                                // schema 2, the list: the focus goes into the dish's sheet, and back to its row when it closes
+      if (s.open === 'dish' && (!prev || prev.open !== 'dish' || prev.itemId !== s.itemId || !prev.simple)) focusQuiet($('dName'));
+      else if (prev && prev.open === 'dish' && !s.open && prev.simple) { const row = rows.get(prev.itemId) || rows.get(s.itemId); if (row) focusQuiet(row); }
+    }
+    /* schema 2: "my table" closed and the focus was lost (sheets() gives it back while the bar is still inert): back on its button */
+    if (env.v2 && prev && prev.open === 'tray' && !s.open && (!document.activeElement || document.activeElement === document.body || $('traySheet').contains(document.activeElement))) focusQuiet($('trayBtn'));
   }
   function focusQuiet(el) { if (el) try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
   function scrollChip(b, instant) {
@@ -229,7 +235,7 @@ export function createUI(store, env) {
   }
   function announce(s, v, prev) {
     const it = v.item; if (!it) return;
-    let msg = [v.itemName, (it.price.from && env.v2 ? env.v2.word('from') + ' ' : '') + money(it.price), it.available === false ? soldWord(it) : '', v.present.illustration ? illusLabel() : '', t('ofCount', { i: v.index + 1, n: v.count })].filter(Boolean).join(', ');
+    let msg = [v.itemName, (it.price.from && env.v2 ? env.v2.word('fromPrefix') : '') + money(it.price), it.available === false ? soldWord(it) : '', v.present.illustration ? illusLabel() : '', t('ofCount', { i: v.index + 1, n: v.count })].filter(Boolean).join(', ');
     if (!prev || prev.categoryId !== s.categoryId) msg = v.categoryName + '. ' + msg;
     if (s.nav.kind === 'edge') msg = s.nav.dir > 0 && v.nextCat && s.nav.axis === 'x' ? t('nextCat', { cat: tx(v.nextCat.raw.name, s.lang) }) : msg;
     $('live').textContent = msg;
@@ -283,6 +289,11 @@ export function createUI(store, env) {
       else { slide($('traySheet'), 'tray', false, () => { if (!trayOpen) $('traySheet').hidden = true; if (!listOpen && !trayOpen && !(store.getState().simple && store.getState().open === 'dish')) $('backdrop').hidden = true; }); if (lastFocus && lastFocus.focus && document.contains(lastFocus)) focusQuiet(lastFocus); lastFocus = null; }
     }
     const modal = listOpen || trayOpen; $('top').inert = modal; $('card').inert = modal; void prev;
+    if (env.v2) {                                            // schema 2: in the list, an open dish is a dialog; the list and the bar wait behind it
+      const dlg = s.simple && s.open === 'dish' && !modal;
+      $('top').inert = modal || dlg; $('list').inert = dlg;
+      if (dlg) { $('card').setAttribute('role', 'dialog'); $('card').setAttribute('aria-modal', 'true'); } else { $('card').removeAttribute('role'); $('card').removeAttribute('aria-modal'); }
+    }
   }
   function renderTray() {
     if (env.v2) { env.v2.tray(store.getState()); if (trayOpen) setTable(false); return; }      // schema 2: the basket draws its own lines and total
@@ -301,10 +312,11 @@ export function createUI(store, env) {
   const imgs = new Map(); let setKey = '', setAt = 0;
   const imgOf = (url) => { if (!url) return null; let im = imgs.get(url); if (!im) { im = new Image(); im.decoding = 'async'; im.onload = () => { if (trayOpen && !tweens.active('trayset')) setTable(false); }; im.src = url; imgs.set(url, im); } return im.complete && im.naturalWidth ? im : null; };
   function setTable(play) {
-    const cv = $('traySet'), s = store.getState(), L = s.lang, ids = Object.keys(s.tray).filter((id) => model().itemById.get(id));
+    const look = (id) => model().itemById.get(id) || (env.v2 && env.v2.entry ? env.v2.entry(id) : null);      // schema 2: also a dish the tag filter hides now (it is still on the table)
+    const cv = $('traySet'), s = store.getState(), L = s.lang, ids = Object.keys(s.tray).filter((id) => look(id));
     cv.hidden = !ids.length; if (!ids.length) { tweens.cancel('trayset'); setKey = ''; return; }
-    const entries = ids.slice(0, 8).map((id) => { const e = model().itemById.get(id), k = e.cat.raw.kind, sp = drinkSpec(e.item, k), a = e.item.asset; return { id, drink: k === 'wine' || k === 'beer' || k === 'drinks', url: a && a.thumb && !a.stock ? a.thumb : null, colour: sp && sp.liquid ? 'rgb(' + sp.liquid.edge.map((v, i) => Math.round((v * .6 + sp.liquid.deep[i] * .4) * 255)).join(',') + ')' : null, initial: (tx(e.item.name, L).trim()[0] || '·') }; });
-    const names = ids.map((id) => tx(model().itemById.get(id).item.name, L)).join(', ');
+    const entries = ids.slice(0, 8).map((id) => { const e = look(id), k = e.cat.raw.kind, sp = drinkSpec(e.item, k), a = e.item.asset; return { id, drink: k === 'wine' || k === 'beer' || k === 'drinks', url: a && a.thumb && !a.stock ? a.thumb : null, colour: sp && sp.liquid ? 'rgb(' + sp.liquid.edge.map((v, i) => Math.round((v * .6 + sp.liquid.deep[i] * .4) * 255)).join(',') + ')' : null, initial: (tx(e.item.name, L).trim()[0] || '·') }; });
+    const names = ids.map((id) => tx(look(id).item.name, L)).join(', ');
     cv.setAttribute('aria-label', t('trayScene') + ': ' + names);
     const w = Math.max(200, Math.round((cv.clientWidth || 340) * Math.min(2, window.devicePixelRatio || 1))); if (cv.width !== w) { cv.width = w; cv.height = Math.round(w / 2.2); }
     const items = () => entries.map((e) => ({ drink: e.drink, img: imgOf(e.url), colour: e.colour, initial: e.initial })), key = ids.join('|') + L, end = durationOf(entries.length);      // the table is set the same way in every language

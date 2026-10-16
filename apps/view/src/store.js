@@ -136,7 +136,7 @@ export function reduce(s, a, model) {
     }
     case 'trayClear': return Object.keys(s.tray).length ? Object.assign({}, s, { tray: {} }) : s;
     case 'traySync': {                                   // schema 2: the basket (v2/basket.js) owns the lines; the tray mirrors its counts per dish
-      const tray = {}; Object.keys(a.tray || {}).forEach((id) => { const q = a.tray[id] | 0; if (model.itemById.has(id) && q > 0) tray[id] = Math.min(q, 99); });
+      const tray = {}; Object.keys(a.tray || {}).forEach((id) => { const q = a.tray[id] | 0; if (q > 0) tray[id] = Math.min(q, 99); });      // every line counts, also one the filter hides or a dish gone from the menu
       const same = Object.keys(tray).length === Object.keys(s.tray).length && Object.keys(tray).every((id) => s.tray[id] === tray[id]);
       return same ? s : Object.assign({}, s, { tray });
     }

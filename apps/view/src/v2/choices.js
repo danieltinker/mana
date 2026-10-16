@@ -2,12 +2,26 @@
    (with a quantity) → for an option that opens a group, that group's choices (`nested`, the one nesting level).
    Pure and immutable: every change returns a new selection. Prices, defaults and limits are the contracts' own
    (`priceDish`, `defaultSelection`); this only edits the tree the guest is building and says what is still missing. */
-import { defaultSelection, priceDish } from '@mana/contracts';
+import { defaultSelection, groupCapacity, priceDish } from '@mana/contracts';
 
 const copy = (sel) => ({ quantity: sel.quantity, groups: sel.groups.map((g) => ({ groupId: g.groupId, options: g.options.map((o) => (o.nested ? { ...o, nested: o.nested.map((n) => ({ groupId: n.groupId, options: n.options.map((x) => ({ ...x })) })) } : { ...o })) })) });
 
 /** The owner's defaults (available ones only): where a sheet starts. Never an upsell. */
 export const startOf = (dish, ctx) => defaultSelection(dish, ctx);
+
+/**
+ * Openers that cannot be chosen now: the group they open is required and has nothing left to choose (every sauce sold
+ * out). The contracts' own measure (groupCapacity); defaultSelection skips them too, so the sheet never starts on one.
+ */
+export function deadOpeners(ctx) {
+  const out = new Set(), off = ctx.unavailable ? ctx.unavailable.options : new Set();
+  for (const g of ctx.groups.values()) for (const o of g.options) {
+    if (o.opensGroupId === null) continue;
+    const n = ctx.groups.get(o.opensGroupId);
+    if (!n || (n.min > 0 && groupCapacity(n, ctx.groups, off, 1) < n.min)) out.add(o.id);
+  }
+  return out;
+}
 
 /** The group's choices in a selection: a dish's group, or (with `parentOptionId`) the group that opener opened. */
 export function groupIn(sel, groupId, parentOptionId = null) {
@@ -45,8 +59,9 @@ export function setOption(sel, ctx, { groupId, optionId, parentOptionId = null, 
   const entry = n === 1 ? { optionId } : { optionId, qty: n };
   if (parentOptionId === null && opt.opensGroupId !== null) {
     const nested = ctx.groups.get(opt.opensGroupId);
+    const off = ctx.unavailable ? ctx.unavailable.options : new Set();
     if (had && had.nested) entry.nested = had.nested;
-    else if (nested) entry.nested = [{ groupId: nested.id, options: defaultSelection({ addons: [{ groupId: nested.id, min: nested.min, max: nested.max }] }, ctx).groups[0].options }];
+    else if (nested) entry.nested = [{ groupId: nested.id, options: nested.options.filter((o) => o.default && !off.has(o.id)).slice(0, nested.max).map((o) => ({ optionId: o.id })) }];      // its own defaults, one level only
   }
   if (group.selection === 'single') g.options = [entry];
   else if (at >= 0) g.options[at] = entry;

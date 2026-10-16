@@ -4,6 +4,7 @@
 export const CSS = `
 .app{overflow:clip}
 .price small.from{display:inline;margin:0;margin-inline-end:6px;vertical-align:.2em;font-size:.74rem}
+html[lang="he"] .price small.from{margin-inline-end:0}
 .row-price small.from{margin:0 0 1px;font-size:.7rem}
 .badge.sold.later{background:rgba(244,237,226,.07);color:var(--ink-soft);border-color:var(--edge-2)}
 
@@ -62,6 +63,7 @@ export const CSS = `
 
 .v2-sug{display:grid;gap:10px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--accent) 50%,transparent);border-radius:18px;background:linear-gradient(var(--accent-soft),var(--accent-soft)),rgba(17,13,10,.9);text-shadow:none}
 .s-kicker{font:500 .68rem/1.3 var(--body);letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.s-text{display:grid;gap:10px;min-width:0}
 .s-line{font:600 1.12rem/1.25 var(--display)}
 .s-what{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;font-size:.92rem;color:var(--ink-soft)}
 .s-what b{font-weight:500;color:var(--ink)}
@@ -70,9 +72,10 @@ export const CSS = `
 .s-acts .ghost{background:none}
 .actions .v2-sug{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px 12px;padding:12px 12px 12px 16px}
 .actions .s-kicker{display:none}
+.actions .s-text{gap:8px}
 .actions .s-line{font-size:1.02rem}
-.actions .s-what{grid-column:1;font-size:.86rem}
-.actions .s-acts{grid-column:2;grid-row:1/span 2;flex-direction:column;gap:6px}
+.actions .s-what{font-size:.86rem}
+.actions .s-acts{grid-column:2;grid-row:1;flex-direction:column;gap:6px}
 .actions .s-acts .primary,.actions .s-acts .ghost{flex:none;min-height:40px;min-width:104px;padding:0 14px;font-size:.9rem}
 .v2-float{position:absolute;z-index:9;inset-inline:var(--gut);bottom:calc(var(--card-h) + 12px);box-shadow:0 12px 40px rgba(0,0,0,.5);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 .app.wide .v2-float{inset-inline:16px auto;width:calc(var(--card-w) - 16px)}
@@ -87,7 +90,7 @@ export const CSS = `
 .l-why.later{color:var(--ink-soft)}
 .v2-line .l-price{font:500 1.06rem/1.2 var(--display);font-variant-numeric:tabular-nums;text-align:end;white-space:nowrap}
 .v2-line .l-price small{display:block;font:400 .72rem/1.3 var(--body);color:var(--ink-faint)}
-.l-acts{grid-column:1/-1;display:flex;align-items:center;gap:16px;margin-top:4px}
+.l-acts{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin-top:4px}
 .l-acts .stepper{margin-inline-end:auto}
 .l-acts .link{min-height:44px}
 .v2-line.off .l-name,.v2-line.off .l-price{color:var(--ink-faint)}
@@ -120,5 +123,24 @@ export const CSS = `
 .app[data-card="light"] .card .v2-rel .thumb{background:rgba(15,15,15,.06);color:var(--look-ink-soft,#4a4541)}
 .app[data-card="light"] .card .v2-sug{background:linear-gradient(var(--accent-soft),var(--accent-soft)),rgb(252,248,246)}
 .app[data-card="light"] .card.v2-choices .actions{background:linear-gradient(to bottom,rgba(252,248,246,0),rgb(252,248,246) 22px)}
+/* narrow (200% zoom on a phone is 195 CSS px) and short screens: nothing runs under anything, nothing is cut at an edge,
+   and the part of the sheet that stays on screen never takes most of it */
+.sheet.tray{grid-template-columns:minmax(0,1fr)}
+.v2-group>legend{flex-wrap:wrap}
+@media (max-width:340px){
+  .app.lifted .card .title-row{flex-wrap:wrap;padding-inline-end:52px}
+  .g-hint{white-space:normal}
+  .opt{gap:10px}
+  .opt.qty{grid-template-columns:22px minmax(0,1fr) auto}
+  .opt.qty .stepper{grid-column:2/-1;justify-self:start}
+  .actions .v2-sug{grid-template-columns:minmax(0,1fr);padding:12px}
+  .actions .s-acts{grid-column:1;flex-direction:row}
+  .actions .s-acts .primary,.actions .s-acts .ghost{flex:1 1 0;min-width:0}
+  .lines li.v2-line{grid-template-columns:minmax(0,1fr)}
+  .v2-line .l-price{text-align:start}
+}
+@media (max-height:599px),(max-width:299px){
+  .card.v2-choices .actions{position:static;margin:0;padding:16px 0 0;background:none}
+}
 @media (forced-colors:active){ .opt input:checked+.o-mark{background:Highlight} .v2-tag[aria-pressed="true"]{border-width:2px} }
 `;

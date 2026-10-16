@@ -18,8 +18,8 @@
    basket.js); nothing here depends on WebGL, so the list view gets exactly the same choices. */
 import { TAGS, configFlags, priceDish } from '@mana/contracts';
 import { closedText, filtered, filteredOut, loadMenu, matchesTags, poll, refresh, rpc, setLive, toModel } from './menu.js';
-import { chosenList, groupIn, issues, qtyOf, runningPrice, setOption, startOf, unitsOf } from './choices.js';
-import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, storedLines } from './basket.js';
+import { chosenList, groupIn, issues, qtyOf, runningPrice, selectionKey, setOption, startOf, unitsOf } from './choices.js';
+import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, splitOne, storedLines } from './basket.js';
 import { createEvents } from './events.js';
 import { createVisit } from './visit.js';
 import { word } from './i18n.js';
@@ -65,6 +65,7 @@ export function createGuest(model, { env, mem, src, kit }) {
   const dish = (id) => g().menu.dishes.get(id);
   const groupOf = (id) => g().menu.groups.get(id);
   const optionOf = (groupId, optionId) => { const gr = groupOf(groupId); return gr ? gr.options.find((o) => o.id === optionId) : undefined; };
+  const groupName = (id) => { const gr = groupOf(id); return gr ? name(gr.name) : ''; };
   const optionName = (id) => { for (const gr of g().snap.addonGroups) { const o = gr.options.find((x) => x.id === id); if (o) return name(o.name); } return ''; };
   const shownNow = (id) => !!store && store.getModel().itemById.has(id);
   const hidden = () => filteredOut(full, tags);
@@ -72,37 +73,74 @@ export function createGuest(model, { env, mem, src, kit }) {
 
   /* ---------- the basket, kept on this phone ---------- */
   function save() { mem.set(basketKey, JSON.stringify(storedLines(lines))); }
-  function changed() { save(); sync(); }
+  function changed() { save(); sync(); recheck(); }
+  const basketNow = () => lines.map((l) => ({ dishId: l.dishId, selection: l.selection }));
+  /* Two tabs of one menu share one basket: a change made in the other tab arrives as a `storage` event and is taken as
+     it is (the tab that changed it last wins; both then show the same table). */
+  function fromOtherTab(e) {
+    if (e.key !== basketKey) return;
+    let next;
+    try { next = readLines(JSON.parse(e.newValue || 'null')); } catch (err) { return; }
+    lines = next; sync(); recheck();
+    if (session && session.editKey && !lines.some((l) => l.key === session.editKey)) session.editKey = null;      // the line being changed went in the other tab: saving adds it again
+    redrawAll();
+  }
   /* the store's per-dish counts follow the basket (never from inside another notification: a microtask later) */
   function sync() { if (store) queueMicrotask(() => store.dispatch({ type: 'traySync', tray: counts(lines) })); }
 
   /* ---------- suggestions: one at a time, never chained, capped per visit ---------- */
   function offer(trigger, dishId, selection, { fromSuggestion = false, where, lineKey = null } = {}) {
-    const p = visit.offer(trigger, { dishId, selection, basket: lines.map((l) => ({ dishId: l.dishId, selection: l.selection })), unavailable: g().unavailable,
+    const p = visit.offer(trigger, { dishId, selection, basket: basketNow(), unavailable: g().unavailable,
       filteredOut: hidden(), fromSuggestion, where, lineKey });
     if (!p) return null;
     ev.emit('suggestion_shown', { ruleId: p.ruleId, trigger, dishId });
     say(word(lang(), 'suggestion') + ': ' + name(p.line));
     return p;
   }
+  /**
+   * The suggestion on screen, checked again against what is true now (an option or a dish sold out, the filter, the
+   * guest's own choices, the basket). One that no longer qualifies simply goes. → true when it went.
+   */
+  function recheck() {
+    const p = visit.pending;
+    if (!p) return false;
+    let selection;
+    if (p.trigger === 'sheet') {
+      if (!session || session.dishId !== p.dishId) { visit.drop(); return true; }
+      selection = session.selection;
+    } else if (p.suggest.kind === 'option') {                     // after an add: about the line that was added
+      const l = lines.find((x) => x.key === p.lineKey);
+      if (!l) { visit.drop(); return true; }
+      selection = l.selection;
+    }
+    return !visit.still({ selection, basket: basketNow(), unavailable: g().unavailable, filteredOut: hidden() });
+  }
   function accept() {
+    if (recheck()) { redrawAll(); return; }                     // it no longer applies: nothing is added
     const p = visit.accept(); if (!p) return;
     ev.emit('suggestion_accepted', { ruleId: p.ruleId, trigger: p.trigger, dishId: p.dishId });
     const sg = p.suggest;
     if (sg.kind === 'dish') {
       const d = dish(sg.dishId), sel = startOf(d, ctx());
-      if (priceDish(d, sel, ctx()).ok) addToBasket(d, sel, { fromSuggestion: true, where: p.where });
+      /* straight onto the table only when there is nothing to choose and nothing the guest has not seen: no required
+         group and no default of the owner's (a default, even a free one, is a choice the guest should see) */
+      if (d.addons.every((a) => a.min === 0) && chosenList(sel).length === 0 && priceDish(d, sel, ctx()).ok) addToBasket(d, sel, { fromSuggestion: true, where: p.where });
       else { sheetFromSuggestion = d.id; store.dispatch({ type: 'open', what: 'dish', id: d.id }, { via: 'suggestion' }); }      // its choices are the guest's to make
     } else if (p.trigger === 'sheet' && session && session.dishId === p.dishId) {
       session.selection = setOption(session.selection, ctx(), { groupId: sg.groupId, optionId: sg.optionId, qty: qtyOf(session.selection, sg.groupId, sg.optionId) + 1 });
       ev.emit('addon_chosen', { dishId: p.dishId, groupId: sg.groupId, optionId: sg.optionId, parentOptionId: null });
     } else {
+      /* right after an add: the add-on goes on the one dish just added (one unit of its line), never on the whole line */
       const l = lines.find((x) => x.key === p.lineKey), d = l && dish(l.dishId);
       if (d) {
         const sel = setOption(l.selection, ctx(), { groupId: sg.groupId, optionId: sg.optionId, qty: qtyOf(l.selection, sg.groupId, sg.optionId) + 1 });
-        if (priceDish(d, Object.assign({}, sel, { quantity: l.quantity }), ctx()).ok) {
-          lines = replaceSelection(lines, l.key, sel); changed();
+        if (priceDish(d, sel, ctx()).ok) {
+          const onSheet = session && session.dishId === d.id && !session.editKey && selectionKey(session.selection) === selectionKey(l.selection);
+          lines = splitOne(lines, l.key, sel); changed();
+          if (onSheet) session.selection = sel;                 // the sheet shows the dish as it now is on the table
           ev.emit('addon_chosen', { dishId: p.dishId, groupId: sg.groupId, optionId: sg.optionId, parentOptionId: null });
+          const o = optionOf(sg.groupId, sg.optionId);
+          say(word(lang(), 'addonAdded', { option: o ? name(o.name) : '', dish: name(d.name) }));
         }
       }
     }
@@ -112,13 +150,6 @@ export function createGuest(model, { env, mem, src, kit }) {
     const p = visit.dismiss(); if (!p) return;
     ev.emit('suggestion_dismissed', { ruleId: p.ruleId, trigger: p.trigger, dishId: p.dishId });
     redrawAll();
-  }
-  /* the guest chose the suggested option themselves (or can no longer take it): it simply goes */
-  function dropStale() {
-    const p = visit.pending;
-    if (!p || p.trigger !== 'sheet' || p.suggest.kind !== 'option' || !session) return;
-    const sg = p.suggest, a = dish(session.dishId).addons.find((x) => x.groupId === sg.groupId), gs = groupIn(session.selection, sg.groupId);
-    if (qtyOf(session.selection, sg.groupId, sg.optionId) > 0 || !a || unitsOf(gs) >= a.max || (groupOf(sg.groupId).selection === 'single' && unitsOf(gs) > 0)) visit.drop();
   }
 
   /* ---------- adding ---------- */
@@ -173,12 +204,13 @@ export function createGuest(model, { env, mem, src, kit }) {
     const before = qtyOf(session.selection, groupId, optionId, parentOptionId);
     session.selection = setOption(session.selection, ctx(), { groupId, optionId, parentOptionId, qty });
     if (before === 0 && qty > 0) ev.emit('addon_chosen', { dishId: session.dishId, groupId, optionId, parentOptionId });
-    dropStale();
+    recheck();                                                  // chosen by the guest themselves, or no room left for it: the suggestion goes
     redrawSheet();
   }
   function clearGroup(groupId, parentOptionId) {
     const gs = groupIn(session.selection, groupId, parentOptionId);
     for (const o of gs ? [...gs.options] : []) session.selection = setOption(session.selection, ctx(), { groupId, optionId: o.optionId, parentOptionId, qty: 0 });
+    recheck();
     redrawSheet();
   }
 
@@ -198,8 +230,10 @@ export function createGuest(model, { env, mem, src, kit }) {
       fs.appendChild(h('label', { class: 'opt none' }, [input, h('span', { class: 'o-mark', 'aria-hidden': 'true' }), h('span', { class: 'o-name', text: word(L, 'none') }), h('span', { class: 'o-price' })]));
     }
     for (const o of group.options) {
-      const off = g().unavailable.options.has(o.id), oname = name(o.name), price = o.price > 0 ? word(L, 'plus', { price: money(o.price) }) : '';
-      const nameEl = h('span', { class: 'o-name' }, [oname, off ? h('small', { text: word(L, 'soldOut') }) : null]);
+      const soldOut = g().unavailable.options.has(o.id), dead = parentOptionId === null && g().dead.has(o.id), off = soldOut || dead;
+      const oname = name(o.name), price = o.price > 0 ? word(L, 'plus', { price: money(o.price) }) : '';
+      const why = soldOut ? word(L, 'soldOut') : dead ? word(L, 'openerOff', { group: groupName(o.opensGroupId) }) : '';      // an opener whose own group ran out says so
+      const nameEl = h('span', { class: 'o-name' }, [oname, why ? h('small', { text: why }) : null]);
       if (!single && o.maxQty > 1) {
         const less = h('button', { type: 'button', 'aria-label': word(L, 'oneLess', { name: oname }), text: '−' }), more = h('button', { type: 'button', 'aria-label': word(L, 'oneMore', { name: oname }), text: '+' });
         const out = h('output', { 'aria-live': 'polite', 'aria-label': oname, text: '0' });
@@ -226,7 +260,7 @@ export function createGuest(model, { env, mem, src, kit }) {
       if (!it || !it.available || !shownNow(id)) continue;
       const a = it.asset, pic = a && a.thumb && !a.stock ? h('img', { class: 'thumb', src: a.thumb, alt: '', loading: 'lazy', width: '40', height: '40' }) : h('span', { class: 'thumb', 'aria-hidden': 'true', text: name(it.name).trim()[0] || '·' });
       const b = h('button', { type: 'button', 'data-id': id }, [pic, h('span', { class: 'r-txt' }, [h('span', { class: 'r-name', text: name(it.name) }),
-        h('span', { class: 'r-price' }, [it.price.from ? word(L, 'from') + ' ' : '', h('span', { dir: 'ltr', text: money(it.price.amount) })])])]);
+        h('span', { class: 'r-price' }, [it.price.from ? word(L, 'fromPrefix') : '', h('span', { dir: 'ltr', text: money(it.price.amount) })])])]);
       b.addEventListener('click', () => store.dispatch({ type: 'open', what: 'dish', id }, { via: 'related' }));
       list.appendChild(b);
     }
@@ -254,7 +288,7 @@ export function createGuest(model, { env, mem, src, kit }) {
       for (const row of fs.querySelectorAll(':scope > .opt')) {
         const input = row.querySelector('input');
         if (row.classList.contains('none')) { input.checked = units === 0; continue; }
-        const oid = row.dataset.o, q = qtyOf(sel, gid, oid, parent), isOff = off.has(oid), o = gr.options.find((x) => x.id === oid);
+        const oid = row.dataset.o, q = qtyOf(sel, gid, oid, parent), isOff = off.has(oid) || (!parent && g().dead.has(oid)), o = gr.options.find((x) => x.id === oid);
         row.classList.toggle('on', q > 0); row.classList.toggle('full', isFull);
         if (input) { input.checked = q > 0; input.disabled = gr.selection === 'single' ? isOff : (isOff || isFull) && q === 0; }
         else {
@@ -271,8 +305,10 @@ export function createGuest(model, { env, mem, src, kit }) {
     btn.textContent = flash ? word(L, 'added') : r.ok ? word(L, session.editKey ? 'savePrice' : 'addPrice', { price: money(r.unit) }) : word(L, session.editKey ? 'save' : 'add');
     const offNames = iss.off.map(optionName);
     const needNames = iss.missing.map((m) => name(groupOf(m.groupId).name));
-    els.need.classList.toggle('off', offNames.length > 0);
-    els.need.textContent = offNames.length ? word(L, 'lineOptionOff', { name: offNames.join(', ') }) : needNames.length ? word(L, 'stillNeeded', { groups: needNames.join(', ') }) : '';
+    const dead = chosenList(sel).find((c) => c.parentOptionId === null && g().dead.has(c.optionId)), deadOpt = dead ? optionOf(dead.groupId, dead.optionId) : null;
+    els.need.classList.toggle('off', offNames.length > 0 || !!deadOpt);
+    els.need.textContent = deadOpt ? word(L, 'openerNeed', { name: name(deadOpt.name), group: groupName(deadOpt.opensGroupId) })      // "Fries can't be ordered now (Sauce: none left)"
+      : offNames.length ? word(L, 'lineOptionOff', { name: offNames.join(', ') }) : needNames.length ? word(L, 'stillNeeded', { groups: needNames.join(', ') }) : '';
     els.need.hidden = !els.need.textContent;
     if (els.need.hidden) btn.removeAttribute('aria-describedby'); else btn.setAttribute('aria-describedby', 'v2Need');
   }
@@ -286,17 +322,22 @@ export function createGuest(model, { env, mem, src, kit }) {
   /* ---------- the suggestion, where it belongs: in the sheet, over the card, or in "my table" ---------- */
   function sugEl(p) {
     const L = lang(), sg = p.suggest, what = [];
+    let label = '';
     if (sg.kind === 'dish') {
       const it = items.get(sg.dishId);
-      what.push(h('b', { text: name(it.name) }), h('span', null, [it.price.from ? word(L, 'from') + ' ' : '', h('span', { dir: 'ltr', text: money(it.price.amount) })]));
+      label = name(it.name);
+      what.push(h('b', { text: label }), h('span', null, [it.price.from ? word(L, 'fromPrefix') : '', h('span', { dir: 'ltr', text: money(it.price.amount) })]));
     } else {
       const o = optionOf(sg.groupId, sg.optionId);
-      what.push(h('b', { text: name(o.name) }), o.price > 0 ? h('span', { dir: 'ltr', text: word(L, 'plus', { price: money(o.price) }) }) : null);
+      label = name(o.name);
+      what.push(h('b', { text: label }), o.price > 0 ? h('span', { dir: 'ltr', text: word(L, 'plus', { price: money(o.price) }) }) : null);
     }
-    const yes = h('button', { class: 'primary', type: 'button', text: word(L, 'accept') }), no = h('button', { class: 'ghost', type: 'button', text: word(L, 'dismiss') });
+    /* the buttons say what they are about: "Add Cheese", "No thanks: Cheese" */
+    const yes = h('button', { class: 'primary', type: 'button', text: word(L, 'accept'), 'aria-label': word(L, 'acceptName', { name: label }) });
+    const no = h('button', { class: 'ghost', type: 'button', text: word(L, 'dismiss'), 'aria-label': word(L, 'dismissName', { name: label }) });
     yes.addEventListener('click', accept); no.addEventListener('click', dismiss);
     return h('aside', { class: 'v2-sug', role: 'group', 'aria-label': word(L, 'suggestion') }, [
-      h('p', { class: 's-kicker', text: word(L, 'suggestion') }), h('p', { class: 's-line', text: name(p.line) }), h('p', { class: 's-what' }, what), h('div', { class: 's-acts' }, [yes, no])
+      h('p', { class: 's-kicker', text: word(L, 'suggestion') }), h('div', { class: 's-text' }, [h('p', { class: 's-line', text: name(p.line) }), h('p', { class: 's-what' }, what)]), h('div', { class: 's-acts' }, [yes, no])
     ]);
   }
   function slot(el, where, extraClass) {
@@ -324,8 +365,10 @@ export function createGuest(model, { env, mem, src, kit }) {
       else if (x.why === 'option') why = word(L, 'lineOptionOff', { name: optionName(x.optionId) });
       else why = word(L, 'lineChoose');
     }
-    const step = (txt, label2, dq, act) => { const b = h('button', { type: 'button', text: txt, 'aria-label': label2 + ': ' + label, 'data-line': l.key, 'data-act': act }); b.addEventListener('click', () => { lines = setQuantity(lines, l.key, l.quantity + dq); changed(); ui.renderTray(); }); return b; };
-    const acts = [h('span', { class: 'stepper' }, [step('−', ui.t('remove'), -1, 'less'), h('span', { text: String(l.quantity) }), step('+', ui.t('more'), 1, 'more')])];
+    const step = (txt, label2, dq, act) => { const b = h('button', { type: 'button', text: txt, 'aria-label': label2 + ': ' + label, 'data-line': l.key, 'data-act': act }); b.addEventListener('click', () => { if (dq > 0 && !x.ok) return; lines = setQuantity(lines, l.key, l.quantity + dq); changed(); ui.renderTray(); }); return b; };
+    const more = step('+', ui.t('more'), 1, 'more');
+    more.disabled = !x.ok;                                      // a line that cannot be ordered now is not added to (one less, or remove, still work)
+    const acts = [h('span', { class: 'stepper' }, [step('−', ui.t('remove'), -1, 'less'), h('span', { text: String(l.quantity) }), more])];
     if (d && d.addons.length && x.why !== 'off' && x.why !== 'gone') { const b = h('button', { class: 'link', type: 'button', text: word(L, 'edit'), 'aria-label': word(L, 'edit') + ': ' + label, 'data-line': l.key, 'data-act': 'edit' }); b.addEventListener('click', () => edit(l.key)); acts.push(b); }
     const rm = h('button', { class: 'link', type: 'button', text: word(L, 'removeLine'), 'aria-label': word(L, 'removeLine') + ': ' + label, 'data-line': l.key, 'data-act': 'remove' });
     rm.addEventListener('click', () => { lines = removeLine(lines, l.key); changed(); ui.renderTray(); });
@@ -361,8 +404,10 @@ export function createGuest(model, { env, mem, src, kit }) {
   const countWith = (list) => [...items.values()].filter((it) => matchesTags(it.tags, list)).length;
   function setTags(next) {
     tags = TAGS.filter((t) => next.includes(t));
+    const went = recheck();                                     // a suggestion the filter now hides goes
     if (page) page.remodel();
     renderBar();
+    if (went) redrawAll();
   }
   function renderBar() {
     const L = lang(), on = tags.length > 0, onText = word(L, 'filterOn', { tags: tags.map(tagWord).join(', ') });
@@ -423,15 +468,28 @@ export function createGuest(model, { env, mem, src, kit }) {
     els.notes = h('div', { class: 'v2-notes' });
     $('top').querySelector('.bar').after(els.panel, els.notes);
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && panelOpen) { e.preventDefault(); panelOpen = false; renderBar(); els.filterBtn.focus(); } }, true);
+    /* in the list, the dish's sheet is a dialog (ui.js makes what is behind it inert): Tab past its last control comes back
+       to its first, Shift+Tab from its first goes to its last */
+    $('card').addEventListener('keydown', (e) => {
+      const s = store && store.getState();
+      if (e.key !== 'Tab' || !s || !s.simple || s.open !== 'dish') return;
+      const all = [...$('card').querySelectorAll('button, input, a[href], [tabindex="0"]')].filter((el) => !el.disabled && el.getClientRects().length && !el.closest('[hidden], [inert]'));
+      if (!all.length) return;
+      const first = all[0], last = all[all.length - 1], at = document.activeElement;
+      if (e.shiftKey && (at === first || at === $('dName'))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+    });
     document.addEventListener('pointerdown', (e) => { if (panelOpen && !els.panel.contains(e.target) && !els.filterBtn.contains(e.target)) { panelOpen = false; renderBar(); } });
   }
 
   /* ---------- live: the overlay again, and the clock ---------- */
   function applyAvailability(key) {
-    if (key === availKey) return;
+    const went = recheck();                                     // sold out, off its hours, out of its time window: it goes
+    if (key === availKey) { if (went) redrawAll(); return; }
     availKey = key;
     if (page) page.redraw();
     renderBar();
+    if (went) redrawAll();
   }
   /** Ask public_menu again. One call at a time: the timer skips a turn while one is out; `again` waits for it, then asks. */
   function tick({ again = false } = {}) {
@@ -458,6 +516,7 @@ export function createGuest(model, { env, mem, src, kit }) {
     doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') tick(); else ev.flush({ keepalive: true }); });
     window.addEventListener('pagehide', () => ev.flush({ keepalive: true }));
     window.addEventListener('online', () => tick());
+    window.addEventListener('storage', fromOtherTab);
   }
 
   function redrawAll() {
@@ -496,7 +555,9 @@ export function createGuest(model, { env, mem, src, kit }) {
       renderSuggestions(s);
       if (barLang !== lang()) { barLang = lang(); renderBar(); }
     },
-    tray
+    tray,
+    /** A dish of the whole menu, also one the filter hides now ("my table" still shows everything on it). */
+    entry(id) { for (const c of full.categories) for (const it of c.items) if (it.id === id) return { item: it, cat: { raw: c } }; return null; }
   };
 
   return {
@@ -520,7 +581,7 @@ export function createGuest(model, { env, mem, src, kit }) {
     debug: () => ({ lines: lines.map((l) => ({ key: l.key, dishId: l.dishId, quantity: l.quantity, selection: l.selection })),
       pending: visit.pending && { ruleId: visit.pending.ruleId, trigger: visit.pending.trigger, where: visit.pending.where, suggest: visit.pending.suggest },
       session: session && { dishId: session.dishId, selection: session.selection, editKey: session.editKey }, tags: [...tags], ...visit.memory(), queued: ev.pending(), events: ev.state(),
-      total: priced(lines, g().menu, ctx()).total, closed: g().closed, offOptions: [...g().unavailable.options] })
+      total: priced(lines, g().menu, ctx()).total, closed: g().closed, offOptions: [...g().unavailable.options], deadOpeners: [...g().dead] })
   };
 }
 

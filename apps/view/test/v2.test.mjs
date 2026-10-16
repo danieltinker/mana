@@ -9,10 +9,12 @@ import { text, asset, assetUrl, details, httpsUrl } from '../src/snapshot.js';
 import { ROOM_IDS } from '../src/scenes/rooms.js';
 import { buildModel, createStore, initialState } from '../src/store.js';
 import { closedText, filtered, filteredOut, loadMenu, poll, readLive, setLive, toModel } from '../src/v2/menu.js';
-import { chosenList, issues, qtyOf, runningPrice, selectionKey, setOption, startOf } from '../src/v2/choices.js';
-import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, storedLines } from '../src/v2/basket.js';
+import { chosenList, deadOpeners, issues, qtyOf, runningPrice, selectionKey, setOption, startOf } from '../src/v2/choices.js';
+import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, splitOne, storedLines } from '../src/v2/basket.js';
 import { createEvents, isoAt, newId } from '../src/v2/events.js';
 import { createVisit } from '../src/v2/visit.js';
+import { isV2 } from '../src/v2/guest.js';
+import { word } from '../src/v2/i18n.js';
 
 const kit = { text, asset, assetUrl, details, httpsUrl, rooms: ROOM_IDS };
 const at = (iso) => Date.parse(iso);
@@ -163,12 +165,71 @@ test('the basket: the same choices add up, other choices are a line of their own
   assert.deepEqual(readLines(null), []);
 });
 
-test('the store mirrors the basket\'s counts per dish (traySync); unknown dishes are dropped', () => {
-  const model = buildModel(menuAt()), store = createStore(model, initialState(model));
-  store.dispatch({ type: 'traySync', tray: { [ID.burger]: 2, [ID.lemonade]: 0, nope: 3 } });
-  assert.deepEqual(store.getState().tray, { [ID.burger]: 2 });
-  const s = store.getState(); store.dispatch({ type: 'traySync', tray: { [ID.burger]: 2 } });
+test('the store mirrors the basket\'s counts per dish (traySync), every line counted: also one the filter hides', () => {
+  const m = menuAt(), model = buildModel(filtered(m, ['vegan'])), store = createStore(model, initialState(model));
+  assert.equal(model.itemById.has(ID.burger), false, 'the vegan filter hides the burger');
+  store.dispatch({ type: 'traySync', tray: { [ID.burger]: 2, [ID.lemonade]: 0, [ID.espresso]: 1 } });
+  assert.deepEqual(store.getState().tray, { [ID.burger]: 2, [ID.espresso]: 1 }, '"my table" still counts the burger (badge: 3)');
+  const s = store.getState(); store.dispatch({ type: 'traySync', tray: { [ID.burger]: 2, [ID.espresso]: 1 } });
   assert.equal(store.getState(), s, 'the same counts: no new state, no redraw');
+});
+
+test('an add-on accepted after an add changes one unit of the line, never the whole line', () => {
+  const m = menuAt(), g = m.v2, burger = g.menu.dishes.get(ID.burger), plain = startOf(burger, g.ctx);
+  let lines = addLine(addLine(addLine([], ID.burger, plain), ID.burger, plain), ID.burger, plain);
+  assert.deepEqual(lines.map((l) => l.quantity), [3]);
+  const egg = setOption(plain, g.ctx, { groupId: ID.extras, optionId: ID.egg });
+  lines = splitOne(lines, 'l1', egg);
+  assert.deepEqual(lines.map((l) => [l.key, l.quantity, qtyOf(l.selection, ID.extras, ID.egg)]), [['l1', 2, 0], ['l2', 1, 1]]);
+  const P = priced(lines, g.menu, g.ctx);
+  assert.equal(P.total, 3 * 6800 + 500, 'one egg, not three');
+  lines = splitOne(lines, 'l1', egg);                          // the same again: it joins the line that has the egg
+  assert.deepEqual(lines.map((l) => [l.key, l.quantity]), [['l1', 1], ['l2', 2]]);
+  lines = splitOne(lines, 'l1', egg);                          // the last plain one: the lines become one
+  assert.deepEqual(lines.map((l) => [l.key, l.quantity]), [['l2', 3]]);
+  assert.equal(splitOne(lines, 'nope', egg), lines);
+});
+
+test('an opener whose own required group ran out: named dead, never a default, its nested defaults one level only', () => {
+  const m = menuAt(WED_0900, liveOf([off('option', ID.aioli), off('option', ID.ketchup), off('option', ID.chipotle)])), g = m.v2, burger = g.menu.dishes.get(ID.burger);
+  assert.deepEqual([...g.dead].sort(), [ID.fries, ID.sweetFries].sort(), 'fries and sweet potato open the sauce, and no sauce is left');
+  assert.deepEqual(deadOpeners(menuAt().v2.ctx).size, 0);
+  const start = startOf(burger, g.ctx);
+  assert.deepEqual(start.groups[0], { groupId: ID.side, options: [] }, 'the sheet does not start on fries');
+  assert.deepEqual(issues(burger, start, g.ctx).missing.map((x) => x.groupId), [ID.side], 'the guest chooses the salad');
+  assert.ok(priceDish(burger, setOption(start, g.ctx, { groupId: ID.side, optionId: ID.salad }), g.ctx).ok);
+  assert.equal(item(m, ID.burger).available, true, 'the salad still makes the burger orderable');
+  // with only aioli (the default sauce) off, choosing fries opens the sauce with nothing pre-selected
+  const m2 = menuAt(WED_0900, liveOf([off('option', ID.aioli)])), f = setOption({ quantity: 1, groups: [] }, m2.v2.ctx, { groupId: ID.side, optionId: ID.fries });
+  assert.deepEqual(f.groups[0].options[0].nested, [{ groupId: ID.sauce, options: [] }]);
+});
+
+test('a suggestion on screen is checked again: sold out, filtered out, chosen meanwhile, or in the basket now, it goes', () => {
+  const m = menuAt(), g = m.v2, burger = g.menu.dishes.get(ID.burger), nothing = new Set(), sel = startOf(burger, g.ctx);
+  const base = { basket: [], unavailable: g.unavailable, filteredOut: nothing, now: WED_0900 };
+  const v = createVisit(g.snap.upsellRules, g.menu);
+  v.offer('sheet', Object.assign({ dishId: ID.burger, selection: sel, where: 'sheet' }, base));
+  assert.equal(v.still(Object.assign({ selection: sel }, base)), true, 'nothing changed: it stays');
+  assert.equal(v.pending.ruleId, ID.ruleCheese);
+  assert.deepEqual(v.memory().shown, { [ID.ruleCheese]: 1 }, 'checking again is not showing again');
+  const cheeseOff = menuAt(WED_0900, liveOf([off('option', ID.cheese)])).v2.unavailable;
+  assert.equal(v.still(Object.assign({}, base, { selection: sel, unavailable: cheeseOff })), false, 'cheese sold out while shown');
+  assert.equal(v.pending, null);
+
+  v.offer('sheet', Object.assign({ dishId: ID.burger, selection: sel }, base));            // its second showing (cap 2)
+  assert.equal(v.still(Object.assign({}, base, { selection: sel })), true, 'at its cap, the one on screen still qualifies');
+  const chosen = setOption(sel, g.ctx, { groupId: ID.extras, optionId: ID.cheese });
+  assert.equal(v.still(Object.assign({}, base, { selection: chosen })), false, 'the guest chose cheese themselves');
+
+  const v2 = createVisit(g.snap.upsellRules, g.menu), mains = [{ dishId: ID.burger }];
+  v2.offer('checkout', Object.assign({}, base, { basket: mains, where: 'tray' }));
+  assert.equal(v2.pending.ruleId, ID.ruleLemonade);
+  assert.equal(v2.still(Object.assign({}, base, { basket: mains, filteredOut: new Set([ID.lemonade]) })), false, 'the filter now hides the lemonade');
+  v2.offer('checkout', Object.assign({}, base, { basket: mains }));
+  assert.equal(v2.pending, null, 'cap 1: shown once this visit');
+  const v3 = createVisit(g.snap.upsellRules, g.menu);
+  v3.offer('checkout', Object.assign({}, base, { basket: mains }));
+  assert.equal(v3.still(Object.assign({}, base, { basket: mains.concat({ dishId: ID.lemonade }) })), false, 'a lemonade is on the table now');
 });
 
 test('events: the contract\'s props only, an offset in every time, batches of 50, a failed send retried with the same ids, a refused one not', async () => {
@@ -266,4 +327,15 @@ test('suggestion wiring: counted once when shown, a dismissed rule stays quiet, 
   assert.equal(v3.accept().ruleId, ID.ruleCroissant); assert.equal(v3.pending, null);
   assert.equal(ask(v3, 'checkout', { basket: [{ dishId: ID.burger }] }).ruleId, ID.ruleLemonade);
   assert.equal(ask(v3, 'checkout', { basket: [{ dishId: ID.burger }, { dishId: ID.lemonade }] }), null, 'never what is in the basket');
+});
+
+test('the schema switch is the contracts\' configFlags; "from" joins the price after the Hebrew maqaf', () => {
+  assert.equal(isV2({ env: 'local', schema: 2 }), true);
+  assert.equal(isV2({ env: 'demo', schema: 2 }), true);
+  assert.equal(isV2({ schema: 2 }), false, 'no env means production, and production is never 2 before the cutover');
+  assert.equal(isV2({ env: 'production', schema: 2 }), false);
+  assert.equal(isV2({ env: 'local' }), false, 'absent = 1');
+  assert.equal(isV2({ env: 'local', schema: '2' }), false, 'a broken value is the default');
+  assert.equal(word('he', 'fromPrefix') + '68 ₪', 'החל מ־68 ₪');
+  assert.equal(word('en', 'fromPrefix') + '₪68', 'from ₪68');
 });

@@ -36,6 +36,16 @@ export function replaceSelection(lines, key, selection) {
   if (twin) return lines.filter((l) => l.key !== key).map((l) => (l === twin ? Object.assign({}, l, { quantity: Math.min(LIMITS.lineQuantity, l.quantity + line.quantity) }) : l));
   return lines.map((l) => (l.key === key ? Object.assign({}, l, { selection: { quantity: 1, groups: selection.groups } }) : l));
 }
+/**
+ * One unit of a line takes other choices (an add-on accepted right after an add): that unit becomes a line of its own,
+ * or joins the line that already has those choices; the rest of the line stays exactly as it was.
+ */
+export function splitOne(lines, key, selection) {
+  const line = lines.find((l) => l.key === key);
+  if (!line) return lines;
+  if (line.quantity <= 1) return replaceSelection(lines, key, selection);
+  return addLine(setQuantity(lines, key, line.quantity - 1), line.dishId, selection, 1, line.name);
+}
 
 /**
  * Every line priced now. `ok` lines carry unit and total; the others carry the first problem as `why`:

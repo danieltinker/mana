@@ -14,6 +14,7 @@ import {
   allDishes, fromPrice, indexMenu, isHHMM, isLocalDate, isUuid, isWeekday, localParts, menuAvailability, nextOpening, pricingContext, unavailableOf,
   validateSnapshotV2, venueHoursOf, TARGET_KINDS,
 } from '@mana/contracts';
+import { deadOpeners } from './choices.js';
 import { word } from './i18n.js';
 
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -87,6 +88,7 @@ export function refresh(model, now = Date.now()) {
   g.av = menuAvailability(g.snap, g.live, now);
   g.unavailable = unavailableOf(g.av);
   g.ctx = pricingContext(g.snap, g.unavailable);
+  g.dead = deadOpeners(g.ctx);                                // openers whose own required group has run out
   const keys = [];
   for (const c of model.categories) for (const it of c.items) {
     const dish = g.menu.dishes.get(it.id), a = g.av.dishes.get(it.id), off = g.unavailable.dishes.has(it.id);
