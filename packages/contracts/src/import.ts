@@ -937,6 +937,24 @@ export function validateCreateImport(raw: unknown): Validation<CreateImportInput
   return x.ok ? { ok: true, value: raw as unknown as CreateImportInput } : { ok: false, errors: x.list };
 }
 
+/**
+ * `claim_import_scan` (called by the scanner with the owner's own token, before any paid call): the import moves to
+ * `parsing` and the scanner gets what it reads. A claim older than 10 minutes (a crashed read) may be claimed again.
+ */
+export type ClaimScanReply = {
+  readonly ok: true;
+  readonly importId: string;
+  readonly venueId: string;
+  readonly source: (typeof IMAGE_SOURCES)[number];
+  readonly paths: readonly string[];
+  readonly rightsConfirmed: boolean;
+  /** The venue's languages, for the reader's prompt and `draftExceptions`. */
+  readonly langs: readonly Lang[];
+};
+/** Why the scanner marks an import `failed` (`menu_imports.error_code`). */
+export const SCAN_ERROR_CODES = ['image_unreadable', 'model_failed', 'draft_invalid', 'timeout'] as const;
+export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
+
 /** `save_import_draft`: the client (text sources) or the scanner (image sources) stores what it read. */
 export type SaveDraftInput = { readonly importId: string; readonly draft: ImportDraft };
 export type SaveDraftReply = { readonly ok: true; readonly exceptions: readonly ImportException[]; readonly counts: DraftCounts };
