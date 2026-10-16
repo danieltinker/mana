@@ -26,8 +26,9 @@
 
 -- ---------------------------------------------------------------- settings (Daniel's to change; accepted 16 Oct as starting values)
 insert into public.app_config (key, value) values
-  -- per venue per (local) day: imports created, and image reads claimed by the scanner (each a paid model call)
-  ('import_caps', '{"per_venue_day": 20, "scans_per_venue_day": 10}'),
+  -- imports a venue creates per (local) day; and the images the scanner may read (each a paid model call), charged when
+  -- a claim succeeds: per venue per local day, per person per UTC day, and for all venues together per UTC day
+  ('import_caps', '{"per_venue_day": 20, "scan_images_per_venue_day": 60, "scan_images_per_user_day": 120, "scan_images_per_day": 1000}'),
   -- per venue per (local) day: support cases opened from the client app
   ('case_caps', '{"per_venue_day": 10}'),
   -- days an applied, discarded or failed import keeps its raw input (pasted text, screenshots) before the purge
@@ -130,23 +131,36 @@ $$;
 create function app.import_limits() returns jsonb language sql immutable set search_path = '' as
 $$ select '{"sections": 40, "dishes": 400, "addonGroups": 200, "optionsPerGroup": 30, "groupsPerDish": 8}'::jsonb $$;
 
--- IMPORT_EXCEPTIONS (in this order) with their severity, and EXCEPTION_CHOICES (a check's default is its first)
+-- IMPORT_EXCEPTIONS (in this order) with their severity, IMPORT_CHOICES, and EXCEPTION_CHOICES (a check's default is
+-- its first)
 create function app.import_exception_codes() returns text[] language sql immutable set search_path = '' as $$
-  select array['price_missing', 'price_unreadable', 'option_price_unreadable', 'limits_guessed', 'limits_unreachable', 'section_duplicate',
-               'dish_duplicate', 'name_missing_lang', 'translation_check', 'nesting_too_deep', 'too_many', 'photo_rights_unknown', 'allergens_check']
+  select array['price_missing', 'price_unreadable', 'price_zero', 'option_price_unreadable', 'limits_guessed', 'limits_unreachable',
+               'section_duplicate', 'dish_duplicate', 'dish_repeated', 'name_missing_lang', 'translation_check', 'nesting_too_deep', 'too_many',
+               'photo_rights_unknown', 'allergens_check', 'section_renamed', 'dish_elsewhere', 'dish_other_kind', 'price_differs', 'group_changed',
+               'opens_changed']
 $$;
 
 create function app.import_exception_severity(p_code text) returns text language sql immutable set search_path = '' as $$
-  select case when p_code in ('limits_guessed', 'name_missing_lang', 'translation_check', 'photo_rights_unknown', 'allergens_check') then 'check' else 'fix' end
+  select case when p_code in ('price_zero', 'limits_guessed', 'dish_repeated', 'name_missing_lang', 'translation_check', 'photo_rights_unknown',
+                              'allergens_check', 'section_renamed', 'dish_elsewhere', 'dish_other_kind', 'price_differs', 'group_changed', 'opens_changed')
+              then 'check' else 'fix' end
+$$;
+
+create function app.import_choice_list() returns text[] language sql immutable set search_path = '' as $$
+  select array['accept', 'skip', 'no_price', 'free', 'clamp', 'merge', 'keep_both', 'unlink', 'illustration', 'confirm_rights', 'same_section',
+               'rename', 'same_dish', 'new_dish', 'keep_mine', 'take_new', 'add_options', 'new_group']
 $$;
 
 create function app.import_choices() returns jsonb language sql immutable set search_path = '' as $$
   select '{
-    "price_missing": ["no_price", "skip"], "price_unreadable": ["no_price", "skip"], "option_price_unreadable": ["free", "skip"],
-    "limits_guessed": ["accept", "skip"], "limits_unreachable": ["clamp", "skip"], "section_duplicate": ["merge", "keep_both"],
-    "dish_duplicate": ["skip", "keep_both"], "name_missing_lang": ["accept"], "translation_check": ["accept"],
-    "nesting_too_deep": ["unlink", "skip"], "too_many": ["skip"], "photo_rights_unknown": ["illustration", "confirm_rights"],
-    "allergens_check": ["accept"]
+    "price_missing": ["no_price", "skip"], "price_unreadable": ["no_price", "skip"], "price_zero": ["accept", "no_price", "skip"],
+    "option_price_unreadable": ["free", "skip"], "limits_guessed": ["accept", "skip"], "limits_unreachable": ["clamp", "skip"],
+    "section_duplicate": ["merge", "keep_both"], "dish_duplicate": ["skip", "keep_both"], "dish_repeated": ["skip", "keep_both"],
+    "name_missing_lang": ["accept"], "translation_check": ["accept"], "nesting_too_deep": ["unlink", "skip"], "too_many": ["skip"],
+    "photo_rights_unknown": ["illustration", "confirm_rights"], "allergens_check": ["accept"],
+    "section_renamed": ["same_section", "rename", "keep_both"], "dish_elsewhere": ["same_dish", "new_dish"],
+    "dish_other_kind": ["new_dish", "same_dish"], "price_differs": ["keep_mine", "take_new"],
+    "group_changed": ["keep_mine", "add_options", "new_group"], "opens_changed": ["keep_mine", "new_group"]
   }'::jsonb
 $$;
 
@@ -164,6 +178,46 @@ alter table public.menu_imports add constraint menu_imports_text_source_ck check
 alter table public.menu_imports add constraint menu_imports_image_source_ck check (case when source in ('scan', 'wolt_screenshots')
   then cardinality(raw_paths) > 0 or raw_purged_at is not null else cardinality(raw_paths) = 0 end);
 alter table public.menu_imports add constraint menu_imports_purged_ck check (raw_purged_at is null or (raw_text is null and cardinality(raw_paths) = 0));
+
+-- An import's images lie in its own folder and nowhere else: <venue id>/imports/<import id>/<name>, the name letters,
+-- digits, dot, dash and underscore (1-100), never "." or "..". The scanner downloads these paths with the service role,
+-- so a path that climbs out of the folder (or names another venue, or the public bucket) is refused by the table itself.
+create function app.import_path_ok(p_venue uuid, p_import uuid, p_path text) returns boolean language sql immutable set search_path = '' as $$
+  select coalesce(p_path ~ ('^' || p_venue::text || '/imports/' || p_import::text || '/[A-Za-z0-9._-]{1,100}$')
+                  and p_path !~ '/[.]{1,2}$', false)
+$$;
+create function app.import_paths_ok(p_venue uuid, p_import uuid, p_paths text[]) returns boolean language sql immutable set search_path = '' as
+$$ select not exists (select 1 from unnest(p_paths) x where not app.import_path_ok(p_venue, p_import, x)) $$;
+-- (validated: every stored row must hold already; the check before applying is in supabase/README.md)
+alter table public.menu_imports add constraint menu_imports_paths_ck check (app.import_paths_ok(venue_id, id, raw_paths));
+
+-- An import whose raw input may be purged: finished (applied, discarded, failed), or left uploaded or parsed for longer
+-- than import_raw_retention_days. Never one being read.
+create function app.import_purgeable(p_status text, p_updated_at timestamptz) returns boolean language sql stable security definer set search_path = '' as $$
+  select p_status in ('applied', 'discarded', 'failed')
+      or (p_status in ('uploaded', 'parsed')
+          and p_updated_at < now() - make_interval(days => greatest(coalesce((app.cfg('import_raw_retention_days') #>> '{}')::integer, 30), 0)))
+$$;
+
+-- A draft's size is the bytes of its jsonb text form (the contracts' draftBytes, DRAFT_BYTES_MAX): a full menu at the
+-- LIMITS is about 1.2 MB, so the cap is 1 500 000 bytes, on the same measure save_import_draft applies.
+-- DESTRUCTIVE-LOOKING: drops the column check menu_imports_parsed_check (pg_column_size below 400 000) and adds it
+-- back, named, on the new measure. Every stored draft passes it. No data changes.
+alter table public.menu_imports drop constraint menu_imports_parsed_check;
+alter table public.menu_imports add constraint menu_imports_parsed_ck
+  check (parsed is null or (jsonb_typeof(parsed) = 'object' and octet_length(parsed::text) <= 1500000));
+
+-- Images per import by source (create_import): a scan's pages at most 8, Wolt screenshots at most 24.
+-- DESTRUCTIVE-LOOKING: drops the column check menu_imports_raw_paths_check (at most 20) and adds it back at 24, the
+-- largest per-source count. No data changes.
+alter table public.menu_imports drop constraint menu_imports_raw_paths_check;
+alter table public.menu_imports add constraint menu_imports_raw_paths_ck check (cardinality(raw_paths) <= 24);
+
+-- What a reader noticed while reading (lines it skipped, prices it could not read): codes and counts only, never the
+-- source's text. Written by save_import_draft; clients read it.
+alter table public.menu_imports add column notes jsonb not null default '[]'
+  check (jsonb_typeof(notes) = 'array' and jsonb_array_length(notes) <= 100);
+comment on column public.menu_imports.notes is 'Reader notes: [{code, count}], codes and counts only, never the source''s text (save_import_draft).';
 
 -- Every transition is a function now (ADR-008): clients hold no write grant. The scanner (service role) only marks a
 -- read it claimed as failed, and purges. The raw input never changes, except that the purge empties it (the database's
@@ -186,10 +240,12 @@ begin
     raise exception 'import_input_fixed';
   end if;
   if (new.raw_text, new.raw_paths, new.raw_purged_at) is distinct from (old.raw_text, old.raw_paths, old.raw_purged_at) then
-    -- only the purge, once: by the database or the scanner, emptying everything at once and saying when
+    -- only the purge, once: by the database or the scanner, emptying everything at once and saying when, and only an
+    -- import that may be purged (app.import_purgeable: never one a claim is reading)
     if client or old.raw_purged_at is not null or new.raw_purged_at is null or new.raw_text is not null or cardinality(new.raw_paths) > 0 then
       raise exception 'import_input_fixed';
     end if;
+    if not app.import_purgeable(old.status, old.updated_at) or new.status <> old.status then raise exception 'import_not_purgeable'; end if;
   end if;
   new.created_by := old.created_by;
   if new.status <> old.status then
@@ -320,10 +376,12 @@ begin
   get diagnostics failures = row_count;
   partitions := app.drop_old_event_partitions();
   -- DESTRUCTIVE-LOOKING (when the job runs, not when this migration is applied): empties raw_text of finished imports
-  -- past the retention period; the row, its hash and its draft stay
+  -- past the retention period, and of imports left uploaded or parsed for as long; the row, its hash and its draft stay.
+  -- (The screenshots of image imports are the scanner's to delete: list_purgeable_imports.)
   update public.menu_imports set raw_text = null, raw_purged_at = now()
-  where raw_text is not null and status in ('applied', 'discarded', 'failed')
-    and coalesce(applied_at, updated_at) < now() - make_interval(days => keep_days);
+  where raw_text is not null
+    and ((status in ('applied', 'discarded', 'failed') and coalesce(applied_at, updated_at) < now() - make_interval(days => keep_days))
+         or (status in ('uploaded', 'parsed') and updated_at < now() - make_interval(days => keep_days)));
   get diagnostics purged = row_count;
   return jsonb_build_object('ok', true, 'salts', salts, 'leadHashes', hashes, 'inviteFailures', failures, 'partitions', partitions, 'importsPurged', purged);
 end $$;
@@ -748,6 +806,511 @@ begin
   return errs;
 end $$;
 
+-- ================================================================ the import's rules in SQL (packages/contracts/src/import.ts, ADR-006)
+-- The SQL twins of importKey, validateDraft, draftExceptions and validateDecisions. supabase/tests/import-twins
+-- runs both sides on the same inputs: every call the contracts' own import tests make, and generated ones.
+
+-- KEY_SEPARATORS: every blank, ASCII punctuation and symbols, Latin-1 punctuation and symbols, × ÷, Hebrew
+-- punctuation, general punctuation, currency signs, arrows to dingbats
+create function app.key_separators() returns text language sql immutable set search_path = '' as $$
+  select substr(app.blank_class(), 2, char_length(app.blank_class()) - 2)
+    || '\u0021-\u002F\u003A-\u0040\u005B-\u0060\u007B-\u007E\u00A1-\u00BF\u00D7\u00F7\u05BE\u05C0\u05C3\u05C6'
+    || '\u2010-\u2027\u2030-\u205E\u20A0-\u20C0\u2190-\u2BFF'
+$$;
+
+-- importKey, in its order: 1. outside the BMP a space; 2. no (c) (r) (tm), keycap or variation selector; 3. NFKD;
+-- 4. no Latin diacritics or Hebrew points; 5. no geresh or gershayim, nor an ASCII quote right after a Hebrew letter;
+-- 6. A-Z lowercased (no locale); 7. separators as one space; 8. no space at either end
+create function app.import_key(p text) returns text language sql immutable set search_path = '' as $$
+  select regexp_replace(
+    regexp_replace(
+      translate(
+        regexp_replace(
+          regexp_replace(
+            normalize(
+              regexp_replace(regexp_replace(coalesce(p, ''), '[\U00010000-\U0010FFFF]', ' ', 'g'),
+                             '[\u00A9\u00AE\u2122\u20E3\uFE00-\uFE0F]', '', 'g'),
+              nfkd),
+            '[\u0300-\u036F\u0591-\u05BD\u05BF\u05C1\u05C2\u05C4\u05C5\u05C7]', '', 'g'),
+          '[\u05F3\u05F4]|(?<=[\u05D0-\u05EA])["'']', '', 'g'),
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),
+      '[' || app.key_separators() || ']+', ' ', 'g'),
+    '^ | $', '', 'g')
+$$;
+
+-- keysOf and scoreKeys: a name's two keys; 2 when the Hebrew keys are equal (and not empty), plus 1 for English
+create function app.keys_of(p_he text, p_en text) returns jsonb language plpgsql immutable set search_path = '' as
+$$ begin return jsonb_build_object('he', app.import_key(p_he), 'en', app.import_key(p_en)); end $$;
+
+create function app.score_keys(a jsonb, b jsonb) returns integer language sql immutable set search_path = '' as $$
+  select (case when a->>'he' <> '' and a->>'he' = b->>'he' then 2 else 0 end) + (case when a->>'en' <> '' and a->>'en' = b->>'en' then 1 else 0 end)
+$$;
+
+-- JavaScript's truthiness of a JSON value (absent counts as undefined)
+create function app.js_truthy(p jsonb) returns boolean language sql immutable set search_path = '' as $$
+  select case when p is null then false
+              when jsonb_typeof(p) = 'null' then false
+              when jsonb_typeof(p) = 'boolean' then p = 'true'::jsonb
+              when jsonb_typeof(p) = 'number' then (p::text)::numeric <> 0
+              when jsonb_typeof(p) = 'string' then p <> '""'::jsonb
+              else true end
+$$;
+
+-- str(): a string of at most p_max code points once its blank edges are stripped (absent or not a string: type)
+-- (the per-node helpers are PL/pgSQL, which keeps its plans: a SQL function that calls another one plans it again on
+-- every call, and a menu of 800 dishes makes thousands of calls)
+create function app.draft_str(p jsonb, p_path text, p_max integer) returns jsonb language plpgsql immutable set search_path = '' as $$
+begin
+  if jsonb_typeof(p) is distinct from 'string' then return app.issue('type', p_path); end if;
+  if char_length(app.strip_blank(p #>> '{}')) > p_max then return app.issue('text_too_long', p_path); end if;
+  return '[]'::jsonb;
+end $$;
+
+-- text(): {he, en} strings, no other key, each at most p_max code points as stored (blank edges stripped); with p_name,
+-- a name in one language at least
+create function app.draft_text(p jsonb, p_path text, p_max integer, p_name boolean) returns jsonb language plpgsql immutable set search_path = '' as $$
+declare errs jsonb := '[]'; he text; en text;
+begin
+  if jsonb_typeof(p) is distinct from 'object' or jsonb_typeof(p->'he') is distinct from 'string' or jsonb_typeof(p->'en') is distinct from 'string' then
+    return app.issue('type', p_path);
+  end if;
+  if p - array['he', 'en'] <> '{}'::jsonb then
+    errs := (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', p_path || '.' || k)), '[]'::jsonb)
+             from jsonb_object_keys(p) k where k not in ('he', 'en'));
+  end if;
+  he := app.strip_blank(p->>'he');
+  en := app.strip_blank(p->>'en');
+  if char_length(he) > p_max then errs := errs || app.issue('text_too_long', p_path || '.he'); end if;
+  if char_length(en) > p_max then errs := errs || app.issue('text_too_long', p_path || '.en'); end if;
+  if p_name and he = '' and en = '' then errs := errs || app.issue('name_missing', p_path); end if;
+  return errs;
+end $$;
+
+-- translated(): the languages a reader translated, each with text of its own in at least one of the node's texts
+create function app.draft_translated(p jsonb, p_path text, p_texts jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
+declare errs jsonb := '[]'; l text;
+begin
+  if jsonb_typeof(p) is distinct from 'array'
+     or exists (select 1 from jsonb_array_elements(p) x where x not in ('"he"'::jsonb, '"en"'::jsonb))
+     or (select count(distinct x) from jsonb_array_elements(p) x) <> jsonb_array_length(p) then
+    return app.issue('translated_invalid', p_path);
+  end if;
+  for l in select x from jsonb_array_elements_text(p) x loop
+    if not exists (select 1 from jsonb_array_elements(p_texts) t
+                   where jsonb_typeof(t) = 'object' and jsonb_typeof(t->l) = 'string' and app.strip_blank(t->>l) <> '') then
+      errs := errs || app.issue('translated_invalid', p_path);
+    end if;
+  end loop;
+  return errs;
+end $$;
+
+-- priceOk: null, or agorot 0 to LIMITS.price (absent is not null)
+create function app.draft_price_ok(p jsonb) returns boolean language plpgsql immutable set search_path = '' as
+$$ begin return coalesce(p = 'null'::jsonb, false) or (app.js_int(p) and (p::text)::numeric between 0 and 10000000); end $$;
+
+-- limitOk: null, or p_lo to 30 (absent is not null)
+create function app.draft_limit_ok(p jsonb, p_lo integer) returns boolean language plpgsql immutable set search_path = '' as
+$$ begin return coalesce(p = 'null'::jsonb, false) or (app.js_int(p) and (p::text)::numeric between p_lo and 30); end $$;
+
+-- draftGroupLimits(g, options): {min, max, stated, capacity}. A single choice is required when it offers a free option
+-- or has a default; a multiple one is optional, up to what its options allow.
+create function app.draft_group_limits(p_selection text, p_min jsonb, p_max jsonb, p_options jsonb) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare o jsonb; total numeric := 0; capacity integer; required boolean := false;
+  has_min boolean := p_min is not null and p_min <> 'null'::jsonb;
+  has_max boolean := p_max is not null and p_max <> 'null'::jsonb;
+begin
+  for o in select x from jsonb_array_elements(coalesce(p_options, '[]'::jsonb)) x loop
+    total := total + coalesce((o->>'maxQty')::numeric, 0);
+    if o->'price' = '0'::jsonb or app.js_truthy(o->'default') then required := true; end if;
+  end loop;
+  capacity := total::integer;
+  return jsonb_build_object(
+    'min', case when has_min then (p_min::text)::integer when p_selection = 'single' and required then 1 else 0 end,
+    'max', case when p_selection = 'single' then 1
+                when has_max then (p_max::text)::integer
+                else greatest(1, least(capacity, 30), case when has_min then (p_min::text)::integer else 0 end) end,
+    'stated', has_min or has_max,
+    'capacity', capacity);
+end $$;
+
+-- validateDraft: the same codes, at the same paths, in the same order
+create function app.validate_import_draft(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
+declare
+  errs jsonb := '[]';
+  seen jsonb := '{}';     -- node keys used so far (one namespace for sections, dishes, groups, options)
+  gfirst jsonb := '{}';   -- group key -> the first group with that key
+  glim jsonb := '{}';     -- group key -> its limits (the last valid group with that key)
+  g jsonb; o jsonb; s jsonb; d jsonb; a jsonb; own jsonb; k jsonb; gr jsonb; linked jsonb; e jsonb;
+  gi integer; oj integer; si integer; dj integer; ak integer;
+  pth text; q text; r text; text_source boolean;
+  lim boolean; defaults integer; qty_ok boolean; dishes integer := 0; lo integer; hi integer;
+begin
+  if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
+  if p->'v' is distinct from '1'::jsonb then return app.issue('version', 'v'); end if;
+  if octet_length(p::text) > 1500000 then return app.issue('too_large', ''); end if;
+  errs := (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', x)), '[]'::jsonb)
+           from jsonb_object_keys(p) x where x not in ('v', 'source', 'sections', 'groups', 'dropped'));
+  if not app.one_of(p->'source', array['scan', 'paste', 'wolt_screenshots', 'wolt_text']) then errs := errs || app.issue('enum_invalid', 'source'); end if;
+  if not (app.js_int(p->'dropped') and (p->>'dropped')::numeric between 0 and 100000) then errs := errs || app.issue('count_invalid', 'dropped'); end if;
+  if jsonb_typeof(p->'sections') is distinct from 'array' then errs := errs || app.issue('type', 'sections'); end if;
+  if jsonb_typeof(p->'groups') is distinct from 'array' then errs := errs || app.issue('type', 'groups'); end if;
+  if jsonb_typeof(p->'sections') is distinct from 'array' or jsonb_typeof(p->'groups') is distinct from 'array' then return errs; end if;
+  text_source := p->>'source' in ('paste', 'wolt_text');
+
+  -- groups first, so dishes and openers can be checked against them
+  if jsonb_array_length(p->'groups') > 400 then errs := errs || app.issue('too_large', 'groups'); end if;
+  for gi in 0 .. jsonb_array_length(p->'groups') - 1 loop
+    g := p->'groups'->gi; pth := format('groups[%s]', gi);
+    if jsonb_typeof(g) is distinct from 'object' then errs := errs || app.issue('type', pth); continue; end if;
+    if g - array['key', 'name', 'translated', 'selection', 'min', 'max', 'options'] <> '{}'::jsonb then
+      errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', pth || '.' || x)), '[]'::jsonb)
+                     from jsonb_object_keys(g) x where x not in ('key', 'name', 'translated', 'selection', 'min', 'max', 'options'));
+    end if;
+    k := g->'key';
+    if not app.js_str(k) or (k #>> '{}') !~ '^[a-z0-9][a-z0-9_.-]{0,63}$' then errs := errs || app.issue('key_invalid', pth || '.key');
+    elsif seen ? (k #>> '{}') then errs := errs || app.issue('key_duplicate', pth || '.key');
+    else seen := seen || jsonb_build_object(k #>> '{}', true); end if;
+    if app.js_str(k) and not (gfirst ? (k #>> '{}')) then gfirst := gfirst || jsonb_build_object(k #>> '{}', g); end if;
+    errs := errs || app.draft_text(g->'name', pth || '.name', 60, true)
+                 || app.draft_translated(g->'translated', pth || '.translated', jsonb_build_array(g->'name'));
+    if not app.one_of(g->'selection', array['single', 'multiple']) then errs := errs || app.issue('enum_invalid', pth || '.selection'); end if;
+    lim := app.draft_limit_ok(g->'min', 0) and app.draft_limit_ok(g->'max', 1)
+           and not (app.js_int(g->'min') and app.js_int(g->'max') and (g->>'min')::numeric > (g->>'max')::numeric)
+           and not (g->'selection' = '"single"'::jsonb and app.js_int(g->'min') and (g->>'min')::numeric > 1);
+    if not lim then errs := errs || app.issue('limits_invalid', pth);
+    elsif g->'selection' = '"single"'::jsonb and not app.js_null(g->'max') and g->'max' is distinct from '1'::jsonb then
+      errs := errs || app.issue('single_max', pth);
+    end if;
+    if jsonb_typeof(g->'options') is distinct from 'array' or jsonb_array_length(g->'options') = 0 then
+      errs := errs || app.issue('options_empty', pth || '.options');
+      continue;
+    end if;
+    if jsonb_array_length(g->'options') > 60 then errs := errs || app.issue('too_large', pth || '.options'); end if;
+    defaults := 0; qty_ok := true;
+    for oj in 0 .. jsonb_array_length(g->'options') - 1 loop
+      o := g->'options'->oj; q := format('%s.options[%s]', pth, oj);
+      if jsonb_typeof(o) is distinct from 'object' then qty_ok := false; errs := errs || app.issue('type', q); continue; end if;
+      if o - array['key', 'name', 'translated', 'price', 'priceText', 'maxQty', 'default', 'opens'] <> '{}'::jsonb then
+        errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', q || '.' || x)), '[]'::jsonb)
+                       from jsonb_object_keys(o) x where x not in ('key', 'name', 'translated', 'price', 'priceText', 'maxQty', 'default', 'opens'));
+      end if;
+      k := o->'key';
+      if not app.js_str(k) or (k #>> '{}') !~ '^[a-z0-9][a-z0-9_.-]{0,63}$' then errs := errs || app.issue('key_invalid', q || '.key');
+      elsif seen ? (k #>> '{}') then errs := errs || app.issue('key_duplicate', q || '.key');
+      else seen := seen || jsonb_build_object(k #>> '{}', true); end if;
+      errs := errs || app.draft_text(o->'name', q || '.name', 60, true)
+                   || app.draft_translated(o->'translated', q || '.translated', jsonb_build_array(o->'name'));
+      if not app.draft_price_ok(o->'price') then errs := errs || app.issue('price_invalid', q || '.price'); end if;
+      if not app.js_null(o->'priceText') then errs := errs || app.draft_str(o->'priceText', q || '.priceText', 40); end if;
+      if not (app.js_int(o->'maxQty') and (o->>'maxQty')::numeric between 1 and 10) then
+        errs := errs || app.issue('option_qty_invalid', q || '.maxQty');
+        qty_ok := false;
+      end if;
+      if jsonb_typeof(o->'default') is distinct from 'boolean' then errs := errs || app.issue('type', q || '.default');
+      elsif o->'default' = 'true'::jsonb then defaults := defaults + 1;
+      end if;
+      if not app.js_null(o->'opens') then
+        if not app.js_str(o->'opens') then errs := errs || app.issue('type', q || '.opens');
+        elsif o->'opens' = g->'key' then errs := errs || app.issue('opens_self', q || '.opens');
+        end if;
+        if o->'maxQty' is distinct from '1'::jsonb then errs := errs || app.issue('opener_qty', q || '.maxQty'); end if;
+      end if;
+    end loop;
+    if lim and qty_ok and app.one_of(g->'selection', array['single', 'multiple']) then
+      own := app.draft_group_limits(g->>'selection', g->'min', g->'max', g->'options');
+      if app.js_str(g->'key') then glim := glim || jsonb_build_object(g->>'key', own); end if;
+      if defaults > (own->>'max')::integer then errs := errs || app.issue('defaults_exceed', pth); end if;
+    end if;
+  end loop;
+  for gi in 0 .. jsonb_array_length(p->'groups') - 1 loop
+    g := p->'groups'->gi;
+    continue when jsonb_typeof(g) is distinct from 'object' or jsonb_typeof(g->'options') is distinct from 'array';
+    for oj in 0 .. jsonb_array_length(g->'options') - 1 loop
+      o := g->'options'->oj;
+      if app.js_obj(o) and app.js_str(o->'opens') and o->'opens' is distinct from g->'key' and not (gfirst ? (o->>'opens')) then
+        errs := errs || app.issue('ref_unknown', format('groups[%s].options[%s].opens', gi, oj));
+      end if;
+    end loop;
+  end loop;
+
+  -- sections and dishes
+  if jsonb_array_length(p->'sections') > 80 then errs := errs || app.issue('too_large', 'sections'); end if;
+  for si in 0 .. jsonb_array_length(p->'sections') - 1 loop
+    s := p->'sections'->si; pth := format('sections[%s]', si);
+    if jsonb_typeof(s) is distinct from 'object' then errs := errs || app.issue('type', pth); continue; end if;
+    if s - array['key', 'name', 'translated', 'kind', 'room', 'dishes'] <> '{}'::jsonb then
+      errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', pth || '.' || x)), '[]'::jsonb)
+                     from jsonb_object_keys(s) x where x not in ('key', 'name', 'translated', 'kind', 'room', 'dishes'));
+    end if;
+    k := s->'key';
+    if not app.js_str(k) or (k #>> '{}') !~ '^[a-z0-9][a-z0-9_.-]{0,63}$' then errs := errs || app.issue('key_invalid', pth || '.key');
+    elsif seen ? (k #>> '{}') then errs := errs || app.issue('key_duplicate', pth || '.key');
+    else seen := seen || jsonb_build_object(k #>> '{}', true); end if;
+    errs := errs || app.draft_text(s->'name', pth || '.name', 60, true)
+                 || app.draft_translated(s->'translated', pth || '.translated', jsonb_build_array(s->'name'));
+    if not app.one_of(s->'kind', array['food', 'dessert', 'drinks', 'wine', 'beer']) then errs := errs || app.issue('enum_invalid', pth || '.kind'); end if;
+    if not app.js_null(s->'room') and not app.one_of(s->'room', array['table', 'vitrine', 'cellar', 'taps', 'cocktail']) then
+      errs := errs || app.issue('enum_invalid', pth || '.room');
+    end if;
+    if jsonb_typeof(s->'dishes') is distinct from 'array' then errs := errs || app.issue('type', pth || '.dishes'); continue; end if;
+    dishes := dishes + jsonb_array_length(s->'dishes');
+    for dj in 0 .. jsonb_array_length(s->'dishes') - 1 loop
+      d := s->'dishes'->dj; q := format('%s.dishes[%s]', pth, dj);
+      if jsonb_typeof(d) is distinct from 'object' then errs := errs || app.issue('type', q); continue; end if;
+      if d - array['key', 'name', 'desc', 'translated', 'price', 'priceText', 'priceNote', 'tags', 'allergens', 'photo', 'illustration', 'groups'] <> '{}'::jsonb then
+        errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', q || '.' || x)), '[]'::jsonb)
+                       from jsonb_object_keys(d) x
+                       where x not in ('key', 'name', 'desc', 'translated', 'price', 'priceText', 'priceNote', 'tags', 'allergens', 'photo', 'illustration', 'groups'));
+      end if;
+      k := d->'key';
+      if not app.js_str(k) or (k #>> '{}') !~ '^[a-z0-9][a-z0-9_.-]{0,63}$' then errs := errs || app.issue('key_invalid', q || '.key');
+      elsif seen ? (k #>> '{}') then errs := errs || app.issue('key_duplicate', q || '.key');
+      else seen := seen || jsonb_build_object(k #>> '{}', true); end if;
+      errs := errs || app.draft_text(d->'name', q || '.name', 90, true) || app.draft_text(d->'desc', q || '.desc', 600, false)
+                   || app.draft_translated(d->'translated', q || '.translated', jsonb_build_array(d->'name', d->'desc'));
+      if not app.draft_price_ok(d->'price') then errs := errs || app.issue('price_invalid', q || '.price'); end if;
+      if not app.js_null(d->'priceText') then errs := errs || app.draft_str(d->'priceText', q || '.priceText', 40); end if;
+      errs := errs || app.draft_text(d->'priceNote', q || '.priceNote', 80, false);
+      if jsonb_typeof(d->'tags') is distinct from 'array'
+         or exists (select 1 from jsonb_array_elements(d->'tags') t where not app.one_of(t, array['vegan', 'vegetarian', 'spicy', 'gf']))
+         or (select count(distinct t) from jsonb_array_elements(d->'tags') t) <> jsonb_array_length(d->'tags') then
+        errs := errs || app.issue('enum_invalid', q || '.tags');
+      end if;
+      errs := errs || app.draft_text(d->'allergens', q || '.allergens', 300, false);
+      if not app.js_null(d->'photo') then
+        if jsonb_typeof(d->'photo') is distinct from 'object' then errs := errs || app.issue('type', q || '.photo');
+        else
+          if (d->'photo') - array['path', 'rights'] <> '{}'::jsonb then
+            errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', q || '.photo.' || x)), '[]'::jsonb)
+                           from jsonb_object_keys(d->'photo') x where x not in ('path', 'rights'));
+          end if;
+          if text_source then errs := errs || app.issue('photo_unexpected', q || '.photo'); end if;
+          if not app.js_rel_path(d->'photo'->'path') or char_length(d->'photo'->>'path') > 200 then errs := errs || app.issue('path_invalid', q || '.photo.path'); end if;
+          if not app.one_of(d->'photo'->'rights', array['confirmed', 'unknown']) then errs := errs || app.issue('enum_invalid', q || '.photo.rights'); end if;
+        end if;
+      end if;
+      if not app.js_null(d->'illustration') and not (app.js_str(d->'illustration') and (d->>'illustration') ~ '^[a-z0-9][a-z0-9-]{0,39}$') then
+        errs := errs || app.issue('stock_invalid', q || '.illustration');
+      end if;
+      if jsonb_typeof(d->'groups') is distinct from 'array' then errs := errs || app.issue('type', q || '.groups'); continue; end if;
+      if jsonb_array_length(d->'groups') > 16 then errs := errs || app.issue('too_large', q || '.groups'); end if;
+      linked := '[]';
+      for ak in 0 .. jsonb_array_length(d->'groups') - 1 loop
+        a := d->'groups'->ak; r := format('%s.groups[%s]', q, ak);
+        if jsonb_typeof(a) is distinct from 'object' then errs := errs || app.issue('type', r); continue; end if;
+        if a - array['group', 'min', 'max'] <> '{}'::jsonb then
+          errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', r || '.' || x)), '[]'::jsonb)
+                         from jsonb_object_keys(a) x where x not in ('group', 'min', 'max'));
+        end if;
+        gr := case when app.js_str(a->'group') then gfirst->(a->>'group') end;
+        if gr is null then errs := errs || app.issue('ref_unknown', r || '.group'); continue; end if;
+        -- one dish never carries two groups with the same name and selection
+        if exists (select 1 from jsonb_array_elements(linked) x(lk)
+                   where lk->>'key' = a->>'group'
+                      or (lk->'group'->'selection' = gr->'selection' and app.js_obj(lk->'group'->'name') and app.js_obj(gr->'name')
+                          and app.score_keys(app.keys_of(lk->'group'->'name'->>'he', lk->'group'->'name'->>'en'),
+                                             app.keys_of(gr->'name'->>'he', gr->'name'->>'en')) > 0)) then
+          errs := errs || app.issue('addon_duplicate', r); continue;
+        end if;
+        linked := linked || jsonb_build_array(jsonb_build_object('key', a->>'group', 'group', gr));
+        if not app.draft_limit_ok(a->'min', 0) or not app.draft_limit_ok(a->'max', 1)
+           or (app.js_int(a->'min') and app.js_int(a->'max') and (a->>'min')::numeric > (a->>'max')::numeric) then
+          errs := errs || app.issue('limits_invalid', r); continue;
+        end if;
+        if gr->'selection' = '"single"'::jsonb and not app.js_null(a->'max') and a->'max' is distinct from '1'::jsonb then
+          errs := errs || app.issue('single_max', r); continue;
+        end if;
+        own := glim->(a->>'group');
+        continue when own is null;
+        -- under stated limits a dish only tightens; a guess yields to what the dish states
+        if own->'stated' = 'true'::jsonb
+           and ((app.js_int(a->'min') and app.js_int(gr->'min') and (a->>'min')::numeric < (gr->>'min')::numeric)
+                or (app.js_int(a->'max') and app.js_int(gr->'max') and (a->>'max')::numeric > (gr->>'max')::numeric)) then
+          errs := errs || app.issue('limits_loosened', r); continue;
+        end if;
+        lo := case when app.js_int(a->'min') then (a->>'min')::integer else (own->>'min')::integer end;
+        hi := case when app.js_int(a->'max') then (a->>'max')::integer else (own->>'max')::integer end;
+        if lo > hi or lo > (own->>'capacity')::integer then errs := errs || app.issue('limits_invalid', r); end if;
+      end loop;
+    end loop;
+  end loop;
+  if dishes > 800 then errs := errs || app.issue('too_large', 'sections'); end if;
+  if jsonb_array_length(errs) > 0 then return errs; end if;
+  if jsonb_array_length(app.import_exceptions(p, array['he', 'en'])) > 2000 then return app.issue('too_many_exceptions', ''); end if;
+  return '[]'::jsonb;
+end $$;
+
+create function app.exception_of(p_code text, p_key text, p_path text, p_count integer default 1) returns jsonb language sql immutable set search_path = '' as $$
+  select jsonb_build_array(jsonb_build_object('code', p_code, 'severity', app.import_exception_severity(p_code), 'key', p_key, 'path', p_path,
+                                              'count', p_count))
+$$;
+
+-- draftExceptions(draft, {langs}): the draft's grouped ones first (name_missing_lang, then translation_check, when
+-- their count is above 0, under the key _draft), then sections in order (each, then its dishes), then groups in order
+-- (each, then its options); within a node the codes in IMPORT_EXCEPTIONS order. Expects a draft the validator accepted.
+create function app.import_exceptions(p_draft jsonb, p_langs text[] default array['he', 'en']) returns jsonb
+language plpgsql immutable set search_path = '' as $$
+declare
+  out jsonb := '[]';
+  opened jsonb := '{}';
+  skeys jsonb := '[]';    -- each section's keys, in order
+  seen jsonb := '[]';     -- every dish so far: {he, en, section, price}
+  s jsonb; d jsonb; g jsonb; o jsonb; gl jsonb; dk jsonb; same jsonb;
+  si integer; dj integer; gi integer; oj integer; k integer;
+  p text; q text; dish_n integer := 0; missing integer := 0; translated integer := 0;
+begin
+  for g in select x from jsonb_array_elements(p_draft->'groups') x loop
+    for o in select x from jsonb_array_elements(g->'options') x loop
+      if not app.js_null(o->'opens') then opened := opened || jsonb_build_object(o->>'opens', true); end if;
+    end loop;
+  end loop;
+  select coalesce(jsonb_agg(app.keys_of(x->'name'->>'he', x->'name'->>'en') order by i), '[]') into skeys
+  from jsonb_array_elements(p_draft->'sections') with ordinality t(x, i);
+
+  for si in 0 .. jsonb_array_length(p_draft->'sections') - 1 loop
+    s := p_draft->'sections'->si; p := format('sections[%s]', si);
+    if si >= 40 then out := out || app.exception_of('too_many', s->>'key', p); end if;
+    if exists (select 1 from generate_series(0, si - 1) j where app.score_keys(skeys->si, skeys->j) > 0) then
+      out := out || app.exception_of('section_duplicate', s->>'key', p);
+    end if;
+    missing := missing + app.named_missing(s->'name', p_langs);
+    translated := translated + app.named_translated(s->'name', s->'translated', '[]');
+    for dj in 0 .. jsonb_array_length(s->'dishes') - 1 loop
+      d := s->'dishes'->dj; q := format('%s.dishes[%s]', p, dj);
+      dk := app.keys_of(d->'name'->>'he', d->'name'->>'en');
+      if app.js_null(d->'price') and (app.js_null(d->'priceText') or app.strip_blank(d->>'priceText') = '') then
+        out := out || app.exception_of('price_missing', d->>'key', q);
+      end if;
+      if app.js_null(d->'price') and not app.js_null(d->'priceText') and app.strip_blank(d->>'priceText') <> '' then
+        out := out || app.exception_of('price_unreadable', d->>'key', q);
+      end if;
+      if d->'price' = '0'::jsonb then out := out || app.exception_of('price_zero', d->>'key', q); end if;
+      select coalesce(jsonb_agg(e), '[]') into same from jsonb_array_elements(seen) e
+      where (dk->>'he' <> '' and e->>'he' = dk->>'he') or (dk->>'en' <> '' and e->>'en' = dk->>'en');
+      if exists (select 1 from jsonb_array_elements(same) e where (e->>'section')::integer = si
+                   or app.score_keys(skeys->((e->>'section')::integer), skeys->si) > 0) then
+        out := out || app.exception_of('dish_duplicate', d->>'key', q);
+      elsif exists (select 1 from jsonb_array_elements(same) e where e->'price' = d->'price') then
+        out := out || app.exception_of('dish_repeated', d->>'key', q);
+      end if;
+      seen := seen || jsonb_build_array(dk || jsonb_build_object('section', si, 'price', d->'price'));
+      missing := missing + app.named_missing(d->'name', p_langs);
+      translated := translated + app.named_translated(d->'name', d->'translated', jsonb_build_array(d->'desc'));
+      if dish_n >= 400 then out := out || app.exception_of('too_many', d->>'key', q); end if;
+      dish_n := dish_n + 1;
+      if not app.js_null(d->'photo') and d->'photo'->'rights' is distinct from '"confirmed"'::jsonb then
+        out := out || app.exception_of('photo_rights_unknown', d->>'key', q);
+      end if;
+      if app.strip_blank(d->'allergens'->>'he') <> '' or app.strip_blank(d->'allergens'->>'en') <> '' then
+        out := out || app.exception_of('allergens_check', d->>'key', q);
+      end if;
+      for k in 8 .. jsonb_array_length(d->'groups') - 1 loop
+        out := out || app.exception_of('too_many', (d->>'key') || '>' || (d->'groups'->k->>'group'), format('%s.groups[%s]', q, k));
+      end loop;
+    end loop;
+  end loop;
+
+  for gi in 0 .. jsonb_array_length(p_draft->'groups') - 1 loop
+    g := p_draft->'groups'->gi; p := format('groups[%s]', gi);
+    gl := app.draft_group_limits(g->>'selection', g->'min', g->'max', g->'options');
+    if gl->'stated' = 'false'::jsonb then out := out || app.exception_of('limits_guessed', g->>'key', p); end if;
+    if (gl->>'min')::integer > (gl->>'capacity')::integer then out := out || app.exception_of('limits_unreachable', g->>'key', p); end if;
+    missing := missing + app.named_missing(g->'name', p_langs);
+    translated := translated + app.named_translated(g->'name', g->'translated', '[]');
+    if gi >= 200 then out := out || app.exception_of('too_many', g->>'key', p); end if;
+    for oj in 0 .. jsonb_array_length(g->'options') - 1 loop
+      o := g->'options'->oj; q := format('%s.options[%s]', p, oj);
+      if app.js_null(o->'price') then out := out || app.exception_of('option_price_unreadable', o->>'key', q); end if;
+      missing := missing + app.named_missing(o->'name', p_langs);
+      translated := translated + app.named_translated(o->'name', o->'translated', '[]');
+      if not app.js_null(o->'opens') and opened ? (g->>'key') then out := out || app.exception_of('nesting_too_deep', o->>'key', q); end if;
+      if oj >= 30 then out := out || app.exception_of('too_many', o->>'key', q); end if;
+    end loop;
+  end loop;
+
+  -- the grouped ones, then node order (each key's first exception), then the codes' order, then as found
+  return case when missing > 0 then app.exception_of('name_missing_lang', '_draft', '', missing) else '[]'::jsonb end
+      || case when translated > 0 then app.exception_of('translation_check', '_draft', '', translated) else '[]'::jsonb end
+      || (select coalesce(jsonb_agg(z.e order by z.first_at, z.rank, z.i), '[]'::jsonb)
+          from (select x.e, x.i, min(x.i) over (partition by x.e->>'key') as first_at,
+                       array_position(app.import_exception_codes(), x.e->>'code') as rank
+                from jsonb_array_elements(out) with ordinality x(e, i)) z);
+end $$;
+
+-- named(): 1 when the name is blank in one of the venue's languages; 1 when the reader translated text it shows
+create function app.named_missing(p_name jsonb, p_langs text[]) returns integer language plpgsql immutable set search_path = '' as $$
+declare l text;
+begin
+  foreach l in array p_langs loop
+    if app.strip_blank(coalesce(p_name->>l, '')) = '' then return 1; end if;
+  end loop;
+  return 0;
+end $$;
+
+create function app.named_translated(p_name jsonb, p_translated jsonb, p_extra jsonb) returns integer language plpgsql immutable set search_path = '' as $$
+declare t jsonb; l text;
+begin
+  if jsonb_array_length(p_translated) = 0 then return 0; end if;
+  for t in select x from jsonb_array_elements(jsonb_build_array(p_name) || p_extra) x loop
+    for l in select y from jsonb_array_elements_text(p_translated) y loop
+      if app.strip_blank(coalesce(t->>l, '')) <> '' then return 1; end if;
+    end loop;
+  end loop;
+  return 0;
+end $$;
+
+-- validateDecisions (the choices' errors come in the database's key order)
+create function app.validate_import_decisions(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
+declare errs jsonb := '[]'; k text; v jsonb; i integer;
+begin
+  if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
+  errs := (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', x)), '[]'::jsonb)
+           from jsonb_object_keys(p) x where x not in ('v', 'pricesConfirmed', 'choices', 'skip'));
+  if p->'v' is distinct from '1'::jsonb then errs := errs || app.issue('version', 'v'); end if;
+  if jsonb_typeof(p->'pricesConfirmed') is distinct from 'boolean' then errs := errs || app.issue('type', 'pricesConfirmed'); end if;
+  if jsonb_typeof(p->'choices') is distinct from 'object' then errs := errs || app.issue('type', 'choices');
+  else
+    if (select count(*) from jsonb_object_keys(p->'choices')) > 5000 then errs := errs || app.issue('too_large', 'choices'); end if;
+    for k, v in select key, value from jsonb_each(p->'choices') loop
+      if k !~ '^[a-z_]{1,40}@[a-z0-9_][a-z0-9_.>@-]{0,170}$' or not app.one_of(v, app.import_choice_list()) then
+        errs := errs || app.issue('choice_invalid', 'choices.' || k);
+      end if;
+    end loop;
+  end if;
+  if p ? 'skip' then
+    if jsonb_typeof(p->'skip') is distinct from 'array' then errs := errs || app.issue('type', 'skip');
+    else
+      if jsonb_array_length(p->'skip') > 5000 then errs := errs || app.issue('too_large', 'skip'); end if;
+      for i in 0 .. jsonb_array_length(p->'skip') - 1 loop
+        if not app.js_str(p->'skip'->i) or (p->'skip'->>i) !~ '^[a-z0-9][a-z0-9_.-]{0,63}(>[a-z0-9][a-z0-9_.-]{0,63})?$' then
+          errs := errs || app.issue('key_invalid', format('skip[%s]', i));
+        end if;
+      end loop;
+    end if;
+  end if;
+  return errs;
+end $$;
+
+-- the save/apply inputs (validateSaveDraft, validateApplyImport): no other keys; the draft's and the decisions' paths prefixed
+create function app.prefix_issues(p jsonb, p_prefix text) returns jsonb language sql immutable set search_path = '' as $$
+  select coalesce(jsonb_agg(e || jsonb_build_object('path', case when e->>'path' = '' then p_prefix else p_prefix || '.' || (e->>'path') end) order by i), '[]'::jsonb)
+  from jsonb_array_elements(p) with ordinality x(e, i)
+$$;
+
+create function app.validate_save_draft(p jsonb) returns jsonb language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(p) is distinct from 'object' then app.issue('type', '')
+    else app.v_only_keys(p, array['importId', 'draft']) || app.v_uuid_at(p->'importId', 'importId')
+      || app.prefix_issues(app.validate_import_draft(p->'draft'), 'draft') end
+$$;
+
+create function app.validate_apply_import(p jsonb) returns jsonb language sql immutable set search_path = '' as $$
+  select case when jsonb_typeof(p) is distinct from 'object' then app.issue('type', '')
+    else app.v_only_keys(p, array['importId', 'draft', 'decisions'])
+      || app.validate_save_draft(jsonb_build_object('importId', p->'importId', 'draft', p->'draft'))
+      || app.prefix_issues(app.validate_import_decisions(p->'decisions'), 'decisions') end
+$$;
+
 -- ================================================================ small pieces the RPCs share
 create function app.fail(p_code text, p_errors jsonb default null) returns jsonb language sql immutable set search_path = '' as $$
   select case when p_errors is null then jsonb_build_object('ok', false, 'code', p_code)
@@ -770,7 +1333,8 @@ create function app.draft_counts(p jsonb) returns jsonb language sql immutable s
     'groups', jsonb_array_length(app.arr(p->'groups')),
     'options', (select count(*) from jsonb_array_elements(app.arr(p->'groups')) g, jsonb_array_elements(app.arr(g->'options')) o),
     'photos', (select count(*) from jsonb_array_elements(app.arr(p->'sections')) s, jsonb_array_elements(app.arr(s->'dishes')) d
-               where not app.js_null(d->'photo') and d ? 'photo'))
+               where not app.js_null(d->'photo') and d ? 'photo'),
+    'dropped', case when app.js_int(p->'dropped') then (p->>'dropped')::integer else 0 end)
 $$;
 
 -- ================================================================ the import (ADR-006): create, claim a scan, save the draft, apply, discard
@@ -789,6 +1353,11 @@ begin
   errs := app.validate_create_import(jsonb_build_object('venueId', p_venue, 'source', p_source, 'importId', p_import_id, 'text', p_text,
                                                         'paths', to_jsonb(p_paths), 'inputSha256', p_input_sha256, 'rightsConfirmed', p_rights_confirmed));
   if jsonb_array_length(errs) > 0 then return app.fail(errs->0->>'code'); end if;
+  -- the scanner downloads these with the service role: each one exactly <venue>/imports/<import id>/<name> (the
+  -- table's check says the same)
+  if p_source in ('scan', 'wolt_screenshots') and not app.import_paths_ok(p_venue, p_import_id, p_paths) then return app.fail('path_invalid'); end if;
+  -- images per import, by source: a printed menu's pages (scan) at most 8, Wolt screenshots at most 24
+  if p_source in ('scan', 'wolt_screenshots') and cardinality(p_paths) > (case p_source when 'scan' then 8 else 24 end) then return app.fail('too_many'); end if;
   perform pg_advisory_xact_lock(hashtext('mana:import:' || p_venue::text));
   if p_source in ('paste', 'wolt_text') then
     body := app.strip_blank(p_text);
@@ -809,36 +1378,72 @@ begin
   return jsonb_build_object('ok', true, 'importId', imp.id, 'status', imp.status, 'reused', false);
 end $$;
 
--- claim_import_scan: the scanner, with the owner's own token, before any paid call. uploaded | failed → parsing in one
--- statement; a claim older than 10 minutes (a crashed read) may be claimed again. Counts against scans_per_venue_day.
-create function public.claim_import_scan(p_import uuid) returns jsonb
+-- claim_import_scan: the scanner, with the owner's own token, before any paid call, in the mode it reads (scan_menu
+-- for a scan, wolt_screenshots for Wolt screenshots). uploaded | failed → parsing in one statement; a claim older than
+-- 10 minutes (a crashed read) may be claimed again; a purged import never. Owners and managers only: anyone else, and an import that does not exist, get the
+-- same import_unknown (no oracle on other venues' imports). A mode that is not the import's source is not_scannable and
+-- costs nothing. The images are charged when the claim succeeds, against three caps (import_caps): the venue's local
+-- day, the person's UTC day, and all venues' UTC day; rate_limited names the cap.
+create function public.claim_import_scan(p_import uuid, p_mode text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
-declare i record; c record; day_start timestamptz; used integer;
-  cap integer := coalesce((app.cfg('import_caps')->>'scans_per_venue_day')::integer, 10);
+declare i record; c record; caps jsonb := app.cfg('import_caps'); n integer; k text; used integer; cap integer;
+  me uuid := (select auth.uid()); venue_day timestamptz; utc_day timestamptz := date_trunc('day', now() at time zone 'UTC') at time zone 'UTC';
+  counters jsonb;
 begin
-  if (select auth.uid()) is null then raise exception 'not_allowed' using errcode = '42501'; end if;
-  select id, venue_id, source, status, updated_at into i from public.menu_imports where id = p_import;
-  if not found then return app.fail('import_unknown'); end if;
-  if not app.can_edit(i.venue_id) then raise exception 'not_allowed' using errcode = '42501'; end if;
-  if i.source not in ('scan', 'wolt_screenshots') then return app.fail('not_scannable'); end if;
-  if i.status in ('parsed', 'applied', 'discarded') then return app.fail('import_closed'); end if;
+  if me is null then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select id, venue_id, source, status, updated_at, raw_purged_at, raw_paths into i from public.menu_imports where id = p_import;
+  if not found or not app.can_edit(i.venue_id) then return app.fail('import_unknown'); end if;
+  -- the scanner's modes: scan_menu reads a scan, wolt_screenshots Wolt screenshots
+  if i.source not in ('scan', 'wolt_screenshots') or p_mode is distinct from (case i.source when 'scan' then 'scan_menu' else i.source end) then
+    return app.fail('not_scannable');
+  end if;
+  if i.raw_purged_at is not null or i.status in ('parsed', 'applied', 'discarded') then return app.fail('import_closed'); end if;
   if i.status = 'parsing' and i.updated_at > now() - interval '10 minutes' then return app.fail('import_busy'); end if;
   perform pg_advisory_xact_lock(hashtext('mana:import:' || i.venue_id::text));
-  day_start := app.local_day_start(i.venue_id);
-  select n into used from app.event_counters where key = 'import-scan:' || i.venue_id and window_start = day_start;
-  if coalesce(used, 0) >= cap then return app.fail('rate_limited'); end if;
+  perform pg_advisory_xact_lock(hashtext('mana:import-images'));
+  n := cardinality(i.raw_paths);
+  venue_day := app.local_day_start(i.venue_id);
+  counters := jsonb_build_array(
+    jsonb_build_array('scan_images_per_venue_day', 'import-images:venue:' || i.venue_id, venue_day),
+    jsonb_build_array('scan_images_per_user_day', 'import-images:user:' || me, utc_day),
+    jsonb_build_array('scan_images_per_day', 'import-images:all', utc_day));
+  for k, cap, used in
+    select x->>0, coalesce((caps->>(x->>0))::integer, case x->>0 when 'scan_images_per_venue_day' then 60 when 'scan_images_per_user_day' then 120 else 1000 end),
+           coalesce((select e.n from app.event_counters e where e.key = x->>1 and e.window_start = (x->>2)::timestamptz), 0)
+    from jsonb_array_elements(counters) with ordinality t(x, o) order by o
+  loop
+    if used + n > cap then return jsonb_build_object('ok', false, 'code', 'rate_limited', 'cap', k); end if;
+  end loop;
   perform set_config('mana.via', 'rpc', true);
   update public.menu_imports set status = 'parsing', error_code = null
-  where id = p_import and (status in ('uploaded', 'failed') or (status = 'parsing' and updated_at <= now() - interval '10 minutes'))
+  where id = p_import and raw_purged_at is null
+    and (status in ('uploaded', 'failed') or (status = 'parsing' and updated_at <= now() - interval '10 minutes'))
   returning id, venue_id, source, raw_paths, rights_confirmed into c;
   if not found then
     perform set_config('mana.via', '', true);
     return app.fail('import_busy');
   end if;
-  perform app.bump('import-scan:' || i.venue_id, day_start);
+  insert into app.event_counters as e (key, window_start, n)
+  select x->>1, (x->>2)::timestamptz, n from jsonb_array_elements(counters) x
+  on conflict (key, window_start) do update set n = e.n + excluded.n;
   perform set_config('mana.via', '', true);
   return jsonb_build_object('ok', true, 'importId', c.id, 'venueId', c.venue_id, 'source', c.source, 'paths', to_jsonb(c.raw_paths),
-                            'rightsConfirmed', c.rights_confirmed, 'langs', (select to_jsonb(v.langs) from public.venues v where v.id = c.venue_id));
+                            'images', cardinality(c.raw_paths), 'rightsConfirmed', c.rights_confirmed,
+                            'langs', (select to_jsonb(v.langs) from public.venues v where v.id = c.venue_id));
+end $$;
+
+-- list_purgeable_imports (the scanner's purge mode, service role only): image imports whose screenshots may be deleted
+-- now (app.import_purgeable), with their venue, so it deletes exactly <venue>/imports/<id>/<name>; then it marks each
+-- purged (raw_paths '{}', raw_purged_at now(), on the condition that it is still unpurged and purgeable; the guard
+-- refuses anything else).
+create function public.list_purgeable_imports(p_limit integer default 50) returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
+begin
+  if not app.is_service() then raise exception 'not_allowed' using errcode = '42501'; end if;
+  return coalesce((select jsonb_agg(jsonb_build_object('importId', z.id, 'venueId', z.venue_id, 'status', z.status, 'paths', to_jsonb(z.raw_paths)) order by z.updated_at, z.id)
+                   from (select i.id, i.venue_id, i.status, i.raw_paths, i.updated_at from public.menu_imports i
+                         where i.raw_purged_at is null and cardinality(i.raw_paths) > 0 and app.import_purgeable(i.status, i.updated_at)
+                         order by i.updated_at, i.id limit greatest(1, least(coalesce(p_limit, 50), 500))) z), '[]'::jsonb);
 end $$;
 
 -- discard_import: uploaded | failed | parsed → discarded (twice is fine); frees the input's hash for a new import
@@ -857,6 +1462,56 @@ begin
   update public.menu_imports set status = 'discarded' where id = i.id;
   perform set_config('mana.via', '', true);
   return jsonb_build_object('ok', true);
+end $$;
+
+-- save_import_draft: what a reader made of the input. Owners and managers (an import uploaded, failed or parsed: text
+-- they parsed on the phone, or a correction); the scanner with the service role (an import it claimed, still parsing).
+-- Anyone else, and an import that does not exist, get the same import_unknown. The draft is checked by
+-- app.validate_import_draft (the twin of validateDraft); its photos must lie in the import's own folder, and a photo
+-- the reader marks confirmed needs the owner's confirmation at upload. The exceptions are computed here, in the venue's
+-- languages. p_notes: what the reader noticed, as [{code, count}] (codes and counts, never text).
+create function public.save_import_draft(p_import uuid, p_draft jsonb, p_notes jsonb default null) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare svc boolean := app.is_service(); i record; errs jsonb; exc jsonb; v_notes jsonb := coalesce(p_notes, '[]'::jsonb);
+begin
+  if not svc and (select auth.uid()) is null then raise exception 'not_allowed' using errcode = '42501'; end if;
+  select id, venue_id, source, status, rights_confirmed into i from public.menu_imports where id = p_import for update;
+  if not found or (not svc and not app.can_edit(i.venue_id)) then return app.fail('import_unknown'); end if;
+  if svc then
+    -- the scanner saves only a read it claimed: anything else means the claim is gone
+    if i.status <> 'parsing' then return app.fail('import_closed'); end if;
+  elsif i.status = 'parsing' then return app.fail('import_busy');
+  elsif i.status in ('applied', 'discarded') then return app.fail('import_closed');
+  end if;
+  if p_draft is null or octet_length(p_draft::text) > 1500000 then return app.fail('too_large'); end if;
+  errs := app.validate_import_draft(p_draft);
+  if jsonb_array_length(errs) > 0 then return app.fail('invalid_draft', errs); end if;
+  if p_draft->>'source' <> i.source then return app.fail('source_mismatch'); end if;
+  select coalesce(jsonb_agg(jsonb_build_object('code', 'path_invalid', 'path', format('sections[%s].dishes[%s].photo.path', si - 1, dj - 1)) order by si, dj), '[]')
+  into errs
+  from jsonb_array_elements(p_draft->'sections') with ordinality s(s, si), jsonb_array_elements(s->'dishes') with ordinality d(d, dj)
+  where app.js_obj(d->'photo') and not app.import_path_ok(i.venue_id, i.id, d->'photo'->>'path');
+  if jsonb_array_length(errs) > 0 then return app.fail('invalid_draft', errs); end if;
+  if not i.rights_confirmed then
+    select coalesce(jsonb_agg(jsonb_build_object('code', 'rights_unconfirmed', 'path', format('sections[%s].dishes[%s].photo.rights', si - 1, dj - 1)) order by si, dj), '[]')
+    into errs
+    from jsonb_array_elements(p_draft->'sections') with ordinality s(s, si), jsonb_array_elements(s->'dishes') with ordinality d(d, dj)
+    where d->'photo'->'rights' = '"confirmed"'::jsonb;
+    if jsonb_array_length(errs) > 0 then return app.fail('rights_unconfirmed', errs); end if;
+  end if;
+  if (case when jsonb_typeof(v_notes) <> 'array' then true
+           else jsonb_array_length(v_notes) > 100 or exists (select 1 from jsonb_array_elements(v_notes) x
+                 where case when jsonb_typeof(x) <> 'object' then true
+                            else exists (select 1 from jsonb_object_keys(x) k where k not in ('code', 'count'))
+                              or not app.js_str(x->'code') or (x->>'code') !~ '^[a-z][a-z0-9_]{1,40}$'
+                              or not app.js_int(x->'count') or (x->>'count')::numeric not between 0 and 1000000 end) end) then
+    return app.fail('notes_invalid');
+  end if;
+  exc := app.import_exceptions(p_draft, (select v.langs from public.venues v where v.id = i.venue_id));
+  perform set_config('mana.via', 'rpc', true);
+  update public.menu_imports set parsed = p_draft, exceptions = exc, notes = v_notes, status = 'parsed', error_code = null where id = p_import;
+  perform set_config('mana.via', '', true);
+  return jsonb_build_object('ok', true, 'exceptions', exc, 'counts', app.draft_counts(p_draft));
 end $$;
 
 -- ================================================================ onboarding progress (F03)
@@ -1302,6 +1957,11 @@ create function app.target_name(p_venue uuid, p_table text, p_id text) returns j
     when 'addon_groups' then (select jsonb_build_object('he', x.name_he, 'en', x.name_en) from public.addon_groups x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
     when 'addon_options' then (select jsonb_build_object('he', x.name_he, 'en', x.name_en) from public.addon_options x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
     when 'upsell_rules' then (select jsonb_build_object('he', x.label, 'en', x.label) from public.upsell_rules x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
+    -- "taken off", "brought back": the name of what was taken off (its section, dish or option), as it reads now
+    when 'availability_overrides' then (
+      select app.target_name(p_venue, case x.target_kind when 'section' then 'sections' when 'dish' then 'dishes' when 'option' then 'addon_options'
+                                                         when 'group' then 'addon_groups' end, x.target_id::text)
+      from public.availability_overrides x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
   end
 $$;
 
@@ -1887,7 +2547,7 @@ $$;
 -- column INSERT and UPDATE grants); SELECT comes back at once as a column list without raw_text.
 revoke select, insert, update on public.menu_imports from authenticated;
 grant select (id, venue_id, source, status, raw_paths, input_sha256, rights_confirmed, parsed, exceptions, error_code, created_by, applied_at,
-              created_at, updated_at, raw_purged_at)
+              created_at, updated_at, raw_purged_at, notes)
   on public.menu_imports to authenticated;
 -- DESTRUCTIVE-LOOKING: drops the two policies that let owners and managers insert and change imports directly (no grant
 -- reaches them any more; imports_read stays)
@@ -1915,15 +2575,18 @@ grant execute on function public.slug_available(text), public.create_venue(text,
   public.ops_set_plan(uuid, text, timestamptz, text, text), public.ops_leads(text, text, timestamptz, integer),
   public.ops_update_lead(uuid, text, text, text), public.act_for_owner(uuid, text, text, jsonb) to authenticated;
 -- phase 1 (ADR-008): each checks its caller
-grant execute on function public.create_import(uuid, text, text, text[], text, boolean, uuid), public.claim_import_scan(uuid),
+grant execute on function public.create_import(uuid, text, text, text[], text, boolean, uuid), public.claim_import_scan(uuid, text),
   public.discard_import(uuid), public.set_onboarding_step(uuid, text, text, text[]),
   public.open_case(uuid, text, text, text, boolean), public.ops_update_case(uuid, text, text, text),
   public.set_availability(uuid, text, uuid, jsonb, text), public.restore_today(uuid), public.export_menu(uuid),
   public.venue_activity(uuid, bigint, integer, text, text), public.ops_venues(jsonb), public.ops_venue(uuid), public.ops_analytics(jsonb),
   public.ops_set_demo(uuid, boolean, text), public.ops_revision(uuid, integer),
-  public.save_addon_group(uuid, jsonb, jsonb, timestamptz, boolean) to authenticated;
--- the service role (edge functions) keeps EXECUTE on every function in public, as before
+  public.save_addon_group(uuid, jsonb, jsonb, timestamptz, boolean), public.save_import_draft(uuid, jsonb, jsonb) to authenticated;
+-- the service role (edge functions) keeps EXECUTE on every function in public, as before; and the three app functions
+-- its writes to menu_imports run (the purge's guard and the paths check)
 grant execute on all functions in schema public to service_role;
+grant execute on function app.import_purgeable(text, timestamptz), app.import_path_ok(uuid, uuid, text), app.import_paths_ok(uuid, uuid, text[])
+  to service_role;
 revoke execute on function app.audit_grants(), app.unindexed_foreign_keys() from public, anon, authenticated;
 
 -- ---------------------------------------------------------------- the grant audit: run it after every migration
@@ -1953,6 +2616,7 @@ declare expected text[] := array[
   'authenticated|column|public.menu_imports.input_sha256|SELECT',
   'authenticated|column|public.menu_imports.parsed|SELECT',
   'authenticated|column|public.menu_imports.raw_paths|SELECT',
+  'authenticated|column|public.menu_imports.notes|SELECT',
   'authenticated|column|public.menu_imports.raw_purged_at|SELECT',
   'authenticated|column|public.menu_imports.rights_confirmed|SELECT',
   'authenticated|column|public.menu_imports.source|SELECT',
@@ -2003,7 +2667,7 @@ declare expected text[] := array[
   'authenticated|function|app.until_spec_ok(jsonb)|EXECUTE',
   'authenticated|function|app.windows_ok(jsonb)|EXECUTE',
   'authenticated|function|public.act_for_owner(uuid,text,text,jsonb)|EXECUTE',
-  'authenticated|function|public.claim_import_scan(uuid)|EXECUTE',
+  'authenticated|function|public.claim_import_scan(uuid,text)|EXECUTE',
   'authenticated|function|public.create_import(uuid,text,text,text[],text,boolean,uuid)|EXECUTE',
   'authenticated|function|public.create_staff_invite(text,text)|EXECUTE',
   'authenticated|function|public.create_venue(text,text,text,text,text)|EXECUTE',
@@ -2028,6 +2692,7 @@ declare expected text[] := array[
   'authenticated|function|public.redeem_staff_invite(text)|EXECUTE',
   'authenticated|function|public.restore_revision(uuid,integer)|EXECUTE',
   'authenticated|function|public.restore_today(uuid)|EXECUTE',
+  'authenticated|function|public.save_import_draft(uuid,jsonb,jsonb)|EXECUTE',
   'authenticated|function|public.save_addon_group(uuid,jsonb,jsonb,timestamp with time zone,boolean)|EXECUTE',
   'authenticated|function|public.set_availability(uuid,text,uuid,jsonb,text)|EXECUTE',
   'authenticated|function|public.set_onboarding_step(uuid,text,text,text[])|EXECUTE',
