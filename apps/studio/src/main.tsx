@@ -1,6 +1,8 @@
 import { render } from 'preact';
-import { configFlags } from '@mana/contracts';
 import { useEffect, useRef, useState } from 'preact/hooks';
+// configFlags from its own module, not the package's index: the index would pull every contract the v2 app uses into
+// this entry chunk, which production (v1) downloads
+import { configFlags } from '../../../packages/contracts/src/config.ts';
 import './app.css';
 import { PRODUCT } from './product.ts';
 import { cfg, sibling, takeAuthReturn } from './lib/api.ts';
@@ -22,8 +24,8 @@ import { ScanScreen } from './screens/scan.tsx';
 import { PreviewFab, PreviewDock } from './screens/preview.tsx';
 
 // The clean schema (ADR-005): a config with schema 2 (the demo database, the local stack) boots the v2 app in src/v2/,
-// loaded as a chunk of its own; anything else (production) runs this app exactly as before. The flags are read through
-// the contracts' configFlags (ADR-007): production is schema 1 whatever its file says, until the cutover.
+// loaded as a chunk of its own; anything else (production) runs this app exactly as before. The flags are read the one
+// way every app reads them (configFlags, ADR-007): production with schema 2 still runs this app.
 const SCHEMA_2 = configFlags((window as any).HALOM_MENUS_CONFIG).schema === 2;
 if (!SCHEMA_2) { applyLang(); document.title = PRODUCT.mark; }
 

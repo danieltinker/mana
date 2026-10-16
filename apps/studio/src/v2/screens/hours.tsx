@@ -2,31 +2,39 @@
 // the venue's clock (Asia/Jerusalem). "Open now" is what the guest's phone reads: the contracts' isOpenAt and nextOpening
 // over the same rows public_menu sends, and like them it changes at once, without a publish. A day can have several
 // windows (07:00–11:00 and 17:00–22:00); a window may run past midnight. #/hours is the week, #/hours/parts the
-// schedules, #/hours/parts/<id> (or new, new-special) one schedule in a sheet.
-import { useState } from 'preact/hooks';
+// schedules, #/hours/parts/<id> (or new, new-special) one schedule in a sheet. A counter sees all of it read-only.
+//
+// Opening hours and closed dates have no `updated_at` (the schema's): a window's new times are stored only while it still
+// has the times this screen read (`saveHours`); a closed date is only added or deleted. A day part saves like a dish:
+// only what changed since the sheet opened, guarded by `updated_at`, and a conflict asks the owner (conflict.tsx).
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { isClosedOn, isOpenAt, localParts, nextOpening, type ScheduleKind, type VenueHoursRow, type Weekday } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Seg, Sheet, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
-import type { FieldError } from '../data/forms.ts';
+import { changed, type FieldError } from '../data/forms.ts';
 import {
   WEEK, closureFromForm, dayHours, hhmm, hoursFromForm, newClosureForm, newScheduleForm, newWindowForm, scheduleFromForm, scheduleToForm, upcomingClosures,
   venueHoursOf, type ClosureForm, type ScheduleForm, type WindowForm,
 } from '../data/hours.ts';
 import { clock } from '../data/live.ts';
-import { byCreated, named } from '../data/rows.ts';
-import { addRows, canEdit, menu, removeRows, saveRow, saveVenue } from '../data/store.ts';
+import { byCreated, named, newId } from '../data/rows.ts';
+import { ANY_ROW, addRows, canEdit, menu, removeRows, resync, saveHours, saveNow, saveVenue } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { LangSeg, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
+import { LangSeg, ReadOnly, TabPanel, Tabs, useEditOnly, useEntryLang } from '../ui.tsx';
 import { dateText, dayName, daysText, momentText, timeRange } from '../words.ts';
 
 export function HoursScreen({ rest }: { rest: string[] }) {
   const d = menu.value!;
   const tab = rest[0] === 'parts' ? 'parts' : 'week';
+  const editable = canEdit();
+  // a new day part or special only edits: an account that may not edit is taken back to the list
+  useEditOnly(tab === 'parts' && !!rest[1]?.startsWith('new'), editable, 'hours/parts');
   return (
     <div class="page page-hours" data-screen="hours">
       <PageHead title={t('hours.title')} />
+      {!editable && <Note>{t('ro.settings')}</Note>}
       <Tabs label={t('hours.tabs')} value={tab} onChange={(k) => go(k === 'parts' ? 'hours/parts' : 'hours', true)}
         tabs={[{ key: 'week', label: t('hours.tab.week') }, { key: 'parts', label: t('hours.tab.parts'), badge: d.schedules.length }]} />
       <TabPanel id={tab}>{tab === 'week' ? <Week /> : <Parts open={rest[1] ?? null} />}</TabPanel>
@@ -35,26 +43,26 @@ export function HoursScreen({ rest }: { rest: string[] }) {
 }
 
 /** The day chips: a group of toggles, Sunday first, and "every day". */
-export function DayChips({ days, onChange, label, id }: { days: readonly Weekday[]; onChange: (d: Weekday[]) => void; label: string; id?: string }) {
+export function DayChips({ days, onChange, label, id, disabled }: { days: readonly Weekday[]; onChange: (d: Weekday[]) => void; label: string; id?: string; disabled?: boolean }) {
   const all = days.length === WEEK.length;
   return (
     <div class="daychips" role="group" aria-label={label} data-days={id}>
       {WEEK.map((d) => {
         const on = days.includes(d);
-        return <button key={d} type="button" class="daychip" aria-pressed={on ? 'true' : 'false'} aria-label={dayName(d, true)} data-day={d}
+        return <button key={d} type="button" class="daychip" aria-pressed={on ? 'true' : 'false'} aria-label={dayName(d, true)} data-day={d} disabled={disabled}
           onClick={() => onChange(on ? days.filter((x) => x !== d) : WEEK.filter((x) => x === d || days.includes(x)))}>{dayName(d)}</button>;
       })}
-      <button type="button" class="linkbtn daychip-all" aria-pressed={all ? 'true' : 'false'} onClick={() => onChange(all ? [] : [...WEEK])} data-day="all">{t('days.every')}</button>
+      <button type="button" class="linkbtn daychip-all" aria-pressed={all ? 'true' : 'false'} disabled={disabled} onClick={() => onChange(all ? [] : [...WEEK])} data-day="all">{t('days.every')}</button>
     </div>
   );
 }
 
 /** From and to, as the phone's time pickers. */
-export function TimePair({ from, to, onFrom, onTo, id }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void; id: string }) {
+export function TimePair({ from, to, onFrom, onTo, id, disabled }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void; id: string; disabled?: boolean }) {
   return (
     <div class="timepair" data-times={id}>
-      <Field label={t('hours.from')}>{(p) => <input {...p} type="time" dir="ltr" value={from} data-field={id + '-from'} onInput={(e) => onFrom((e.target as HTMLInputElement).value)} />}</Field>
-      <Field label={t('hours.to')}>{(p) => <input {...p} type="time" dir="ltr" value={to} data-field={id + '-to'} onInput={(e) => onTo((e.target as HTMLInputElement).value)} />}</Field>
+      <Field label={t('hours.from')}>{(p) => <input {...p} type="time" dir="ltr" value={from} disabled={disabled} data-field={id + '-from'} onInput={(e) => onFrom((e.target as HTMLInputElement).value)} />}</Field>
+      <Field label={t('hours.to')}>{(p) => <input {...p} type="time" dir="ltr" value={to} disabled={disabled} data-field={id + '-to'} onInput={(e) => onTo((e.target as HTMLInputElement).value)} />}</Field>
     </div>
   );
 }
@@ -132,8 +140,14 @@ function WindowEditor({ row, onDone }: { row: VenueHoursRow; onDone: () => void 
     const m = hoursFromForm([row.weekday], from, to, d.hours, row.id);
     if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy('save');
-    try { await saveRow('venue_hours', row.id, { opens: from, closes: to }); onDone(); }
-    catch (e) { setError(errText(toV2Error(e).code)); }
+    try { await saveHours(row.id, { opens: from, closes: to }); onDone(); }
+    catch (e) {
+      const code = toV2Error(e).code;
+      // changed on another screen meanwhile: the times as stored now, to change again
+      const now = code === 'stale' ? menu.value?.hours.find((h) => h.id === row.id) : null;
+      if (now) { setFrom(hhmm(now.opens)); setTo(hhmm(now.closes)); }
+      setError(errText(code));
+    }
     finally { setBusy(''); }
   }
   async function remove() {
@@ -159,13 +173,17 @@ function AddHours() {
   const d = menu.value!;
   const [open, setOpen] = useState(false), [days, setDays] = useState<Weekday[]>([]), [from, setFrom] = useState('08:00'), [to, setTo] = useState('17:00');
   const [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  // the new windows' ids, one per day: kept until they are stored, so trying again after a lost answer adds none twice
+  const ids = useRef(new Map<Weekday, string>());
   if (!open) return <Btn icon="plus" onClick={() => setOpen(true)} data-action="add-hours">{t('hours.add')}</Btn>;
   async function add() {
     const m = hoursFromForm(days, from, to, d.hours);
     if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy(true);
     try {
-      await addRows('venue_hours', m.value);
+      const idOf = (w: Weekday) => { if (!ids.current.has(w)) ids.current.set(w, newId()); return ids.current.get(w)!; };
+      await addRows('venue_hours', m.value.map((r) => ({ id: idOf(r.weekday), ...r })));
+      ids.current.clear();
       toast(t('hours.added', { days: daysText(days), range: timeRange(from, to) }));
       setDays([]); setOpen(false);
     } catch (e) { setError(errText(toV2Error(e).code)); }
@@ -194,13 +212,15 @@ function Closures() {
   const rows = upcomingClosures(d.closures, today);
   const [adding, setAdding] = useState(false), [form, setForm] = useState<ClosureForm>(() => newClosureForm(today));
   const [error, setError] = useState(''), [busy, setBusy] = useState('');
+  // the new closed date's id: kept until it is stored (a retry after a lost answer adds it once)
+  const [nextId, setNextId] = useState(newId);
   const L = lang.value;
   const noteKey = L === 'he' ? 'noteHe' : 'noteEn';
   async function add() {
     const m = closureFromForm(form);
     if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy('add');
-    try { await addRows('venue_closures', [m.value]); setAdding(false); setForm(newClosureForm(today)); }
+    try { await addRows('venue_closures', [{ id: nextId, ...m.value }]); setNextId(newId()); setAdding(false); setForm(newClosureForm(today)); }
     catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(''); }
   }
@@ -228,7 +248,7 @@ function Closures() {
         );
       })}</ul>}
       {editable && !adding && <Btn icon="plus" onClick={() => { setAdding(true); setError(''); }} data-action="add-closure">{t('closures.add')}</Btn>}
-      {adding && (
+      {adding && editable && (
         <div class="card-in" data-closure-add>
           <div class="grid2">
             <Field label={t('closures.from')}>{(p) => <input {...p} type="date" dir="ltr" value={form.from} min={today} data-field="closure-from" onInput={(e) => { setForm({ ...form, from: (e.target as HTMLInputElement).value }); setError(''); }} />}</Field>
@@ -306,7 +326,7 @@ function Parts({ open }: { open: string | null }) {
         ))}</ul>
         {buttons}
       </>}
-      {open && <ScheduleSheet key={open} id={open.startsWith('new') ? null : open} kind={open === 'new-special' ? 'special' : 'day_part'} onClose={() => go('hours/parts')} />}
+      {open && (editable || !open.startsWith('new')) && <ScheduleSheet key={open} id={open.startsWith('new') ? null : open} kind={open === 'new-special' ? 'special' : 'day_part'} onClose={() => go('hours/parts')} />}
     </>
   );
 }
@@ -316,10 +336,22 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
   const row = id ? d.schedules.find((s) => s.id === id) : null;
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
-  const [form, setForm] = useState<ScheduleForm>(() => (row ? scheduleToForm(row) : newScheduleForm(kind)));
+  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays)
+  const [opened, setOpened] = useState<ScheduleForm>(() => (row ? scheduleToForm(row) : newScheduleForm(kind)));
+  const [form, setForm] = useState<ScheduleForm>(opened);
+  const [newScheduleId] = useState(newId);
   const [errors, setErrors] = useState<readonly FieldError[]>([]), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [del, setDel] = useState(false);
   const editable = canEdit();
+  const dirty = JSON.stringify(form) !== JSON.stringify(opened);
+  // the schedule as stored again (the owner's choice in a conflict, a refusal; the menu read again while nothing is typed)
+  useEffect(() => {
+    const r = resync.value;
+    if (!r || !row) return;
+    const ours = r.table === 'schedules' && r.id === row.id;
+    if (!ours && (r.id !== ANY_ROW || dirty)) return;
+    const f = scheduleToForm(row); setForm(f); setOpened(f); setErrors([]);
+  }, [resync.value]);
   if (id && !row) return <Sheet open onClose={onClose} title={t('parts.title')} name="schedule"><p class="muted">{t('item.notFound')}</p></Sheet>;
   const nameKey = L === 'he' ? 'nameHe' : 'nameEn';
   const set = (f: ScheduleForm) => { setForm(f); setErrors([]); setError(''); };
@@ -332,7 +364,11 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
     if (!m.ok) { setErrors(m.errors); return; }
     setBusy(true);
     try {
-      if (row) await saveRow('schedules', row.id, m.value); else await addRows('schedules', [m.value]);
+      if (row) {
+        const was = scheduleFromForm(opened);
+        // 'conflict': changed somewhere else; the dialog asks, the sheet stays and follows the owner's choice (resync)
+        if (await saveNow('schedules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'conflict') return;
+      } else await addRows('schedules', [{ id: newScheduleId, ...m.value }]);
       toast(t('parts.saved')); onClose();
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
@@ -349,30 +385,33 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
       head={<LangSeg value={L} onChange={setL} langs={langs} />}
       foot={editable && <>{row && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-schedule">{t('app.delete')}</Btn>}
         <Btn kind="primary" busy={busy} onClick={save} data-action="save-schedule">{row ? t('app.save') : t('parts.create')}</Btn></>}>
+      {!editable && <Note>{t('ro.settings')}</Note>}
+      <ReadOnly when={!editable} class="schedule-form">
       <Field label={t('parts.name') + ' · ' + t('app.' + L)} hint={t('parts.nameHint')} error={errAt('name')}>{(p) => (
         <input {...p} type="text" dir="auto" lang={L} maxLength={60} value={form[nameKey]} disabled={!editable} data-field={'schedule-name-' + L} onInput={(e) => set({ ...form, [nameKey]: (e.target as HTMLInputElement).value })} />
       )}</Field>
       <div class="field"><span class="flabel">{t('parts.kind')}</span>
-        <Seg value={form.kind} label={t('parts.kind')} onChange={(k) => set({ ...form, kind: k })} options={[{ value: 'day_part', label: t('parts.kind.day_part') }, { value: 'special', label: t('parts.kind.special') }]} />
+        <Seg value={form.kind} label={t('parts.kind')} disabled={!editable} onChange={(k) => set({ ...form, kind: k })} options={[{ value: 'day_part', label: t('parts.kind.day_part') }, { value: 'special', label: t('parts.kind.special') }]} />
         <p class="hint">{t('parts.kindHint.' + form.kind)}</p>
       </div>
       <fieldset class="windows">
         <legend>{t('parts.when')}</legend>
         {form.windows.map((w, i) => (
           <div key={w.key} class="windowcard" data-window={i}>
-            <DayChips id={'w' + i} days={w.days} label={t('hours.days')} onChange={(days) => setWin(i, { days })} />
-            <TimePair id={'w' + i} from={w.from} to={w.to} onFrom={(v) => setWin(i, { from: v })} onTo={(v) => setWin(i, { to: v })} />
+            <DayChips id={'w' + i} days={w.days} label={t('hours.days')} disabled={!editable} onChange={(days) => setWin(i, { days })} />
+            <TimePair id={'w' + i} from={w.from} to={w.to} disabled={!editable} onFrom={(v) => setWin(i, { from: v })} onTo={(v) => setWin(i, { to: v })} />
             {(errAt(`windows.${i}`)) && <p class="ferr" role="alert">{errAt(`windows.${i}`)}</p>}
-            {form.windows.length > 1 && <Btn small kind="ghost" icon="trash" onClick={() => set({ ...form, windows: form.windows.filter((_, j) => j !== i) })}>{t('parts.removeTime')}</Btn>}
+            {editable && form.windows.length > 1 && <Btn small kind="ghost" icon="trash" onClick={() => set({ ...form, windows: form.windows.filter((_, j) => j !== i) })}>{t('parts.removeTime')}</Btn>}
           </div>
         ))}
         {errAt('windows') && !form.windows.length && <p class="ferr" role="alert">{errAt('windows')}</p>}
         {editable && <Btn small icon="plus" onClick={() => set({ ...form, windows: [...form.windows, newWindowForm()] })} data-action="add-window">{t('parts.addTime')}</Btn>}
       </fieldset>
       <div class="grid2">
-        <Field label={t('parts.validFrom')} optional error={errAt('validFrom')}>{(p) => <input {...p} type="date" dir="ltr" value={form.validFrom} data-field="schedule-from" onInput={(e) => set({ ...form, validFrom: (e.target as HTMLInputElement).value })} />}</Field>
-        <Field label={t('parts.validTo')} optional error={errAt('validTo')}>{(p) => <input {...p} type="date" dir="ltr" value={form.validTo} data-field="schedule-to" onInput={(e) => set({ ...form, validTo: (e.target as HTMLInputElement).value })} />}</Field>
+        <Field label={t('parts.validFrom')} optional error={errAt('validFrom')}>{(p) => <input {...p} type="date" dir="ltr" value={form.validFrom} disabled={!editable} data-field="schedule-from" onInput={(e) => set({ ...form, validFrom: (e.target as HTMLInputElement).value })} />}</Field>
+        <Field label={t('parts.validTo')} optional error={errAt('validTo')}>{(p) => <input {...p} type="date" dir="ltr" value={form.validTo} disabled={!editable} data-field="schedule-to" onInput={(e) => set({ ...form, validTo: (e.target as HTMLInputElement).value })} />}</Field>
       </div>
+      </ReadOnly>
       {row && <section aria-labelledby="sched-used-h">
         <h3 id="sched-used-h">{t('lib.used')}</h3>
         {n === 0 ? <p class="muted">{t('parts.unusedHint')}</p>

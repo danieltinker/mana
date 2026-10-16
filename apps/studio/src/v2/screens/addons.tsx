@@ -5,19 +5,32 @@
 // answer is said in plain words and the library is shown as it now is.
 import { useState } from 'preact/hooks';
 import { LIMITS, type AddonGroupRow } from '@mana/contracts';
-import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
+import { Btn, Confirm, Empty, Field, Icon, IconBtn, Ltr, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
 import { capacityOf, groupToForm, newGroupForm, newOptionForm, withSelection, type FieldError, type GroupForm, type OptionForm } from '../data/forms.ts';
+import type { GroupRows } from '../data/menu.ts';
 import { canHoldOpeners, openTargets } from '../data/nesting.ts';
-import { byCreated, named } from '../data/rows.ts';
+import { byCreated, byPosition, named, newId } from '../data/rows.ts';
 import { canEdit, menu, removeRows, saveGroupForm } from '../data/store.ts';
-import { langsOf, ruleLine } from '../format.ts';
+import { langsOf, ruleLine, shekels } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { Icon2, LangSeg, MoneyInput, Stepper, useEntryLang } from '../ui.tsx';
+import { Icon2, LangSeg, MoneyInput, ReadOnly, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
+import { ruleSummary } from '../words.ts';
+
+/** A suggestion rule as the rules list says it: its label, its line, or the rule in words. */
+function ruleName(r: { id: string; name: string }): string {
+  const d = menu.value, L = lang.value;
+  const row = d?.rules.find((x) => x.id === r.id);
+  if (r.name || !row || !d) return r.name || t('lib.rules.unnamed');
+  return ruleSummary(row, (kind, id) => named(kind === 'dish' ? d.dishes.find((x) => x.id === id) : kind === 'section' ? d.sections.find((x) => x.id === id) : d.options.find((x) => x.id === id), L));
+}
 
 export function AddonsScreen({ rest }: { rest: string[] }) {
-  if (rest[0]) return <GroupEditor key={rest[0]} id={rest[0] === 'new' ? null : rest[0]} />;
+  const editable = canEdit();
+  // a new group is only for an account that edits: any other is taken back to the library (also when it came by address)
+  useEditOnly(rest[0] === 'new', editable, 'addons');
+  if (rest[0] && !(rest[0] === 'new' && !editable)) return <GroupEditor key={rest[0]} id={rest[0] === 'new' ? null : rest[0]} />;
   return <Library />;
 }
 
@@ -68,22 +81,30 @@ function Library() {
   );
 }
 
+/** A form's content, for "is anything changed" (the list keys of options not stored yet do not count). */
+const shape = (f: GroupForm) => JSON.stringify({ ...f, options: f.options.map(({ key: _key, ...o }) => o) });
+
 function GroupEditor({ id }: { id: string | null }) {
   const d = menu.value!, UI = lang.value;
   const row = id ? d.groups.find((g) => g.id === id) : null;
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
   const [form, setForm] = useState<GroupForm>(() => (row ? groupToForm(row, d.options) : newGroupForm()));
+  // the group as this form read it: its version (sent with every save) and its content (what "changed" compares with)
+  const [expected, setExpected] = useState<string | null>(row?.updated_at ?? null);
+  const [base, setBase] = useState(() => shape(form));
+  // a new group's id is made here and kept, so saving again after a lost answer never makes a second group
+  const [gid] = useState(() => id ?? newId());
   const [errors, setErrors] = useState<readonly FieldError[]>([]), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [del, setDel] = useState(false), [leave, setLeave] = useState(false);
+  const [stale, setStale] = useState<GroupRows | null>(null), [rules, setRules] = useState<{ id: string; name: string }[] | null>(null);
   const editable = canEdit();
   if (id && !row) return <div class="page"><a class="backlink" href="#/addons"><Icon name="chev" size={16} back />{t('lib.title')}</a><p class="muted">{t('lib.notFound')}</p></div>;
 
   const nested = !canHoldOpeners(id, d.options);
   const targets = openTargets(id, byCreated(d.groups), d.options);
   const u = row ? useOf(row) : { dishes: [], opens: [], openedBy: [] };
-  const shape = (f: GroupForm) => JSON.stringify({ ...f, options: f.options.map(({ key: _key, ...o }) => o) });
-  const dirty = shape(form) !== shape(row ? groupToForm(row, d.options) : newGroupForm());
+  const dirty = shape(form) !== base;
   const many = form.selection === 'multiple';
   const nameKey = L === 'he' ? 'nameHe' : 'nameEn';
   const errAt = (field: string) => { const e = errors.find((x) => x.field === field || x.field.startsWith(field + '_')); return e ? fieldText(e) : undefined; };
@@ -91,17 +112,30 @@ function GroupEditor({ id }: { id: string | null }) {
   const setOpt = (i: number, patch: Partial<OptionForm>) => set({ ...form, options: form.options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
   const moveOpt = (i: number, to: number) => { const o = [...form.options]; const [x] = o.splice(i, 1); o.splice(to, 0, x!); set({ ...form, options: o }); };
   const cap = capacityOf(form.options);
+  /** The form now shows `rows` as stored, and the next save goes over their version. */
+  const readAgain = (rows: GroupRows) => { const f = groupToForm(rows.group, rows.options); setForm(f); setBase(shape(f)); setExpected(rows.group.updated_at); };
 
-  async function save() {
+  async function save({ over = expected, confirmRules = false }: { over?: string | null; confirmRules?: boolean } = {}) {
     if (busy) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setStale(null); setRules(null);
     try {
-      const g = await saveGroupForm(id, form);
-      toast(t('lib.saved'));
-      if (!id) go('addons/' + g.id, true); else setForm(groupToForm(g, menu.value!.options));
+      const r = await saveGroupForm(gid, form, over, { confirmRules });
+      if (r.ok) {
+        toast(t('lib.saved'));
+        if (!id) go('addons/' + gid, true);
+        else readAgain({ group: r.group, options: menu.value!.options.filter((o) => o.group_id === gid) });
+      } else if (r.code === 'stale') setStale(r.current);
+      else setRules(r.rules);
     } catch (e) {
       const err = toV2Error(e);
       if (err.code === 'form_invalid') { setErrors(err.detail as FieldError[]); return; }
+      if (err.code === 'dish_limits') {
+        // a dish has its own limits for this group that the change would break: said with the dish's name
+        const x = err.detail as { dish: string; dishId: string | null };
+        const dish = menu.value!.dishes.find((r) => r.id === x.dishId);
+        setError(t('lib.e.dish_limits', { dish: (dish ? named(dish, UI) : x.dish) || t('menu2.unnamed') }));
+        return;
+      }
       setError(errText(err.code));
       if (err.code === 'nesting_too_deep') {
         // the library as it is stored now decides: an opener it no longer allows is dropped from the form
@@ -111,6 +145,9 @@ function GroupEditor({ id }: { id: string | null }) {
       }
     } finally { setBusy(false); }
   }
+  // changed elsewhere: save the owner's form over the version stored now, or show the stored one
+  const keepMine = () => { const over = stale!.group.updated_at; setExpected(over); save({ over }); };
+  const takeStored = () => { readAgain(stale!); setStale(null); };
   async function remove() {
     setBusy(true);
     try { await removeRows('addon_groups', [row!.id]); setDel(false); go('addons', true); }
@@ -123,8 +160,10 @@ function GroupEditor({ id }: { id: string | null }) {
     <div class="page has-sticky" data-screen="group-editor" data-group={id ?? 'new'}>
       <button type="button" class="backlink linkbtn" onClick={back}><Icon name="chev" size={16} back />{t('lib.title')}</button>
       <PageHead title={row ? named(row, UI) || t('menu2.unnamed') : t('lib.new')}><LangSeg value={L} onChange={setL} langs={langs} /></PageHead>
+      {!editable && <Note>{t('menu2.readOnly')}</Note>}
       {nested && <Note title={t('lib.nested.title')}>{t('lib.nested.body', { names: u.openedBy.join(', ') })}</Note>}
 
+      <ReadOnly when={!editable} class="group-form">
       <div class="card">
         <Field label={t('lib.name') + ' · ' + t('app.' + L)} error={errAt('name')}>{(p) => (
           <input {...p} type="text" dir="auto" lang={L} maxLength={60} value={form[nameKey]} disabled={!editable} data-field={'group-name-' + L} onInput={(e) => set({ ...form, [nameKey]: (e.target as HTMLInputElement).value })} />
@@ -136,13 +175,13 @@ function GroupEditor({ id }: { id: string | null }) {
 
       <div class="card" role="group" aria-labelledby="how-h">
         <h2 id="how-h">{t('lib.how')}</h2>
-        <Seg value={form.selection} label={t('lib.how')} onChange={(v) => set(withSelection(form, v))}
+        <Seg value={form.selection} label={t('lib.how')} disabled={!editable} onChange={(v) => set(withSelection(form, v))}
           options={[{ value: 'single', label: t('lib.single') }, { value: 'multiple', label: t('lib.multiple') }]} />
         <div class="switchrow"><span>{t('lib.required')}</span>
           <Switch checked={form.min > 0} disabled={!editable} label={t('lib.required')} onChange={(on) => set({ ...form, min: on ? Math.max(1, form.min) : 0 })} /></div>
         {many && <div class="grid2">
-          {form.min > 0 && <div class="field"><span class="flabel">{t('ed.min')}</span><Stepper id="group-min" value={form.min} min={1} max={form.max} label={t('ed.min')} onChange={(n) => set({ ...form, min: n })} /></div>}
-          <div class="field"><span class="flabel">{t('ed.max')}</span><Stepper id="group-max" value={form.max} min={Math.max(1, form.min)} max={Math.max(form.min, Math.min(30, Math.max(cap, 1)))} label={t('ed.max')} onChange={(n) => set({ ...form, max: n })} /></div>
+          {form.min > 0 && <div class="field"><span class="flabel">{t('ed.min')}</span><Stepper id="group-min" value={form.min} min={1} max={form.max} label={t('ed.min')} disabled={!editable} onChange={(n) => set({ ...form, min: n })} /></div>}
+          <div class="field"><span class="flabel">{t('ed.max')}</span><Stepper id="group-max" value={form.max} min={Math.max(1, form.min)} max={Math.max(form.min, Math.min(30, Math.max(cap, 1)))} label={t('ed.max')} disabled={!editable} onChange={(n) => set({ ...form, max: n })} /></div>
         </div>}
         <p class="hint" data-rule>{ruleLine(form.min, form.max)}</p>
         {errAt('limits') && <p class="ferr" role="alert">{errAt('limits')}</p>}
@@ -162,6 +201,7 @@ function GroupEditor({ id }: { id: string | null }) {
         </ol>
         {editable && form.options.length < LIMITS.optionsPerGroup && <Btn icon="plus" onClick={() => set({ ...form, options: [...form.options, newOptionForm()] })} data-action="add-option">{t('lib.addOption')}</Btn>}
       </section>
+      </ReadOnly>
 
       {row && <section class="card" aria-labelledby="used-h">
         <h2 id="used-h">{t('lib.used')}</h2>
@@ -170,7 +210,12 @@ function GroupEditor({ id }: { id: string | null }) {
         {editable && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-group">{t('lib.delete')}</Btn>}
       </section>}
 
-      {editable && <Sticky note={error ? <span class="ferr" role="alert" data-error>{error}</span> : dirty ? t('save.leave') : undefined}><Btn kind="primary" block busy={busy} disabled={!dirty && !!row} onClick={save} data-action="save-group">{row ? t('lib.save') : t('lib.create')}</Btn></Sticky>}
+      {editable && <Sticky note={error ? <span class="ferr" role="alert" data-error>{error}</span> : dirty && !stale ? t('save.leave') : undefined}>
+        {stale && <StaleGroup rows={stale} busy={busy} onKeep={keepMine} onTake={takeStored} />}
+        {!stale && <Btn kind="primary" block busy={busy} disabled={!dirty && !!row} onClick={() => save()} data-action="save-group">{row ? t('lib.save') : t('lib.create')}</Btn>}
+      </Sticky>}
+      <Confirm open={!!rules} title={t('lib.rules.title')} body={tn('lib.rules.body', rules?.length ?? 0, { names: (rules ?? []).map(ruleName).join(', ') })}
+        confirmLabel={t('lib.rules.go')} danger busy={busy} onConfirm={() => save({ confirmRules: true })} onClose={() => setRules(null)} />
       <Confirm open={del} title={t('lib.delete')} body={u.dishes.length ? tn('lib.deleteUsed', u.dishes.length, { name: named(row, UI) }) : t('lib.deleteConfirm', { name: named(row, UI) })}
         confirmLabel={t('app.delete')} danger busy={busy} onConfirm={remove} onClose={() => setDel(false)} />
       <Confirm open={leave} title={t('lib.leave.title')} body={t('lib.leave.body')} confirmLabel={t('lib.leave.go')} onConfirm={() => { setLeave(false); go('addons'); }} onClose={() => setLeave(false)} />
@@ -202,7 +247,7 @@ function OptionCard({ o, i, n, L, many, nested, targets, editable, errAt, onChan
           <input {...p} type="text" dir="auto" lang={L} maxLength={60} value={o[nameKey]} disabled={!editable} data-field={`option-name-${i}-${L}`} onInput={(e) => onChange({ [nameKey]: (e.target as HTMLInputElement).value })} />
         )}</Field>
         <Field label={t('lib.optionPrice')} hint={t('lib.optionPriceHint')} error={errAt('price')}>{(p) => (
-          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={o.price} placeholder="0" onInput={(v) => onChange({ price: v })} />
+          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={o.price} placeholder="0" field={`option-price-${i}`} disabled={!editable} onInput={(v) => onChange({ price: v })} />
         )}</Field>
       </div>
       {many && !o.opensGroupId && <div class="switchrow"><span>{t('lib.maxQty')}</span>
@@ -218,6 +263,26 @@ function OptionCard({ o, i, n, L, many, nested, targets, editable, errAt, onChan
         )}</Field>
       )}
     </li>
+  );
+}
+
+/** The group was saved somewhere else since this form read it: how it is stored now, and the owner's two ways on. */
+function StaleGroup({ rows, busy, onKeep, onTake }: { rows: GroupRows; busy: boolean; onKeep: () => void; onTake: () => void }) {
+  const L = lang.value;
+  const opts = byPosition(rows.options);
+  return (
+    <div class="stale" role="alert" data-stale>
+      <p class="note-title">{t('lib.stale.title')}</p>
+      <p class="fine">{t('lib.stale.body')}</p>
+      <div class="stale-now">
+        <p><span class="strong">{named(rows.group, L) || t('menu2.unnamed')}</span> · {ruleLine(rows.group.min_units, rows.group.max_units)}</p>
+        <ul>{opts.map((o) => <li key={o.id}>{named(o, L) || t('menu2.unnamed')}{o.price > 0 && <> <Ltr>+{shekels(o.price)}</Ltr></>}{o.is_default && <span class="muted"> · {t('lib.default')}</span>}</li>)}</ul>
+      </div>
+      <div class="btnrow">
+        <Btn kind="primary" busy={busy} onClick={onKeep} data-action="keep-mine">{t('lib.stale.keep')}</Btn>
+        <Btn disabled={busy} onClick={onTake} data-action="take-stored">{t('lib.stale.take')}</Btn>
+      </div>
+    </div>
   );
 }
 

@@ -5,14 +5,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, defaultSelection, priceDish, validateSnapshotV2 } from '@mana/contracts';
 import {
-  agorotOf, blockedColumns, changed, dishDraft, dishLimitsFromForm, dishToForm, effectiveLimits, groupFromForm, groupToForm, limitChoices,
-  newGroupForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
+  agorotOf, blockedColumns, changed, dishDraft, dishEdit, dishLimitsFromForm, dishToForm, effectiveLimits, groupFromForm, groupToForm, limitChoices,
+  newGroupForm, newOptionForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
 } from '../../src/v2/data/forms.ts';
 import { canHoldOpeners, nestingProblem, openTargets } from '../../src/v2/data/nesting.ts';
 import { choose, clearGroup, guestModel, menuPrice, pricingOf, setQty, unitsIn } from '../../src/v2/data/guest.ts';
 import { menuChanges, standingOf, anyChange } from '../../src/v2/data/changes.ts';
 import { refusal, toV2Error, V2Error } from '../../src/v2/data/errors.ts';
-import { byPosition, reorder } from '../../src/v2/data/rows.ts';
+import { byPosition, newId, reorder } from '../../src/v2/data/rows.ts';
 
 // ---------------------------------------------------------------- an invented menu, as stored rows
 const V = '00000000-0000-4000-8000-0000000000aa';
@@ -71,6 +71,37 @@ test('a dish: the form shows shekels, the write stores agorot; a field with a pr
   assert.deepEqual([...blockedColumns(bad.errors)].sort(), ['name_en', 'name_he', 'price']);
 });
 
+test('one edit of a dish asks to store only the columns it changed (never a column changed elsewhere and stale here)', () => {
+  const f = dishToForm(schnitzel);
+  // the price is typed: the price only, though every other column of this (stale) form differs from some stored row
+  assert.deepEqual(dishEdit(f, { ...f, price: '65' }).patch, { price: 6500 });
+  assert.deepEqual(dishEdit(f, { ...f, descHe: ' פריך ' }).patch, { desc_he: 'פריך' });
+  assert.deepEqual(dishEdit(f, { ...f, tags: ['vegan'] }).patch, { tags: ['vegan'] });
+  // a price with a problem is held back (and said), the edit stores nothing; fixed, it goes, even back to "no price"
+  const typo = { ...f, price: '6o' };
+  assert.deepEqual(dishEdit(f, typo), { patch: {}, errors: [{ field: 'price', code: 'price_invalid' }] });
+  assert.deepEqual(dishEdit(typo, { ...typo, price: '60' }).patch, { price: 6000 });
+  assert.deepEqual(dishEdit(typo, { ...typo, price: '' }).patch, { price: null });
+  // both names emptied: held back; one typed again: both names go
+  const blank = { ...f, nameHe: '', nameEn: '' };
+  assert.deepEqual(dishEdit(f, blank).patch, {});
+  assert.deepEqual(dishEdit(blank, { ...blank, nameEn: 'Schnitzel' }).patch, { name_he: '', name_en: 'Schnitzel' });
+  // the section is not an autosave column (moving takes a new position: its own write)
+  assert.deepEqual(dishEdit(f, { ...f, sectionId: 'elsewhere' }).patch, {});
+});
+
+test('new rows get their ids here: a uuid, a new one each time; a new choice is saved under its own', () => {
+  const a = newId(), b = newId();
+  assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.notEqual(a, b);
+  const f = groupToForm(side, rows.options);
+  const extra = newOptionForm();
+  assert.equal(extra.id, null);
+  const w = groupFromForm({ ...f, options: [...f.options, { ...extra, nameHe: 'צ׳יפס בטטה' }] }, side.id);
+  assert.equal(w.ok, true);
+  assert.deepEqual(w.value.options.map((o) => o.id), [fries.id, salad.id, rice.id, extra.key], 'the stored ones keep theirs; the new one is saved under the id made for it');
+});
+
 test('a group: the form round-trips, and every rule the validators hold is checked before a write', () => {
   const f = groupToForm(side, rows.options);
   assert.deepEqual(f.options.map((o) => o.nameEn), ['Fries', 'Salad', 'Rice']);
@@ -80,17 +111,20 @@ test('a group: the form round-trips, and every rule the validators hold is check
   assert.deepEqual(w.value.group, { label: 'Side, mains', name_he: 'תוספת לבחירה', name_en: 'Side of choice', selection: 'multiple', min_units: 1, max_units: 2 });
   assert.deepEqual(w.value.options.map((o) => [o.id, o.position, o.price, o.opens_group_id]), [[fries.id, 0, 0, sauce.id], [salad.id, 1, 400, null], [rice.id, 2, 0, null]]);
 
-  const codes = (form, gid = side.id) => { const r = groupFromForm(form, gid); return r.ok ? [] : r.errors.map((e) => e.code); };
-  assert.deepEqual(codes({ ...f, nameHe: '', nameEn: '' }), ['name_missing']);
-  assert.deepEqual(codes({ ...f, options: [] }), ['options_empty']);
-  assert.deepEqual(codes({ ...f, min: 4, max: 4 }), ['min_unreachable']);
-  assert.deepEqual(codes({ ...f, min: 2, max: 1 }), ['limits_invalid']);
-  assert.deepEqual(codes({ ...f, selection: 'single' }), ['single_max']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => ({ ...o, isDefault: true, maxQty: i === 0 ? 1 : 1 })) }), ['defaults_exceed']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 0 ? { ...o, maxQty: 2 } : o)) }), ['opener_qty']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, opensGroupId: side.id } : o)) }), ['opens_self']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, price: '1,2,3' } : o)) }), ['price_invalid']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, maxQty: 11 } : o)) }), ['option_qty_invalid']);
+  // the rules are the contracts' (validateAddonGroup, the database's twin): the same codes, at the form's fields
+  const issues = (form, gid = side.id) => { const r = groupFromForm(form, gid); return r.ok ? [] : r.errors.map((e) => e.code + '@' + e.field); };
+  assert.deepEqual(issues({ ...f, nameHe: '', nameEn: '' }), ['name_missing@name']);
+  assert.deepEqual(issues({ ...f, options: [] }), ['options_empty@options']);
+  assert.deepEqual(issues({ ...f, min: 4, max: 4 }), ['min_unreachable@limits']);
+  assert.deepEqual(issues({ ...f, min: 2, max: 1 }), ['units_invalid@limits']);
+  assert.deepEqual(issues({ ...f, selection: 'single' }), ['single_max@limits']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o) => ({ ...o, isDefault: true })) }), ['defaults_invalid@defaults']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 0 ? { ...o, maxQty: 2 } : o)) }), ['opener_qty@options.0.maxQty']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, opensGroupId: side.id } : o)) }), ['nesting_invalid@options.1.opens']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, price: '1,2,3' } : o)) }), ['price_invalid@options.2.price']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, maxQty: 11 } : o)) }), ['qty_invalid@options.2.maxQty']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, nameHe: '', nameEn: '' } : o)) }), ['name_missing@options.1.name']);
+  assert.deepEqual(issues({ ...f, label: 'א'.repeat(61) }), ['text_too_long@label']);
 
   // switching to "choose one" keeps the form valid: one unit, one default, one of each choice
   const many = { ...f, min: 1, max: 2, options: f.options.map((o) => ({ ...o, isDefault: true, maxQty: o.opensGroupId ? 1 : 3 })) };
@@ -98,7 +132,7 @@ test('a group: the form round-trips, and every rule the validators hold is check
   assert.deepEqual([one.min, one.max], [1, 1]);
   assert.deepEqual(one.options.map((o) => [o.isDefault, o.maxQty]), [[true, 1], [false, 1], [false, 1]]);
   assert.equal(groupFromForm(one, side.id).ok, true);
-  assert.equal(groupFromForm(newGroupForm(), null).ok, false, 'a new group needs a name and a named choice');
+  assert.equal(groupFromForm(newGroupForm(), newId()).ok, false, 'a new group needs a name and a named choice');
 });
 
 test('a dish may only tighten a group: the editor offers only tighter limits, stores null for the group\'s own', () => {

@@ -88,8 +88,8 @@ dish photo → relief; the numbers are "headless, this machine", an upper bound.
 
 Chromium: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (override with `CHROME`), started with SwiftShader so the diner
 viewer's WebGL runs. Each file starts its own stack. Screenshots and logs land in `test/.out/` (git-ignored).
-These suites are the v1 app on the old schema; the v2 app (`src/v2/`, the clean schema) is driven by `e2e/studio-v2.test.mjs`
-on the simulator's stack.
+These suites are the v1 app on the old schema; the v2 app (`src/v2/`, the clean schema) is driven by `e2e/studio-v2.test.mjs`,
+`e2e/studio-v2-edges.test.mjs` and `e2e/studio-v2-operate.test.mjs` on the simulator's stack.
 
 | File | What it proves |
 |---|---|

@@ -7,4 +7,5 @@ import './v2.css';
 
 applyLang();
 document.title = PRODUCT.mark;
+document.documentElement.dataset.app = 'v2';
 render(<App />, document.getElementById('app')!);

@@ -4,14 +4,16 @@
 // orders the two, sets breakfast as a day part on a section, sets the week's hours with a split Friday and a holiday
 // closure, publishes, and public_menu carries the rules, the schedule and the hours exactly. Then the owner takes a dish
 // off for two hours from the menu in two taps (set_availability), public_menu's live overlay shows it greyed, and
-// everything taken off today comes back with one button (restore_today).
+// everything taken off today comes back with one button (restore_today). Last, a counter: takes a dish off and brings
+// it back, and sees the suggestions, the hours, the closed dates and the day parts read-only, with nothing sent. And a
+// rule and an opening window changed on another device meanwhile: never written over without the owner's say.
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-operate/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { addDays, isOpenAt, localParts, menuAvailability } from '@mana/contracts';
-import { asAnon, HalomBot, OwnerBot } from '@mana/sim';
+import { asAnon, createUser, HalomBot, OwnerBot } from '@mana/sim';
 import { OUT, startE2E } from './helpers.mjs';
 
 const SHOTS = path.join(OUT, 'studio-v2-operate');
@@ -339,5 +341,127 @@ test('availability from the phone: a dish off for two hours in two taps, greyed 
   const m2 = await asAnon(e.stack).rpc('public_menu', { p_slug: SLUG });
   assert.deepEqual(m2.live.off, []);
   await shot('13-all-back');
+  assert.deepEqual(problems(), []);
+});
+
+test('a counter takes a dish off and brings it back, and sees suggestions, hours, closed dates and day parts read-only', { timeout: 300000 }, async () => {
+  const counter = await createUser(e.stack, { email: 'counter-operate@sim.local', password: PASSWORD });
+  await e.stack.addMember(owner.venueId, counter.id, 'counter');
+  const c = await e.page(e.webUrl + 'studio/');
+  // every write the counter's browser sends to a table (the RPCs are the counter's own: set_availability, restore_today)
+  const writes = [];
+  c.on('request', (r) => { const u = new URL(r.url()); if (u.pathname.startsWith('/rest/v1/') && !u.pathname.startsWith('/rest/v1/rpc/') && r.method() !== 'GET' && r.method() !== 'HEAD') writes.push(r.method() + ' ' + u.pathname); });
+  await c.getByLabel('אימייל').fill('counter-operate@sim.local');
+  await c.getByLabel('סיסמה', { exact: true }).fill(PASSWORD);
+  await c.getByRole('button', { name: 'המשך' }).click();
+  await c.getByRole('heading', { name: 'שתייה', level: 2 }).waitFor();
+  const at = async (hash) => { await c.goto(e.webUrl + 'studio/#/' + hash); };
+  const hash = () => c.evaluate(() => location.hash);
+  const live = (root) => root.locator('input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])').count();
+  const RO = 'החשבון הזה יכול לראות את ההגדרות האלה, אבל לא לשנות אותן.';
+
+  // ---- the menu: nothing to edit, but every row's availability one tap away
+  assert.match(await c.locator('main').innerText(), /להוריד דברים מהתפריט לזמן מה ולהחזיר אותם/);
+  assert.equal(await c.locator('[data-tool]').count(), 0, 'no arrange, no new section');
+  const tea = ids.dishes.tea;
+  await c.locator(`[data-off-open="${tea}"]`).click();
+  const sheet = c.locator('dialog[data-sheet="off"]');
+  await sheet.locator('[data-until="h1"]').click();
+  await sheet.waitFor({ state: 'detached' });
+  await c.locator(`[data-off="${tea}"]`).waitFor();
+  assert.match(await c.locator(`[data-off="${tea}"]`).innerText(), /^לא זמין עד \d\d:\d\d$/);
+  const [o] = await rows('availability_overrides', { target_id: `eq.${tea}`, restored_at: 'is.null' });
+  assert.equal(o.created_by, counter.id, 'taken off by the counter, through set_availability');
+  await c.screenshot({ path: path.join(SHOTS, '14-counter-menu.png') });
+  await c.locator(`[data-off-open="${tea}"]`).click();
+  await sheet.locator('[data-action="bring-back"]').click();
+  await sheet.waitFor({ state: 'detached' });
+  await c.locator(`[data-off="${tea}"]`).waitFor({ state: 'detached' });
+  await stored(async () => (await rows('availability_overrides', { target_id: `eq.${tea}`, restored_at: 'is.null' })).length, 0, 'brought back');
+
+  // ---- suggestions: the list without new, arrange or switches; a rule read-only (no preview: the draft is for editors)
+  await at('rules');
+  await c.locator('[data-summary]').nth(1).waitFor();
+  assert.equal(await c.getByText(RO).count(), 1);
+  assert.equal(await c.locator('[data-action="new-rule"], [data-tool="arrange-rules"], [data-screen="rules"] [role="switch"]').count(), 0);
+  const morning = (await rows('upsell_rules')).find((r) => r.suggest_dish_id === ids.dishes.croissant);
+  await at('rules/' + morning.id);
+  const ed = c.locator('[data-screen="rule-editor"]');
+  await ed.waitFor();
+  assert.equal(await live(ed.locator('.rule-form')), 0, 'every field, switch, chip and choice disabled');
+  assert.equal(await ed.locator('[data-action="save-rule"], [data-action="delete-rule"], [data-action^="pick-"]').count(), 0);
+  assert.equal(plain(await ed.locator('[data-summary-now]').innerText()), 'אחרי קפה, להציע קרואסון, 7–11');
+  assert.equal(await ed.locator('[data-rule-preview]').count(), 0);
+  await c.screenshot({ path: path.join(SHOTS, '15-counter-rule.png') });
+  await at('rules/new');
+  await stored(hash, '#/rules', 'a new rule by address leads back to the list');
+  assert.equal(await c.locator('[data-screen="rule-editor"]').count(), 0);
+
+  // ---- hours and closed dates: shown, nothing to add, change or remove
+  await at('hours');
+  await c.locator('li.weekday[data-day="5"] [data-hours]').nth(1).waitFor();
+  assert.equal(await c.getByText(RO).count(), 1);
+  assert.equal(await c.locator('[data-action="add-hours"], [data-action="add-closure"], button[data-hours], [data-closures] button, [data-soldout] button').count(), 0);
+  assert.match(await c.locator('[data-closure]').innerText(), /חג/);
+  await c.screenshot({ path: path.join(SHOTS, '16-counter-hours.png') });
+
+  // ---- day parts: the list without new; breakfast read-only; a new one by address leads back
+  await at('hours/parts');
+  await c.locator('[data-schedule]').waitFor();
+  assert.equal(await c.locator('[data-action="new-daypart"], [data-action="new-special"]').count(), 0);
+  await c.locator('[data-schedule] a').click();
+  const sch = c.locator('dialog[data-sheet="schedule"]');
+  await sch.waitFor();
+  assert.equal(await live(sch.locator('.schedule-form')), 0, 'the day part is read-only');
+  assert.equal(await sch.locator('[data-action="save-schedule"], [data-action="delete-schedule"], [data-action="add-window"]').count(), 0);
+  await c.screenshot({ path: path.join(SHOTS, '17-counter-daypart.png') });
+  await at('hours/parts/new');
+  await stored(hash, '#/hours/parts', 'a new day part by address leads back to the list');
+  assert.equal(await c.locator('dialog[data-sheet="schedule"]').count(), 0);
+
+  assert.deepEqual(writes, [], 'the counter wrote no table: only the availability RPCs');
+  assert.deepEqual(c.problems.filter((p) => !/Failed to load resource: the server responded with a status of (400|404)/.test(p)), []);
+  await c.context().close();
+});
+
+test('changed somewhere else: a rule asks before it is saved over (both changes kept); an opening window changed meanwhile is not overwritten', { timeout: 300000 }, async () => {
+  const morning = (await rows('upsell_rules')).find((r) => r.suggest_dish_id === ids.dishes.croissant);
+  const rule = async () => { const [r] = await rows('upsell_rules', { id: `eq.${morning.id}` }); return [r.line_he, r.label]; };
+  await go('rules/' + morning.id);
+  const ed = page.locator('[data-screen="rule-editor"]');
+  await ed.waitFor();
+  await ed.locator('[data-field="rule-line-he"]').fill('קרואסון טרי ליד הקפה?');
+  // meanwhile another device gives the rule a label
+  await owner.api.update('upsell_rules', { id: `eq.${morning.id}` }, { label: 'בוקר' });
+  await ed.locator('[data-action="save-rule"]').click();
+  const dlg = page.locator(`dialog[data-conflict="upsell_rules:${morning.id}"]`);
+  await dlg.waitFor();
+  assert.deepEqual(await dlg.locator('tr[data-col]').evaluateAll((trs) => trs.map((tr) => tr.getAttribute('data-col'))), ['line_he'], 'only what the owner changed');
+  assert.equal(await dlg.locator('tr[data-col="line_he"] [data-mine]').innerText(), 'קרואסון טרי ליד הקפה?');
+  assert.match(await dlg.locator('[data-there]').innerText(), /תווית פנימית/);
+  assert.deepEqual(await rule(), ['קרואסון חם ליד הקפה?', 'בוקר'], 'nothing written yet');
+  await shot('18-rule-conflict');
+  await dlg.locator('[data-action="keep-mine"]').click();
+  await stored(rule, ['קרואסון טרי ליד הקפה?', 'בוקר'], 'the owner\'s line, and the label from the other device');
+  await ed.locator('[data-action="save-rule"][disabled]').waitFor();
+  assert.equal(await ed.locator('[data-field="rule-label"]').inputValue(), 'בוקר', 'the editor shows the rule as stored');
+
+  // an opening window: its new times are written only while it still has the times this screen read
+  await go('hours');
+  const [w] = await rows('venue_hours', { weekday: 'eq.5', order: 'opens' });
+  const closes = async () => (await rows('venue_hours', { id: `eq.${w.id}` }))[0].closes.slice(0, 5);
+  await page.locator(`button[data-hours="${w.id}"]`).click();
+  const edit = page.locator(`[data-hours-edit="${w.id}"]`);
+  await edit.locator('[data-field="edit-to"]').fill('11:30');
+  await owner.api.update('venue_hours', { id: `eq.${w.id}` }, { closes: '12:00' });
+  await edit.locator('[data-action="save-hours"]').click();
+  await edit.getByText('זה השתנה במסך או במכשיר אחר, ולכן מוצג עכשיו כפי שהוא שמור. נסו שוב.').waitFor();
+  assert.equal(await edit.locator('[data-field="edit-to"]').inputValue(), '12:00', 'the times as stored now');
+  assert.equal(await closes(), '12:00', 'not overwritten');
+  await shot('19-hours-stale');
+  await edit.locator('[data-field="edit-to"]').fill('11:30');
+  await edit.locator('[data-action="save-hours"]').click();
+  await edit.waitFor({ state: 'detached' });
+  await stored(closes, '11:30', 'saved over the times as stored now');
   assert.deepEqual(problems(), []);
 });

@@ -3,11 +3,11 @@
 // it in memory. Rows are typed with @mana/contracts.
 import type {
   AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, EntitlementRow, Issue, MemberRole, MenuRevisionRow,
-  PublishWarning, ScheduleRow, SectionRow, SnapshotV2, UpsellRuleRow, VenueClosureRow, VenueHoursRow, VenueKind, VenueRow,
+  PublishWarning, SaveAddonGroupInput, SaveAddonGroupReply, ScheduleRow, SectionRow, SnapshotV2, StoredAddonGroup, UpsellRuleRow, VenueClosureRow,
+  VenueHoursRow, VenueKind, VenueRow,
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
-import { V2Error } from './errors.ts';
-import { changed, type GroupWrite } from './forms.ts';
+import { toV2Error, V2Error } from './errors.ts';
 
 export type Membership = { readonly venue: VenueRow; readonly role: MemberRole };
 export type RevisionInfo = Pick<MenuRevisionRow, 'id' | 'number' | 'note' | 'created_at'>;
@@ -76,42 +76,82 @@ export function rowsById<T>(table: MenuTable, ids: readonly string[]): Promise<T
 export function insertRows<T>(table: MenuTable, rows: object[]): Promise<T[]> {
   return q<T[]>(sb.from(table).insert(rows).select());
 }
-export function updateRow<T>(table: MenuTable, id: string, patch: object): Promise<T> {
-  return q<T>(sb.from(table).update(patch).eq('id', id).select().single());
+/**
+ * One new row with the client's own id: when the answer to an earlier try was lost and the row is already stored, the
+ * same id answers with that row instead of adding a second one.
+ */
+export async function insertOnce<T extends { id: string }>(table: MenuTable, row: { id: string; [column: string]: unknown }): Promise<T> {
+  try {
+    return (await insertRows<T>(table, [row]))[0]!;
+  } catch (e) {
+    const err = toV2Error(e);
+    if (err.code === 'duplicate') { const [had] = await rowsById<T>(table, [row.id]); if (had) return had; }
+    throw err;
+  }
 }
+
+/** New rows with the client's own ids, in one statement; when an earlier try's answer was lost and they are all stored, they answer. */
+export async function insertAllOnce<T extends { id: string }>(table: MenuTable, rows: readonly { id: string; [column: string]: unknown }[]): Promise<T[]> {
+  try {
+    return await insertRows<T>(table, rows as object[]);
+  } catch (e) {
+    const err = toV2Error(e);
+    if (err.code === 'duplicate') { const had = await rowsById<T>(table, rows.map((r) => r.id)); if (had.length === rows.length) return had; }
+    throw err;
+  }
+}
+
+/** A value a guarded write expects the stored row to still hold. */
+export type Expected = Readonly<Record<string, string | number | boolean | null>>;
+/** What a guarded write did: stored (with the row as it is now), or why not. */
+export type Guarded<T> =
+  | { readonly ok: true; readonly row: T }
+  | { readonly ok: false; readonly why: 'stale'; readonly row: T }        // the row changed since it was read: here it is now
+  | { readonly ok: false; readonly why: 'forbidden' | 'gone' };
+
+/**
+ * Change one row only while it still holds `expected` (its `updated_at` as last read, or the values a move started
+ * from). Zero rows back means it did not: the row read again tells why (gone, changed meanwhile, or row-level security
+ * said no).
+ */
+export async function updateIf<T extends { id: string }>(table: MenuTable, id: string, expected: Expected, patch: object): Promise<Guarded<T>> {
+  let query = sb.from(table).update(patch).eq('id', id);
+  for (const [k, v] of Object.entries(expected)) query = v === null ? query.is(k, null) : query.eq(k, v);
+  const rows = await q<T[]>(query.select());
+  if (rows.length) return { ok: true, row: rows[0]! };
+  const [now] = await rowsById<T>(table, [id]);
+  if (!now) return { ok: false, why: 'gone' };
+  const same = Object.entries(expected).every(([k, v]) => (now as Record<string, unknown>)[k] === v);
+  return same ? { ok: false, why: 'forbidden' } : { ok: false, why: 'stale', row: now };
+}
+
 export async function deleteRows(table: MenuTable, ids: readonly string[]): Promise<void> {
   if (!ids.length) return;
   const gone = await q<{ id: string }[]>(sb.from(table).delete().in('id', ids as string[]).select('id'));
-  if (gone.length !== ids.length) throw new V2Error('not_found');                       // RLS hides what it refuses
-}
-/** New positions after a move (data/rows.ts reorder): one small write per row that moved. */
-export async function setPositions(table: MenuTable, positions: ReadonlyMap<string, number>): Promise<void> {
-  await Promise.all([...positions].map(([id, position]) => updateRow(table, id, { position })));
+  if (gone.length === ids.length) return;
+  // row-level security hides what it refuses: still there means not allowed, not there means already deleted
+  const left = await rowsById<{ id: string }>(table, ids);
+  throw new V2Error(left.length ? 'forbidden' : 'not_found');
 }
 
+// ---------------------------------------------------------------- an add-on group and its options, as one (save_addon_group)
+/** A group and its options as stored (the RPC's answer, and `current` when the group moved meanwhile). */
+export type GroupRows = StoredAddonGroup;
+
 /**
- * A group and its options, as the form left them: the group row first, then the options that went away, the ones that
- * changed, and the new ones. Returns what is stored now.
+ * One transaction: the group, its options added, changed and deleted (`SaveAddonGroupInput` in @mana/contracts: the
+ * ids are the client's, `expectedUpdatedAt` the group's version as last read). The answer comes back as it is:
+ * saved, `stale` with the stored group, `option_in_rules` with the rules, or a refusal that changed nothing.
  */
-export async function saveGroup(venueId: string, groupId: string | null, write: GroupWrite, before: readonly AddonOptionRow[]): Promise<{ group: AddonGroupRow; options: AddonOptionRow[] }> {
-  const group = groupId
-    ? await updateRow<AddonGroupRow>('addon_groups', groupId, write.group)
-    : (await insertRows<AddonGroupRow>('addon_groups', [{ venue_id: venueId, ...write.group }]))[0]!;
-  const mine = before.filter((o) => o.group_id === group.id);
-  const kept = new Set(write.options.map((o) => o.id).filter(Boolean));
-  await deleteRows('addon_options', mine.filter((o) => !kept.has(o.id)).map((o) => o.id));
-  for (const o of write.options) {
-    if (!o.id) continue;
-    const old = mine.find((x) => x.id === o.id);
-    const { id, ...cols } = o;
-    const patch = old ? changed(old, cols) : cols;
-    if (Object.keys(patch).length) await updateRow('addon_options', id, patch);
-  }
-  const fresh = write.options.filter((o) => !o.id).map(({ id: _new, ...cols }) => ({ venue_id: venueId, group_id: group.id, ...cols }));
-  if (fresh.length) await insertRows('addon_options', fresh);
-  const options = await q<AddonOptionRow[]>(sb.from('addon_options').select('*').eq('group_id', group.id));
-  return { group, options };
-}
+export const saveAddonGroup = (input: SaveAddonGroupInput) =>
+  q<SaveAddonGroupReply>(sb.rpc('save_addon_group', {
+    p_venue: input.venueId, p_group: input.group, p_options: input.options, p_expected_updated_at: input.expectedUpdatedAt,
+    p_confirm_rule_removal: input.confirmRuleRemoval ?? false,
+  }));
+
+/** The suggestion rules an answer names, with what the owner calls them. */
+export const rulesNamed = (ids: readonly string[]) =>
+  q<{ id: string; label: string; line_he: string; line_en: string }[]>(sb.from('upsell_rules').select('id, label, line_he, line_en').in('id', ids as string[]));
 
 // ---------------------------------------------------------------- drafts, publishing, versions
 export type Preview = { snapshot: SnapshotV2; issues: Issue[]; warnings: PublishWarning[] };

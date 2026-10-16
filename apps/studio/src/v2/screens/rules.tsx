@@ -3,7 +3,9 @@
 // guest's filter. #/rules lists them, each in one plain line, on or off, in the order they compete (drag, or the up and
 // down buttons); #/rules/<id> (or new) edits one, with a live preview: the contracts' matchSuggestion on the draft menu
 // (preview_menu) with a sample basket, day and hour the owner changes, saying what would be suggested, or why nothing.
-import { useState } from 'preact/hooks';
+// Saving sends only what changed since the editor opened, over the version it read (`saveNow`): a rule changed on
+// another device meanwhile is never written over without the owner's say (conflict.tsx). A counter reads, never edits.
+import { useEffect, useState } from 'preact/hooks';
 import { TAGS, TRIGGERS, allDishes, localParts, type Suggestion, type Tag, type UpsellRuleRow, type Weekday } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, Note, PageHead, Seg, Sheet, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
@@ -14,20 +16,24 @@ import { changed, type FieldError } from '../data/forms.ts';
 import { WEEK, venueHoursOf } from '../data/hours.ts';
 import { clock, overrides } from '../data/live.ts';
 import { ruleNumbers } from '../data/rule-numbers.ts';
-import { byPosition, named } from '../data/rows.ts';
+import { byPosition, named, newId } from '../data/rows.ts';
 import {
   newRuleForm, nextPriority, previewRule, ranked, reprioritize, ruleFromForm, ruleToForm, type IdLists, type RuleForm, type RuleWrite, type Sample, type Why,
 } from '../data/rules.ts';
-import { addRows, canEdit, menu, patchRow, removeRows, saveRow, setPriorities } from '../data/store.ts';
+import { ANY_ROW, addRows, canEdit, menu, patchRow, removeRows, resync, saveNow, setPriorities } from '../data/store.ts';
 import type { MenuData } from '../data/menu.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
-import { LangSeg, ReorderList, Stepper, useEntryLang } from '../ui.tsx';
+import { LangSeg, ReadOnly, ReorderList, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
 import { dayName, daysText, momentText, orList, ruleSummary, timeRange, type NameOf } from '../words.ts';
 import { DayChips, TimePair } from './hours.tsx';
 
 export function RulesScreen({ rest }: { rest: string[] }) {
-  if (rest[0]) return <RuleEditor key={rest[0]} id={rest[0] === 'new' ? null : rest[0]} />;
+  // a new rule only edits: an account that may not edit is taken back to the list (also when it came by address);
+  // an existing rule opens read-only for it, without the preview (the draft, preview_menu, is for those who edit)
+  const editable = canEdit();
+  useEditOnly(rest[0] === 'new', editable, 'rules');
+  if (rest[0] && !(rest[0] === 'new' && !editable)) return <RuleEditor key={rest[0]} id={rest[0] === 'new' ? null : rest[0]} />;
   return <RulesList />;
 }
 
@@ -52,6 +58,7 @@ function RulesList() {
   return (
     <div class="page" data-screen="rules">
       <PageHead title={t('rules.title')} lead={t('rules.lead')}>{editable && rules.length > 0 && newBtn}</PageHead>
+      {!editable && <Note>{t('ro.settings')}</Note>}
       {rules.length === 0 && <Empty title={t('rules.empty.title')} body={t('rules.empty.body')} icon="sparkle">{editable && newBtn}</Empty>}
       {rules.length > 1 && editable && <div class="row-between"><p class="hint">{t('rules.orderHint')}</p>
         <button type="button" class={'toolbtn' + (arranging ? ' on' : '')} aria-pressed={arranging ? 'true' : 'false'} onClick={() => setArranging(!arranging)} data-tool="arrange-rules">
@@ -94,14 +101,26 @@ function RuleEditor({ id }: { id: string | null }) {
   const row = id ? d.rules.find((r) => r.id === id) : null;
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
-  const [initial] = useState<RuleForm>(() => (row ? ruleToForm(row) : newRuleForm(nextPriority(d.rules))));
-  const [form, setForm] = useState<RuleForm>(initial);
+  // what the editor opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays)
+  const [opened, setOpened] = useState<RuleForm>(() => (row ? ruleToForm(row) : newRuleForm(nextPriority(d.rules))));
+  const [form, setForm] = useState<RuleForm>(opened);
+  // a new rule's id: kept until it is stored, so trying again after a lost answer never adds the rule twice
+  const [newRuleId] = useState(newId);
   const [errors, setErrors] = useState<readonly FieldError[]>([]), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [del, setDel] = useState(false), [leave, setLeave] = useState(false);
   const editable = canEdit();
+  const dirty = JSON.stringify(form) !== JSON.stringify(opened);
+  // the rule as stored again: after the owner's choice in a conflict, a refusal, or the menu read again (then only when
+  // nothing is typed here: what the owner is typing stays, and its save is guarded)
+  useEffect(() => {
+    const r = resync.value;
+    if (!r || !row) return;
+    const ours = r.table === 'upsell_rules' && r.id === row.id;
+    if (!ours && (r.id !== ANY_ROW || dirty)) return;
+    const f = ruleToForm(row); setForm(f); setOpened(f); setErrors([]);
+  }, [resync.value]);
   if (id && !row) return <div class="page"><a class="backlink" href="#/rules"><Icon name="chev" size={16} back />{t('rules.title')}</a><p class="muted">{t('rules.notFound')}</p></div>;
   const names = namesOf(d, L0);
-  const dirty = JSON.stringify(form) !== JSON.stringify(row ? ruleToForm(row) : initial);
   const set = (patch: Partial<RuleForm>) => { setForm({ ...form, ...patch }); setErrors([]); setError(''); };
   const errAt = (...fields: string[]) => { const e = errors.find((x) => fields.includes(x.field)); return e ? errText(e.code) : undefined; };
   const lineKey = L === 'he' ? 'lineHe' : 'lineEn';
@@ -114,9 +133,19 @@ function RuleEditor({ id }: { id: string | null }) {
     if (!m.ok) { setErrors(m.errors); setError(t('e.form_invalid')); return; }
     setBusy(true); setError('');
     try {
-      const saved = row ? await saveRow('upsell_rules', row.id, changed(row, m.value)) : (await addRows('upsell_rules', [m.value]))[0]!;
-      toast(t('rules.saved'));
-      if (!row) go('rules/' + saved.id, true); else setForm(ruleToForm(saved));
+      if (row) {
+        const was = ruleFromForm(opened);
+        // 'conflict': the rule changed somewhere else; the dialog asks, and the form follows the owner's choice (resync)
+        if (await saveNow('upsell_rules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'saved') {
+          const now = menu.value?.rules.find((r) => r.id === row.id);
+          const f = now ? ruleToForm(now) : form; setForm(f); setOpened(f);
+          toast(t('rules.saved'));
+        }
+      } else {
+        const saved = (await addRows('upsell_rules', [{ id: newRuleId, ...m.value }]))[0]!;
+        toast(t('rules.saved'));
+        go('rules/' + saved.id, true);
+      }
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
   }
@@ -135,17 +164,19 @@ function RuleEditor({ id }: { id: string | null }) {
       <PageHead title={title}><LangSeg value={L} onChange={setL} langs={langs} /></PageHead>
       {row?.inactive_reason && <Note kind="warn" title={t('rules.emptied')}>{t('rules.emptiedBody')}</Note>}
       {mapped.ok && <p class="rule-summary-now" data-summary-now>{ruleSummary(mapped.value, names)}</p>}
+      {!editable && <Note>{t('ro.settings')}</Note>}
 
+      <ReadOnly when={!editable} class="rule-form">
       <section class="card" aria-labelledby="r-when-h">
         <h2 id="r-when-h">{t('rules.when')}</h2>
-        <Seg value={form.trigger} label={t('rules.when')} options={TRIGGERS.map((x) => ({ value: x, label: t('rules.trigger.' + x) }))}
+        <Seg value={form.trigger} label={t('rules.when')} disabled={!editable} options={TRIGGERS.map((x) => ({ value: x, label: t('rules.trigger.' + x) }))}
           onChange={(tr) => set({ trigger: tr, ...(tr === 'checkout' && form.suggestKind === 'option' ? { suggestKind: 'dish' as const, suggestOptionId: null } : {}) })} />
         <p class="hint">{t('rules.triggerHint.' + form.trigger)}</p>
         <div class="field">
           <span class="flabel">{t(checkout ? 'rules.scopeCheckout' : 'rules.scope')}</span>
-          <Seg value={form.scopeKind} label={t(checkout ? 'rules.scopeCheckout' : 'rules.scope')} onChange={(k) => set({ scopeKind: k, scopeIds: [] })}
+          <Seg value={form.scopeKind} label={t(checkout ? 'rules.scopeCheckout' : 'rules.scope')} disabled={!editable} onChange={(k) => set({ scopeKind: k, scopeIds: [] })}
             options={[{ value: 'all', label: t('rules.scope.all') }, { value: 'section', label: t('rules.scope.section') }, { value: 'dish', label: t('rules.scope.dish') }]} />
-          {form.scopeKind !== 'all' && <Targets id="scope" mode={form.scopeKind === 'dish' ? 'dishes' : 'sections'}
+          {form.scopeKind !== 'all' && <Targets id="scope" editable={editable} mode={form.scopeKind === 'dish' ? 'dishes' : 'sections'}
             value={form.scopeKind === 'dish' ? { dishes: form.scopeIds, sections: [] } : { dishes: [], sections: form.scopeIds }}
             onChange={(v) => set({ scopeIds: form.scopeKind === 'dish' ? v.dishes : v.sections })} />}
           {errAt('scope') && <p class="ferr" role="alert">{errAt('scope')}</p>}
@@ -154,39 +185,40 @@ function RuleEditor({ id }: { id: string | null }) {
 
       <section class="card" aria-labelledby="r-times-h">
         <h2 id="r-times-h">{t('rules.times')}</h2>
-        <DayChips id="rule" days={form.days} label={t('hours.days')} onChange={(days) => set({ days })} />
+        <DayChips id="rule" days={form.days} label={t('hours.days')} disabled={!editable} onChange={(days) => set({ days })} />
         <p class="hint">{t('rules.daysHint')}</p>
-        <div class="switchrow"><span>{t('rules.timed')}</span><Switch checked={form.timed} label={t('rules.timed')} onChange={(v) => set({ timed: v })} /></div>
-        {form.timed && <TimePair id="rule" from={form.from} to={form.to} onFrom={(v) => set({ from: v })} onTo={(v) => set({ to: v })} />}
+        <div class="switchrow"><span>{t('rules.timed')}</span><Switch checked={form.timed} label={t('rules.timed')} disabled={!editable} onChange={(v) => set({ timed: v })} /></div>
+        {form.timed && <TimePair id="rule" from={form.from} to={form.to} disabled={!editable} onFrom={(v) => set({ from: v })} onTo={(v) => set({ to: v })} />}
         {errAt('time', 'days') && <p class="ferr" role="alert">{errAt('time', 'days')}</p>}
       </section>
 
       <section class="card" aria-labelledby="r-basket-h">
         <h2 id="r-basket-h">{t('rules.basket')}</h2>
-        <div class="switchrow"><span>{t('rules.has')}</span><Switch checked={!!form.has} label={t('rules.has')} onChange={(on) => set({ has: on ? { dishes: [], sections: [] } : null })} /></div>
-        {form.has && <Targets id="has" mode="both" value={form.has} onChange={(v) => set({ has: v })} />}
+        <div class="switchrow"><span>{t('rules.has')}</span><Switch checked={!!form.has} label={t('rules.has')} disabled={!editable} onChange={(on) => set({ has: on ? { dishes: [], sections: [] } : null })} /></div>
+        {form.has && <Targets id="has" mode="both" editable={editable} value={form.has} onChange={(v) => set({ has: v })} />}
         {errAt('has') && <p class="ferr" role="alert">{errAt('has')}</p>}
-        <div class="switchrow"><span>{t('rules.lacks')}</span><Switch checked={!!form.lacks} label={t('rules.lacks')} onChange={(on) => set({ lacks: on ? { dishes: [], sections: [] } : null })} /></div>
-        {form.lacks && <Targets id="lacks" mode="both" value={form.lacks} onChange={(v) => set({ lacks: v })} />}
+        <div class="switchrow"><span>{t('rules.lacks')}</span><Switch checked={!!form.lacks} label={t('rules.lacks')} disabled={!editable} onChange={(on) => set({ lacks: on ? { dishes: [], sections: [] } : null })} /></div>
+        {form.lacks && <Targets id="lacks" mode="both" editable={editable} value={form.lacks} onChange={(v) => set({ lacks: v })} />}
         {errAt('lacks') && <p class="ferr" role="alert">{errAt('lacks')}</p>}
       </section>
 
-      <SuggestCard form={form} set={set} L={L} lineKey={lineKey} errAt={errAt} />
+      <SuggestCard form={form} set={set} L={L} lineKey={lineKey} errAt={errAt} editable={editable} />
 
       <section class="card" aria-labelledby="r-more-h">
         <h2 id="r-more-h">{t('rules.more')}</h2>
-        <div class="switchrow"><span>{t('rules.active')}</span><Switch checked={form.active} label={t('rules.active')} onChange={(v) => set({ active: v })} /></div>
-        <div class="switchrow"><span>{t('rules.cap')}</span><Stepper id="rule-cap" value={form.cap} min={1} max={5} label={t('rules.cap')} onChange={(n) => set({ cap: n })} /></div>
+        <div class="switchrow"><span>{t('rules.active')}</span><Switch checked={form.active} label={t('rules.active')} disabled={!editable} onChange={(v) => set({ active: v })} /></div>
+        <div class="switchrow"><span>{t('rules.cap')}</span><Stepper id="rule-cap" value={form.cap} min={1} max={5} label={t('rules.cap')} disabled={!editable} onChange={(n) => set({ cap: n })} /></div>
         <Field label={t('rules.priority')} hint={t('rules.priorityHint')} error={errAt('priority')}>{(p) => (
-          <input {...p} type="number" inputMode="numeric" min={0} max={100} dir="ltr" value={Number.isFinite(form.priority) ? form.priority : ''} data-field="rule-priority"
+          <input {...p} type="number" inputMode="numeric" min={0} max={100} dir="ltr" value={Number.isFinite(form.priority) ? form.priority : ''} disabled={!editable} data-field="rule-priority"
             onInput={(e) => { const v = (e.target as HTMLInputElement).value; set({ priority: v === '' ? NaN : Number(v) }); }} />
         )}</Field>
         <Field label={t('lib.label')} hint={t('rules.labelHint')} optional error={errAt('label')}>{(p) => (
-          <input {...p} type="text" dir="auto" maxLength={80} value={form.label} data-field="rule-label" onInput={(e) => set({ label: (e.target as HTMLInputElement).value })} />
+          <input {...p} type="text" dir="auto" maxLength={80} value={form.label} disabled={!editable} data-field="rule-label" onInput={(e) => set({ label: (e.target as HTMLInputElement).value })} />
         )}</Field>
       </section>
+      </ReadOnly>
 
-      <RulePreview form={form} id={id} />
+      {editable && <RulePreview form={form} id={id} />}
 
       {row && editable && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-rule">{t('rules.delete')}</Btn>}
       {editable && <Sticky note={error ? <span class="ferr" role="alert" data-error>{error}</span> : dirty ? t('save.leave') : undefined}>
@@ -203,7 +235,9 @@ function menuDishes(d: MenuData) {
 }
 
 /** A dish or an add-on of the dish in context, with the short line the guest reads; what keeps it from guests, said. */
-function SuggestCard({ form, set, L, lineKey, errAt }: { form: RuleForm; set: (p: Partial<RuleForm>) => void; L: 'he' | 'en'; lineKey: 'lineHe' | 'lineEn'; errAt: (...f: string[]) => string | undefined }) {
+function SuggestCard({ form, set, L, lineKey, errAt, editable }: {
+  form: RuleForm; set: (p: Partial<RuleForm>) => void; L: 'he' | 'en'; lineKey: 'lineHe' | 'lineEn'; errAt: (...f: string[]) => string | undefined; editable: boolean;
+}) {
   const d = menu.value!, UI = lang.value;
   const checkout = form.trigger === 'checkout';
   const tree = menuDishes(d);
@@ -222,18 +256,18 @@ function SuggestCard({ form, set, L, lineKey, errAt }: { form: RuleForm; set: (p
     <section class="card" aria-labelledby="r-suggest-h">
       <h2 id="r-suggest-h">{t('rules.suggest')}</h2>
       {checkout ? <p class="hint">{t('rules.suggest.checkoutDish')}</p>
-        : <Seg value={form.suggestKind} label={t('rules.suggest')} onChange={(k) => set({ suggestKind: k })}
+        : <Seg value={form.suggestKind} label={t('rules.suggest')} disabled={!editable} onChange={(k) => set({ suggestKind: k })}
             options={[{ value: 'dish', label: t('rules.suggest.dish') }, { value: 'option', label: t('rules.suggest.option') }]} />}
       {form.suggestKind === 'dish' || checkout
         ? <Field label={t('rules.suggest.whichDish')} error={errAt('suggest')}>{(p) => (
-            <select {...p} value={form.suggestDishId ?? ''} data-field="rule-suggest-dish" onChange={(e) => set({ suggestDishId: (e.target as HTMLSelectElement).value || null })}>
+            <select {...p} value={form.suggestDishId ?? ''} disabled={!editable} data-field="rule-suggest-dish" onChange={(e) => set({ suggestDishId: (e.target as HTMLSelectElement).value || null })}>
               <option value="">{t('dish.related.choose')}</option>
               {tree.map(({ section, dishes }) => <optgroup key={section.id} label={named(section, UI)}>
                 {dishes.map((x) => <option key={x.id} value={x.id}>{named(x, UI) || t('menu2.unnamed')}</option>)}</optgroup>)}
             </select>
           )}</Field>
         : <Field label={t('rules.suggest.whichOption')} hint={groups.length ? t('rules.suggest.optionHint') : t('rules.suggest.noOptions')} error={errAt('suggest')}>{(p) => (
-            <select {...p} value={form.suggestOptionId ?? ''} disabled={!groups.length} data-field="rule-suggest-option" onChange={(e) => set({ suggestOptionId: (e.target as HTMLSelectElement).value || null })}>
+            <select {...p} value={form.suggestOptionId ?? ''} disabled={!editable || !groups.length} data-field="rule-suggest-option" onChange={(e) => set({ suggestOptionId: (e.target as HTMLSelectElement).value || null })}>
               <option value="">{t('rules.suggest.chooseOption')}</option>
               {groups.map((g) => <optgroup key={g.id} label={named(g, UI)}>
                 {byPosition(d.options.filter((o) => o.group_id === g.id)).map((o) => <option key={o.id} value={o.id}>{named(o, UI)}</option>)}</optgroup>)}
@@ -241,7 +275,7 @@ function SuggestCard({ form, set, L, lineKey, errAt }: { form: RuleForm; set: (p
           )}</Field>}
       {warn && <p class="line line-warn"><Icon name="alert" /><span>{warn}</span></p>}
       <Field label={t('rules.line') + ' · ' + t('app.' + L)} hint={t('rules.lineHint')} optional error={errAt('line_he', 'line_en')}>{(p) => (
-        <input {...p} type="text" dir="auto" lang={L} maxLength={120} value={form[lineKey]} data-field={'rule-line-' + L} onInput={(e) => set({ [lineKey]: (e.target as HTMLInputElement).value })} />
+        <input {...p} type="text" dir="auto" lang={L} maxLength={120} value={form[lineKey]} disabled={!editable} data-field={'rule-line-' + L} onInput={(e) => set({ [lineKey]: (e.target as HTMLInputElement).value })} />
       )}</Field>
       <p class="fine">{t('rules.never')}</p>
     </section>
@@ -249,7 +283,7 @@ function SuggestCard({ form, set, L, lineKey, errAt }: { form: RuleForm; set: (p
 }
 
 /** Pick dishes, sections, or both (a whole section, or single dishes), in a sheet. */
-function Targets({ id, mode, value, onChange }: { id: string; mode: 'dishes' | 'sections' | 'both'; value: IdLists; onChange: (v: IdLists) => void }) {
+function Targets({ id, mode, value, onChange, editable }: { id: string; mode: 'dishes' | 'sections' | 'both'; value: IdLists; onChange: (v: IdLists) => void; editable: boolean }) {
   const d = menu.value!, L = lang.value;
   const [open, setOpen] = useState(false);
   const chosen = [...value.sections.map((x) => named(d.sections.find((s) => s.id === x), L)), ...value.dishes.map((x) => named(d.dishes.find((y) => y.id === x), L))].filter(Boolean);
@@ -257,8 +291,8 @@ function Targets({ id, mode, value, onChange }: { id: string; mode: 'dishes' | '
   return (
     <div class="targets" data-targets={id}>
       {chosen.length ? <ul class="chips" data-chosen>{chosen.map((n) => <li key={n} class="chip">{n}</li>)}</ul> : <p class="muted">{t('rules.pickNone')}</p>}
-      <Btn small icon="edit" onClick={() => setOpen(true)} data-action={'pick-' + id}>{t('rules.pick')}</Btn>
-      <Sheet open={open} onClose={() => setOpen(false)} title={t('rules.pickTitle.' + id)} name="pick"
+      {editable && <Btn small icon="edit" onClick={() => setOpen(true)} data-action={'pick-' + id}>{t('rules.pick')}</Btn>}
+      <Sheet open={open && editable} onClose={() => setOpen(false)} title={t('rules.pickTitle.' + id)} name="pick"
         foot={<Btn kind="primary" onClick={() => setOpen(false)} data-action="pick-done">{t('rules.pickDone')}</Btn>}>
         {menuDishes(d).map(({ section, dishes }) => (
           <fieldset key={section.id} class="pickset">
