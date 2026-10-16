@@ -4,10 +4,12 @@
 #
 #     bash tools/build-site.sh        # or: npm run build (at the root); then: npm run serve (http://127.0.0.1:4180/mana/)
 #     MANA_ENV=demo bash tools/build-site.sh     # the same site with another environment's settings (docs/environments.md)
+#     bash tools/build-site.sh --settings        # only says which settings a build would carry, and stops
 #
 # MANA_ENV picks the settings the site carries: production (the default, and all pages.yml ever builds: config.js),
 # demo (config/demo.js: the Supabase project `mana`, schema 2; npm run demo) or local (config/local.js, written by
-# npm run dev:local for the simulator's stack). Only production is published.
+# npm run dev:local for the simulator's stack). Only production is published: under GitHub Actions any other is
+# refused. A wrong MANA_ENV or a missing settings file stops the build before _site/ is touched.
 #
 # What goes where (the addresses are halom.io's):
 #   brand/site/   → /mana/             the product page, photo guide, privacy, terms, their pictures, films and fonts
@@ -29,8 +31,10 @@ case "$MANA_ENV" in
   local)      CONFIG=config/local.js ;;
   *) echo "✗ MANA_ENV is \"$MANA_ENV\": production, demo or local"; exit 1 ;;
 esac
+if [ "${GITHUB_ACTIONS:-}" = true ] && [ "$MANA_ENV" != production ]; then echo "✗ GitHub Actions builds production only (MANA_ENV is $MANA_ENV)"; exit 1; fi
 [ -s "$CONFIG" ] || { echo "✗ $CONFIG is missing (config/local.js: npm run dev:local writes it)"; exit 1; }
 echo "· settings: $MANA_ENV ($CONFIG)"
+[ "${1:-}" = --settings ] && exit 0
 # One install for the three apps (an npm workspace): the root lock, package-lock.json, puts each app's packages in its
 # own apps/<app>/node_modules at its own versions (typescript and pg, used by several workspaces, sit once at the
 # root, same versions). It runs when an app has no node_modules yet.
