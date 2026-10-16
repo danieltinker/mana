@@ -178,6 +178,20 @@ test('refresh after a write: waits for the fetch in flight, then fetches again',
   live.stop();
 });
 
+test('poll: false fetches at start and on refresh only (a page whose every read is logged)', async () => {
+  const { clock, advance, pending } = fakeClock();
+  const { v } = fakeVisibility();
+  const l = loader();
+  const live = startLive({ load: l.load, pollMs: POLL, poll: false, clock, visibility: v, random: noJitter });
+  await settle();
+  await advance(POLL * 10);
+  assert.equal(l.calls.length, 1);
+  assert.equal(pending(), 0, 'no timer at all');
+  await live.refresh();
+  assert.equal(l.calls.length, 2);
+  live.stop();
+});
+
 test('a signal while hidden waits for the page to be visible', async () => {
   const { clock, advance } = fakeClock();
   const vis = fakeVisibility();

@@ -47,11 +47,12 @@ export function createStub() {
     try {
       if (p === '/__stub/control' && req.method === 'POST') {
         const c = await body(req);
-        if (c.reset) reset(c.reset === true ? {} : c.reset);
+        if (c.reset) S.w = world(c.reset === true ? {} : c.reset);           // new data; the signed-in sessions stay
         if (c.faults) S.w.faults = c.faults;
         if (c.requireAal2 !== undefined) S.requireAal2 = c.requireAal2;
         if (c.traffic) addTraffic(S.w, c.traffic.venueId, c.traffic.counts);
         if (c.revokeStaff) S.w.staff.delete(c.revokeStaff);
+        if (c.supportCanAct) { const v = S.w.venues.find((x) => x.row.id === c.supportCanAct.venueId); if (v) v.row.supportCanAct = c.supportCanAct.value; }
         return json(res, 200, { ok: true, calls: S.w.calls });
       }
       if (p === '/auth/v1/token' && req.method === 'POST') {

@@ -21,12 +21,16 @@ export function Analytics({ venue }: { venue: string | null }) {
   const [demo, setDemo] = useState<DemoScope>('exclude');
   const venueId = venue && isUuid(venue) ? venue.toLowerCase() : null;
   const list = useLive<OpsVenues>(() => api.venues({ sort: 'name', limit: 500, demo: 'include' }), [], { poll: false });
-  const live = useLive<OpsAnalytics>(() => api.analytics(analyticsQuery(range, Date.now(), { venueId, demo })), [range, demo, venueId]);
+  // the answer keeps the range it was asked for, so the labels always describe the numbers on screen
+  const live = useLive<{ range: AnalyticsRangeId; a: OpsAnalytics }>(async () => {
+    const r = await api.analytics(analyticsQuery(range, Date.now(), { venueId, demo }));
+    return r.ok ? { ok: true, data: { range, a: r.data } } : r;
+  }, [range, demo, venueId]);
   const venues = list.data?.venues ?? [];
   const chosen = venues.find((v) => v.id === venueId) ?? null;
   const pick = (id: string) => { location.hash = id ? `#/analytics?venue=${encodeURIComponent(id)}` : '#/analytics'; };
-  const a = live.data;
-  const r = ANALYTICS_RANGES.find((x) => x.id === range) ?? ANALYTICS_RANGES[0];
+  const a = live.data?.a ?? null;
+  const r = ANALYTICS_RANGES.find((x) => x.id === live.data?.range) ?? ANALYTICS_RANGES[0];
   const per = r.resolution === 'minute' ? 'per minute' : 'per day';
 
   return (
