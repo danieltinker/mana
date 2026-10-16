@@ -52,9 +52,9 @@ describe('the schema itself', () => {
       'app.path_venue', 'app.until_spec_ok', 'app.windows_ok',
       'public.act_for_owner', 'public.claim_import_scan', 'public.create_import', 'public.create_staff_invite', 'public.create_venue',
       'public.discard_import', 'public.export_menu', 'public.my_dashboard', 'public.open_case', 'public.ops_analytics', 'public.ops_approve_venue',
-      'public.ops_leads', 'public.ops_overview', 'public.ops_set_demo', 'public.ops_set_plan', 'public.ops_update_case', 'public.ops_update_lead',
+      'public.ops_leads', 'public.ops_overview', 'public.ops_revision', 'public.ops_set_demo', 'public.ops_set_plan', 'public.ops_update_case', 'public.ops_update_lead',
       'public.ops_venue', 'public.ops_venues', 'public.preview_menu', 'public.public_menu', 'public.publish_menu', 'public.redeem_staff_invite',
-      'public.restore_revision', 'public.restore_today', 'public.set_availability', 'public.set_onboarding_step', 'public.slug_available',
+      'public.restore_revision', 'public.restore_today', 'public.save_addon_group', 'public.set_availability', 'public.set_onboarding_step', 'public.slug_available',
       'public.submit_lead', 'public.track_events', 'public.unpublish_menu', 'public.venue_activity',
     ]);
   });

@@ -13,7 +13,8 @@
 --     decisions, the plan; every phase-1 input's validator; supabase/tests compares each pair on the same inputs
 --   * the phase-1 RPCs: create_import, claim_import_scan, save_import_draft, apply_import, discard_import,
 --     set_onboarding_step, open_case, ops_update_case, set_availability, restore_today, export_menu, venue_activity,
---     ops_venues, ops_venue, ops_analytics, ops_set_demo; my_dashboard v2; ops_overview on the same row builder
+--     ops_venues, ops_venue, ops_analytics, ops_set_demo, ops_revision (the stored menu Halom approves),
+--     save_addon_group (a group and its options as one); my_dashboard v2; ops_overview on the same row builder
 --   * the simulator's follow-ups (PR #5): via labels, the demo filter on suggestions, until in whole minutes,
 --     track_events names its duplicates and capped events by index
 --   * an index on every foreign key, and app.unindexed_foreign_keys() so a later migration cannot add one without
@@ -1047,6 +1048,206 @@ begin
   return jsonb_build_object('ok', true, 'restored', n, 'targets', targets);
 end $$;
 
+-- ================================================================ save_addon_group (added 16 Oct, from the owner app's QA)
+-- A group and its options saved as one. Saving them as separate writes could leave a group half-saved after a refusal
+-- or a lost answer, with its deletions already done. Here it is one transaction under the venue's nesting lock (the
+-- one app.guard_nesting takes). The ids are the client's: a group or option that does not exist is inserted, one that
+-- exists is updated, and the group's options missing from the input are deleted.
+-- * The same input twice changes nothing: it answers ok, so a retry after a lost answer is safe.
+-- * A save over a newer stored group (its updated_at is not the one the client read) answers `stale`, with the stored
+--   group and its options. The group's updated_at moves whenever this function changes the group or any of its
+--   options, so it versions both.
+-- * Deleting options that upsell rules suggest needs the owner's confirmation; the rules are deleted with them.
+-- The menu tables' triggers still apply. A refusal rolls back everything and answers with its code. The audit rows
+-- come from the per-statement audit, via 'rpc'.
+-- The group and its options travel as their table rows (the columns the owner may set), the way the owner app reads them.
+
+-- validateAddonGroupInput: {venueId, group, options}
+create function app.validate_addon_group_input(p jsonb) returns jsonb language plpgsql immutable set search_path = '' as $$
+declare errs jsonb; g jsonb; o jsonb; x jsonb; i integer; at text; ids text[] := '{}'; gid text; hi integer; defaults integer := 0;
+begin
+  if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
+  errs := app.v_only_keys(p, array['venueId', 'group', 'options']) || app.v_uuid_at(p->'venueId', 'venueId');
+  g := p->'group';
+  if not app.js_obj(g) then errs := errs || app.issue('type', 'group');
+  else
+    errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', 'group.' || k)), '[]'::jsonb)
+                     from jsonb_object_keys(g) k
+                     where not k = any (array['id', 'label', 'name_he', 'name_en', 'selection', 'min_units', 'max_units', 'limits_confirmed']));
+    errs := errs || app.v_uuid_at(g->'id', 'group.id');
+    if app.uuid_ok(g->'id') then gid := lower(g->>'id'); end if;
+    errs := errs || app.v_optional_text(g->'label', 'group.label', 60) || app.v_optional_text(g->'name_he', 'group.name_he', 60)
+                 || app.v_optional_text(g->'name_en', 'group.name_en', 60);
+    if app.strip_blank(coalesce(case when app.js_str(g->'name_he') then g->>'name_he' end, '')) = ''
+       and app.strip_blank(coalesce(case when app.js_str(g->'name_en') then g->>'name_en' end, '')) = '' then
+      errs := errs || app.issue('name_missing', 'group');
+    end if;
+    if g ? 'selection' and not app.one_of(g->'selection', array['single', 'multiple']) then errs := errs || app.issue('enum_invalid', 'group.selection'); end if;
+    if g ? 'min_units' and not (app.js_int(g->'min_units') and (g->>'min_units')::numeric between 0 and 30) then
+      errs := errs || app.issue('units_invalid', 'group.min_units');
+    elsif g ? 'max_units' and not (app.js_int(g->'max_units') and (g->>'max_units')::numeric between 1 and 30) then
+      errs := errs || app.issue('units_invalid', 'group.max_units');
+    else
+      hi := coalesce((g->>'max_units')::integer, 1);
+      if coalesce((g->>'min_units')::integer, 0) > hi then errs := errs || app.issue('units_invalid', 'group.max_units');
+      elsif coalesce(g->>'selection', 'single') = 'single' and hi <> 1 then errs := errs || app.issue('single_max', 'group.max_units');
+      end if;
+    end if;
+    if g ? 'limits_confirmed' and jsonb_typeof(g->'limits_confirmed') <> 'boolean' then errs := errs || app.issue('type', 'group.limits_confirmed'); end if;
+  end if;
+  o := p->'options';
+  if jsonb_typeof(o) is distinct from 'array' then return errs || app.issue('type', 'options'); end if;
+  for i in 0 .. jsonb_array_length(o) - 1 loop
+    at := format('options[%s]', i);
+    x := o->i;
+    if not app.js_obj(x) then errs := errs || app.issue('type', at); continue; end if;
+    errs := errs || (select coalesce(jsonb_agg(jsonb_build_object('code', 'field_not_allowed', 'path', at || '.' || k)), '[]'::jsonb)
+                     from jsonb_object_keys(x) k
+                     where not k = any (array['id', 'position', 'name_he', 'name_en', 'price', 'max_qty', 'is_default', 'opens_group_id']));
+    if not app.uuid_ok(x->'id') then errs := errs || app.issue('id_invalid', at || '.id');
+    elsif lower(x->>'id') = any (ids) then errs := errs || app.issue('id_duplicate', at || '.id');
+    else ids := ids || lower(x->>'id');
+    end if;
+    if x ? 'position' and not (app.js_int(x->'position') and (x->>'position')::numeric between 0 and 100000) then
+      errs := errs || app.issue('position_invalid', at || '.position');
+    end if;
+    errs := errs || app.v_optional_text(x->'name_he', at || '.name_he', 60) || app.v_optional_text(x->'name_en', at || '.name_en', 60);
+    if app.strip_blank(coalesce(case when app.js_str(x->'name_he') then x->>'name_he' end, '')) = ''
+       and app.strip_blank(coalesce(case when app.js_str(x->'name_en') then x->>'name_en' end, '')) = '' then
+      errs := errs || app.issue('name_missing', at);
+    end if;
+    if x ? 'price' and not (app.js_int(x->'price') and (x->>'price')::numeric between 0 and 10000000) then errs := errs || app.issue('price_invalid', at || '.price'); end if;
+    if x ? 'max_qty' and not (app.js_int(x->'max_qty') and (x->>'max_qty')::numeric between 1 and 10) then errs := errs || app.issue('qty_invalid', at || '.max_qty');
+    elsif not app.js_null(coalesce(x->'opens_group_id', 'null'::jsonb)) and coalesce((x->>'max_qty')::integer, 1) <> 1 then
+      errs := errs || app.issue('qty_invalid', at || '.max_qty');
+    end if;
+    if x ? 'is_default' and jsonb_typeof(x->'is_default') <> 'boolean' then errs := errs || app.issue('type', at || '.is_default');
+    elsif x->'is_default' = 'true'::jsonb then defaults := defaults + 1;
+    end if;
+    if not app.js_null(coalesce(x->'opens_group_id', 'null'::jsonb)) then
+      if not app.uuid_ok(x->'opens_group_id') then errs := errs || app.issue('id_invalid', at || '.opens_group_id');
+      elsif lower(x->>'opens_group_id') = gid then errs := errs || app.issue('nesting_invalid', at || '.opens_group_id');
+      end if;
+    end if;
+  end loop;
+  if hi is not null and defaults > hi then errs := errs || app.issue('defaults_invalid', 'options'); end if;
+  return errs;
+end $$;
+
+-- a group and its options as the tables hold them (the rows PostgREST would return), options in menu order
+create function app.addon_group_json(p_group uuid) returns jsonb language sql stable security definer set search_path = '' as $$
+  select jsonb_build_object('group', to_jsonb(g),
+    'options', coalesce((select jsonb_agg(to_jsonb(o) order by o.position, o.id) from public.addon_options o where o.group_id = g.id), '[]'::jsonb))
+  from public.addon_groups g where g.id = p_group
+$$;
+
+create function public.save_addon_group(p_venue uuid, p_group jsonb, p_options jsonb, p_expected_updated_at timestamptz default null,
+                                        p_confirm_rule_removal boolean default false) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare errs jsonb; gid uuid; g public.addon_groups; existed boolean; ng record; opts jsonb; bad text; gone uuid[]; rules uuid[];
+  changed integer := 0; n integer; msg text; st text; cname text;
+begin
+  if (select auth.uid()) is null or not app.can_edit(p_venue) then raise exception 'not_allowed' using errcode = '42501'; end if;
+  if not exists (select 1 from public.venues where id = p_venue and archived_at is null) then return app.fail('venue_unknown'); end if;
+  errs := app.validate_addon_group_input(jsonb_build_object('venueId', p_venue, 'group', p_group, 'options', p_options));
+  if jsonb_array_length(errs) > 0 then return jsonb_build_object('ok', false, 'code', errs->0->>'code', 'path', errs->0->>'path'); end if;
+  perform pg_advisory_xact_lock(hashtext('addon-nesting:' || p_venue::text));
+  gid := (p_group->>'id')::uuid;
+  if exists (select 1 from public.addon_groups where id = gid and venue_id <> p_venue) then
+    return jsonb_build_object('ok', false, 'code', 'not_allowed', 'path', 'group.id');
+  end if;
+
+  -- the input as the triggers will store it (blank edges stripped, the table's defaults for what is left out)
+  select gid as id, app.strip_blank(coalesce(p_group->>'label', '')) as label, app.strip_blank(coalesce(p_group->>'name_he', '')) as name_he,
+         app.strip_blank(coalesce(p_group->>'name_en', '')) as name_en, coalesce(p_group->>'selection', 'single') as selection,
+         coalesce((p_group->>'min_units')::integer, 0) as min_units, coalesce((p_group->>'max_units')::integer, 1) as max_units,
+         (p_group->>'limits_confirmed')::boolean as limits_confirmed
+  into ng;
+  select coalesce(jsonb_agg(jsonb_build_object('i', t.i - 1, 'id', (t.e->>'id')::uuid, 'position', coalesce((t.e->>'position')::integer, (t.i - 1)::integer),
+           'name_he', app.strip_blank(coalesce(t.e->>'name_he', '')), 'name_en', app.strip_blank(coalesce(t.e->>'name_en', '')),
+           'price', coalesce((t.e->>'price')::integer, 0), 'max_qty', coalesce((t.e->>'max_qty')::integer, 1),
+           'is_default', coalesce((t.e->>'is_default')::boolean, false), 'opens_group_id', (t.e->>'opens_group_id')::uuid) order by t.i), '[]'::jsonb)
+  into opts from jsonb_array_elements(p_options) with ordinality t(e, i);
+
+  -- an option id of another venue or another group is not this group's to change; a group it opens must be the venue's
+  select format('options[%s].id', o->>'i') into bad from jsonb_array_elements(opts) o
+  where exists (select 1 from public.addon_options x where x.id = (o->>'id')::uuid and (x.venue_id <> p_venue or x.group_id <> gid))
+  order by (o->>'i')::integer limit 1;
+  if bad is not null then return jsonb_build_object('ok', false, 'code', 'not_allowed', 'path', bad); end if;
+  select format('options[%s].opens_group_id', o->>'i') into bad from jsonb_array_elements(opts) o
+  where o->>'opens_group_id' is not null
+    and not exists (select 1 from public.addon_groups y where y.id = (o->>'opens_group_id')::uuid and y.venue_id = p_venue)
+  order by (o->>'i')::integer limit 1;
+  if bad is not null then return jsonb_build_object('ok', false, 'code', 'group_unknown', 'path', bad); end if;
+
+  select * into g from public.addon_groups where id = gid for update;
+  existed := found;
+  if existed then
+    -- the same input again (a retry): nothing to do, whatever updated_at the client sent
+    if (g.label, g.name_he, g.name_en, g.selection, g.min_units, g.max_units) = (ng.label, ng.name_he, ng.name_en, ng.selection, ng.min_units, ng.max_units)
+       and (ng.limits_confirmed is null or ng.limits_confirmed = g.limits_confirmed)
+       and (select count(*) from public.addon_options x where x.group_id = gid) = jsonb_array_length(opts)
+       and not exists (select 1 from jsonb_array_elements(opts) o left join public.addon_options x on x.id = (o->>'id')::uuid and x.group_id = gid
+                       where x.id is null
+                          or (x.position, x.name_he, x.name_en, x.price, x.max_qty, x.is_default, x.opens_group_id)
+                             is distinct from ((o->>'position')::integer, o->>'name_he', o->>'name_en', (o->>'price')::integer, (o->>'max_qty')::integer,
+                                               (o->>'is_default')::boolean, (o->>'opens_group_id')::uuid)) then
+      return jsonb_build_object('ok', true) || app.addon_group_json(gid);
+    end if;
+    if p_expected_updated_at is distinct from g.updated_at then
+      return jsonb_build_object('ok', false, 'code', 'stale', 'current', app.addon_group_json(gid));
+    end if;
+  end if;
+
+  select coalesce(array_agg(x.id order by x.id), '{}') into gone from public.addon_options x
+  where x.group_id = gid and not exists (select 1 from jsonb_array_elements(opts) o where (o->>'id')::uuid = x.id);
+  select coalesce(array_agg(r.id order by r.id), '{}') into rules from public.upsell_rules r where r.venue_id = p_venue and r.suggest_option_id = any (gone);
+  if cardinality(rules) > 0 and not coalesce(p_confirm_rule_removal, false) then
+    return jsonb_build_object('ok', false, 'code', 'option_in_rules', 'rules', to_jsonb(rules));
+  end if;
+
+  begin
+    perform set_config('mana.via', 'rpc', true);
+    if not existed then
+      insert into public.addon_groups (id, venue_id, label, name_he, name_en, selection, min_units, max_units, limits_confirmed)
+      values (gid, p_venue, ng.label, ng.name_he, ng.name_en, ng.selection, ng.min_units, ng.max_units, coalesce(ng.limits_confirmed, true));
+    elsif (g.label, g.name_he, g.name_en, g.selection, g.min_units, g.max_units) is distinct from (ng.label, ng.name_he, ng.name_en, ng.selection, ng.min_units, ng.max_units)
+          or (ng.limits_confirmed is not null and ng.limits_confirmed <> g.limits_confirmed) then
+      -- changing the limits confirms them (as app.guard_group_limits does for a direct write)
+      update public.addon_groups set label = ng.label, name_he = ng.name_he, name_en = ng.name_en, selection = ng.selection,
+        min_units = ng.min_units, max_units = ng.max_units,
+        limits_confirmed = case when (g.min_units, g.max_units) is distinct from (ng.min_units, ng.max_units) then true
+                                else coalesce(ng.limits_confirmed, g.limits_confirmed) end
+      where id = gid;
+    end if;
+    -- DESTRUCTIVE-LOOKING (when the function runs): deletes the group's options the input left out, as the owner asked
+    delete from public.addon_options where group_id = gid and id = any (gone);
+    get diagnostics n = row_count;
+    changed := changed + n;
+    insert into public.addon_options as t (id, venue_id, group_id, position, name_he, name_en, price, max_qty, is_default, opens_group_id)
+    select (o->>'id')::uuid, p_venue, gid, (o->>'position')::integer, o->>'name_he', o->>'name_en', (o->>'price')::integer, (o->>'max_qty')::integer,
+           (o->>'is_default')::boolean, (o->>'opens_group_id')::uuid
+    from jsonb_array_elements(opts) o order by (o->>'i')::integer
+    on conflict (id) do update set position = excluded.position, name_he = excluded.name_he, name_en = excluded.name_en, price = excluded.price,
+      max_qty = excluded.max_qty, is_default = excluded.is_default, opens_group_id = excluded.opens_group_id
+    where (t.position, t.name_he, t.name_en, t.price, t.max_qty, t.is_default, t.opens_group_id)
+          is distinct from (excluded.position, excluded.name_he, excluded.name_en, excluded.price, excluded.max_qty, excluded.is_default, excluded.opens_group_id);
+    get diagnostics n = row_count;
+    changed := changed + n;
+    -- the group's version moves with its options (updated_at alone is not activity: no log row)
+    if existed and changed > 0 then update public.addon_groups set updated_at = now() where id = gid and updated_at is distinct from now(); end if;
+    perform set_config('mana.via', '', true);
+  exception
+    when raise_exception then
+      get stacked diagnostics msg = message_text;
+      return jsonb_build_object('ok', false, 'code', msg);
+    when integrity_constraint_violation then
+      get stacked diagnostics st = returned_sqlstate, cname = constraint_name;
+      return jsonb_build_object('ok', false, 'code', case st when '23503' then 'group_unknown' when '23505' then 'conflict' else 'invalid' end, 'constraint', cname);
+  end;
+  return jsonb_build_object('ok', true) || app.addon_group_json(gid);
+end $$;
+
 -- ================================================================ the activity log as the owner reads it (ActivityEntry)
 -- The name of the one row an entry is about, read now (sections, dishes, add-on groups and options by their names;
 -- upsell rules by their label); null for other tables or when the row is gone
@@ -1401,8 +1602,8 @@ begin
     select v.id, v.created_at, v.name_he, v.name_en, v.is_demo, app.ops_row(v) as j from public.venues v where v.archived_at is null),
   m as (
     select r.* from r
-    where (not (f ? 'q') or strpos(lower(r.name_he), lower(f->>'q')) > 0 or strpos(lower(r.name_en), lower(f->>'q')) > 0
-           or strpos(lower(r.j->>'slug'), lower(f->>'q')) > 0)
+    where (not (f ? 'q') or strpos(lower(r.name_he), lower(btrim(f->>'q'))) > 0 or strpos(lower(r.name_en), lower(btrim(f->>'q'))) > 0
+           or strpos(lower(r.j->>'slug'), lower(btrim(f->>'q'))) > 0)
       and (not (f ? 'stage') or r.j->'onboarding'->>'stage' = f->>'stage')
       and (not (f ? 'warning') or r.j->'warnings' ? (f->>'warning'))
       and (not (f ? 'review') or r.j->>'review' = f->>'review')
@@ -1459,11 +1660,35 @@ begin
                           from (select l from public.activity_log l where l.venue_id = p_venue order by l.id desc limit 100) z), '[]'::jsonb));
 end $$;
 
+-- ops_revision (added to ADR-008 on 16 Oct by the back-office lane): a stored revision of a venue's menu, as Halom
+-- reviews it. Before approval public_menu answers "unavailable", and preview_menu builds from the live tables (which
+-- the owner may have changed since publishing), so this is the menu Halom actually approves: the newest revision
+-- unless a number is asked, with whether it is the published one and the venue's review state. The read is logged
+-- (menu.read, the revision's number) on the venue's timeline, as the export is.
+create function public.ops_revision(p_venue uuid, p_revision integer default null) returns jsonb
+language plpgsql volatile security definer set search_path = '' as $$
+declare v public.venues; r public.menu_revisions; latest integer;
+begin
+  if not app.is_staff() then raise exception 'not_staff' using errcode = '42501'; end if;
+  perform set_config('mana.via', 'rpc', true);
+  select * into v from public.venues where id = p_venue;
+  if not found then return app.fail('venue_unknown'); end if;
+  select max(number) into latest from public.menu_revisions where venue_id = p_venue;
+  select * into r from public.menu_revisions where venue_id = p_venue and number = coalesce(p_revision, latest);
+  if not found then return app.fail('revision_unknown'); end if;
+  perform app.log(p_venue, 'menu.read', 'menu_revisions', array[r.id::text], jsonb_build_object('revision', r.number));
+  perform set_config('mana.via', '', true);
+  return jsonb_build_object('ok', true, 'venueId', p_venue,
+    'revision', jsonb_build_object('id', r.id, 'number', r.number, 'createdAt', app.iso(r.created_at), 'note', r.note,
+                                   'live', r.id is not distinct from v.published_revision_id),
+    'latest', latest, 'review', app.review_of(v.approved_at, v.first_published_at), 'snapshot', r.snapshot);
+end $$;
+
 -- ops_analytics: counts per minute or per day, across venues or for one, real traffic only unless the query says
 -- otherwise (by each rollup's own label); the funnel of the venues created in the range; the imports created in it
 create function public.ops_analytics(p_query jsonb) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
-declare q jsonb := coalesce(p_query, '{}'::jsonb); errs jsonb; minute boolean; vid uuid; demo text; names text[];
+declare q jsonb := coalesce(p_query, '{}'::jsonb); errs jsonb; minute boolean; vid uuid; scope text; names text[];
   f timestamptz; t timestamptz; fd date; td date; buckets jsonb; series jsonb; totals jsonb; funnel jsonb; imports jsonb;
 begin
   if not app.is_staff() then raise exception 'not_staff' using errcode = '42501'; end if;
@@ -1472,7 +1697,7 @@ begin
   if jsonb_array_length(errs) > 0 then raise exception '%', errs->0->>'code' using errcode = '22023'; end if;
   minute := q->>'resolution' = 'minute';
   vid := app.as_uuid(q->>'venueId');
-  demo := coalesce(q->>'demo', 'exclude');
+  scope := coalesce(q->>'demo', 'exclude');
   names := case when q ? 'names' then array(select jsonb_array_elements_text(q->'names')) else app.event_names() end;
   if minute then
     f := app.js_instant(q->'from');
@@ -1484,7 +1709,7 @@ begin
       from unnest(names) nm(name) cross join generate_series(f, t - interval '1 minute', interval '1 minute') b(b)
       left join (select r.name, r.bucket, sum(r.n) as n from public.rollups_minute r
                  where r.key = '' and r.bucket >= f and r.bucket < t and (vid is null or r.venue_id = vid)
-                   and case demo when 'exclude' then not r.demo when 'only' then r.demo else true end
+                   and case scope when 'exclude' then not r.demo when 'only' then r.demo else true end
                  group by 1, 2) c on c.name = nm.name and c.bucket = b.b
       group by nm.name) z;
   else
@@ -1496,7 +1721,7 @@ begin
       from unnest(names) nm(name) cross join generate_series(fd::timestamp, td::timestamp, interval '1 day') b(b)
       left join (select r.name, r.day, sum(r.n) as n from public.rollups_day r
                  where r.key = '' and r.day between fd and td and (vid is null or r.venue_id = vid)
-                   and case demo when 'exclude' then not r.demo when 'only' then r.demo else true end
+                   and case scope when 'exclude' then not r.demo when 'only' then r.demo else true end
                  group by 1, 2) c on c.name = nm.name and c.day = b.b::date
       group by nm.name) z;
   end if;
@@ -1504,7 +1729,7 @@ begin
 
   with ven as (
     select v.* from public.venues v
-    where (vid is null or v.id = vid) and case demo when 'exclude' then not v.is_demo when 'only' then v.is_demo else true end),
+    where (vid is null or v.id = vid) and case scope when 'exclude' then not v.is_demo when 'only' then v.is_demo else true end),
   made as (
     select v.* from ven v
     where case when minute then v.created_at >= f and v.created_at < t else app.local_date(v.created_at, v.time_zone) between fd and td end)
@@ -1517,7 +1742,7 @@ begin
 
   with ven as (
     select v.id, v.time_zone from public.venues v
-    where (vid is null or v.id = vid) and case demo when 'exclude' then not v.is_demo when 'only' then v.is_demo else true end),
+    where (vid is null or v.id = vid) and case scope when 'exclude' then not v.is_demo when 'only' then v.is_demo else true end),
   imp as (
     select i.source, i.status, i.exceptions,
            exists (select 1 from jsonb_array_elements(i.exceptions) e where e->>'severity' = 'fix') as with_fix
@@ -1541,7 +1766,7 @@ begin
   into imports;
 
   return jsonb_build_object('generatedAt', app.iso(now()), 'rolledUpAt', (select app.iso(last_run_at) from app.rollup_state),
-    'resolution', q->>'resolution', 'venueId', vid, 'demo', demo, 'buckets', coalesce(buckets, '[]'::jsonb), 'series', coalesce(series, '{}'::jsonb),
+    'resolution', q->>'resolution', 'venueId', vid, 'demo', scope, 'buckets', coalesce(buckets, '[]'::jsonb), 'series', coalesce(series, '{}'::jsonb),
     'totals', coalesce(totals, '{}'::jsonb), 'funnel', funnel, 'imports', imports);
 end $$;
 
@@ -1650,7 +1875,8 @@ grant execute on function public.create_import(uuid, text, text, text[], text, b
   public.open_case(uuid, text, text, text, boolean), public.ops_update_case(uuid, text, text, text),
   public.set_availability(uuid, text, uuid, jsonb, text), public.restore_today(uuid), public.export_menu(uuid),
   public.venue_activity(uuid, bigint, integer, text, text), public.ops_venues(jsonb), public.ops_venue(uuid), public.ops_analytics(jsonb),
-  public.ops_set_demo(uuid, boolean, text) to authenticated;
+  public.ops_set_demo(uuid, boolean, text), public.ops_revision(uuid, integer),
+  public.save_addon_group(uuid, jsonb, jsonb, timestamptz, boolean) to authenticated;
 -- the service role (edge functions) keeps EXECUTE on every function in public, as before
 grant execute on all functions in schema public to service_role;
 revoke execute on function app.audit_grants(), app.unindexed_foreign_keys() from public, anon, authenticated;
@@ -1744,6 +1970,7 @@ declare expected text[] := array[
   'authenticated|function|public.ops_approve_venue(uuid,text)|EXECUTE',
   'authenticated|function|public.ops_leads(text,text,timestamp with time zone,integer)|EXECUTE',
   'authenticated|function|public.ops_overview()|EXECUTE',
+  'authenticated|function|public.ops_revision(uuid,integer)|EXECUTE',
   'authenticated|function|public.ops_set_demo(uuid,boolean,text)|EXECUTE',
   'authenticated|function|public.ops_set_plan(uuid,text,timestamp with time zone,text,text)|EXECUTE',
   'authenticated|function|public.ops_update_case(uuid,text,text,text)|EXECUTE',
@@ -1756,6 +1983,7 @@ declare expected text[] := array[
   'authenticated|function|public.redeem_staff_invite(text)|EXECUTE',
   'authenticated|function|public.restore_revision(uuid,integer)|EXECUTE',
   'authenticated|function|public.restore_today(uuid)|EXECUTE',
+  'authenticated|function|public.save_addon_group(uuid,jsonb,jsonb,timestamp with time zone,boolean)|EXECUTE',
   'authenticated|function|public.set_availability(uuid,text,uuid,jsonb,text)|EXECUTE',
   'authenticated|function|public.set_onboarding_step(uuid,text,text,text[])|EXECUTE',
   'authenticated|function|public.slug_available(text)|EXECUTE',
