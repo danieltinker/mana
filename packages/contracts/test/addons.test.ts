@@ -51,6 +51,17 @@ test('every group code, with the path the database gives (supabase/tests/addon-g
   assert.equal(first(group({ limits_confirmed: 'yes' })), 'type@group.limits_confirmed');
   assert.equal(first(group({ label: `a${String.fromCharCode(0)}b` })), 'text_invalid@group.label', 'the contracts only: such JSON never reaches the database');
   assert.deepEqual(errs(validateAddonGroupInput(check({ group: 'sides' }))), ['type@group']);
+  // round 2 L6: the text columns are NOT NULL; null is a type error, a key left out takes ''
+  assert.equal(first(group({ label: null })), 'type@group.label');
+  assert.deepEqual(errs(validateAddonGroupInput(check({ group: { id: G, name_en: 'Sides', name_he: null }, options: [{ id: optId(1), name_he: null, name_en: 'Fries' }] }))),
+    ['type@group.name_he', 'type@options[0].name_he']);
+  const { label: _l, ...noLabel } = group();
+  assert.deepEqual(errs(validateAddonGroupInput(check({ group: noLabel }))), []);
+  // where the checks stop: an invalid min hides the max and the checks that need both
+  assert.deepEqual(errs(validateAddonGroupInput(check({ group: group({ min_units: -1, max_units: 99 }), options: [1, 2, 3].map((n) => opt(n, { is_default: true })) }))),
+    ['units_invalid@group.min_units']);
+  assert.deepEqual(errs(validateAddonGroupInput(check({ group: group({ min_units: 3 }), options: [1, 2, 3].map((n) => opt(n, { is_default: true })) }))),
+    ['units_invalid@group.max_units', 'defaults_invalid@options'], 'min above max: the defaults still count against the max');
 });
 
 test('every option code, with the path the database gives', () => {
