@@ -13,7 +13,7 @@
 import { isObject, isUuid, oneOf, type Validation } from './common.ts';
 import { TARGET_KINDS, type TargetKind } from './enums.ts';
 import type { LiveOverlay } from './live.ts';
-import { optionalText, validateInput } from './rpc.ts';
+import { optionalText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 import type { AddonGroupV2, DishV2, SnapshotV2 } from './snapshot.ts';
 import { inSchedule, isOpenAt, isUntilSpec, nextOpening, nextScheduleStart, type ScheduleTimes, type UntilSpec, type VenueHours } from './time.ts';
 
@@ -143,7 +143,7 @@ export function menuAvailability(s: SnapshotV2, live: LiveOverlay, now: Date | n
     for (const o of g.options) {
       const a = isAvailable({ kind: 'option', id: o.id }, off, null, null, t);
       options.set(o.id, a);
-      if (!a.available) offOptions.add(o.id);
+      if (a.available === false) offOptions.add(o.id);
     }
 
   const sections = new Map<string, Availability>();
@@ -170,15 +170,16 @@ export function menuAvailability(s: SnapshotV2, live: LiveOverlay, now: Date | n
  */
 export function unavailableOf(av: MenuAvailability, includeClosed = false): Unavailable {
   const dishes = new Set<string>();
-  for (const [id, a] of av.dishes) if (!a.available && (includeClosed || a.reason !== 'closed')) dishes.add(id);
+  for (const [id, a] of av.dishes) if (a.available === false && (includeClosed || a.reason !== 'closed')) dishes.add(id);
   const options = new Set<string>();
-  for (const [id, a] of av.options) if (!a.available) options.add(id);
+  for (const [id, a] of av.options) if (a.available === false) options.add(id);
   return { dishes, options };
 }
 
 // ---------------------------------------------------------------- the quick actions' inputs (F05, F08; ADR-008)
 
-/** An availability override's note (who asked, why): at most this many characters; never shown to guests. */
+/** An availability override's note, for the venue's team (why it is off): at most this many characters, never shown
+ * to guests, and never a guest's name or phone. */
 export const AVAILABILITY_NOTE_MAX = 200;
 
 /**
@@ -192,17 +193,18 @@ export type SetAvailabilityInput = {
   readonly until: UntilSpec | null;
   readonly note?: string | null;
 };
-export type SetAvailabilityReply = {
-  readonly ok: true;
-  /** The new override; null when `until` was null. */
-  readonly overrideId: string | null;
-  /** When it comes back (whole minutes); null = until the owner restores it, or back now. */
-  readonly untilAt: string | null;
-  /** How many overrides of this target were restored first. */
-  readonly restored: number;
-};
+export type SetAvailabilityReply =
+  | RpcOk<{
+      /** The new override; null when `until` was null. */
+      readonly overrideId: string | null;
+      /** When it comes back (whole minutes); null = until the owner restores it, or back now. */
+      readonly untilAt: string | null;
+      /** How many overrides of this target were restored first. */
+      readonly restored: number;
+    }>
+  | RpcFail<'target_unknown' | 'until_in_past' | 'until_invalid' | 'enum_invalid' | 'id_invalid' | 'text_invalid' | 'text_too_long'>;
 
-/** Codes: type, field_not_allowed, id_invalid, enum_invalid, until_invalid, text_too_long. */
+/** Codes: type, field_not_allowed, id_invalid, enum_invalid, until_invalid, text_invalid, text_too_long. */
 export function validateSetAvailability(raw: unknown): Validation<SetAvailabilityInput> {
   return validateInput<SetAvailabilityInput>(raw, ['venueId', 'target', 'until', 'note'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
@@ -222,11 +224,9 @@ export function validateSetAvailability(raw: unknown): Validation<SetAvailabilit
  * started on an earlier day ("until Sunday", "indefinitely" from last week) stays.
  */
 export type RestoreTodayInput = { readonly venueId: string };
-export type RestoreTodayReply = {
-  readonly ok: true;
-  readonly restored: number;
-  readonly targets: ReadonlyArray<{ readonly kind: TargetKind; readonly id: string }>;
-};
+export type RestoreTodayReply =
+  | RpcOk<{ readonly restored: number; readonly targets: ReadonlyArray<{ readonly kind: TargetKind; readonly id: string }> }>
+  | RpcFail<'venue_unknown'>;
 
 export function validateRestoreToday(raw: unknown): Validation<RestoreTodayInput> {
   return validateInput<RestoreTodayInput>(raw, ['venueId'], (x, o) => void (isUuid(o.venueId) || x.add('id_invalid', 'venueId')));

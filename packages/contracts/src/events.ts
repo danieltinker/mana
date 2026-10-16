@@ -164,7 +164,7 @@ export function validateBatch(raw: unknown, opts: EventCheck = {}): Validation<B
   let duplicates = 0;
   raw.forEach((e, index) => {
     const r = validateEvent(e, opts);
-    if (!r.ok) return void rejected.push({ index, errors: r.errors });
+    if (r.ok === false) return void rejected.push({ index, errors: r.errors });
     if (seen.has(r.value.id)) return void (duplicates += 1);
     seen.add(r.value.id);
     accepted.push(r.value);
@@ -200,7 +200,8 @@ export function rollupKeys(name: EventName, props: Readonly<Record<string, unkno
  * What `track_events(batch)` answers. Every event of the batch is in exactly one of: accepted (stored now), a
  * duplicate (its id was stored before, or earlier in this batch), capped (dropped by a cap), or rejected (with the
  * first problem's code). The three lists name events by their index in the batch, so a phone (or the simulator's
- * ledger) knows exactly which ones counted; the counts stay for phase-0 readers.
+ * ledger) knows exactly which ones counted; the counts stay for phase-0 readers. The two index lists arrive with the
+ * phase-1 migration (`20261016120000_phase1.sql`); the phase-0 reply has only the counts.
  */
 export type TrackEventsReply =
   | {
