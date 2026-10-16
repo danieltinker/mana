@@ -28,3 +28,6 @@ view/floor-guest.js
 view/chunks/
 # the product page's bundled scripts: made by node brand/tools/build-land.mjs (CI builds them in tools/build-site.sh)
 brand/site/land/
+
+# Private demo seeds (real venues), never committed
+private/
