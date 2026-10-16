@@ -166,6 +166,7 @@ const S: Record<string, [string, string]> = {
   'lib.stale.body': ['היא נשמרה במסך או במכשיר אחר אחרי שפתחתם אותה. כך היא שמורה עכשיו:', 'It was saved on another screen or device after you opened it. This is how it is stored now:'],
   'lib.stale.keep': ['לשמור את שלי במקומה', 'Save mine over it'],
   'lib.stale.take': ['לקחת את השמורה', 'Take the stored one'],
+  'lib.e.dish_limits': ['למנה "{dish}" יש גבולות משלה לקבוצה הזאת, והשינוי הזה שובר אותם. שנו קודם את הגבולות במנה (בלשונית התוספות שלה).', 'The dish "{dish}" has its own limits for this group, and this change breaks them. Change the limits on the dish first (its Add-ons tab).'],
   'lib.rules.title': ['כללי הצעה משתמשים באפשרויות האלה', 'Suggestion rules use these choices'],
   'lib.rules.body': ['{n} כללי הצעה מציעים אפשרויות שמחקתם: {names}. אם תשמרו, הכללים יימחקו יחד איתן.', '{n} suggestion rules suggest choices you deleted: {names}. If you save, the rules are deleted with them.'],
   'lib.rules.body1': ['כלל הצעה אחד מציע אפשרות שמחקתם: {names}. אם תשמרו, הכלל יימחק יחד איתה.', 'One suggestion rule suggests a choice you deleted: {names}. If you save, the rule is deleted with it.'],

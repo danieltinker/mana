@@ -1,10 +1,10 @@
 // The v2 app's own small pieces, on top of the shared ones in ../ui.tsx (buttons, fields, sheets, notes, icons):
 // a list that reorders by drag and by keyboard, a number stepper, a price field, the language switch for bilingual
 // fields, tabs, and the error line in v2's words.
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import type { FromPrice } from '@mana/contracts';
-import { Btn, Icon, IconBtn, Note, Seg } from '../ui.tsx';
+import { Btn, Icon, IconBtn, Note, Seg, go } from '../ui.tsx';
 import { shekels } from './format.ts';
 import { errText, lang, t } from './i18n.ts';
 
@@ -98,11 +98,21 @@ export function Tabs<K extends string>({ value, tabs, onChange, label }: { value
 export const TabPanel = ({ id, children }: { id: string; children: ComponentChildren }) => <div role="tabpanel" id={'panel-' + id} aria-labelledby={'tab-' + id} class="tabpanel">{children}</div>;
 
 /**
- * An editing area that an account which may not edit (a counter) sees read-only: one fieldset, so every field, switch,
- * stepper, price and choice inside is disabled at once, whatever the component.
+ * A screen an account that may not edit (a counter) sees read-only, in three parts (README, "Who may edit"):
+ * 1. `<ReadOnly when={!editable}>` around the editing area: one fieldset, so every field, switch, stepper, price and
+ *    choice inside is disabled at once, whatever the component, with no look of its own;
+ * 2. `disabled={!editable}` on each control as well (the state is then in the markup of each one, for any check), and
+ *    the buttons that only edit (save, delete, add, arrange) not rendered at all;
+ * 3. `useEditOnly(onEditAddress, editable, back)` on an address that only edits, so it leads back instead.
+ * The store refuses the writes anyway (`mayWrite`).
  */
 export function ReadOnly({ when, children, class: cls, ...rest }: { when: boolean; children: ComponentChildren; class?: string; [k: string]: any }) {
   return <fieldset class={'ro' + (cls ? ' ' + cls : '')} disabled={when} data-readonly={when ? '' : undefined} {...rest}>{children}</fieldset>;
+}
+
+/** An address that only edits (a section's sheet, a new group): an account that may not edit is taken to `back`. */
+export function useEditOnly(onEditAddress: boolean, editable: boolean, back: string) {
+  useEffect(() => { if (onEditAddress && !editable) go(back, true); }, [onEditAddress, editable, back]);
 }
 
 /**

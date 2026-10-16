@@ -109,17 +109,20 @@ test('a group: the form round-trips, and every rule the validators hold is check
   assert.deepEqual(w.value.group, { label: 'Side, mains', name_he: 'תוספת לבחירה', name_en: 'Side of choice', selection: 'multiple', min_units: 1, max_units: 2 });
   assert.deepEqual(w.value.options.map((o) => [o.id, o.position, o.price, o.opens_group_id]), [[fries.id, 0, 0, sauce.id], [salad.id, 1, 400, null], [rice.id, 2, 0, null]]);
 
-  const codes = (form, gid = side.id) => { const r = groupFromForm(form, gid); return r.ok ? [] : r.errors.map((e) => e.code); };
-  assert.deepEqual(codes({ ...f, nameHe: '', nameEn: '' }), ['name_missing']);
-  assert.deepEqual(codes({ ...f, options: [] }), ['options_empty']);
-  assert.deepEqual(codes({ ...f, min: 4, max: 4 }), ['min_unreachable']);
-  assert.deepEqual(codes({ ...f, min: 2, max: 1 }), ['limits_invalid']);
-  assert.deepEqual(codes({ ...f, selection: 'single' }), ['single_max']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => ({ ...o, isDefault: true, maxQty: i === 0 ? 1 : 1 })) }), ['defaults_exceed']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 0 ? { ...o, maxQty: 2 } : o)) }), ['opener_qty']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, opensGroupId: side.id } : o)) }), ['opens_self']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, price: '1,2,3' } : o)) }), ['price_invalid']);
-  assert.deepEqual(codes({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, maxQty: 11 } : o)) }), ['option_qty_invalid']);
+  // the rules are the contracts' (validateAddonGroup, the database's twin): the same codes, at the form's fields
+  const issues = (form, gid = side.id) => { const r = groupFromForm(form, gid); return r.ok ? [] : r.errors.map((e) => e.code + '@' + e.field); };
+  assert.deepEqual(issues({ ...f, nameHe: '', nameEn: '' }), ['name_missing@name']);
+  assert.deepEqual(issues({ ...f, options: [] }), ['options_empty@options']);
+  assert.deepEqual(issues({ ...f, min: 4, max: 4 }), ['min_unreachable@limits']);
+  assert.deepEqual(issues({ ...f, min: 2, max: 1 }), ['units_invalid@limits']);
+  assert.deepEqual(issues({ ...f, selection: 'single' }), ['single_max@limits']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o) => ({ ...o, isDefault: true })) }), ['defaults_invalid@defaults']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 0 ? { ...o, maxQty: 2 } : o)) }), ['opener_qty@options.0.maxQty']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, opensGroupId: side.id } : o)) }), ['nesting_invalid@options.1.opens']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, price: '1,2,3' } : o)) }), ['price_invalid@options.2.price']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 2 ? { ...o, maxQty: 11 } : o)) }), ['qty_invalid@options.2.maxQty']);
+  assert.deepEqual(issues({ ...f, options: f.options.map((o, i) => (i === 1 ? { ...o, nameHe: '', nameEn: '' } : o)) }), ['name_missing@options.1.name']);
+  assert.deepEqual(issues({ ...f, label: 'א'.repeat(61) }), ['text_too_long@label']);
 
   // switching to "choose one" keeps the form valid: one unit, one default, one of each choice
   const many = { ...f, min: 1, max: 2, options: f.options.map((o) => ({ ...o, isDefault: true, maxQty: o.opensGroupId ? 1 : 3 })) };
@@ -127,7 +130,7 @@ test('a group: the form round-trips, and every rule the validators hold is check
   assert.deepEqual([one.min, one.max], [1, 1]);
   assert.deepEqual(one.options.map((o) => [o.isDefault, o.maxQty]), [[true, 1], [false, 1], [false, 1]]);
   assert.equal(groupFromForm(one, side.id).ok, true);
-  assert.equal(groupFromForm(newGroupForm(), null).ok, false, 'a new group needs a name and a named choice');
+  assert.equal(groupFromForm(newGroupForm(), newId()).ok, false, 'a new group needs a name and a named choice');
 });
 
 test('a dish may only tighten a group: the editor offers only tighter limits, stores null for the group\'s own', () => {

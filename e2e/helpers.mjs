@@ -35,15 +35,6 @@ export function playwright() {
   throw new Error('playwright-core not found (npm ci at the root installs it for apps/ops and apps/studio)');
 }
 
-/**
- * Refuse to run, saying why, when the migrations lack a function a test drives through the app (a lane's tests can land
- * before the schema lane's migration is merged).
- */
-export async function needsFunction(stack, signature, from) {
-  const [{ ok }] = await stack.sql('select to_regprocedure($1) is not null as ok', [signature]);
-  if (!ok) throw new Error(`${signature} is not in supabase/migrations yet: these tests need ${from}`);
-}
-
 export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site') } = {}) {
   const stack = await startStack({ ports: 'auto' });
   let web = null, browser = null;

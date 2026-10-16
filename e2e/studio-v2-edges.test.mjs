@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { asAnon, createUser, HalomBot, OwnerBot } from '@mana/sim';
 import { defaultSelection, fromPrice, priceDish, pricingContext } from '@mana/contracts';
-import { needsFunction, OUT, PHONE, startE2E } from './helpers.mjs';
+import { OUT, PHONE, startE2E } from './helpers.mjs';
 import { guestModel, pricingOf } from '../apps/studio/src/v2/data/guest.ts';
 
 const SHOTS = path.join(OUT, 'studio-v2-edges');
@@ -29,7 +29,6 @@ const shot = (page, name) => page.screenshot({ path: path.join(SHOTS, name + '.p
 before(async () => {
   e = await startE2E({ seed: null });
   if (!e.hasSite) throw new Error('the site is not built: run bash tools/build-site.sh first');
-  await needsFunction(e.stack, 'public.save_addon_group(uuid,jsonb,jsonb,timestamptz,boolean)', 'the phase-1 schema (the group editor saves through it)');
   fs.mkdirSync(SHOTS, { recursive: true });
   owner = await OwnerBot.signUp(e.stack, { email: EMAIL, password: PASSWORD });
   assert.equal((await owner.createVenue({ slug: SLUG, name: { he: 'בורגר קצה', en: 'Edge Burger' }, kind: 'restaurant' })).ok, true);
@@ -117,7 +116,8 @@ async function loseNextAnswer(page, method, pathEnd) {
 test('production config: schema absent, 1, "2" (a string) or another env runs v1 and never fetches the v2 app', { timeout: 120000 }, async () => {
   const base = { supabaseUrl: e.stack.apiUrl, supabaseKey: e.stack.anonKey, shortBase: 'http://127.0.0.1/m/', shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false } };
   const cases = [['absent', base, false], ['schema 1', { ...base, schema: 1 }, false], ['schema "2"', { ...base, schema: '2' }, false], ['env demo, no schema', { ...base, env: 'demo' }, false],
-    ['schema 2', { ...base, env: 'local', schema: 2, realtime: false }, true]];
+    ['schema 2 in production (no env)', { ...base, schema: 2 }, false], ['schema 2, env local', { ...base, env: 'local', schema: 2, realtime: false }, true],
+    ['schema 2, env demo', { ...base, env: 'demo', schema: 2 }, true]];
   for (const [name, cfg, v2] of cases) {
     const ctx = await e.browser.newContext({ viewport: PHONE, locale: 'he-IL' });
     const page = await ctx.newPage();
@@ -446,6 +446,21 @@ test('deleting a choice that a suggestion rule offers asks first, naming the rul
   await ask.getByRole('button', { name: 'למחוק ולשמור' }).click();
   await until(async () => !(await optionsOf(ids.groups.extras)).some((o) => o.id === ids.options.bacon), 'the choice deleted');
   assert.equal((await owner.api.select('upsell_rules', { select: 'id', id: `eq.${ids.rules.bacon}` })).length, 0, 'and the rule with it');
+  await page.context().close();
+});
+
+test('a group change that would break a dish\'s own limits is refused before it is sent, naming the dish', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const sent = [];
+  page.on('request', (r) => { if (r.url().includes('/rpc/save_addon_group')) sent.push(r.url()); });
+  const ed = await openGroup(page, 'side');                 // the kids' burger takes at most one side
+  await ed.getByRole('button', { name: 'יותר: לפחות' }).click();
+  await ed.locator('[data-action="save-group"]').click();
+  await ed.locator('[data-error]').waitFor();
+  assert.match(await ed.locator('[data-error]').innerText(), /המבורגר ילדים/);
+  assert.equal(sent.length, 0, 'nothing sent');
+  assert.equal((await groupRow('side')).min_units, 1);
+  await shot(page, '09b-dish-limits');
   await page.context().close();
 });
 

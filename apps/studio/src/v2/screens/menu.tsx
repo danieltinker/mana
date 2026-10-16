@@ -12,7 +12,7 @@ import { byPosition, named, newId } from '../data/rows.ts';
 import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEntryLang } from '../ui.tsx';
+import { LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
 import { DishSheet } from './dish.tsx';
 
 export function MenuScreen({ rest }: { rest: string[] }) {
@@ -25,7 +25,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
   const sheetDish = rest[0] === 'd' && rest[1] ? rest[1] : null;
   // a section's sheet only edits: an account that may not edit is taken back to the menu (also when it came by address)
   const sheetSection = rest[0] === 's' && rest[1] && editable ? rest[1] : null;
-  useEffect(() => { if (rest[0] === 's' && !editable) go('menu', true); }, [rest[0], editable]);
+  useEditOnly(rest[0] === 's', editable, 'menu');
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {

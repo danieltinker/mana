@@ -3,7 +3,7 @@
 // it in memory. Rows are typed with @mana/contracts.
 import type {
   AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, EntitlementRow, Issue, MemberRole, MenuRevisionRow,
-  PublishWarning, ScheduleRow, SectionRow, SnapshotV2, VenueKind, VenueRow,
+  PublishWarning, SaveAddonGroupInput, SaveAddonGroupReply, ScheduleRow, SectionRow, SnapshotV2, StoredAddonGroup, VenueKind, VenueRow,
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
@@ -116,25 +116,18 @@ export async function deleteRows(table: MenuTable, ids: readonly string[]): Prom
 }
 
 // ---------------------------------------------------------------- an add-on group and its options, as one (save_addon_group)
-/** A group's whole state as the owner left it; the ids are the client's own (new rows included), so a retry is safe. */
-export type SaveGroupInput = {
-  readonly venueId: string;
-  readonly group: Pick<AddonGroupRow, 'id' | 'label' | 'name_he' | 'name_en' | 'selection' | 'min_units' | 'max_units'>;
-  readonly options: readonly Pick<AddonOptionRow, 'id' | 'position' | 'name_he' | 'name_en' | 'price' | 'max_qty' | 'is_default' | 'opens_group_id'>[];
-};
-export type GroupRows = { readonly group: AddonGroupRow; readonly options: AddonOptionRow[] };
-export type SaveGroupAnswer =
-  | ({ readonly ok: true } & GroupRows)
-  | { readonly ok: false; readonly code: string; readonly path?: string; readonly current?: GroupRows; readonly rules?: string[] };
+/** A group and its options as stored (the RPC's answer, and `current` when the group moved meanwhile). */
+export type GroupRows = StoredAddonGroup;
 
 /**
- * One transaction: the group, its options added, changed and deleted. `expected` is the group's `updated_at` as last
- * read (null for a new group); `stale` comes back with the stored group when it moved since. Deleting options that
- * suggestion rules use answers `option_in_rules` until `confirmRules` is true. The answer comes back as it is.
+ * One transaction: the group, its options added, changed and deleted (`SaveAddonGroupInput` in @mana/contracts: the
+ * ids are the client's, `expectedUpdatedAt` the group's version as last read). The answer comes back as it is:
+ * saved, `stale` with the stored group, `option_in_rules` with the rules, or a refusal that changed nothing.
  */
-export const saveAddonGroup = (input: SaveGroupInput, expected: string | null, confirmRules: boolean) =>
-  q<SaveGroupAnswer>(sb.rpc('save_addon_group', {
-    p_venue: input.venueId, p_group: input.group, p_options: input.options, p_expected_updated_at: expected, p_confirm_rule_removal: confirmRules,
+export const saveAddonGroup = (input: SaveAddonGroupInput) =>
+  q<SaveAddonGroupReply>(sb.rpc('save_addon_group', {
+    p_venue: input.venueId, p_group: input.group, p_options: input.options, p_expected_updated_at: input.expectedUpdatedAt,
+    p_confirm_rule_removal: input.confirmRuleRemoval ?? false,
   }));
 
 /** The suggestion rules an answer names, with what the owner calls them. */

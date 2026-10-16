@@ -1,8 +1,9 @@
 # The owner app on the clean schema (v2)
 
-`src/main.tsx` boots this app when `window.HALOM_MENUS_CONFIG.schema === 2` (the demo database `mana`, the local
-simulator stack); it is loaded as a chunk of its own, so production (`schema` absent or 1, the `halom-studio` project)
-downloads none of it and runs the v1 app exactly as before. The cutover (ADR-005) deletes v1's schema-specific files and
+`src/main.tsx` boots this app when the contracts' `configFlags(window.HALOM_MENUS_CONFIG)` says schema 2 (`env` demo:
+the database `mana`; `env` local: the simulator's stack); it is loaded as a chunk of its own, so production (`schema`
+absent or 1, or `env` production whatever the schema says; the `halom-studio` project) downloads none of it and runs the
+v1 app as before. The cutover (ADR-005) deletes v1's schema-specific files and
 makes this the app.
 
 ## What is here
@@ -14,7 +15,7 @@ makes this the app.
 | `routes.tsx` | Every screen in the shell by address (`#/<path>/…`) and the phone navigation built from them |
 | `i18n.ts` | v2's words (Hebrew, English); `t()` falls back to v1's dictionary, `errText(code)` says a code in plain words |
 | `ui.tsx`, `format.ts`, `v2.css` | v2's own small pieces (reorder by drag and keyboard, stepper, price, tabs, language switch) and styles |
-| `data/client.ts` | The supabase-js client and sign-in shared with v1 (`lib/api.ts`), `q()` and `rpc()` (an RPC's `{ok:false, code}` is thrown), the config's `env`, `schema`, `realtime` |
+| `data/client.ts` | The supabase-js client and sign-in shared with v1 (`lib/api.ts`), `q()` and `rpc()` (an RPC's `{ok:false, code}` is thrown), the config's `env`, `schema`, `realtime` (`runtime`, read with the contracts' `configFlags`, as `src/main.tsx` reads `schema`) |
 | `data/errors.ts` | Every failure as one code (`V2Error`): the schema's raised words (`nesting_too_deep`, `limits_loosened`, `limit_*` …), PostgREST and Auth codes |
 | `data/menu.ts` | The tables and RPCs, stateless, typed with `@mana/contracts`' row types; direct table access under RLS (as `sim/src/owner.mjs`): guarded updates (`updateIf`), inserts with the client's id (`insertOnce`), `save_addon_group` |
 | `data/store.ts` | The state: session, places, the open place's whole menu (the draft), saving (autosave of the changed columns, guarded, one queue per row; conflicts; writes that put the stored rows on screen) |
@@ -45,10 +46,13 @@ makes this the app.
     stored, and the role is read again (a manager made counter turns read-only on the spot).
 - **The writes to one row run one after another** (`onRow`), each with the version the one before left.
 - **An add-on group is saved as one** (`save_addon_group`, `saveGroupForm`): the group and every option in one
-  transaction, with the client's own ids, sent with the group's `updated_at` as the form read it. Answers: saved; `stale`
-  with the stored group (the editor shows it: save mine over it, or take it); `option_in_rules` (the editor names the
-  rules and asks before sending again with `confirmRules`); or a refusal that changed nothing. The same input sent twice
-  is answered "saved", so a retry after a lost answer is safe.
+  transaction, with the client's own ids, sent with the group's `updated_at` as the form read it. Before it is sent, the
+  form is checked with the contracts' `validateAddonGroup` / `validateAddonGroupInput` (the database's twin: the same
+  codes, shown at the form's fields by `groupFieldError`) and the loaded menu with `addonGroupMenuIssues` (a second
+  nesting level; a dish whose own limits the change would break, named: `dish_limits`). Answers: saved; `stale` with the
+  stored group (the editor shows it: save mine over it, or take it); `option_in_rules` (the editor names the rules and
+  asks before sending again with `confirmRules`); or a refusal that changed nothing. The same input sent twice is
+  answered "saved", so a retry after a lost answer is safe.
 - **New rows carry ids made here** (`newId`; `insertOnce`): quick-add of a dish, a new section, a new group and its
   choices keep their id until stored, so trying again after a lost answer never stores a second row.
 - **A refusal is a code, said in plain words**: `toV2Error` maps it, `errText` (v2 `i18n.ts`) says it (`refused`, and
@@ -59,10 +63,15 @@ makes this the app.
 - **The UI never offers what the schema refuses**: tighter dish limits only (`limitChoices`), one nesting level only
   (`openTargets`), and the form's rules before a write (`groupFromForm`). When another device changed the library in the
   meantime, the database's refusal is shown and the library reloads.
-- **Who may edit**: owners and managers (`canEdit()`). Any other member (a counter) sees every screen read-only: each
-  editing area is a `ReadOnly` fieldset with every control also disabled one by one, the sheets and buttons that only
-  edit are absent, an edit screen reached by address (`#/menu/s/…`, `#/addons/new`) leads back, and the store refuses
-  every write before the network does.
+- **Who may edit**: owners and managers (`canEdit()`). Any other member (a counter) sees every screen read-only. A new
+  screen does the same in three steps (all in `ui.tsx`, as `screens/dish.tsx` and `screens/addons.tsx` do):
+  1. wrap the editing area in `<ReadOnly when={!editable}>` (one fieldset: everything inside is disabled at once);
+  2. put `disabled={!editable}` on each control too (`MoneyInput`, `Stepper`, `Seg`, `Switch` and the inputs take it), and
+     do not render the buttons that only edit (save, delete, add, arrange);
+  3. `useEditOnly(onEditAddress, editable, back)` for an address that only edits (`#/menu/s/…`, `#/addons/new`).
+  A store's writes start with `mayWrite()` (or go through `patchRow`, `write`), so the network is never asked; a write
+  row-level security refuses anyway (a role changed meanwhile) is "not allowed", and the role is read again.
+  Sold-out actions are a counter's own (F05): those check the role themselves.
 - **One place at a time**: switching place or account drops everything (what failed to save included, after the owner
   confirms it); late answers for the old one are ignored. A store of a later lane registers `onReset(fn)` to drop its own
   state with it.

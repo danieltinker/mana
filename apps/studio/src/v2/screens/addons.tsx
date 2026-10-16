@@ -3,7 +3,7 @@
 // a most-per-dish, an order, Hebrew and English, and one nesting level: a choice may open one group of its own. The
 // editor never offers a second level; should the database refuse one anyway (another device changed the library), its
 // answer is said in plain words and the library is shown as it now is.
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { LIMITS, type AddonGroupRow } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Ltr, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
@@ -15,12 +15,12 @@ import { byCreated, byPosition, named, newId } from '../data/rows.ts';
 import { canEdit, menu, removeRows, saveGroupForm } from '../data/store.ts';
 import { langsOf, ruleLine, shekels } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { Icon2, LangSeg, MoneyInput, ReadOnly, Stepper, useEntryLang } from '../ui.tsx';
+import { Icon2, LangSeg, MoneyInput, ReadOnly, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
 
 export function AddonsScreen({ rest }: { rest: string[] }) {
   const editable = canEdit();
   // a new group is only for an account that edits: any other is taken back to the library (also when it came by address)
-  useEffect(() => { if (rest[0] === 'new' && !editable) go('addons', true); }, [rest[0], editable]);
+  useEditOnly(rest[0] === 'new', editable, 'addons');
   if (rest[0] && !(rest[0] === 'new' && !editable)) return <GroupEditor key={rest[0]} id={rest[0] === 'new' ? null : rest[0]} />;
   return <Library />;
 }
@@ -120,6 +120,13 @@ function GroupEditor({ id }: { id: string | null }) {
     } catch (e) {
       const err = toV2Error(e);
       if (err.code === 'form_invalid') { setErrors(err.detail as FieldError[]); return; }
+      if (err.code === 'dish_limits') {
+        // a dish has its own limits for this group that the change would break: said with the dish's name
+        const x = err.detail as { dish: string; dishId: string | null };
+        const dish = menu.value!.dishes.find((r) => r.id === x.dishId);
+        setError(t('lib.e.dish_limits', { dish: (dish ? named(dish, UI) : x.dish) || t('menu2.unnamed') }));
+        return;
+      }
       setError(errText(err.code));
       if (err.code === 'nesting_too_deep') {
         // the library as it is stored now decides: an opener it no longer allows is dropped from the form

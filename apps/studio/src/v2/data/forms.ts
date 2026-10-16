@@ -1,7 +1,7 @@
 // Stored rows ↔ what the owner edits in a form, and back, with every check the database would make (same codes as
 // packages/contracts' validators where one exists). Prices are typed in shekels and stored in agorot. Pure.
-import { LIMITS, ROOMS, SECTION_KINDS, SELECTIONS, TAGS, isBlank, oneOf, stripBlank } from '@mana/contracts';
-import type { AddonGroupRow, AddonOptionRow, DishRow, Room, SectionKind, SectionRow, SelectionKind, Tag } from '@mana/contracts';
+import { LIMITS, ROOMS, SECTION_KINDS, TAGS, isBlank, oneOf, stripBlank, validateAddonGroup } from '@mana/contracts';
+import type { AddonGroupRow, AddonOptionRow, DishRow, Issue, Room, SectionKind, SectionRow, SelectionKind, Tag } from '@mana/contracts';
 import { formatMinor, parsePrice } from '../../lib/money.ts';
 import { byPosition, newId } from './rows.ts';
 
@@ -171,33 +171,44 @@ export function withSelection(f: GroupForm, selection: SelectionKind): GroupForm
 /** How many units the options can add up to: the most a group can ever ask for. */
 export const capacityOf = (options: readonly { maxQty: number }[]): number => options.reduce((s, o) => s + (Number.isInteger(o.maxQty) ? o.maxQty : 0), 0);
 
-export function groupFromForm(f: GroupForm, groupId: string | null): Mapped<GroupWrite> {
+/**
+ * A group's form as save_addon_group takes it (`groupId`: the stored id, or the one made for a new group). The rules are
+ * the contracts' (`validateAddonGroup`, the twin of the database's own check, so the same codes); only what a form alone
+ * has is checked here: a price as typed, and more choices than a group may hold. Each problem comes back at the form's
+ * field (`name`, `label`, `limits`, `options`, `defaults`, `options.<i>.name|price|maxQty|opens`).
+ */
+export function groupFromForm(f: GroupForm, groupId: string): Mapped<GroupWrite> {
   const errors: FieldError[] = [];
-  const label = text(errors, 'label', f.label, SHORT);
-  const n = names(errors, f.nameHe, f.nameEn, SHORT);
-  if (!oneOf(SELECTIONS, f.selection)) errors.push({ field: 'selection', code: 'enum_invalid' });
-  if (f.options.length === 0) errors.push({ field: 'options', code: 'options_empty' });
   if (f.options.length > LIMITS.optionsPerGroup) errors.push({ field: 'options', code: 'too_many' });
-
   const options: OptionWrite[] = f.options.map((o, i) => {
-    const p = `options.${i}`;
-    const on = names(errors, o.nameHe, o.nameEn, SHORT, p + '.name');
     const price = agorotOf(o.price);
-    if (price === 'invalid') errors.push({ field: p + '.price', code: 'price_invalid' });
-    if (!Number.isInteger(o.maxQty) || o.maxQty < 1 || o.maxQty > LIMITS.optionQuantity) errors.push({ field: p + '.maxQty', code: 'option_qty_invalid' });
-    if (o.opensGroupId !== null) {
-      if (o.opensGroupId === groupId) errors.push({ field: p + '.opens', code: 'opens_self' });
-      if (o.maxQty !== 1) errors.push({ field: p + '.maxQty', code: 'opener_qty' });
-    }
-    return { id: o.id ?? o.key, position: i, name_he: on.he, name_en: on.en, price: price === 'invalid' || price === null ? 0 : price, max_qty: o.maxQty, is_default: o.isDefault, opens_group_id: o.opensGroupId };
+    if (price === 'invalid') errors.push({ field: `options.${i}.price`, code: 'price_invalid' });
+    return {
+      id: o.id ?? o.key, position: i, name_he: stripBlank(o.nameHe), name_en: stripBlank(o.nameEn), price: price === 'invalid' || price === null ? 0 : price,
+      max_qty: o.maxQty, is_default: o.isDefault, opens_group_id: o.opensGroupId,
+    };
   });
+  const group = { label: stripBlank(f.label), name_he: stripBlank(f.nameHe), name_en: stripBlank(f.nameEn), selection: f.selection, min_units: f.min, max_units: f.max };
+  const checked = validateAddonGroup({ id: groupId, ...group }, options);
+  if (!checked.ok) for (const e of checked.errors) errors.push(groupFieldError(e, f));
+  return done(errors, { group, options });
+}
 
-  if (!Number.isInteger(f.min) || !Number.isInteger(f.max) || f.min < 0 || f.max < 1 || f.min > f.max || f.max > 30) errors.push({ field: 'limits', code: 'limits_invalid' });
-  else if (f.selection === 'single' && f.max !== 1) errors.push({ field: 'limits', code: 'single_max' });
-  else if (f.options.length > 0 && f.min > capacityOf(f.options)) errors.push({ field: 'limits', code: 'min_unreachable' });
-  if (f.options.filter((o) => o.isDefault).length > f.max) errors.push({ field: 'defaults', code: 'defaults_exceed' });
-
-  return done(errors, { group: { label, name_he: n.he, name_en: n.en, selection: f.selection, min_units: f.min, max_units: f.max }, options });
+/** A contracts issue about a group (path `group.min_units`, `options[2].price` …) at the form's field. */
+export function groupFieldError(e: Issue, f?: GroupForm): FieldError {
+  const opt = /^options\[(\d+)\](?:\.(\w+))?$/.exec(e.path);
+  if (opt) {
+    const i = Number(opt[1]), col = opt[2] ?? '';
+    const field = col === 'max_qty' ? 'maxQty' : col === 'opens_group_id' ? 'opens' : col === 'price' ? 'price' : col.startsWith('name_') ? col : col || 'name';
+    // the most per dish of a choice that opens a group is always one: said as such
+    const code = e.code === 'qty_invalid' && f?.options[i]?.opensGroupId ? 'opener_qty' : e.code;
+    return { field: `options.${i}.${field}`, code };
+  }
+  if (e.path === 'group') return { field: 'name', code: e.code };
+  if (e.path === 'options') return { field: e.code === 'defaults_invalid' ? 'defaults' : 'options', code: e.code };
+  const col = e.path.replace(/^group\./, '');
+  if (col === 'label' || col.startsWith('name_') || col === 'selection') return { field: col, code: e.code };
+  return { field: 'limits', code: e.code };                                   // min_units, max_units, limits_confirmed
 }
 
 // ---------------------------------------------------------------- a group on one dish: limits that only tighten

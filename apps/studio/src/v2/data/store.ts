@@ -11,14 +11,14 @@
 // - An account that may not edit (a counter) never writes: the store refuses before the network does.
 import { batch, signal } from '@preact/signals';
 import type { Session } from '@supabase/supabase-js';
-import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, SectionRow } from '@mana/contracts';
+import { addonGroupMenuIssues, validateAddonGroupInput } from '@mana/contracts';
+import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, SaveAddonGroupInput, SectionRow } from '@mana/contracts';
 import { sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import type { DishLimits, GroupForm } from './forms.ts';
-import { groupFromForm } from './forms.ts';
+import { groupFieldError, groupFromForm } from './forms.ts';
 import * as api from './menu.ts';
 import type { GroupRows, MenuData, MenuTable, Membership } from './menu.ts';
-import { nestingProblem } from './nesting.ts';
 import { byPosition, newId, nextPosition, reorder } from './rows.ts';
 
 export const session = signal<Session | null | undefined>(undefined);      // undefined = still finding out
@@ -137,7 +137,8 @@ async function refreshRole() {
 
 /** Owners and managers edit the menu; a counter sees it read-only (and only marks things sold out, in a later lane). */
 export const canEdit = () => menu.value?.role === 'owner' || menu.value?.role === 'manager';
-const mayWrite = () => { if (!canEdit()) throw new V2Error('forbidden'); };
+/** A store's write of the menu starts with this: an account that may not edit is refused before the network is asked. */
+export const mayWrite = () => { if (!canEdit()) throw new V2Error('forbidden'); };
 
 // ---------------------------------------------------------------- the rows in memory
 type Rows = { sections: SectionRow; dishes: DishRow; addon_groups: AddonGroupRow; addon_options: AddonOptionRow; dish_addon_groups: DishAddonGroupRow; dish_relations: DishRelationRow };
@@ -455,32 +456,52 @@ export type GroupSave =
 /**
  * Save a group and its options as one (save_addon_group). `id` is the group's (made by the screen for a new one, and
  * kept across retries); `expected` the group's `updated_at` when the form was read (null for a new group). Refused
- * before any write when the form is not valid or would make a second nesting level (the database would refuse the
- * same); the codes come back in a V2Error's detail. Any other refusal changed nothing, and is thrown.
+ * before any write, as the database would refuse it: the form's rules (`form_invalid`, the field errors in the detail;
+ * the contracts' `validateAddonGroupInput`), and against the loaded menu (`addonGroupMenuIssues`) a second nesting level
+ * (`nesting_too_deep`) or a dish whose own limits the change breaks (`dish_limits`). Any other refusal changed nothing,
+ * and is thrown.
  */
 export async function saveGroupForm(id: string, form: GroupForm, expected: string | null, { confirmRules = false } = {}): Promise<GroupSave> {
   mayWrite();
   const d = menu.value!;
-  const isNew = !d.groups.some((g) => g.id === id) && expected === null;
+  // the form's rules (the contracts' validateAddonGroup, at the form's fields), then the input as the RPC checks it
   const mapped = groupFromForm(form, id);
   if (!mapped.ok) throw new V2Error('form_invalid', mapped.errors);
-  const nested = nestingProblem(isNew ? null : id, form.options.map((o) => o.opensGroupId), d.options);
-  if (nested) throw new V2Error(nested);
-  const input: api.SaveGroupInput = { venueId: d.venue.id, group: { id, ...mapped.value.group }, options: mapped.value.options };
+  const input: SaveAddonGroupInput = { venueId: d.venue.id, group: { id, ...mapped.value.group }, options: mapped.value.options, expectedUpdatedAt: expected, confirmRuleRemoval: confirmRules };
+  const valid = validateAddonGroupInput({ venueId: input.venueId, group: input.group, options: input.options });
+  if (!valid.ok) throw new V2Error('form_invalid', valid.errors.map((e) => groupFieldError(e, form)));
+  // what the RPC would refuse against the stored rows, on the copy this screen has: nesting, and the dishes' own limits
+  const found = addonGroupMenuIssues(input.group, input.options, d)[0];
+  if (found) throw groupRefusal(found.code, found.path);
   const gen = generation;
-  const answer = await onRow(keyOf('addon_groups', id), () => write(() => api.saveAddonGroup(input, expected, confirmRules), () => {}));
+  const answer = await onRow(keyOf('addon_groups', id), () => write(() => api.saveAddonGroup(input), () => {}));
   if (gen !== generation) throw new V2Error('aborted');
   if (answer.ok) { putGroup(answer); return { ok: true, group: answer.group }; }
-  if (answer.code === 'stale' && answer.current) { putGroup(answer.current); return { ok: false, code: 'stale', current: answer.current }; }
+  if (answer.code === 'stale') { putGroup(answer.current); return { ok: false, code: 'stale', current: answer.current }; }
   if (answer.code === 'option_in_rules') {
-    const ids = answer.rules ?? [];
+    const ids = answer.rules;
     const rows = ids.length ? await api.rulesNamed(ids).catch(() => []) : [];
     const name = (r: (typeof rows)[number]) => r.label || (d.venue.default_lang === 'en' ? r.line_en || r.line_he : r.line_he || r.line_en);
     return { ok: false, code: 'option_in_rules', rules: ids.map((rid) => { const r = rows.find((x) => x.id === rid); return { id: rid, name: r ? name(r) : '' }; }) };
   }
   // refused: nothing changed; the library as stored now (another device may have changed it) is what the editor shows
   await reloadMenuQuietly();
-  throw new V2Error(answer.code === 'not_allowed' ? 'forbidden' : answer.code, answer);
+  throw groupRefusal(answer.code, answer.path ?? '', answer);
+}
+
+/**
+ * A group save refused, in the app's codes: a dish whose own limits for this group the change would break is
+ * `dish_limits` with the dish's name (`detail.dish`); a form problem is `form_invalid` at its field; the rest as they are.
+ */
+function groupRefusal(code: string, path: string, answer: unknown = null): V2Error {
+  const link = /^dishGroups\.(.+)$/.exec(path);
+  if (link) {
+    const m = menu.value, dag = m?.dishGroups.find((x) => x.id === link[1]), dish = dag ? m!.dishes.find((x) => x.id === dag.dish_id) : null;
+    return new V2Error('dish_limits', { code, dish: dish ? dish.name_he || dish.name_en : '', dishId: dish?.id ?? null });
+  }
+  if (code === 'not_allowed' && !path.startsWith('options[')) return new V2Error('forbidden', answer);
+  if (/^(group|options)/.test(path) && !['nesting_too_deep', 'group_unknown', 'not_allowed'].includes(code)) return new V2Error('form_invalid', [groupFieldError({ code, path })]);
+  return new V2Error(code, answer);
 }
 
 function putGroup({ group, options }: GroupRows) {

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { asAnon, createUser, HalomBot, OwnerBot } from '@mana/sim';
 import { fromPrice, priceDish, pricingContext } from '@mana/contracts';
-import { needsFunction, OUT, startE2E } from './helpers.mjs';
+import { OUT, startE2E } from './helpers.mjs';
 
 const SHOTS = path.join(OUT, 'studio-v2');
 const PASSWORD = 'sim-owner-pass-1';
@@ -20,7 +20,6 @@ let e;
 before(async () => {
   e = await startE2E({ seed: null });
   if (!e.hasSite) throw new Error('the site is not built: run bash tools/build-site.sh first');
-  await needsFunction(e.stack, 'public.save_addon_group(uuid,jsonb,jsonb,timestamptz,boolean)', 'the phase-1 schema (the group editor saves through it)');
   fs.mkdirSync(SHOTS, { recursive: true });
 }, { timeout: 180000 });
 after(async () => { await e?.stop(); });
