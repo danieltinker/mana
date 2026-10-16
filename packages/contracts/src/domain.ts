@@ -134,6 +134,9 @@ export type AddonGroupRow = {
   selection: SelectionKind;
   min_units: number;
   max_units: number;
+  /** false when an import guessed the limits (the source stated none): the dashboard's `group_without_limits` nudge
+   * shows until the owner edits or confirms them. */
+  limits_confirmed: boolean;
   created_at: Iso;
   updated_at: Iso;
 };
@@ -270,6 +273,9 @@ export type MenuImportRow = {
   applied_at: Iso | null;
   created_at: Iso;
   updated_at: Iso;
+  /** When the raw input (`raw_text`, or the screenshots of `raw_paths`) was purged after the retention period; the
+   * draft (`parsed`) stays. */
+  raw_purged_at: Iso | null;
 };
 
 export type SupportCaseRow = {
@@ -319,7 +325,7 @@ export const TABLE_COLUMNS = {
   sections: ['id', 'venue_id', 'position', 'name_he', 'name_en', 'kind', 'scene', 'room', 'schedule_id', 'hidden', 'created_at', 'updated_at'],
   dishes: ['id', 'venue_id', 'section_id', 'position', 'name_he', 'name_en', 'desc_he', 'desc_en', 'price', 'price_note_he', 'price_note_en', 'tags', 'allergens_he', 'allergens_en', 'details', 'asset_id', 'stock_id', 'schedule_id', 'hidden', 'created_at', 'updated_at'],
   assets: ['id', 'venue_id', 'dish_id', 'status', 'kind', 'relief_class', 'original_path', 'color_path', 'aux_path', 'thumb_path', 'meta', 'provenance', 'error_code', 'attempts', 'created_by', 'reviewed_at', 'created_at', 'updated_at'],
-  addon_groups: ['id', 'venue_id', 'label', 'name_he', 'name_en', 'selection', 'min_units', 'max_units', 'created_at', 'updated_at'],
+  addon_groups: ['id', 'venue_id', 'label', 'name_he', 'name_en', 'selection', 'min_units', 'max_units', 'limits_confirmed', 'created_at', 'updated_at'],
   addon_options: ['id', 'venue_id', 'group_id', 'position', 'name_he', 'name_en', 'price', 'max_qty', 'is_default', 'opens_group_id', 'created_at', 'updated_at'],
   dish_addon_groups: ['id', 'venue_id', 'dish_id', 'group_id', 'position', 'min_units', 'max_units', 'created_at'],
   dish_relations: ['id', 'venue_id', 'dish_id', 'related_dish_id', 'position', 'created_at'],
@@ -330,7 +336,7 @@ export const TABLE_COLUMNS = {
   venue_closures: ['id', 'venue_id', 'from_date', 'to_date', 'note_he', 'note_en', 'created_at'],
   menu_revisions: ['id', 'venue_id', 'number', 'snapshot_version', 'snapshot', 'note', 'created_by', 'created_at'],
   onboarding_progress: ['venue_id', 'step', 'state', 'blockers', 'updated_by', 'updated_at'],
-  menu_imports: ['id', 'venue_id', 'source', 'status', 'raw_paths', 'raw_text', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by', 'applied_at', 'created_at', 'updated_at'],
+  menu_imports: ['id', 'venue_id', 'source', 'status', 'raw_paths', 'raw_text', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by', 'applied_at', 'created_at', 'updated_at', 'raw_purged_at'],
   support_cases: ['id', 'venue_id', 'topic', 'status', 'subject', 'body', 'opened_by', 'resolved_at', 'created_at', 'updated_at'],
   activity_log: ['id', 'venue_id', 'at', 'actor_id', 'actor_kind', 'via', 'reason', 'action', 'target_table', 'target_ids', 'n', 'detail'],
   entitlements: ['venue_id', 'plan', 'status', 'trial_started_at', 'trial_ends_at', 'current_period_end', 'note', 'updated_at'],

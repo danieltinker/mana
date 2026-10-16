@@ -563,7 +563,13 @@ describe('L4 and L9: the service role and the grant audit', () => {
     const writes = (await w.admin.query(`select c.relname || ':' || p.priv as w from pg_class c join pg_namespace n on n.oid = c.relnamespace
       cross join unnest(array['INSERT', 'UPDATE', 'DELETE']) p(priv)
       where n.nspname in ('public', 'app') and c.relkind in ('r', 'p') and has_table_privilege('service_role', c.oid, p.priv) order by 1`)).rows.map((x) => x.w);
-    assert.deepEqual(writes, ['assets:INSERT', 'assets:UPDATE', 'menu_imports:INSERT', 'menu_imports:UPDATE']);
+    assert.deepEqual(writes, ['assets:INSERT', 'assets:UPDATE']);
+    // on imports, only what the scanner does itself (phase 1): mark a read it claimed as failed, and purge
+    const cols = (await w.admin.query(`select a.attname || ':' || p.priv as w from pg_attribute a cross join unnest(array['INSERT', 'UPDATE']) p(priv)
+      where a.attrelid = 'public.menu_imports'::regclass and a.attnum > 0 and has_column_privilege('service_role', a.attrelid, a.attnum, p.priv) order by 1`)).rows.map((x) => x.w);
+    assert.deepEqual(cols, ['error_code:UPDATE', 'raw_paths:UPDATE', 'raw_purged_at:UPDATE', 'status:UPDATE']);
+    assert.equal((await q(w.url, 'service', `insert into public.menu_imports (venue_id, source, raw_text) values ('${w.B}', 'paste', 'x')`)).error?.code, '42501');
+    assert.equal((await q(w.url, 'service', `update public.menu_imports set parsed = '{}' where false`)).error?.code, '42501');
   });
 
   test('app.audit_grants() finds nothing outside the intended access model', async () => {
@@ -653,14 +659,16 @@ describe('QA m3, m4, m5 and the RPCs that must survive the cutover', () => {
     }
   });
 
-  test('one live import per input: the same text twice is refused until the first is discarded', async () => {
-    const ins = () => q(w.url, U.ownerB, `insert into public.menu_imports (venue_id, source, raw_text, input_sha256)
-      values ($1, 'paste', 'Soup 38', encode(extensions.digest('Soup 38', 'sha256'), 'hex')) returning id`, [w.B]);
-    const first = await ins();
-    assert.ok(!first.error);
-    assert.equal((await ins()).error?.code, '23505');
-    await as(w.url, U.ownerB, (c) => c.query(`update public.menu_imports set status = 'discarded' where id = $1`, [first[0].id]));
-    assert.ok(!(await ins()).error, 'after discarding, the same input may come again');
+  test('one live import per input: the same text again is the same import until it is discarded', async () => {
+    const make = (text) => rpc(w.url, U.ownerB, 'create_import', { p_venue: w.B, p_source: 'paste', p_text: text });
+    const first = await make('Soup 38');
+    assert.deepEqual([first.ok, first.status, first.reused], [true, 'uploaded', false]);
+    assert.deepEqual(await make(' Soup 38\n'), { ok: true, importId: first.importId, status: 'uploaded', reused: true }, 'stored stripped, hashed by the database');
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: first.importId }), { ok: true });
+    const again = await make('Soup 38');
+    assert.deepEqual([again.ok, again.reused], [true, false], 'after discarding, the same input may come again');
+    assert.notEqual(again.importId, first.importId);
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: again.importId }), { ok: true });
   });
 
   test('next_opening: no opening within 14 days is null, in the database as in the contracts', async () => {
