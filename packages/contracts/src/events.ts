@@ -196,5 +196,23 @@ export function rollupKeys(name: EventName, props: Readonly<Record<string, unkno
   return keys;
 }
 
+/**
+ * What `track_events(batch)` answers. Every event of the batch is in exactly one of: accepted (stored now), a
+ * duplicate (its id was stored before, or earlier in this batch), capped (dropped by a cap), or rejected (with the
+ * first problem's code). The three lists name events by their index in the batch, so a phone (or the simulator's
+ * ledger) knows exactly which ones counted; the counts stay for phase-0 readers.
+ */
+export type TrackEventsReply =
+  | {
+      readonly ok: true;
+      readonly accepted: number;
+      readonly duplicates: number;
+      readonly capped: number;
+      readonly rejected: ReadonlyArray<{ readonly index: number; readonly code: string }>;
+      readonly duplicateIndexes: readonly number[];
+      readonly cappedIndexes: readonly number[];
+    }
+  | { readonly ok: false; readonly code: 'batch_invalid' };
+
 /** A fresh dedupe id (random, never derived from the person or the device). */
 export const newEventId = (): string => crypto.randomUUID();
