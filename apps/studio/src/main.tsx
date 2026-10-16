@@ -20,8 +20,10 @@ import { PublishScreen, PhoneField } from './screens/publish.tsx';
 import { ScanScreen } from './screens/scan.tsx';
 import { PreviewFab, PreviewDock } from './screens/preview.tsx';
 
-applyLang();
-document.title = PRODUCT.mark;
+// The clean schema (ADR-005): a config with schema 2 (the demo database, the local stack) boots the v2 app in src/v2/,
+// loaded as a chunk of its own; anything else (production) runs this app exactly as before.
+const SCHEMA_2 = (window as any).HALOM_MENUS_CONFIG?.schema === 2;
+if (!SCHEMA_2) { applyLang(); document.title = PRODUCT.mark; }
 
 const TABS = [{ path: '', key: 'home', icon: 'home' }, { path: 'menu', key: 'menu', icon: 'menu' }, { path: 'style', key: 'style', icon: 'look' }];
 const STEPS = [{ path: 'menu', key: 'menu', icon: 'menu' }, { path: 'pictures', key: 'pictures', icon: 'camera' }, { path: 'publish', key: 'publish', icon: 'send' }];
@@ -222,4 +224,5 @@ function Centered({ children }: { children: any }) {
   return <div class="centered"><div class="centered-in"><p class="centered-brand"><Brand /></p>{children}</div></div>;
 }
 
-render(<App />, document.getElementById('app')!);
+if (SCHEMA_2) import('./v2/main.tsx');
+else render(<App />, document.getElementById('app')!);

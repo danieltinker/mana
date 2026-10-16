@@ -1,0 +1,74 @@
+/* The v2 app's own pieces, in the app's language (../app.css): solid white surfaces for what holds data, the glass only
+   on the chrome, ink and porcelain, every target at least 44 px. */
+
+/* the place's name in the top bar is a button when there are several places */
+.top-switch{display:inline-flex;align-items:center;gap:6px;min-height:44px;border:0;background:transparent;padding:0;text-align:start;cursor:pointer}
+.top-switch span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v2 .top-brand{display:none}
+@media (min-width:1024px){.v2 .top-brand{display:inline-flex}}
+.nav button.nav-item{border:0;background:transparent;font:inherit;cursor:pointer}
+
+.start-ico{justify-self:center}
+.flabel{font-weight:500;font-size:.88rem;color:var(--muted)}
+.lib-label{font-weight:400}
+
+/* a number with − and + */
+.stepper{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line-2);border-radius:999px;background:#fff;padding:0 2px;justify-self:start}
+.stepper-n{min-width:2.2em;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:var(--black)}
+
+/* tabs: one row of pills under the sheet's title */
+.tabs{display:flex;gap:4px;padding:3px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{flex:1 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border:0;border-radius:999px;background:transparent;font-weight:500;color:var(--charcoal);white-space:nowrap}
+.tabs button[aria-selected=true]{background:var(--paper);color:var(--black);box-shadow:0 1px 3px rgba(67,40,30,.16)}
+.tabs-n{font-weight:600;font-size:.76rem;background:var(--peach);color:#5b2a1b;border-radius:999px;padding:0 7px;line-height:1.6}
+.tabpanel{display:grid;gap:16px;min-width:0}
+.dish2,.addons2,.related2{display:grid;gap:14px;min-width:0}
+
+/* attached groups and "goes well with" in a list */
+.attached{flex:1;min-width:0;display:grid}
+.attached-main{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:10px 6px 10px 14px;min-height:64px}
+[dir=rtl] .attached-main{padding:10px 14px 10px 6px}
+.attached-main .row-name{text-decoration:none}
+.attached .limits{padding:4px 14px 14px;display:grid;gap:10px;border-top:1px solid var(--line)}
+.picklist{gap:10px}
+.picks{display:grid}
+.picks li{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;min-height:56px}
+.picks li+li{border-top:1px solid var(--line)}
+.pick-text{display:grid;gap:2px;min-width:0}
+.related-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
+
+/* the guest's sheet, in small: what they see and pay */
+.gp{display:grid;gap:10px;padding-top:6px;border-top:1px solid var(--line)}
+.gp-head{display:grid;gap:2px}
+.gp-head h3{color:var(--black);font-size:1rem}
+.gp-card{display:grid;gap:12px;padding:16px;border-radius:20px;background:var(--surface);border:1px solid var(--edge);box-shadow:var(--lift)}
+.gp-dish{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.gp-name{font:600 1.2rem/1.2 var(--display);color:var(--black);min-width:0;overflow-wrap:anywhere}
+.gp-from{font-weight:600;color:var(--black);white-space:nowrap}
+.gp-group{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.gp-group legend{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:0;margin-bottom:4px}
+.gp-gname{font-weight:600;color:var(--black)}
+.gp-group.is-nested{margin:6px 0 4px;padding-inline-start:14px;border-inline-start:2px solid var(--peach)}
+.gp-options{display:grid;gap:2px}
+.gp-options>li{display:grid;gap:4px}
+.gp-opt{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.gp-opt input{width:22px;height:22px;accent-color:var(--black);flex:none;margin:0}
+.gp-opt.is-off{opacity:.45;cursor:not-allowed}
+.gp-options .stepper{margin-inline-start:32px}
+.gp-total{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid var(--line);font-weight:600;color:var(--black);min-height:44px}
+.gp-total .price{font:600 1.35rem/1 var(--display)}
+.gp-err{color:var(--bad);font-weight:500}
+
+/* the group editor: one card per choice */
+.opts{display:grid;gap:12px;counter-reset:none}
+.opt{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff}
+.opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-4px -6px -4px 0}
+[dir=rtl] .opt-head{margin:-4px 0 -4px -6px}
+.opt-n{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--soft);font-weight:600;font-size:.86rem;color:var(--charcoal)}
+.opt-grid{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:10px}
+
+/* publishing */
+.standing{gap:10px}
+.standing h2{font:600 1.15rem/1.25 var(--body)}
+.notices{display:grid;gap:8px}
+.notices ul{display:grid;gap:6px}
