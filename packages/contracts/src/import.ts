@@ -878,25 +878,39 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    cover its kept options (`assign` over the options); the best score, then the fewest existing options, then the
  *    smaller id. Each kept link of a matched dish whose dish already has a group with the same selection and a
  *    matching name (the best score, then the link's position, then its id) **stays on that group**: if its options do
- *    not cover the draft's, `group_changed` (`keep_mine` by default; `add_options` adds the missing ones to it;
- *    `new_group` creates the draft's group and moves this dish's link to it). Every other kept link goes to the global
- *    target: the global match, or the draft's group created (always created when a link answered `new_group`). A group
- *    opened by a created option needs the global target too. A group's targets, in order: the global target, then the
- *    dishes' own groups by id; the first is keyed by the group's key, the others by `targetKey`. A group with no target
- *    is `unused`. A created group's limits: as stated, else the guess, loosened to what its new links state; a minimum
- *    above the kept capacity asks `limits_unreachable` (`clamp` lowers it). Its limits are confirmed only when stated
- *    (`limits_confirmed`).
- * 11. **Options**, per target: created in a created target; matched ones in an existing target update (names fill
- *    blanks; a different price asks `price_differs`); the unmatched ones are created under `add_options` (not default,
- *    opening nothing) and left out otherwise. A created option opens its group's global target.
- * 12. **Links:** a link staying on the dish's own group is kept (moved under `new_group`); others are created with the
- *    draft's dish limits (for an existing group, only the limits that lie within its own). **Photos:** created for a
- *    dish with no picture in a live state (`LIVE_ASSET_STATUSES`) when its rights are confirmed (by the draft or
- *    `confirm_rights`); kept otherwise.
+ *    not cover the draft's, `group_changed` keyed `<dish>><group>` (`keep_mine` by default; `add_options` adds the
+ *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it). Every other kept link
+ *    goes to the global target: the global match, or the draft's group created (always created once a link or an
+ *    option answered `new_group`). A group opened by an option created in a created group needs the global target too.
+ *    Then, for each existing target of a group (in target order), each kept option the venue already has (matched
+ *    there) that opens a kept group G: when the venue's option opens a group with G's selection and a matching name,
+ *    that group is a target of G (`group_changed` keyed `<option step key>><G>` when it does not cover G's options);
+ *    otherwise `opens_changed` (same key; `keep_mine`, or `new_group`: G is created and the venue's option is updated
+ *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option). A group's
+ *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
+ *    group's key, the others by `targetKey`. A group with no target is `unused`. A created group's limits: as stated,
+ *    else the guess over its kept options, loosened to what its new links state (a smaller min; for a multiple choice,
+ *    a larger max up to 30); a minimum above the kept capacity asks `limits_unreachable` (`clamp` lowers it to the
+ *    capacity). Its limits are confirmed only when stated (`limits_confirmed`).
+ * 11. **Options**, per target (draft option order): a left-out option has one `skip` step, under the first target only;
+ *    in a created target every kept option is created (positions from 0; its default kept; it opens its nested
+ *    group's global target, refused as `nesting_too_deep` when that is an existing group whose options open groups);
+ *    in an existing target, a matched option updates (names fill blanks; a different price read asks `price_differs`
+ *    keyed by the option's step key; an `opens_changed`/`group_changed` answer `new_group` adds `refs.opens_group_id`)
+ *    or is kept; an unmatched one is created when a link or option of this group answered `add_options` for that
+ *    target (positions after the group's last, never a default, opening nothing), and is `skip` (`choice`) otherwise.
+ * 12. **Links:** a link staying on the dish's own group is kept (its row's id), or under `new_group` updated with the
+ *    draft's dish limits and `refs.group_id`; others are created with the draft's dish limits: for an existing group
+ *    only those within its own limits (else null), for a created group a minimum above its kept capacity is null.
+ *    **Photos:** created for a dish with no picture in a live state (`LIVE_ASSET_STATUSES`; the dish's `asset_id`
+ *    first) when its rights are confirmed (by the draft or `confirm_rights`); kept (that picture's id) otherwise.
  * 13. **Positions** continue after the highest existing one (or from 0), in draft order.
  * 14. **Order of the steps:** sections (draft order); groups (draft order, each with its targets in order); options
  *    (draft group order, then target order, then draft option order); dishes (draft order); dish groups (dish order,
- *    then link order); photos (dish order).
+ *    then link order); photos (dish order). `exceptions`: the draft's in `draftExceptions` order, then the plan's in
+ *    the order of the steps they concern (`<kind>:<key>`), then `IMPORT_EXCEPTIONS` order.
+ * 15. **Limits** with what the venue has: sections, dishes, groups (`too_many` at `sections`, `dishes`, `groups`),
+ *    options added to an existing group (at its id), groups per dish (at the link's key).
  */
 export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, opts: DraftExceptionOptions = {}): Validation<ImportPlan> {
   const x = new Issues();
