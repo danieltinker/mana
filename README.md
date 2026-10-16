@@ -42,7 +42,8 @@ apps moved into `apps/` (15 Oct 2026): the build still serves them at `/mana/vie
 | `apps/view/` | The guest menu: the table, the glide, the bar (three.js, built with esbuild into `app.js` and `chunks/`) | `/mana/view/`, `/m/<name>` |
 | `apps/studio/` | The owner app (Vite, Preact, TypeScript); built into `apps/studio/dist/` | `/mana/studio/` |
 | `apps/ops/` | The back office (Preact, esbuild); built into `apps/ops/dist/` | `/mana/ops/` |
-| `packages/` | Shared packages (types and validation every app imports; design tokens). Empty until the first one lands | — |
+| `packages/` | Shared packages: `packages/contracts` (`@mana/contracts`: the domain types, the menu snapshot v2, the events contract, their validators, pricing, availability and upsell) | `cd packages/contracts && npm test` |
+| `supabase/` | The clean schema for the Supabase project `mana`: migrations, the synthetic seed, database tests on a throwaway PostgreSQL 16 | `cd supabase && npm test` |
 | `brand/site/` | The product page, the photo guide, privacy and terms, with their pictures, films and fonts | `/mana/`, `/mana/guide/`, `/mana/privacy/`, `/mana/terms/` |
 | `config.js` | The published settings | `/mana/config.js` |
 | `brand/` | The mark, print, social frames, and the film and poster tools (`brand/tools/`, including The Lift) | build-time only |
@@ -80,7 +81,9 @@ Every app runs on its own, against local stand-ins. None of this touches the liv
 
 ```bash
 npm ci                      # once, at the root: installs the three apps, each into its own node_modules
-npm run test:fast           # types, units, contracts, the mark: no browser (about 30 s)
+npm run test:fast           # types, units, contracts, the schema's database tests, the mark: no browser (about 1 min).
+                            # The database tests need PostgreSQL 16 binaries: /usr/lib/postgresql/16/bin, or PGBIN=<dir>
+                            # (on a Mac: brew install postgresql@16, then PGBIN=$(brew --prefix postgresql@16)/bin)
 npm test                    # every suite, one at a time, browser ones included (about 40 min); logs in test-results/
 npm run check               # type checks, every workspace that has a `check` script
 npm run build               # = bash tools/build-site.sh

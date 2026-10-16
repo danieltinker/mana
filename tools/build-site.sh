@@ -17,7 +17,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 OUT="$ROOT/_site"
 # One install for the three apps (an npm workspace): the root lock, package-lock.json, puts each app's packages in its
-# own apps/<app>/node_modules, nothing shared. It runs when an app has no node_modules yet.
+# own apps/<app>/node_modules at its own versions (typescript and pg, used by several workspaces, sit once at the
+# root, same versions). It runs when an app has no node_modules yet.
 deps() { for a in apps/view apps/studio apps/ops; do [ -d "$a/node_modules" ] || { npm ci --no-audit --no-fund --loglevel=error; return; }; done; }
 
 deps

@@ -4,7 +4,7 @@
    them and prints one line per suite.
 
      npm test                  (= node tools/test-all.mjs)       every suite, the browser ones included (about 40 min)
-     npm run test:fast         (= node tools/test-all.mjs --fast) no browser and no local stack: types, units, contracts (about 30 s)
+     npm run test:fast         (= node tools/test-all.mjs --fast) no browser and no app stack: types, units, contracts, the schema's database tests (about 1 min)
      node tools/test-all.mjs view-unit studio-e2e …               only the suites named
 
    Needs: `npm ci` at the root (the three apps), Chromium for the browser suites (CHROME, default
@@ -19,6 +19,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 /* name, folder, command, browser/stack (heavy) or not */
 const SUITES = [
+  ['contracts-check', 'packages/contracts', 'npm run -s check', false],
+  ['contracts', 'packages/contracts', 'npm test', false],
+  ['db', 'supabase', 'npm test', false],        // a throwaway local PostgreSQL 16 (/usr/lib/postgresql/16/bin), about 15 s
   ['studio-check', 'apps/studio', 'npm run -s check', false],
   ['view-unit', 'apps/view', 'npm test', false],
   ['studio-unit', 'apps/studio', 'npm run -s test:unit', false],
