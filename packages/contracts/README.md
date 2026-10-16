@@ -27,6 +27,7 @@ bundlers (esbuild, Vite) import them directly, so there is no build step.
 | `src/ops.ts` | The back office: `OpsVenueRow` and its warnings, `OpsVenueDetail`, `OpsAnalytics`, `OpsRevision` (a stored revision, read by staff and logged), their queries, `ops_set_demo`. |
 | `src/export.ts` | `MenuExport`: the owner's menu as JSON (`export_menu`). |
 | `src/staff.ts` | Halom staff's writes and personal-data reads: `act_for_owner` (one payload per action), `ops_approve_venue`, `ops_set_plan`, `ops_leads`, `ops_update_lead`, each with a validator. |
+| `src/addons.ts` | `save_addon_group`: a group and its options saved as one (table-row shapes, client ids, idempotent, `stale`, `option_in_rules`); `validateAddonGroupInput` (the twin of `app.validate_addon_group_input`), `validateAddonGroup` for the editor's form, `addonGroupMenuIssues` against the loaded menu. |
 | `test/fixtures.ts` | "Café Demo", a synthetic menu (invented) whose ids match `supabase/seed/synthetic.sql`. |
 | `test/import-fixtures.ts` | "Bistro Draft", a synthetic import draft (invented), and an in-memory executor of an import plan. |
 
