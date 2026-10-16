@@ -1,0 +1,15 @@
+{
+  "name": "@mana/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mana's end-to-end browser tests across the three apps, on the simulator's local stack (sim/stack). Phase 0: the harness and one smoke test. Playwright is found the way the apps' browser tests find it (helpers.mjs), so this package adds nothing to the lock.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 *.test.mjs"
+  },
+  "devDependencies": {
+    "@mana/sim": "0.1.0"
+  }
+}
