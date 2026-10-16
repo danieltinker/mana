@@ -45,7 +45,7 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
   };
   try {
     const venue = seed ? await loadSeed(stack, readSeed(path.join(SEEDS, `${seed}.json`)).seed) : null;
-    const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ supabaseUrl: stack.apiUrl, supabaseKey: stack.anonKey, shortBase: `http://127.0.0.1:${stack.ports.web}/m/`,
+    const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ env: 'local', schema: 2, realtime: false, supabaseUrl: stack.apiUrl, supabaseKey: stack.anonKey, shortBase: `http://127.0.0.1:${stack.ports.web}/m/`,
       shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false } }, null, 2)};\n`;
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
     web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {},
