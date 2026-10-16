@@ -3,9 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  draftExceptions, EMPTY_MENU, EXCEPTIONS_MAX, linkKey, planApply, validateDraft, type ExistingMenu, type ImportChoice, type ImportDecisions,
-  type ImportDraft, type ImportPlan, type PlanStep,
+  draftBytes, draftExceptions, EMPTY_MENU, EXCEPTIONS_MAX, jsonbNumberText, linkKey, NOTES_MAX, planApply, READER_NOTE_CODES, readerNoteIssues,
+  validateDraft, validateSaveDraft, type DiscardImportReply, type ExistingMenu, type ImportChoice, type ImportDecisions, type ImportDraft,
+  type ImportPlan, type PlanStep, type ReaderNote,
 } from '../src/import.ts';
+import { LIMITS } from '../src/enums.ts';
 import { applyPlan, bistroDraft, copy, dish, draftOf, group, link, opt, planProblems, section, tx } from './import-fixtures.ts';
 
 const yes = (choices: Record<string, ImportChoice> = {}, skip?: string[]): ImportDecisions => ({ v: 1, pricesConfirmed: true, choices, ...(skip ? { skip } : {}) });
@@ -149,4 +151,100 @@ test('L1 (p2dbg.ts): a dish link moved by new_group drops a minimum above the cr
   const all = yes({ 'group_changed@d-burger>g-extras': 'new_group' });
   assert.deepEqual(setOf(step(plan(d, m, all), 'dish_group', linkKey('d-burger', 'g-extras'))), { min_units: 3, max_units: null }, 'reachable: kept');
   assert.deepEqual(changes(plan(d, m, all)).filter((c) => c.startsWith('group')), ['group:g-extras:create']);
+});
+
+test('L2 (h2b.ts): two draft groups landing on one existing group give a dish one link, not two', () => {
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g')] })])],
+    [group('g', 'תוספת', 'Extras', { options: [opt('o1', 'צ׳יפס', 'Fries', 0), opt('o2', 'סלט', 'Salad', 0), opt('o3', 'אורז', 'Rice', 0)] })]);
+  const m = applyPlan(EMPTY_MENU, plan(base));
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-new', 'פרגית', 'Chicken', 7000, { groups: [link('g-side'), link('g-extras')] })])], [
+    group('g-side', 'תוספת', 'Side', { options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
+    // an English-only name (L10: with a Hebrew name that differs, "Extras" alone would not match at all)
+    group('g-extras', '', 'Extras', { options: [opt('b1', 'אורז', 'Rice', 0)] }),
+  ]);
+  const p = plan(d, m);
+  assert.deepEqual(p.steps.filter((s) => s.kind === 'dish_group').map((s) => `${s.key}:${s.op}${s.reason ? `(${s.reason})` : ''}`),
+    ['d-new>g-side:create', 'd-new>g-extras:skip(merged)']);
+  const after = applyPlan(m, p);
+  const chicken = after.dishes.find((x) => x.name_en === 'Chicken')!;
+  assert.equal(after.dishGroups.filter((l) => l.dish_id === chicken.id).length, 1);
+});
+
+test('L3 (rr2.ts P1): which draft section claims an existing one does not depend on the draft order', () => {
+  const m = applyPlan(EMPTY_MENU, plan(draftOf([section('s-a', 'עיקריות', 'Mains', [dish('d-a', 'סטייק', 'Steak', 9000)])])));
+  const he = section('s-he', 'עיקריות', 'Main courses', [dish('d-fish', 'דג', 'Fish', 8000)]);
+  const en = section('s-en', 'מנות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3000)]);
+  const outcome = (order: ReturnType<typeof section>[]) => {
+    const after = applyPlan(m, plan(draftOf(order), m));
+    return after.sections.map((s) => `${s.name_en}: ${after.dishes.filter((x) => x.section_id === s.id).map((x) => x.name_en).join(', ')}`);
+  };
+  assert.deepEqual(outcome([he, en]), outcome([en, he]));
+  assert.deepEqual(outcome([he, en]), ['Mains: Steak, Fish', 'Mains: Soup'], 'the Hebrew match claims it; "מנות" is another section (L10)');
+});
+
+test('L9 (rr.ts NEW-2): a name of symbols or emoji only is matched by its exact text, and flagged', () => {
+  const d = draftOf([section('s-hot', '🔥', '🔥', [dish('d-x', '★', '★', 1000), dish('d-y', 'פיצה', 'Pizza', 4000), dish('d-z', '☆', '', 1200)])]);
+  assert.deepEqual(draftExceptions(d).map((e) => `${e.code}@${e.key}`), ['name_missing_lang@_draft', 'name_symbols@s-hot', 'name_symbols@d-x', 'name_symbols@d-z']);
+  const m = applyPlan(EMPTY_MENU, plan(d));
+  assert.deepEqual(changes(plan(d, m)), [], 're-importing it changes nothing');
+  const e: any = copy(d);
+  e.sections[0].dishes[0].name = tx(' ★ ', '★');
+  assert.deepEqual(changes(plan(e, m)), [], 'blank edges do not count');
+  e.sections[0].dishes[0].name = tx('★★', '★★');
+  assert.deepEqual(changes(plan(e, m)), ['dish:d-x:create'], 'another text is another dish');
+});
+
+test('L5 (edges.ts 1): a draft\'s text is measured as stored, blank edges stripped', () => {
+  const d: any = copy(bistroDraft());
+  d.sections[0].dishes[0].name.en = `${'x'.repeat(LIMITS.nameLength)} `;
+  assert.ok(validateDraft(d).ok);
+  d.sections[0].dishes[0].name.en = 'x'.repeat(LIMITS.nameLength + 1);
+  assert.deepEqual((validateDraft(d) as any).errors, [{ code: 'text_too_long', path: 'sections[0].dishes[0].name.en' }]);
+});
+
+test('L13 (pg-probes2.mjs): draftBytes writes numbers as PostgreSQL does, never in exponent form', () => {
+  assert.deepEqual([1e21, 1.5e21, 1e-7, 1.5e-7, -2e22, 123, 0.1 + 0.2, -0, 1e20].map(jsonbNumberText),
+    ['1000000000000000000000', '1500000000000000000000', '0.0000001', '0.00000015', '-20000000000000000000000', '123', '0.30000000000000004', '0', '100000000000000000000']);
+  assert.equal(draftBytes({ a: [1e21] }), '{"a": [1000000000000000000000]}'.length);
+});
+
+test('L8 and B22: discard_import\'s reply; what the reader said is saved with the draft (codes, keys and counts, never text)', () => {
+  const r: DiscardImportReply = { ok: false, code: 'import_busy' };
+  assert.ok(!r.ok);
+  const id = '00000000-0000-4000-8000-0000000000d9';
+  const note = (o: Partial<ReaderNote> = {}): ReaderNote => ({ code: 'sold_out', severity: 'check', key: 'd-burger', lines: [4, 9], count: 2, rule: null, ...o });
+  const errs = (raw: unknown) => { const v = validateSaveDraft(raw); return v.ok ? [] : v.errors.map((e) => `${e.code}@${e.path}`); };
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft() }), [], 'notes left out: none');
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: [note(), note({ code: 'noise', severity: 'info', key: null, rule: 'delivery', lines: [1, 2, 3], count: 3 })] }), []);
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: [
+    note({ key: 'd-nope' }), note({ severity: 'info' }), note({ lines: [9, 4] }), note({ count: 0 }), note({ rule: 'Free text' }),
+    { ...note(), text: 'Burger — SOLD OUT' }, note({ code: 'two_prices' as never }),
+  ] }), ['ref_unknown@notes[0].key', 'enum_invalid@notes[1].severity', 'lines_invalid@notes[2].lines', 'count_invalid@notes[3].count',
+    'rule_invalid@notes[4].rule', 'field_not_allowed@notes[5].text', 'enum_invalid@notes[6].code']);
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: Array.from({ length: NOTES_MAX + 1 }, () => note()) }), ['too_many@notes']);
+  assert.ok(READER_NOTE_CODES.includes('caps_reached') && READER_NOTE_CODES.includes('popular_dropped') && READER_NOTE_CODES.includes('popular_only'));
+  assert.deepEqual(readerNoteIssues([note({ key: 'd-elsewhere' })], null), [], 'without the draft, keys are only checked for shape');
+});
+
+test('L10 (rr2.ts P6): when the Hebrew names differ, an English match does not make them the same', () => {
+  const m = applyPlan(EMPTY_MENU, plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט ירקות', 'Salad', 3800)])])));
+  const p = plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט קיסר', 'Salad', 4600)])]), m);
+  assert.deepEqual([step(p, 'dish', 'd1').op, asked(p)], ['create', []]);
+  // the same Hebrew with another English still matches (the Hebrew counts 2)
+  const q = plan(draftOf([section('s', 'סלטים', 'Salads', [dish('d1', 'סלט ירקות', 'Green salad', 3800)])]), m);
+  assert.equal(step(q, 'dish', 'd1').op, 'keep');
+  // one side without Hebrew: the English decides
+  const r = plan(draftOf([section('s', '', 'Salads', [dish('d1', '', 'Salad', 3800)])]), m);
+  assert.equal(step(r, 'dish', 'd1').op, 'keep');
+  // the same rule everywhere a name is compared: duplicates, repeats, and an existing group
+  const two = draftOf([
+    section('s1', 'סלטים', 'Salads', [dish('d1', 'סלט קיסר', 'Salad', 4600), dish('d2', 'סלט ירקות', 'Salad', 3800)]),
+    section('s2', 'מומלצים', 'Popular', [dish('d3', 'סלט טונה', 'Salad', 4600)]),
+  ]);
+  assert.deepEqual(draftExceptions(two).filter((e) => e.code === 'dish_duplicate' || e.code === 'dish_repeated'), []);
+  const withSide = applyPlan(EMPTY_MENU, plan(draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'סטייק', 'Steak', 9000, { groups: [link('g')] })])],
+    [group('g', 'רוטב', 'Side', { options: [opt('o', 'צ׳יפס', 'Fries', 0)] })])));
+  const side = plan(draftOf([section('s', 'עיקריות', 'Mains', [dish('d2', 'פרגית', 'Chicken', 7000, { groups: [link('g2')] })])],
+    [group('g2', 'תוספת', 'Side', { options: [opt('o2', 'צ׳יפס', 'Fries', 0)] })]), withSide);
+  assert.equal(step(side, 'group', 'g2').op, 'create', '"תוספת / Side" is not the venue\'s "רוטב / Side"');
 });
