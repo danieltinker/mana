@@ -46,9 +46,10 @@ export type AddonOptionWrite = Pick<AddonOptionRow, 'id'> &
  * 1. `venue_unknown` (no such venue, or archived).
  * 2. `app.validate_addon_group_input({venueId, group, options})`: the first issue of `validateAddonGroupInput`.
  * 3. Then one transaction under the venue's nesting advisory lock (the one `app.guard_nesting` takes).
- * 4. `not_allowed` with `group.id` (the id is another venue's group) or `options[i].id` (an option of another venue or
- *    another group: an option never moves between groups); `group_unknown` with `options[i].opens_group_id` (it opens a
- *    group the venue does not have).
+ * 4. `not_allowed` with `group.id` (the id is another venue's group), then `not_allowed` with `options[i].id` (the first
+ *    option, in input order, that is an option of another venue or another group: an option never moves between
+ *    groups), then `group_unknown` with `options[i].opens_group_id` (the first option that opens a group the venue does
+ *    not have).
  * 5. The input is read as the triggers will store it (blank edges stripped, the defaults above). When the group exists:
  *    - **an input equal to what is stored** (the group's columns, and exactly its options with the same columns) is
  *      `ok` and writes nothing, whatever version was sent, so a retry after a lost answer succeeds;
@@ -116,6 +117,12 @@ const OPTION_KEYS: readonly string[] = ['id', 'position', 'name_he', 'name_en', 
 /** A key the input has, as JSON carries it (a key whose value is `undefined` does not reach the database). */
 const given = (o: Readonly<Record<string, unknown>>, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k) && o[k] !== undefined;
 const between = (v: unknown, lo: number, hi: number): boolean => isInt(v) && v >= lo && v <= hi;
+/** A text column left out takes the table's default (''); given, it is a string (the columns are NOT NULL: null is `type`). */
+function givenText(x: Issues, o: Readonly<Record<string, unknown>>, k: string, path: string): void {
+  if (!given(o, k)) return;
+  if (!isString(o[k])) return void x.add('type', path);
+  optionalText(x, o[k], path, ADDON_TEXT_MAX);
+}
 const blankName = (o: Readonly<Record<string, unknown>>): boolean =>
   isBlank(isString(o.name_he) ? o.name_he : '') && isBlank(isString(o.name_en) ? o.name_en : '');
 
@@ -129,9 +136,9 @@ function check(x: Issues, g: unknown, options: unknown): void {
     for (const k of Object.keys(g)) if (!GROUP_KEYS.includes(k)) x.add('field_not_allowed', `group.${k}`);
     if (isUuid(g.id)) gid = g.id.toLowerCase();
     else x.add('id_invalid', 'group.id');
-    optionalText(x, g.label, 'group.label', ADDON_TEXT_MAX);
-    optionalText(x, g.name_he, 'group.name_he', ADDON_TEXT_MAX);
-    optionalText(x, g.name_en, 'group.name_en', ADDON_TEXT_MAX);
+    givenText(x, g, 'label', 'group.label');
+    givenText(x, g, 'name_he', 'group.name_he');
+    givenText(x, g, 'name_en', 'group.name_en');
     if (blankName(g)) x.add('name_missing', 'group');
     if (given(g, 'selection') && !oneOf(SELECTIONS, g.selection)) x.add('enum_invalid', 'group.selection');
     if (given(g, 'min_units') && !between(g.min_units, 0, GROUP_UNITS_MAX)) x.add('units_invalid', 'group.min_units');
@@ -167,8 +174,8 @@ function check(x: Issues, g: unknown, options: unknown): void {
     else if (ids.has(o.id.toLowerCase())) x.add('id_duplicate', `${at}.id`);
     else ids.add(o.id.toLowerCase());
     if (given(o, 'position') && !between(o.position, 0, ADDON_POSITION_MAX)) x.add('position_invalid', `${at}.position`);
-    optionalText(x, o.name_he, `${at}.name_he`, ADDON_TEXT_MAX);
-    optionalText(x, o.name_en, `${at}.name_en`, ADDON_TEXT_MAX);
+    givenText(x, o, 'name_he', `${at}.name_he`);
+    givenText(x, o, 'name_en', `${at}.name_en`);
     if (blankName(o)) x.add('name_missing', at);
     if (given(o, 'price') && !between(o.price, 0, LIMITS.price)) x.add('price_invalid', `${at}.price`);
     const opens = given(o, 'opens_group_id') && o.opens_group_id !== null;
@@ -202,6 +209,16 @@ function check(x: Issues, g: unknown, options: unknown): void {
  * - `min_unreachable` (`group.min_units`, last): the group's min is above its options' capacity (the sum of their
  *   `max_qty`, default 1). Checked only when the units are valid (no `units_invalid`), the list is not empty, and every
  *   option is an object whose `max_qty` is absent or 1–10.
+ * - `type`: a text column given as anything but a string (null included: the columns are NOT NULL; leave the key out
+ *   for the default ''), `limits_confirmed` or `is_default` not a boolean.
+ *
+ * Where a check stops early (the twin stops at the same places): the input not an object → `type` at '' alone; the
+ * group not an object → `type@group`, and no group check runs (the options are still checked; `nesting_invalid` needs
+ * the group's id); `group.id` not a uuid → no `nesting_invalid`; `min_units` invalid → `max_units` is not checked;
+ * `min_units` or `max_units` invalid → neither `single_max`, `defaults_invalid` nor `min_unreachable`; min above max →
+ * no `single_max` and no `min_unreachable` (`defaults_invalid` still counts against the max); `options` not an array →
+ * `type@options` and nothing else about the options; an option not an object → `type@options[i]`, none of its checks,
+ * and no `min_unreachable`.
  * The RPC is the owner app's only writer of groups, so a group the editor saves can always be published.
  */
 export function validateAddonGroupInput(raw: unknown): Validation<AddonGroupCheck> {
