@@ -338,6 +338,8 @@ function Overview({ d }) {
   );
 }
 
-const mount = document.getElementById('app');
-mount.replaceChildren();
-render(<App />, mount);
+/** Starts the v1 back office (schema 1). entry.js calls it when the config does not ask for v2 (ADR-007). */
+export function startV1(mount) {
+  mount.replaceChildren();
+  render(<App />, mount);
+}

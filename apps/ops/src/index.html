@@ -7,8 +7,9 @@
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#F7F4EE">
-<!-- Nothing loads from a third party. connect-src: this origin (local test stub) and the Supabase project. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co; base-uri 'none'; form-action 'none'">
+<!-- Nothing loads from a third party. connect-src: this origin (local test stub) and the Supabase project; wss: its
+     Realtime socket, which only the v2 back office opens (schema 2, realtime on: the demo database, ADR-007). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self' https://*.supabase.co wss://*.supabase.co; base-uri 'none'; form-action 'none'">
 <title>Mana back office · Halom</title>
 <!-- the favicon: the mark's small cut (brand/tools/mark.mjs) on a dark rounded square, ivory arches, the yolk light -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%20width='64'%20height='64'%20role='img'%3E%3Ctitle%3Emana%3C/title%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230F0F0F'/%3E%3Cg%20transform='translate(6.76%203.33)%20scale(0.79)'%3E%3Cellipse%20cx='45.5'%20cy='44.6'%20rx='11.5'%20ry='3.6'%20fill='%23F5B120'/%3E%3Cpath%20d='M3%2050.7H61'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M7%2048C7%2022%2031%2022%2031%2048'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3Cpath%20d='M33%2041.5C33%2015.5%2057%2015.5%2057%2041.5'%20stroke='%23FCF8F6'%20stroke-width='5.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/g%3E%3C/svg%3E">
