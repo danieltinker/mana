@@ -252,6 +252,7 @@ class WoltReader {
       const h = this.run.pop()!;
       this.flushLeftovers();
       this.startGroup(h.text, rule, h.n);
+      if (this.orphan) this.orphanLines([n]);
     } else if (this.last === 'rule' && this.group) {
       this.groupRule = joinRules(this.groupRule, rule);
       Object.assign(this.group, ruleLimits(this.groupRule));

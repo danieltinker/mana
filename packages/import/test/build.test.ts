@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DRAFT_CAPS, DRAFT_KEY_RE } from '@mana/contracts';
-import { nameIdentity, parsePaste, readScanReply, scanDraft } from '../src/index.ts';
+import { DRAFT_BYTES_MAX, DRAFT_CAPS, DRAFT_KEY_RE, draftBytes } from '@mana/contracts';
+import { nameIdentity, parsePaste, parseWoltText, readScanReply, scanDraft } from '../src/index.ts';
 import { hash8, slug } from '../src/keys.ts';
 import { exceptions, valid } from './helpers.ts';
 
@@ -58,4 +58,47 @@ test('limits a group cannot have are left unstated; too many defaults are cleare
   assert.equal(long!.name.en.length, 60);
   assert.deepEqual(r.notes.map((n) => n.code).sort(), ['defaults_cleared', 'limits_dropped', 'text_clipped']);
   assert.ok(r.notes.every((n) => n.severity === 'check'));
+});
+
+test('a dish never carries two groups of the same name and choice: they become one (addon_duplicate)', () => {
+  // two screenshots that each show part of the burger's sides
+  const r = draftOf([
+    { c: t('Mains') }, { n: t('Burger'), p: '₪72' },
+    { g: t('Choose a side'), r: 'Required · Choose 1' }, { o: t('Fries') }, { o: t('Salad') },
+    { g: t('Choose a side'), r: 'Choose 1' }, { o: t('Salad') }, { o: t('Rice'), p: '+₪4' },
+    { g: t('Extras'), r: 'Choose up to 2' }, { o: t('Egg'), p: '+₪5' },
+    { g: t('Extras'), r: 'Choose up to 3' }, { o: t('Cheese'), p: '+₪3' },
+  ]);
+  const d = valid(r);
+  assert.deepEqual(d.groups.map((g) => [g.name.en, g.selection, g.min, g.max, g.options.map((o) => o.name.en)]), [
+    ['Choose a side', 'single', 1, 1, ['Fries', 'Salad', 'Rice']],
+    ['Extras', 'multiple', null, null, ['Egg', 'Cheese']],
+  ]);
+  assert.deepEqual(d.sections[0]!.dishes[0]!.groups.map((g) => g.group), d.groups.map((g) => g.key));
+  assert.ok(r.notes.some((n) => n.code === 'limits_dropped'), 'two different maximums: neither is kept');
+});
+
+test('text the database cannot store (NUL, half an emoji) is removed', () => {
+  const nul = String.fromCharCode(0), half = String.fromCharCode(0xd83c), stew = String.fromCodePoint(0x1f372);
+  const d = valid(parsePaste(`# Mains${nul}\nSoup${half} 30\nStew ${stew} 60`));
+  assert.deepEqual(d.sections[0]!.dishes.map((x) => x.name.en), ['Soup', `Stew ${stew}`], 'a whole emoji stays');
+  assert.equal(d.sections[0]!.name.en, 'Mains');
+});
+
+test('a draft past DRAFT_BYTES_MAX keeps its first dishes, with a note', () => {
+  const desc = 'א'.repeat(590);
+  const lines = Array.from({ length: 700 }, (_, i) => ({ n: t(`Dish ${i}`), d: { he: desc, en: '' }, p: '₪10' }));
+  const r = scanDraft('wolt_screenshots', [readScanReply(jsonl([{ c: t('Mains') }, ...lines]), { langs: ['he', 'en'], stock: [], page: 1, truncated: false })]);
+  const d = valid(r);
+  assert.ok(draftBytes(d) <= DRAFT_BYTES_MAX);
+  const kept = d.sections[0]!.dishes.length;
+  assert.ok(kept > 100 && kept < 700, String(kept));
+  assert.deepEqual(d.sections[0]!.dishes.map((x) => x.name.en), Array.from({ length: kept }, (_, i) => `Dish ${i}`), 'the first ones, in order');
+  assert.ok(r.notes.some((n) => n.code === 'caps_reached' && n.rule === 'bytes' && n.count === 700 - kept));
+});
+
+test('dropped: the lines a reader could not read, in the draft', () => {
+  assert.equal(parseWoltText('Choose a side\nRequired\nFries\n+₪4.00\nMains\nSoup\n₪30.00').draft.dropped, 4);
+  assert.equal(readScanReply('{"n":{"he":"","en":"Soup"},"p":"30"}\nnot json\n{"n":', { langs: ['en'], stock: [], page: 1, truncated: true }).dropped, 2);
+  assert.equal(parsePaste('# Mains\nSoup 30').draft.dropped, 0);
 });

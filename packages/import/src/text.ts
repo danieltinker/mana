@@ -1,5 +1,5 @@
 /** Lines and words as the text readers see them: cleaned, in a script, with a shape (heading, description). */
-import { IMPORT_TEXT_MAX, stripBlank, type Lang, type Text } from '@mana/contracts';
+import { IMPORT_TEXT_MAX, isStorableText, stripBlank, type Lang, type Text } from '@mana/contracts';
 
 /** Direction marks, zero-width spaces, the word joiner, the BOM and the soft hyphen: they draw nothing, so they go. */
 const INVISIBLE = /[\u00AD\u061C\u180E\u200B\u200C\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u206F\uFEFF]/gu;
@@ -7,9 +7,26 @@ const INVISIBLE = /[\u00AD\u061C\u180E\u200B\u200C\u200E\u200F\u202A-\u202E\u206
 const SPACES = /[\t\v\f\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]+/gu;
 const LINE_BREAK = /\r\n|[\n\r\u0085\u2028\u2029]/u;
 
-/** One line of source text, cleaned: no invisible characters, single spaces, no blank edges. */
+/** Text the database can store (`isStorableText`): NUL characters and lone surrogates (half an emoji) removed. */
+export function storable(s: string): string {
+  if (isStorableText(s)) return s;
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0 || (c >= 0xdc00 && c <= 0xdfff)) continue;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = s.charCodeAt(i + 1);
+      if (d >= 0xdc00 && d <= 0xdfff) { out += s.slice(i, i + 2); i += 1; }
+      continue;
+    }
+    out += s[i]!;
+  }
+  return out;
+}
+
+/** One line of source text, cleaned: storable, no invisible characters, single spaces, no blank edges. */
 export function cleanLine(raw: string): string {
-  return stripBlank(raw.replace(INVISIBLE, '').replace(SPACES, ' ').replace(/ {2,}/g, ' '));
+  return stripBlank(storable(raw).replace(INVISIBLE, '').replace(SPACES, ' ').replace(/ {2,}/g, ' '));
 }
 
 export type SourceLine = { readonly n: number; readonly text: string };

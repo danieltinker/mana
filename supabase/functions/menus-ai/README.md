@@ -7,8 +7,9 @@ touch.
 ## What it does
 
 ```
-owner app ──upload──► menu-private/<venue>/imports/<import>/…   (the owner's own photos or Wolt screenshots)
-          ──create_import──► menu_imports (uploaded)
+owner app ──upload──► menu-private/<venue>/imports/<import id>/…   (the owner's own photos or Wolt screenshots;
+                                                                   the app chooses the import id)
+          ──create_import(p_import_id, …)──► menu_imports (uploaded)
           ──POST menus-ai {action, import_id}──►
                1. configured? (no ANTHROPIC_API_KEY: not_configured, nothing claimed)
                2. the import's source matches the mode (else source_mismatch, nothing claimed)

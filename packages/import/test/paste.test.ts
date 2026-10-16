@@ -39,10 +39,8 @@ test('a menu in both languages: headings, prices, descriptions, the second langu
   assert.deepEqual(mains[1]!.desc, { he: 'לפי השוק', en: '' }, 'the v1 format: name | price | description');
   assert.deepEqual(d.sections[0]!.dishes[0]!.desc, { he: 'עם טחינה ופיתה', en: '' });
   assert.deepEqual(d.sections[2]!.dishes[1]!.priceNote, { he: '', en: '38 / 140' });
-  assert.deepEqual(exceptions(d), [
-    'name_missing_lang@עיקריות', 'name_missing_lang@דג היום', 'name_missing_lang@Pasta', 'name_missing_lang@Drinks', 'name_missing_lang@Lemonade',
-    'name_missing_lang@Wine', 'price_missing@Water', 'name_missing_lang@Water',
-  ]);
+  // one check for the names the venue's other language lacks (7 nodes), and the dish with no price
+  assert.deepEqual(exceptions(d), ['name_missing_lang@_draft×7', 'price_missing@Water']);
   assert.deepEqual(r.notes.map((n) => n.code), ['price_range']);
 });
 
@@ -87,7 +85,7 @@ test('re-reading gives the same keys, and Hopa test 1 holds', () => {
 
 test('empty and huge pastes', () => {
   const empty = parsePaste(' \n\n');
-  assert.deepEqual(valid(empty), { v: 1, source: 'paste', sections: [], groups: [] });
+  assert.deepEqual(valid(empty), { v: 1, source: 'paste', sections: [], groups: [], dropped: 0 });
   assert.deepEqual(empty.notes.map((n) => n.code), ['empty_input']);
   const many = Array.from({ length: DRAFT_CAPS.sections + 5 }, (_, i) => `# Section ${i}\nDish ${i} 10`).join('\n');
   const r = parsePaste(many);

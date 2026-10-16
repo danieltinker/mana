@@ -12,11 +12,13 @@
  *   order. Tags are joined. So the result does not depend on the order of the inputs.
  * - **Order.** One order that each input's own order agrees with (`mergeOrder`).
  * - **Keys** come from what a node is (`KeyMaker`), so reading the same text again gives the same keys.
- * - **Bounds.** Texts are cut to what the draft allows, limits a group cannot have are dropped, and past `DRAFT_CAPS`
- *   the rest is left out, each with a note: every draft built here passes `validateDraft`.
+ * - **Bounds.** Texts are made storable and cut to what the draft allows, limits a group cannot have are dropped, a
+ *   dish's groups of the same name become one, and past `DRAFT_CAPS`, `DRAFT_BYTES_MAX` or `EXCEPTIONS_MAX` the last
+ *   dishes are left out, each with a note: every draft built here passes `validateDraft`.
  */
 import {
-  DRAFT_CAPS, draftGroupLimits, GROUP_UNITS_MAX, isBlank, isInt, LANGS, LIMITS, PRICE_TEXT_MAX, ROOMS, SECTION_KINDS, stripBlank, TAGS, importKey,
+  DRAFT_BYTES_MAX, DRAFT_CAPS, draftBytes, draftExceptions, draftGroupLimits, DROPPED_MAX, EXCEPTIONS_MAX, GROUP_UNITS_MAX, importKey, isBlank, isInt,
+  LANGS, LIMITS, nameScore, PRICE_TEXT_MAX, ROOMS, SECTION_KINDS, stripBlank, TAGS,
   type DraftDish, type DraftDishGroup, type DraftGroup, type DraftOption, type DraftPhoto, type DraftSection, type ImportDraft, type ImportSource,
   type Lang, type Room, type SectionKind, type Text,
 } from '@mana/contracts';
@@ -24,10 +26,10 @@ import { KeyMaker } from './keys.ts';
 import { newDish, newGroup, newOption, newSection, type MDish, type MenuModel, type MGroup, type MLink, type MOption, type MSection } from './model.ts';
 import { NoteBook, type PendingNote, type ReaderNote } from './notes.ts';
 import { mergeOrder, type Rank } from './order.ts';
-import { clip } from './text.ts';
+import { clip, storable } from './text.ts';
 
-/** What a reader returns: the draft, the notes on the source, and how many source lines it could not read. */
-export type ReadResult = { readonly draft: ImportDraft; readonly notes: readonly ReaderNote[]; readonly dropped: number };
+/** What a reader returns: the draft (with `dropped`, the lines it could not read) and the notes on the source. */
+export type ReadResult = { readonly draft: ImportDraft; readonly notes: readonly ReaderNote[] };
 /** One reading, before the draft: a reader's model, its whole-input notes and its unread line count. */
 export type Reading = { readonly model: MenuModel; readonly notes: readonly ReaderNote[]; readonly dropped: number };
 
@@ -101,8 +103,49 @@ function within(lim: { min: number | null; max: number | null }, selection: 'sin
   return selection === 'multiple' || ((min ?? 0) <= 1 && (max === null || max === 1));
 }
 
+/** The options as `draftGroupLimits` reads them. */
+const limitOptions = (g: MGroup) => g.options.map((o) => ({ price: o.price, maxQty: o.maxQty, default: o.isDefault }));
+
+/** A group's limits it cannot have are left unstated, and pre-selected options past its maximum are cleared. */
+function settle(g: MGroup): void {
+  if (!within(g, g.selection)) {
+    g.min = null;
+    g.max = null;
+    g.notes.push({ code: 'limits_dropped', lines: [] });
+  }
+  if (g.options.filter((o) => o.isDefault).length > draftGroupLimits(g, limitOptions(g)).max) {
+    for (const o of g.options) o.isDefault = false;
+    g.notes.push({ code: 'defaults_cleared', lines: [] });
+  }
+}
+
+/** Two groups one dish may not carry together (the contracts' `addon_duplicate`): the same choice and name. */
+const sameGroup = (a: MGroup, b: MGroup): boolean => a.selection === b.selection && nameScore(a.name, b.name) > 0;
+
+/**
+ * One group from two that a dish shows under one name (screenshots that each show part of its options): the options
+ * of both, in the order both agree with; a limit one states and the other leaves out is kept; two that differ are not.
+ */
+function combine(a: MGroup, b: MGroup): MGroup {
+  const v = pickText([{ text: a.name, translated: a.translated }, { text: b.name, translated: b.translated }]);
+  const ids = (g: MGroup) => g.options.map((o) => nameIdentity(o.name, o.translated));
+  const rank = new Map<string, Rank>();
+  const byId = new Map<string, MOption>();
+  [a, b].forEach((g, i) => ids(g).forEach((id, j) => {
+    if (!rank.has(id)) { rank.set(id, [i, j]); byId.set(id, g.options[j]!); }
+  }));
+  const either = (x: number | null, y: number | null): number | null => (x === null ? y : y === null || x === y ? x : null);
+  const g = newGroup(v.text, {
+    translated: v.translated, selection: a.selection, min: either(a.min, b.min), max: either(a.max, b.max),
+    options: mergeOrder([ids(a), ids(b)], rank).map((id) => byId.get(id)!), notes: [...a.notes, ...b.notes],
+  });
+  if ((a.min !== null && b.min !== null && a.min !== b.min) || (a.max !== null && b.max !== null && a.max !== b.max)) g.notes.push({ code: 'limits_dropped', lines: [] });
+  settle(g);
+  return g;
+}
+
 function clipText(t: Text, max: number, notes: PendingNote[], line: number | null): Text {
-  const he = clip(stripBlank(t.he), max), en = clip(stripBlank(t.en), max);
+  const he = clip(stripBlank(storable(t.he)), max), en = clip(stripBlank(storable(t.en)), max);
   if (he.clipped || en.clipped) notes.push({ code: 'text_clipped', lines: line === null ? [] : [line] });
   return { he: he.text, en: en.text };
 }
@@ -119,25 +162,21 @@ function normalise(model: MenuModel): MenuModel {
     if (!named(name)) { groups.set(g, null); return null; }
     const copy = newGroup(name, { translated: translatedOf(g.translated, name), selection: g.selection, notes });
     groups.set(g, copy);
-    if (within(g, g.selection)) { copy.min = g.min; copy.max = g.max; } else notes.push({ code: 'limits_dropped', lines: [] });
+    copy.min = g.min;
+    copy.max = g.max;
     for (const o of g.options) {
       const oname = clipText(o.name, NAME_MAX.option, notes, null);
       if (!named(oname)) continue;
       const opens = o.opens ? group(o.opens) : null;
       const price = isInt(o.price) && o.price >= 0 && o.price <= LIMITS.price ? o.price : null;
-      const text = price === null && o.priceText !== null && !isBlank(o.priceText) ? clip(stripBlank(o.priceText), PRICE_TEXT_MAX).text : null;
+      const text = price === null && o.priceText !== null && !isBlank(o.priceText) ? clip(stripBlank(storable(o.priceText)), PRICE_TEXT_MAX).text : null;
       copy.options.push(newOption(oname, price, {
         translated: translatedOf(o.translated, oname), priceText: text,
         maxQty: opens ? 1 : Math.min(Math.max(isInt(o.maxQty) ? o.maxQty : 1, 1), LIMITS.optionQuantity), isDefault: o.isDefault === true, opens,
       }));
     }
     if (copy.options.length === 0) { groups.set(g, null); return null; }
-    // only the fields `draftGroupLimits` reads
-    const lim = draftGroupLimits({ selection: copy.selection, min: copy.min, max: copy.max, options: copy.options } as unknown as DraftGroup);
-    if (copy.options.filter((o) => o.isDefault).length > lim.max) {
-      for (const o of copy.options) o.isDefault = false;
-      notes.push({ code: 'defaults_cleared', lines: [] });
-    }
+    settle(copy);
     return copy;
   };
 
@@ -162,7 +201,7 @@ function normalise(model: MenuModel): MenuModel {
       }
       copy.dishes.push(newDish(dname, {
         desc, translated: translatedOf(d.translated, dname, desc), price,
-        priceText: price === null && d.priceText !== null && !isBlank(d.priceText) ? clip(stripBlank(d.priceText), PRICE_TEXT_MAX).text : null,
+        priceText: price === null && d.priceText !== null && !isBlank(d.priceText) ? clip(stripBlank(storable(d.priceText)), PRICE_TEXT_MAX).text : null,
         priceNote: clipText(d.priceNote, LIMITS.noteLength, dn, d.line), tags: TAGS.filter((t) => d.tags.includes(t)),
         allergens: clipText(d.allergens, ALLERGENS_MAX, dn, d.line), photo: d.photo,
         illustration: d.illustration !== null && STOCK_RE.test(d.illustration) ? d.illustration : null, links, notes: dn, line: d.line,
@@ -189,8 +228,32 @@ function signature(g: MGroup, depth = 0): string {
 type SectionOcc = { readonly s: MSection; readonly rank: Rank };
 type DishOcc = { readonly d: MDish; readonly rank: Rank };
 
-/** Builds the draft of `source` from one or more readings of the same menu. */
+/**
+ * Builds the draft of `source` from one or more readings of the same menu. When the draft would be larger than
+ * `DRAFT_BYTES_MAX` or carry more than `EXCEPTIONS_MAX` exceptions (which `validateDraft` refuses), its last dishes
+ * are left out until it fits, with a `caps_reached` note.
+ */
 export function buildDraft(source: ImportSource, readings: readonly Reading[]): ReadResult {
+  let cap: number = DRAFT_CAPS.dishes, rule = 'dishes';
+  for (let pass = 0; ; pass++) {
+    const r = build(source, readings, cap, rule);
+    const dishes = r.draft.sections.flatMap((s) => s.dishes);
+    const bytes = draftBytes(r.draft), exceptions = draftExceptions(r.draft).length;
+    if ((bytes <= DRAFT_BYTES_MAX && exceptions <= EXCEPTIONS_MAX) || dishes.length === 0 || pass === 8) return r;
+    let keep = dishes.length;
+    if (bytes > DRAFT_BYTES_MAX) {
+      rule = 'bytes';
+      for (let excess = bytes - DRAFT_BYTES_MAX; keep > 0 && excess > 0;) excess -= draftBytes(dishes[--keep]) + 2;
+    }
+    if (exceptions > EXCEPTIONS_MAX) {
+      if (rule !== 'bytes') rule = 'exceptions';
+      keep = Math.min(keep, Math.floor((dishes.length * EXCEPTIONS_MAX) / exceptions));
+    }
+    cap = Math.max(0, Math.min(keep, cap - 1));
+  }
+}
+
+function build(source: ImportSource, readings: readonly Reading[], dishCap: number, capRule: string): ReadResult {
   const book = new NoteBook();
   let dropped = 0;
   for (const r of readings) {
@@ -243,14 +306,14 @@ export function buildDraft(source: ImportSource, readings: readonly Reading[]): 
   for (const p of plan) if (p.dishes.length === 0) book.add('section_empty', p.occs.map((o) => o.s.line).filter((l): l is number => l !== null), { count: 1 });
   if (keptSections.length > DRAFT_CAPS.sections) book.add('caps_reached', [], { rule: 'sections', count: keptSections.length - DRAFT_CAPS.sections });
   const sections = keptSections.slice(0, DRAFT_CAPS.sections);
-  let dishBudget = DRAFT_CAPS.dishes, dishesLeft = 0;
+  let dishBudget = dishCap, dishesLeft = 0;
   for (const p of sections) {
     const keep = Math.min(p.dishes.length, dishBudget);
     dishesLeft += p.dishes.length - keep;
     p.dishes = p.dishes.slice(0, keep);
     dishBudget -= keep;
   }
-  if (dishesLeft > 0) book.add('caps_reached', [], { rule: 'dishes', count: dishesLeft });
+  if (dishesLeft > 0) book.add('caps_reached', [], { rule: capRule, count: dishesLeft });
   const live = sections.filter((p) => p.dishes.length > 0);
 
   // ---- each dish's groups (merged in order), and every group reached from them
@@ -274,12 +337,24 @@ export function buildDraft(source: ImportSource, readings: readonly Reading[]): 
     const seqs = m.occs.map((o) => o.d.links.map((a) => sig(a.group)));
     const rank = new Map<string, Rank>();
     m.occs.forEach((o) => o.d.links.forEach((a, k) => { const s = sig(a.group); if (!rank.has(s)) rank.set(s, [...o.rank, k]); }));
-    const order = mergeOrder(seqs, rank);
-    linksLeft += Math.max(0, order.length - DRAFT_CAPS.groupsPerDish);
-    const links: DishLinks = order.slice(0, DRAFT_CAPS.groupsPerDish).map((s) => {
+    const kept = mergeOrder(seqs, rank).map((s) => {
       const all = m.occs.flatMap((o) => o.d.links.filter((a) => sig(a.group) === s));
-      for (const a of all) visit(a.group, new Set());
-      return { sig: s, min: allSame(all.map((a) => a.min)), max: allSame(all.map((a) => a.max)) };
+      return { group: all[0]!.group, all, combined: false };
+    });
+    // a dish never carries two groups of the same name and choice: they become one
+    for (let found = true; found;) {
+      found = false;
+      for (let i = 0; i < kept.length && !found; i++) for (let j = i + 1; j < kept.length && !found; j++) {
+        if (!sameGroup(kept[i]!.group, kept[j]!.group)) continue;
+        kept[i] = { group: combine(kept[i]!.group, kept[j]!.group), all: [...kept[i]!.all, ...kept[j]!.all], combined: true };
+        kept.splice(j, 1);
+        found = true;
+      }
+    }
+    linksLeft += Math.max(0, kept.length - DRAFT_CAPS.groupsPerDish);
+    const links: DishLinks = kept.slice(0, DRAFT_CAPS.groupsPerDish).map((k) => {
+      for (const g of k.combined ? [k.group] : k.all.map((a) => a.group)) visit(g, new Set());
+      return { sig: sig(k.group), min: allSame(k.all.map((a) => a.min)), max: allSame(k.all.map((a) => a.max)) };
     });
     linksOf.set(m.id, links);
   }
@@ -377,14 +452,19 @@ export function buildDraft(source: ImportSource, readings: readonly Reading[]): 
     return { key, name: sv.text, translated: sv.translated, kind, room, dishes };
   });
 
-  return { draft: { v: 1, source, sections: draftSections, groups }, notes: book.list(), dropped };
+  return { draft: { v: 1, source, sections: draftSections, groups, dropped: Math.min(dropped, DROPPED_MAX) }, notes: book.list() };
 }
 
-/** A dish's own limits on a group, only when they tighten the group's (else the group's own: null). */
+/**
+ * A dish's own limits on a group, kept only when the contracts allow them (else the group's own: null): within 0–30,
+ * tightening the group's stated limits, and reachable (the dish's minimum within its maximum and the group's options).
+ */
 function tightening(g: DraftGroup, min: number | null, max: number | null): { min: number | null; max: number | null } {
   if (min === null && max === null) return { min, max };
-  const own = draftGroupLimits(g);
-  const ok = within({ min, max }, g.selection) && (min === null || min >= own.min) && (max === null || max <= own.max);
+  const own = draftGroupLimits(g, g.options);
+  const loosens = own.stated && ((min !== null && g.min !== null && min < g.min) || (max !== null && g.max !== null && max > g.max));
+  const lo = min ?? own.min, hi = max ?? own.max;
+  const ok = within({ min, max }, g.selection) && !loosens && lo <= hi && lo <= own.capacity;
   return ok ? { min, max } : { min: null, max: null };
 }
 
@@ -433,11 +513,13 @@ export function draftModel(draft: ImportDraft): MenuModel {
  * Merges drafts of the same menu (overlapping screenshots read one by one, several pastes of one page): sections and
  * dishes that repeat become one, identical groups become one, and the order is the one every draft agrees with.
  * Idempotent (merging a draft with itself, or a merge with one of its inputs, changes nothing) and independent of the
- * drafts' order wherever their own orders decide it. All drafts must have the same source.
+ * drafts' order wherever their own orders decide it. `dropped` is the largest of the drafts' (a merge cannot tell
+ * which of their unread lines were the same ones). All drafts must have the same source.
  */
 export function mergeDrafts(drafts: readonly ImportDraft[]): ReadResult {
   const source = drafts[0]?.source;
   if (source === undefined) throw new RangeError('mergeDrafts needs at least one draft');
   if (drafts.some((d) => d.source !== source)) throw new RangeError('mergeDrafts: the drafts have different sources');
-  return buildDraft(source, drafts.map((d) => ({ model: draftModel(d), notes: [], dropped: 0 })));
+  const dropped = Math.max(...drafts.map((d) => d.dropped));
+  return buildDraft(source, drafts.map((d, i) => ({ model: draftModel(d), notes: [], dropped: i === 0 ? dropped : 0 })));
 }

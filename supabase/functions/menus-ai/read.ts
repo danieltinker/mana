@@ -119,7 +119,7 @@ export async function readImport(d: Deps, asked: ScanMode, importId: string, aut
       return await fail('draft_invalid');
     }
     return done({
-      ok: true, importId, counts: saved.counts, exceptions: saved.exceptions, notes: read.notes, dropped: read.dropped, calls: calls.length,
+      ok: true, importId, counts: saved.counts, exceptions: saved.exceptions, notes: read.notes, dropped: read.draft.dropped, calls: calls.length,
       usage: { in: tokensIn, out: tokensOut },
     });
   } catch (e) {

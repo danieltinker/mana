@@ -51,12 +51,13 @@ function deps(fetch: typeof globalThis.fetch, env: Partial<Env> = {}, now: () =>
   return { env: { ...ENV, ...env }, fetch, now, log: (e) => void logs.push(e), logs };
 }
 
-const claimReply = (source: ClaimScanReply['source'], n: number, langs: ClaimScanReply['langs'] = ['he', 'en']): ClaimScanReply => ({
+type Claimed = Extract<ClaimScanReply, { ok: true }>;
+const claimReply = (source: Claimed['source'], n: number, langs: Claimed['langs'] = ['he', 'en']): Claimed => ({
   ok: true, importId: IMPORT, venueId: VENUE, source, paths: Array.from({ length: n }, (_, i) => `${VENUE}/imports/${IMPORT}/${i + 1}.jpg`), rightsConfirmed: false, langs,
 });
 
 /** The Supabase side as the backend lane's RPCs answer (ADR-008), with the scanner's own draft checked and stored. */
-function project(source: ClaimScanReply['source'], images: number, o: { image?: Uint8Array<ArrayBuffer>; save?: (draft: ImportDraft) => Response; claim?: () => Response } = {}) {
+function project(source: Claimed['source'], images: number, o: { image?: Uint8Array<ArrayBuffer>; save?: (draft: ImportDraft) => Response; claim?: () => Response } = {}) {
   const saved: ImportDraft[] = [];
   const routes: Record<string, Route> = {
     'GET /rest/v1/menu_imports': () => jsonResponse([{ source }]),
@@ -208,7 +209,7 @@ test('Wolt screenshots: claimed with the owner\'s token, read in overlapping run
   assert.equal(draft.source, 'wolt_screenshots');
   assert.deepEqual(draft.sections.map((s) => [s.name.en, s.dishes.map((x) => x.name.en)]), [['Mains', ['Schnitzel', 'Burger', 'Falafel']], ['Drinks', ['Lemonade']]]);
   assert.equal(draft.sections[0]!.dishes[0]!.illustration, 'schnitzel');
-  assert.deepEqual(r.body.counts, { sections: 2, dishes: 4, groups: 1, options: 2, photos: 0 });
+  assert.deepEqual(r.body.counts, { sections: 2, dishes: 4, groups: 1, options: 2, photos: 0, dropped: 0 });
   assert.deepEqual(r.body.usage, { in: 2000, out: 400 });
   assert.equal(r.body.calls, 2);
   assert.ok(!f.calls.some((c) => c.method === 'PATCH'), 'nothing marked failed');

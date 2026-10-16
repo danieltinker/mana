@@ -23,7 +23,7 @@ test('fromScanEvents: two pages of the v1 scanner, a section continued on the se
   assert.deepEqual(d.sections[1]!.dishes[0]!.priceNote, { he: 'כוס 38 / בקבוק 140', en: 'Glass 38 / Bottle 140' });
   assert.deepEqual(r.notes.map((n) => [n.code, n.lines]), [['page_truncated', [2]]]);
   assert.ok(exceptions(d).includes('price_missing@Special'));
-  assert.ok(exceptions(d).includes('translation_check@Schnitzel'));
+  assert.ok(exceptions(d).includes('translation_check@_draft×7'), 'every English text is a translation, one check for all');
 });
 
 test('fromScanEvents: a page that could not be read, junk events, an empty stream', () => {
@@ -34,7 +34,7 @@ test('fromScanEvents: a page that could not be read, junk events, an empty strea
   assert.deepEqual(d.sections[0]!.dishes[0]!.translated, ['he', 'en'], 'printed in another language: both are translations');
   assert.equal(d.sections[0]!.dishes[0]!.illustration, null);
   assert.deepEqual(r.notes.map((n) => n.code), ['page_unreadable']);
-  assert.equal(r.dropped, 1);
+  assert.equal(r.draft.dropped, 1);
   assert.deepEqual(fromScanEvents([]).notes.map((n) => n.code), ['empty_input']);
   reimportCreatesNothing(() => fromScanEvents(SCAN_EVENTS), answerFixes(fromScanEvents(SCAN_EVENTS).draft));
 });
@@ -69,11 +69,7 @@ test('a printed page: prices as written, tags only from TAGS, allergens copied, 
   ]);
   assert.deepEqual(d.sections[0]!.dishes[1]!.allergens, { he: 'גלוטן', en: '' });
   assert.deepEqual(d.sections[1]!.dishes[0]!.priceNote, { he: 'כוס 38 / בקבוק 140', en: 'Glass 38 / Bottle 140' }, 'the model\'s own note wins');
-  assert.deepEqual(exceptions(d), [
-    'translation_check@Mains', 'translation_check@Schnitzel', 'translation_check@Burger', 'allergens_check@Burger', 'translation_check@Wines',
-    'translation_check@House wine', 'price_unreadable@Special', 'translation_check@Special', 'translation_check@Extras', 'translation_check@Cheese',
-    'translation_check@Egg',
-  ]);
+  assert.deepEqual(exceptions(d), ['translation_check@_draft×9', 'allergens_check@Burger', 'price_unreadable@Special']);
 });
 
 test('Wolt screenshots: identical groups once, a nested sauce under fries, a default, sold out, a cut answer', () => {

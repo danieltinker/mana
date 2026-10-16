@@ -118,5 +118,5 @@ test('Hopa test 1 after a merge: the merged menu imported again creates nothing'
   const read = () => mergeDrafts(shots.map((t) => parsePaste(t).draft));
   reimportCreatesNothing(read, answerFixes(read().draft));
   const sections = [section('s1', 'עיקריות', 'Mains', [dish('d1', 'מרק', 'Soup', 3000)])];
-  assert.ok(merged([{ v: 1, source: 'paste', sections, groups: [] }]).sections[0]!.key.startsWith('s-mains-'), 'keys are the reader\'s, not the input\'s');
+  assert.ok(merged([{ v: 1, source: 'paste', sections, groups: [], dropped: 0 }]).sections[0]!.key.startsWith('s-mains-'), 'keys are the reader\'s, not the input\'s');
 });

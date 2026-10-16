@@ -70,7 +70,7 @@ test('an English page with a dish sheet: sections, dishes, prices, labels, a nes
   ]);
   assert.equal(r.notes.find((n) => n.code === 'sold_out')!.severity, 'check');
   assert.equal(r.notes.find((n) => n.code === 'sold_out')!.key, d.sections[0]!.dishes[3]!.key, 'the sold-out mark is on the fish');
-  assert.equal(r.dropped, 0);
+  assert.equal(r.draft.dropped, 0);
 });
 
 test('a Hebrew page with a dish sheet: right-to-left marks, a sauce for the fries, a bilingual name', () => {
@@ -194,7 +194,7 @@ test('choices with no dish before them are left out and counted', () => {
   const r = parseWoltText('Choose a side\nRequired\nFries\nSalad\n+₪4.00\nMains\nSoup\n₪30.00');
   assert.deepEqual(outline(valid(r)), ['# Mains (food)', 'Soup 3000']);
   assert.ok(r.notes.some((n) => n.code === 'group_orphan'));
-  assert.equal(r.dropped, 4);
+  assert.equal(r.draft.dropped, 5, 'the heading, its rule line, two options and a price');
 });
 
 test('a dish whose only price is on the sheet button takes it, with a check note', () => {
@@ -206,7 +206,7 @@ test('a dish whose only price is on the sheet button takes it, with a check note
 test('empty input: a valid empty draft and a note', () => {
   for (const s of ['', '\n \n\t', `${String.fromCodePoint(0x200f)}\n`]) {
     const r = parseWoltText(s);
-    assert.deepEqual(valid(r), { v: 1, source: 'wolt_text', sections: [], groups: [] });
+    assert.deepEqual(valid(r), { v: 1, source: 'wolt_text', sections: [], groups: [], dropped: 0 });
     assert.deepEqual(r.notes.map((n) => n.code), ['empty_input']);
   }
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { draftExceptions, EMPTY_MENU, planApply, validateDraft, type ImportDraft, type Lang } from '@mana/contracts';
+import { DRAFT_ROOT, draftExceptions, EMPTY_MENU, planApply, validateDraft, type ImportDraft, type Lang } from '@mana/contracts';
 // the contracts' in-memory executor of a plan, the way apply_import writes the tables
 import { applyPlan } from '../../contracts/test/import-fixtures.ts';
 import type { ReadResult } from '../src/index.ts';
@@ -16,7 +16,8 @@ export function exceptions(d: ImportDraft, langs?: readonly Lang[]): string[] {
   const names = new Map<string, string>();
   for (const s of d.sections) { names.set(s.key, s.name.en || s.name.he); for (const x of s.dishes) names.set(x.key, x.name.en || x.name.he); }
   for (const g of d.groups) { names.set(g.key, g.name.en || g.name.he); for (const o of g.options) names.set(o.key, o.name.en || o.name.he); }
-  return draftExceptions(d, langs ? { langs } : {}).map((e) => `${e.code}@${names.get(e.key) ?? e.key}`);
+  // the whole draft's exceptions (`DRAFT_ROOT`) say how many nodes they stand for
+  return draftExceptions(d, langs ? { langs } : {}).map((e) => `${e.code}@${names.get(e.key) ?? e.key}${e.key === DRAFT_ROOT ? `×${e.count}` : ''}`);
 }
 
 /** A readable outline: sections, their dishes with prices, and every group with its options. */
