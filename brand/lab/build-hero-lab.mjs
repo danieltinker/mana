@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const BRAND = join(dirname(fileURLToPath(import.meta.url)), '..');
-const VIEW_NM = join(BRAND, '..', 'view', 'node_modules');
+const VIEW_NM = join(BRAND, '..', 'apps', 'view', 'node_modules');
 const { build } = createRequire(join(VIEW_NM, 'x.js'))('esbuild');
 const out = join(BRAND, '.scratch', 'lab');
 rmSync(out, { recursive: true, force: true });

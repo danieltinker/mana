@@ -4,7 +4,7 @@
    Exit 1 on a breach. Prints a table of every file counted.
 
    What is counted ("sent" = what a static host sends: text gzipped at level 9, pictures and fonts as they are, the same
-   convention as view/test/load.mjs, which measures the same set in a browser and is a local tool):
+   convention as apps/view/test/load.mjs, which measures the same set in a browser and is a local tool):
    (a) The guest menu's first-dish set, ≤ 800 kB: view/index.html, app.js (and the chunks it imports statically), app.css,
        the stage chunk (imported on demand, needed before the first dish is drawn), the default table's two textures
        (oak, oak_h), the fonts app.css declares (both scripts load for a Hebrew page with Latin prices), Olea's menu.json

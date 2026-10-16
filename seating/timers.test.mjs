@@ -1,6 +1,6 @@
 /* The table clock's rules (seating/timers.mjs): defaults and overrides, the ending threshold, time up once, the grace
    period, extend after time is up, free early, availability, a JSON round trip, bad input. No real clock anywhere: every
-   test turns `now` by hand. Run: node --test seating/timers.test.mjs   (cd view && npm test runs it too) */
+   test turns `now` by hand. Run: node --test seating/timers.test.mjs   (cd apps/view && npm test runs it too) */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

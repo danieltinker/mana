@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-/* the 18 tables of view/src/scenes/common.js (TABLES); 'custom' and 'holo' are not looks */
+/* the 18 tables of apps/view/src/scenes/common.js (TABLES); 'custom' and 'holo' are not looks */
 export const SURFACES = ['oak', 'walnut', 'birch', 'gingham', 'gingham-blue', 'linen', 'damask', 'linen-black', 'marble', 'marble-black', 'terrazzo', 'concrete', 'slate', 'tiles', 'bamboo', 'kraft', 'steel', 'copper'];
 /* the CSS-only concept details the guest menu's app.css knows (class look-<detail> on the app root) */
 export const DETAILS = ['tracks', 'tile-stripe', 'ticket', 'door-crack', 'rug-edge', 'leaf-vein'];
@@ -52,7 +52,7 @@ export function validateLook(look, i = 0) {
   if (look.fonts !== 'house') bad('fonts must be "house" (each look gets its own type in week 2)');
   /* what the guest reads on the card must be legible: the accent is the price on a dark card, the ink is every word on a light one */
   if (HEX.test(String(look.accent)) && look.card === 'dark') { const c = contrast(hexRgb(look.accent), CARD_BG.dark); if (c < 4.5) bad('accent ' + look.accent + ' reads at ' + c.toFixed(2) + ':1 on the dark card (needs 4.5:1)'); }
-  /* the add button is the accent with text on it; the guest menu picks dark or cream text by the accent's luma (view/src/main.js applyTheme) */
+  /* the add button is the accent with text on it; the guest menu picks dark or cream text by the accent's luma (apps/view/src/main.js applyTheme) */
   if (HEX.test(String(look.accent))) { const c = hexRgb(look.accent), luma = (c[0] * .299 + c[1] * .587 + c[2] * .114) / 255, on = luma > .5 ? [22, 19, 10] : [251, 247, 239], r = contrast(on, c); if (r < 4.5) bad('the text on the accent ' + look.accent + ' reads at ' + r.toFixed(2) + ':1 (needs 4.5:1; move the accent away from mid luma)'); }
   if (look.card === 'light' && HEX.test(String(look.ink))) { const c = contrast(hexRgb(look.ink), CARD_BG.light); if (c < 4.5) bad('ink ' + look.ink + ' reads at ' + c.toFixed(2) + ':1 on the light card (needs 4.5:1)'); }
   return errors;

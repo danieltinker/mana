@@ -1,6 +1,6 @@
-/* One still per live look for the gallery (view/looks/): the Olea demo in that look on a phone frame (390×844), the table
-   settled on the first dish, saved as view/looks/img/<id>.webp at 60 kB or less. Headless Chromium with software WebGL,
-   through the view's own test API (?test=1, __mana.settle()); the local server is view/tools/serve.mjs. Nothing leaves this machine.
+/* One still per live look for the gallery (apps/view/looks/): the Olea demo in that look on a phone frame (390×844), the table
+   settled on the first dish, saved as apps/view/looks/img/<id>.webp at 60 kB or less. Headless Chromium with software WebGL,
+   through the view's own test API (?test=1, __mana.settle()); the local server is apps/view/tools/serve.mjs. Nothing leaves this machine.
 
      node templates/tools/stills.mjs [id …]          all live looks, or the ones named
    Takes the shared browser lock yourself:  flock /tmp/mana-browser.lock node templates/tools/stills.mjs */
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..'), VIEW = join(ROOT, 'view'), OUT = join(VIEW, 'looks', 'img');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..'), VIEW = join(ROOT, 'apps', 'view'), OUT = join(VIEW, 'looks', 'img');
 let pw; try { pw = require(join(VIEW, 'node_modules', 'playwright')); } catch (e) { pw = require('/opt/npm-tools/node_modules/playwright'); }
 let sharp; try { sharp = require(join(VIEW, 'node_modules', 'sharp')); } catch (e) { sharp = require('/opt/npm-tools/node_modules/sharp'); }
 const { listen } = await import(join(VIEW, 'tools', 'serve.mjs'));

@@ -1,0 +1,17 @@
+{
+  "name": "mana",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mana (מנה) by Halom: the guest menu, the owner app and the back office (apps/*), shared packages (packages/*), and the build that halom.io/mana serves.",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "bash tools/build-site.sh",
+    "check": "npm run check --workspaces --if-present",
+    "test": "node tools/test-all.mjs",
+    "test:fast": "node tools/test-all.mjs --fast"
+  }
+}

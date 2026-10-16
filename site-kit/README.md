@@ -6,7 +6,7 @@ analytics, no iframes. Hebrew first (RTL), English on a toggle. Mana's design to
 `Restaurant` + `Menu` is written from the snapshot only: no hours, phone or address that the snapshot does not have.
 
 ```
-node site-kit/build.mjs view/demo/olea/menu.json site-kit/out/olea            # → site-kit/out/olea/index.html + img/
+node site-kit/build.mjs apps/view/demo/olea/menu.json site-kit/out/olea            # → site-kit/out/olea/index.html + img/
 node site-kit/build.mjs <menu.json> <outdir> --menu https://halom.io/m/<slug>   # where "Open the menu" goes
                                              --demo                              # a demo: the demo line and the AI label
                                              --index                             # let search engines index it (off by default)

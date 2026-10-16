@@ -7,7 +7,7 @@ Nothing here has been deployed, pushed, published or sent.
 
 ## Version 3: the page is the table
 The page is the guest view's own table from the first word to "start free": one fixed layer of oak (`img/table-oak.jpg`,
-`../view/themes/oak.jpg` darkened to the table's black at the edges) and one lamp, a radial pool painted once into its
+`../apps/view/themes/oak.jpg` darkened to the table's black at the edges) and one lamp, a radial pool painted once into its
 own fixed layer and moved with `translate3d` as the reader scrolls (`mana.js`; its anchors are the stops' objects, it dims
 to 80% at the reels and goes out as the ivory tail comes up). The questions, the form and the footer sit on ivory.
 Five stops, each with its words in the guest view's dark glass card (tint only on a phone, blur on wide screens) and its
@@ -15,11 +15,11 @@ object on the wood:
 1. **The hero**: the Hebrew line on a scrim, the demo dish alone under the lamp. The dish is the real relief, live:
    `index.html` paints its flat photo first (`img/hero-dish.webp`, the Olea hummus cut out by its matte, placed where the
    guest view will stand the dish), and `mana.js` adds the guest view in **hero mode** (`view/?demo=solo&embed=hero&lang=he|en`,
-   see `view/src/hero.js`) as an iframe after the page has painted, never on Save-Data. The frame reports
+   see `apps/view/src/hero.js`) as an iframe after the page has painted, never on Save-Data. The frame reports
    `{type:'mana-hero', state}` as the lamp comes up, the dish rises and the ring is drawn; the page tells it `{run:false}`
    when it scrolls off screen; Enter inside it opens the full demo; `?debug=1` on the page reaches the frame. A slow phone
    (quality tier 4) or a lost context shows the still, never the list.
-2. **Your menu, your look**: three of the looks' stills (`img/looks/`, copied from `../view/looks/img/`) as cards that
+2. **Your menu, your look**: three of the looks' stills (`img/looks/`, copied from `../apps/view/looks/img/`) as cards that
    slide apart once; each opens `view/?demo=olea&template=<id>`.
 3. **Your seat**: a cream sheet in the table's perspective with the Olea room's plan (`../seating/fixtures/olea.layout.json`,
    drawn at build time); its far half unfolds once, one table lights; a link to `view/seat/?demo=olea`.
@@ -69,7 +69,7 @@ online"; every file below comes from the second recordings:
 | File | What it is |
 |---|---|
 | `hero.mp4` | The Hebrew guest view, 390 × 844, 9 s: the viewer lane's Hebrew recording (`tools/film/clips/guest-glide.mp4`) scaled down. The Hebrew page plays it. |
-| `hero-en.mp4` | The viewer lane's 9.2 s hero loop (`../view/.shots/v2/hero.mp4`), copied byte for byte. It was recorded in English, so the English page plays it. |
+| `hero-en.mp4` | The viewer lane's 9.2 s hero loop (`../apps/view/.shots/v2/hero.mp4`), copied byte for byte. It was recorded in English, so the English page plays it. |
 | `hero-poster.jpg`, `hero-poster-480.jpg` | The first frame of `hero.mp4` (one still serves both languages: on the English page the Hebrew frame shows until the English loop fades in). |
 | `demo-poster.jpg` | The still behind "Play with it": the guest recording at 1.7 s, the second dish in focus (`node tools/build-site.mjs --demo-still-from-clip`). `tools/posters.mjs` still draws the previous viewer; do not run it for the page stills any more. |
 | `film-16x9.mp4`, `film-9x16.mp4`, `film-16x9-en.mp4`, `film-9x16-en.mp4` | The 41 s film, 1920 × 1080 and 1080 × 1920, Hebrew and English captions, each under 8 MB. Made by `tools/film/compose.mjs --scale 1 --lang both`, then `tools/film/to-site.mjs`. |
@@ -93,7 +93,7 @@ node tools/build-site.mjs --poster-from-video --demo-still-from-clip   # ... and
 node tools/film/proof.mjs        # review/v2/film/: one frame per shot from the films on the page, sizes, and the QR code read from the film
 node tools/serve.mjs [--scan]    # http://127.0.0.1:8791/mana/  (real viewer, stubbed leads function; --scan turns the scanner flag on)
 ```
-`MANA_VIEW=<folder>` chooses the viewer that the server, the checks and the sheets load (default `../view`; while that
+`MANA_VIEW=<folder>` chooses the viewer that the server, the checks and the sheets load (default `../apps/view`; while that
 folder is being rebuilt, build the site with `bash tools/build-site.sh` and use `_site/view`).
 The checks for the hero video and the film make their own small test clips with ffmpeg (`tools/test-media.mjs`, into
 `.scratch/media/`) and overlay them through the local server; they never touch `site/`. Chromium here plays WebM, not H.264.
@@ -103,7 +103,7 @@ Playwright and sharp come from `/opt/npm-tools`; Chromium from `/opt/pw-browsers
 - Fonts: Frank Ruhl Libre, IBM Plex Sans Hebrew, IBM Plex Sans, Fraunces, all SIL OFL 1.1 (licence texts in `site/fonts/`).
 - Two phone photos (`site/img/howto-photo.jpg`, `guide-cutoff.jpg`) from based.cooking, public domain (Unlicense),
   commit `9d4a31a`, as recorded in the generator's test manifest.
-- Table textures and the Olea demo pictures come from `../view` (Halom's own; the Olea pictures are computer-made
+- Table textures and the Olea demo pictures come from `../apps/view` (Halom's own; the Olea pictures are computer-made
   samples and are labelled "Demo dishes · made with AI" wherever they appear). `site/img/hero-dish.webp` is the Olea
-  hummus cut out by its matte; `site/img/table-oak.jpg` is `../view/themes/oak.jpg`, darkened. The film's placeholder thumbnails are the eight starter pictures
+  hummus cut out by its matte; `site/img/table-oak.jpg` is `../apps/view/themes/oak.jpg`, darkened. The film's placeholder thumbnails are the eight starter pictures
   of `../stock` (Halom's own).

@@ -119,7 +119,7 @@ if (existsSync(join(MEDIA, 'hero.webm'))) {
 }
 await one('the short form, open · 390', '/mana/?lang=he&demo=off', { clip: '#talk-sec', before: (p) => p.evaluate(() => { document.getElementById('talk-more').open = true; }) });
 await one('a question, open · 390', '/mana/?lang=en&demo=off', { clip: '#faq', before: (p) => p.evaluate(() => { document.querySelector('.faq details').open = true; }) });
-await one('live demo inside the frame · 1440 (viewer: ' + (process.env.MANA_VIEW ? 'published copy' : '../view') + ')', '/mana/?lang=en&vtest=1', { w: 1440, h: 900, clip: '#demo', settle: 9000, before: async (p) => { await p.locator('#phone').scrollIntoViewIfNeeded(); await p.waitForFunction(() => document.querySelector('#phone').getAttribute('data-state') === 'live', null, { timeout: 30000 }).catch(() => {});
+await one('live demo inside the frame · 1440 (viewer: ' + (process.env.MANA_VIEW ? 'published copy' : '../apps/view') + ')', '/mana/?lang=en&vtest=1', { w: 1440, h: 900, clip: '#demo', settle: 9000, before: async (p) => { await p.locator('#phone').scrollIntoViewIfNeeded(); await p.waitForFunction(() => document.querySelector('#phone').getAttribute('data-state') === 'live', null, { timeout: 30000 }).catch(() => {});
   const fr = p.frames().find((f) => f.url().includes('/view/')); if (fr && await fr.evaluate(() => !!(window.__menu && window.__menu.tick)).catch(() => false)) { await fr.evaluate(() => window.__menu.ready); await fr.waitForFunction(() => window.__menu.pending() === 0, null, { timeout: 90000 }).catch(() => {}); await fr.evaluate(() => window.__menu.tick(70, 1 / 30)).catch(() => {}); } } });
 /* lay the states out in rows of about 2200 px */
 const rows = []; let row = [], rw = 0;

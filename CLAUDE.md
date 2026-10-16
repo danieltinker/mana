@@ -31,7 +31,7 @@
   migrations and seed demo data there. From the day a real restaurant uses it, changes go back to proposed SQL that
   Daniel applies.
 - Never call the live `menus-ai` with real scans.
-- Test against the local stand-ins: `view` → `npm run serve`; `studio` → `npm run stack`; `ops` → `npm run serve`.
+- Test against the local stand-ins: `apps/view` → `npm run serve`; `apps/studio` → `npm run stack`; `apps/ops` → `npm run serve`.
 - Test credentials are for localhost only. Never repeat a credential's value in a reply.
 
 **Words.**

@@ -1,0 +1,12 @@
+{
+  "//": "Shared TypeScript settings for every TypeScript workspace (apps/*, packages/*). Each one extends this file and adds its own lib, jsx, types and include. Strictness stays per workspace: the owner app keeps its current (loose) settings until it is typed further.",
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true
+  }
+}
