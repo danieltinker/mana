@@ -136,21 +136,25 @@ export function validateDashboardQuery(raw: unknown): Validation<DashboardQuery>
 /**
  * How the client app and the back office keep their numbers current. With Realtime (`config.realtime`), they
  * subscribe to Postgres changes on these tables (RLS applies to every message) and treat each message as a signal
- * to fetch the dashboard again, at most once per `debounceMs`. Without it (the local stack has no Realtime server),
- * they poll every `pollMs`, never while the page is hidden, with `pollDelay`'s backoff after a failure.
+ * to fetch the dashboard again, at most once per `debounceMs`; **while subscribed they still poll every `safetyMs`**
+ * (only while the page is visible), since what the tables above do not carry (a new venue, a case, a warning, a
+ * timeline entry) sends no message (ADR-007, amended in round 3). Without Realtime (the local stack has no Realtime
+ * server), they poll every `pollMs`. Never while the page is hidden; after a failure, `pollDelay`'s backoff.
  */
 export const LIVE_REFRESH = {
   realtimeTables: ['rollups_minute', 'rollups_day', 'availability_overrides'],
   debounceMs: 1500,
   pollMs: { owner: 15_000, ops: 30_000 },
+  /** The slow poll beside a Realtime subscription. */
+  safetyMs: 60_000,
   maxBackoffMs: 120_000,
 } as const;
 
 /** The subscription filter for one venue's rows (`postgres_changes` filter syntax). */
 export const venueFilter = (venueId: string): string => `venue_id=eq.${venueId}`;
 
-/** The wait before the next poll: the base, doubled per consecutive failure, with ±10 % jitter, never above
- * `maxBackoffMs`. */
+/** The wait before the next poll: the base (`pollMs` without Realtime, `safetyMs` beside a subscription), doubled per
+ * consecutive failure, with ±10 % jitter, never above `maxBackoffMs`. */
 export function pollDelay(baseMs: number, failures: number, random: () => number = Math.random): number {
   const raw = Math.min(baseMs * 2 ** Math.max(0, failures), LIVE_REFRESH.maxBackoffMs);
   return Math.min(Math.round(raw * (0.9 + 0.2 * random())), LIVE_REFRESH.maxBackoffMs);

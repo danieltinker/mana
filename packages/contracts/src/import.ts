@@ -24,7 +24,7 @@
  */
 import {
   BLANK_CLASS, cleanText, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, stripBlank, textLength,
-  type Lang, type Text, type Validation,
+  type Issue, type Lang, type Text, type Validation,
 } from './common.ts';
 import type {
   AddonGroupRow, AddonOptionRow, AssetRow, DishAddonGroupRow, DishRow, MenuImportRow, SectionRow,
@@ -221,13 +221,30 @@ const utf8Bytes = (s: string): number => {
 };
 
 /**
+ * A JSON number as PostgreSQL's jsonb writes it back: a `numeric`, never in exponent form (JavaScript writes 1e21 as
+ * "1e+21", PostgreSQL as "1000000000000000000000"; 1e-7 as "0.0000001").
+ */
+export function jsonbNumberText(n: number): string {
+  const s = JSON.stringify(n); // the text a client sends ("0" for -0; null for NaN and Infinity, which JSON has not)
+  const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (!m) return s;
+  const [, sign, lead, frac = '', exp] = m;
+  const digits = lead! + frac;
+  const point = 1 + Number(exp);
+  if (point >= digits.length) return sign + digits + '0'.repeat(point - digits.length);
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+/**
  * The bytes of a value's jsonb text form, as PostgreSQL writes it (`octet_length(v::text)`): JSON with `": "` between
- * a key and its value and `", "` between items. The order of keys does not change the length.
+ * a key and its value and `", "` between items, numbers as `jsonbNumberText`. The order of keys does not change the
+ * length.
  */
 export function draftBytes(v: unknown): number {
   if (v === null || v === undefined) return 4;
   if (typeof v === 'boolean') return v ? 4 : 5;
-  if (typeof v === 'number') return String(v).length;
+  if (typeof v === 'number') return jsonbNumberText(v).length;
   if (typeof v === 'string') return utf8Bytes(JSON.stringify(v));
   if (Array.isArray(v)) return v.reduce((n: number, x) => n + draftBytes(x), 2) + Math.max(0, v.length - 1) * 2;
   if (typeof v === 'object') {
@@ -254,10 +271,11 @@ function only(x: Issues, o: Record<string, unknown>, allowed: readonly string[],
   for (const k of Object.keys(o)) if (!allowed.includes(k)) x.add('field_not_allowed', path ? `${path}.${k}` : k);
 }
 
+/** Text is measured as it will be stored: in code points, once blank edges are stripped (as everywhere, ADR-008). */
 function str(x: Issues, v: unknown, path: string, max: number): void {
   if (!isString(v)) return void x.add('type', path);
   if (!isStorableText(v)) x.add('text_invalid', path);
-  else if (textLength(v) > max) x.add('text_too_long', path);
+  else if (textLength(stripBlank(v)) > max) x.add('text_too_long', path);
 }
 
 function text(x: Issues, v: unknown, path: string, max: number, needName = false): void {
@@ -265,7 +283,7 @@ function text(x: Issues, v: unknown, path: string, max: number, needName = false
   only(x, v, KEYS.text, path);
   for (const l of LANGS) {
     if (!isStorableText(v[l] as string)) x.add('text_invalid', `${path}.${l}`);
-    else if (textLength(v[l] as string) > max) x.add('text_too_long', `${path}.${l}`);
+    else if (textLength(stripBlank(v[l] as string)) > max) x.add('text_too_long', `${path}.${l}`);
   }
   if (needName && isBlank(v.he) && isBlank(v.en)) x.add('name_missing', path);
 }
@@ -308,7 +326,8 @@ export function draftGroupLimits(g: Pick<DraftGroup, 'selection' | 'min' | 'max'
  * defaults_exceed, ref_unknown, addon_duplicate, count_invalid.
  *
  * - Sizes: at most `DRAFT_BYTES_MAX` bytes (`draftBytes`), within `DRAFT_CAPS`, and at most `EXCEPTIONS_MAX`
- *   exceptions; text lengths in code points; no NUL and no lone surrogate (`text_invalid`); no key the type does not
+ *   exceptions; text lengths in code points of the text with its blank edges stripped (a photo path as it is); no NUL
+ *   and no lone surrogate (`text_invalid`); no key the type does not
  *   have, at any level (`field_not_allowed`).
  * - A dish's limits: each 0–30 and min ≤ max; under a group's **stated** limits they may only tighten
  *   (`limits_loosened`; a guess yields to what a dish states), and they may not contradict them: a dish min above the
@@ -1587,9 +1606,11 @@ export const IMPORT_CLIENT_COLUMNS = [
   'id', 'venue_id', 'source', 'status', 'raw_paths', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by',
   'applied_at', 'created_at', 'updated_at',
 ] as const;
-type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at'>;
-/** An import as a client reads it, by status. */
-export type MenuImportView = ImportViewBase & (
+type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at' | 'notes'>;
+/** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`), stored by
+ * `save_import_draft` so the preview survives a reload ([] until then). The phase-1 migration adds the column
+ * `menu_imports.notes`, and with it `MenuImportRow.notes` and `notes` in `IMPORT_CLIENT_COLUMNS`. */
+export type MenuImportView = ImportViewBase & { readonly notes: readonly ReaderNote[] } & (
   | { readonly status: 'uploaded' | 'parsing'; readonly parsed: null; readonly exceptions: readonly []; readonly error_code: null; readonly applied_at: null }
   | { readonly status: 'parsed'; readonly parsed: ImportDraft; readonly exceptions: readonly ImportException[]; readonly error_code: null; readonly applied_at: null }
   | { readonly status: 'failed'; readonly parsed: ImportDraft | null; readonly exceptions: readonly ImportException[]; readonly error_code: string; readonly applied_at: null }
@@ -1680,19 +1701,131 @@ export type ClaimScanReply =
 export const SCAN_ERROR_CODES = ['image_unreadable', 'model_failed', 'draft_invalid', 'timeout'] as const;
 export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
 
-/** `save_import_draft`: the client (text sources) or the scanner (image sources) stores what it read. */
-export type SaveDraftInput = { readonly importId: string; readonly draft: ImportDraft };
+// ---------------------------------------------------------------- what a reader says about the source
+
+/**
+ * What a reader tells the owner beside the draft (`packages/import`, the scanner): what it left out and why, and what it
+ * read but wants checked. The draft's exceptions are about the draft; these are about the source. `info` = nothing to
+ * do; `check` = worth a look in the preview. **A note never carries the source's text**: a code, the draft key it
+ * concerns, line numbers (or the scanner's pages) and counts only.
+ */
+export const READER_NOTES = {
+  /** The input was empty, or held nothing but blank lines. */
+  empty_input: 'info',
+  /** The input was longer than `IMPORT_TEXT_MAX`; the rest was not read. */
+  input_truncated: 'check',
+  /** The source had more than `DRAFT_CAPS` allows (sections, dishes, groups, options); the rest was left out. */
+  caps_reached: 'check',
+  /** Lines recognised as not being menu content (`rule` says which: header, rating, delivery, hours, fee, …). */
+  noise: 'info',
+  /** A line no rule could place; left out (counted in `dropped`). */
+  line_unknown: 'info',
+  /** A section's own text (a sub-title, a line about the whole section): a draft section has no place for it. */
+  section_text: 'info',
+  /** A heading with no dish under it. */
+  section_empty: 'info',
+  /** The page's "Popular" section, which repeats dishes of other sections, was left out. */
+  popular_dropped: 'info',
+  /** Some dishes of the "Popular" section appear in no other section: the copy may be missing part of the page. */
+  popular_only: 'check',
+  /** A label outside Mana's tags (kosher, organic…), left out: tags come only from `TAGS`. */
+  label_dropped: 'info',
+  /** The source marks the dish sold out. Mana does not make it unavailable: the owner decides. */
+  sold_out: 'check',
+  /** Several prices, a range or "from": the first price was taken and the price note keeps what the source showed. */
+  price_range: 'check',
+  /** Two prices side by side (a discount and the regular price): the higher, regular price was taken. */
+  price_discount: 'check',
+  /** No price beside the dish; the price on the sheet's "Add to order" button was taken. */
+  price_from_button: 'check',
+  /** A text longer than the draft allows was shortened. */
+  text_clipped: 'check',
+  /** A group's stated limits are outside what Mana allows (or contradict each other); they were left unstated. */
+  limits_dropped: 'check',
+  /** More pre-selected options than the group allows; none is kept pre-selected. */
+  defaults_cleared: 'check',
+  /** Choices (a group heading, option lines) with no dish before them. */
+  group_orphan: 'info',
+  /** A group heading names an option ("Sauce for fries") that the dish does not show: kept as a plain group. */
+  nesting_unmatched: 'info',
+  /** The scanner's answer for a page stopped before its end (too long); what arrived is kept. */
+  page_truncated: 'check',
+  /** The scanner found no menu on a page, or could not read it. */
+  page_unreadable: 'check',
+} as const;
+export type ReaderNoteCode = keyof typeof READER_NOTES;
+export const READER_NOTE_CODES = Object.keys(READER_NOTES) as ReaderNoteCode[];
+/** Line numbers per note, and notes per import. */
+export const NOTE_LINES_MAX = 100;
+export const NOTES_MAX = 2000;
+const NOTE_RULE_RE = /^[a-z][a-z0-9_]{0,39}$/;
+
+export type ReaderNote = {
+  readonly code: ReaderNoteCode;
+  readonly severity: (typeof READER_NOTES)[ReaderNoteCode];
+  /** The draft node it concerns (a section, dish or group key), or null for the whole input. */
+  readonly key: string | null;
+  /** 1-based lines of the source (the scanner's pages for page notes), ascending, at most `NOTE_LINES_MAX`. */
+  readonly lines: readonly number[];
+  /** How many lines or nodes the note stands for (can be more than `lines` holds). */
+  readonly count: number;
+  /** For `noise`: the rule that recognised the lines (a machine word). */
+  readonly rule: string | null;
+};
+
+/**
+ * Codes: type, field_not_allowed, too_many, enum_invalid, key_invalid, ref_unknown (with `draft`: a key the draft does
+ * not have), lines_invalid, count_invalid, rule_invalid. Paths `notes[i].<field>` under `prefix`.
+ */
+export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix = 'notes'): Issue[] {
+  const x = new Issues();
+  if (!Array.isArray(raw)) return [{ code: 'type', path: prefix }];
+  if (raw.length > NOTES_MAX) x.add('too_many', prefix);
+  let keys: Set<string> | null = null;
+  if (draft) {
+    keys = new Set<string>();
+    for (const s of draft.sections) { keys.add(s.key); for (const d of s.dishes) keys.add(d.key); }
+    for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
+  }
+  raw.forEach((n, i) => {
+    const p = `${prefix}[${i}]`;
+    if (!isObject(n)) return void x.add('type', p);
+    only(x, n, ['code', 'severity', 'key', 'lines', 'count', 'rule'], p);
+    if (!oneOf(READER_NOTE_CODES, n.code)) x.add('enum_invalid', `${p}.code`);
+    else if (n.severity !== READER_NOTES[n.code]) x.add('enum_invalid', `${p}.severity`);
+    if (n.key !== null) {
+      if (!isString(n.key) || !DRAFT_KEY_RE.test(n.key)) x.add('key_invalid', `${p}.key`);
+      else if (keys && !keys.has(n.key)) x.add('ref_unknown', `${p}.key`);
+    }
+    const lines = n.lines;
+    if (!Array.isArray(lines) || lines.length > NOTE_LINES_MAX || !lines.every((l, j) => isInt(l) && l >= 1 && l <= 1_000_000 && (j === 0 || l > (lines[j - 1] as number)))) {
+      x.add('lines_invalid', `${p}.lines`);
+    }
+    if (!isInt(n.count) || n.count < 1 || n.count > 1_000_000) x.add('count_invalid', `${p}.count`);
+    if (n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
+  });
+  return x.list;
+}
+
+/**
+ * `save_import_draft(p_import, p_draft, p_notes jsonb default '[]')`: the client (text sources) or the scanner (image
+ * sources) stores what it read, and what the reader said about it (`notes`, stored in `menu_imports.notes`; left out =
+ * none).
+ */
+export type SaveDraftInput = { readonly importId: string; readonly draft: ImportDraft; readonly notes?: readonly ReaderNote[] };
 export type SaveDraftReply =
   | RpcOk<{ readonly exceptions: readonly ImportException[]; readonly counts: DraftCounts }>
   | RpcFail<'invalid_draft' | 'too_large' | 'source_mismatch' | 'rights_unconfirmed' | 'import_unknown' | 'import_busy' | 'import_closed'>;
 
+/** Codes: those of `validateDraft` under `draft.`, and of `readerNoteIssues` under `notes`. */
 export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
   const x = new Issues();
-  only(x, raw, ['importId', 'draft'], '');
+  only(x, raw, ['importId', 'draft', 'notes'], '');
   if (!isUuid(raw.importId)) x.add('id_invalid', 'importId');
   const d = validateDraft(raw.draft);
   if (d.ok === false) for (const e of d.errors) x.add(e.code, e.path ? `draft.${e.path}` : 'draft');
+  if (raw.notes !== undefined) for (const e of readerNoteIssues(raw.notes, d.ok ? d.value : null)) x.add(e.code, e.path);
   return x.ok ? { ok: true, value: raw as unknown as SaveDraftInput } : { ok: false, errors: x.list };
 }
 
@@ -1704,6 +1837,9 @@ export type ApplyImportInput = { readonly importId: string; readonly draft: Impo
 export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
   | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'not_parsed' | 'import_closed'>;
+
+/** `discard_import(p_import)`: an import the owner gives up (`uploaded`, `failed` or `parsed`); twice is fine. */
+export type DiscardImportReply = RpcOk | RpcFail<'import_unknown' | 'import_busy' | 'import_closed'>;
 
 export function validateApplyImport(raw: unknown): Validation<ApplyImportInput> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };

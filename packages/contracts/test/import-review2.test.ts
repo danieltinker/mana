@@ -3,9 +3,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  draftExceptions, EMPTY_MENU, EXCEPTIONS_MAX, linkKey, planApply, validateDraft, type ExistingMenu, type ImportChoice, type ImportDecisions,
-  type ImportDraft, type ImportPlan, type PlanStep,
+  draftBytes, draftExceptions, EMPTY_MENU, EXCEPTIONS_MAX, jsonbNumberText, linkKey, NOTES_MAX, planApply, READER_NOTE_CODES, readerNoteIssues,
+  validateDraft, validateSaveDraft, type DiscardImportReply, type ExistingMenu, type ImportChoice, type ImportDecisions, type ImportDraft,
+  type ImportPlan, type PlanStep, type ReaderNote,
 } from '../src/import.ts';
+import { LIMITS } from '../src/enums.ts';
 import { applyPlan, bistroDraft, copy, dish, draftOf, group, link, opt, planProblems, section, tx } from './import-fixtures.ts';
 
 const yes = (choices: Record<string, ImportChoice> = {}, skip?: string[]): ImportDecisions => ({ v: 1, pricesConfirmed: true, choices, ...(skip ? { skip } : {}) });
@@ -189,6 +191,38 @@ test('L9 (rr.ts NEW-2): a name of symbols or emoji only is matched by its exact 
   assert.deepEqual(changes(plan(e, m)), [], 'blank edges do not count');
   e.sections[0].dishes[0].name = tx('★★', '★★');
   assert.deepEqual(changes(plan(e, m)), ['dish:d-x:create'], 'another text is another dish');
+});
+
+test('L5 (edges.ts 1): a draft\'s text is measured as stored, blank edges stripped', () => {
+  const d: any = copy(bistroDraft());
+  d.sections[0].dishes[0].name.en = `${'x'.repeat(LIMITS.nameLength)} `;
+  assert.ok(validateDraft(d).ok);
+  d.sections[0].dishes[0].name.en = 'x'.repeat(LIMITS.nameLength + 1);
+  assert.deepEqual((validateDraft(d) as any).errors, [{ code: 'text_too_long', path: 'sections[0].dishes[0].name.en' }]);
+});
+
+test('L13 (pg-probes2.mjs): draftBytes writes numbers as PostgreSQL does, never in exponent form', () => {
+  assert.deepEqual([1e21, 1.5e21, 1e-7, 1.5e-7, -2e22, 123, 0.1 + 0.2, -0, 1e20].map(jsonbNumberText),
+    ['1000000000000000000000', '1500000000000000000000', '0.0000001', '0.00000015', '-20000000000000000000000', '123', '0.30000000000000004', '0', '100000000000000000000']);
+  assert.equal(draftBytes({ a: [1e21] }), '{"a": [1000000000000000000000]}'.length);
+});
+
+test('L8 and B22: discard_import\'s reply; what the reader said is saved with the draft (codes, keys and counts, never text)', () => {
+  const r: DiscardImportReply = { ok: false, code: 'import_busy' };
+  assert.ok(!r.ok);
+  const id = '00000000-0000-4000-8000-0000000000d9';
+  const note = (o: Partial<ReaderNote> = {}): ReaderNote => ({ code: 'sold_out', severity: 'check', key: 'd-burger', lines: [4, 9], count: 2, rule: null, ...o });
+  const errs = (raw: unknown) => { const v = validateSaveDraft(raw); return v.ok ? [] : v.errors.map((e) => `${e.code}@${e.path}`); };
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft() }), [], 'notes left out: none');
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: [note(), note({ code: 'noise', severity: 'info', key: null, rule: 'delivery', lines: [1, 2, 3], count: 3 })] }), []);
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: [
+    note({ key: 'd-nope' }), note({ severity: 'info' }), note({ lines: [9, 4] }), note({ count: 0 }), note({ rule: 'Free text' }),
+    { ...note(), text: 'Burger — SOLD OUT' }, note({ code: 'two_prices' as never }),
+  ] }), ['ref_unknown@notes[0].key', 'enum_invalid@notes[1].severity', 'lines_invalid@notes[2].lines', 'count_invalid@notes[3].count',
+    'rule_invalid@notes[4].rule', 'field_not_allowed@notes[5].text', 'enum_invalid@notes[6].code']);
+  assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: Array.from({ length: NOTES_MAX + 1 }, () => note()) }), ['too_many@notes']);
+  assert.ok(READER_NOTE_CODES.includes('caps_reached') && READER_NOTE_CODES.includes('popular_dropped') && READER_NOTE_CODES.includes('popular_only'));
+  assert.deepEqual(readerNoteIssues([note({ key: 'd-elsewhere' })], null), [], 'without the draft, keys are only checked for shape');
 });
 
 test('L10 (rr2.ts P6): when the Hebrew names differ, an English match does not make them the same', () => {
