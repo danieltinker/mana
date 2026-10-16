@@ -43,26 +43,31 @@ export function createEvents({ send, venueId, tz, now = Date.now, id = newId, de
     schedule(delay);
   }
 
-  /** Sends what is queued, a batch at a time; resolves when the queue is empty or a send failed (then it retries later). */
+  const settle = () => { if (!queue.length) waiters.splice(0).forEach((f) => f()); };
+  async function sendAll(keepalive) {
+    while (queue.length) {
+      const batch = queue.slice(0, MAX_BATCH);
+      let r;
+      try { r = await send(batch, { keepalive }); } catch (e) { r = { ok: false, status: 0 }; }
+      if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)) {
+        queue.splice(0, batch.length); failures = 0;          // stored (or refused for good: never retried)
+        continue;
+      }
+      failures += 1;                                          // the network or the server: the same ids again, later
+      schedule(Math.min(60000, 2000 * 2 ** (failures - 1)));
+      return;
+    }
+  }
+  /**
+   * Sends what is queued, a batch at a time; resolves when the queue is empty or a send failed (then it retries later).
+   * `busy` is the one send loop out: set before the loop can end and cleared only after it, so it is never left behind
+   * by a flush that found nothing to send (the page hidden with nothing queued, a delay timer after its event went out).
+   */
   function flush({ keepalive = false } = {}) {
     if (timer !== null) { timers.clear(timer); timer = null; }
     if (busy) return busy;
-    busy = (async () => {
-      while (queue.length) {
-        const batch = queue.slice(0, MAX_BATCH);
-        let r;
-        try { r = await send(batch, { keepalive }); } catch (e) { r = { ok: false, status: 0 }; }
-        if (r.ok || (r.status >= 400 && r.status < 500 && r.status !== 408 && r.status !== 429)) {
-          queue.splice(0, batch.length); failures = 0;      // stored (or refused for good: never retried)
-          continue;
-        }
-        failures += 1;                                        // the network or the server: the same ids again, later
-        schedule(Math.min(60000, 2000 * 2 ** (failures - 1)));
-        break;
-      }
-      busy = null;
-      if (!queue.length) waiters.splice(0).forEach((f) => f());
-    })();
+    if (!queue.length) { settle(); return Promise.resolve(); }
+    busy = sendAll(keepalive).then(() => { busy = null; settle(); });
     return busy;
   }
 

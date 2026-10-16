@@ -16,7 +16,7 @@
 
    Every price, limit, default, availability and suggestion is @mana/contracts' (through menu.js, choices.js,
    basket.js); nothing here depends on WebGL, so the list view gets exactly the same choices. */
-import { TAGS, priceDish } from '@mana/contracts';
+import { TAGS, configFlags, priceDish } from '@mana/contracts';
 import { closedText, filtered, filteredOut, loadMenu, matchesTags, poll, refresh, rpc, setLive, toModel } from './menu.js';
 import { chosenList, groupIn, issues, qtyOf, runningPrice, setOption, startOf, unitsOf } from './choices.js';
 import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, storedLines } from './basket.js';
@@ -26,6 +26,8 @@ import { word } from './i18n.js';
 import { CSS } from './style.js';
 
 export { loadMenu };
+/** Is this config a v2 menu? The contracts' reading of the flags: absent = 1, and production is never 2 before the cutover. */
+export const isV2 = (config) => configFlags(config).schema === 2;
 
 const $ = (id) => document.getElementById(id);
 const FILTER_ICON = ['M2.5 4h11M4.8 8h6.4M7 12h2'];

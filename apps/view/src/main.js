@@ -31,6 +31,8 @@ let store = null, ui = null, stage = null, stageLoading = false, glFailed = fals
 /* schema 2 (config.schema === 2, the clean schema): the guest's choices, the basket, suggestions, the filter and the
    events, from src/v2/ (its own chunk, never loaded by a v1 menu). null on every v1 path. */
 let v2 = null;
+/* v2.js's name carries a hash of its content (tools/build.mjs writes it here), so this app.js never pairs with another v2.js */
+const V2_FILE = typeof __MANA_V2__ === 'string' ? __MANA_V2__ : 'v2.js';      // eslint-disable-line no-undef
 let readyResolve, tableResolve;
 const ready = new Promise((r) => { readyResolve = r; }), tableReady = new Promise((r) => { tableResolve = r; });
 const ticker = createTicker({ manual: TEST, onFrameTime: (raw) => { if (stage && Q.get('adapt') !== 'off') stage.perf(raw); } });
@@ -84,12 +86,21 @@ async function boot() {
   /* the language the menu will open in, as far as it can be known before the menu is here: what this guest chose earlier
      or what the link asks for; otherwise Hebrew, the default of nearly every menu */
   const env = Object.assign(envOf(), { lang: lang0 === 'en' ? 'en' : 'he', src: Q.get('t') === '1' ? 'qr' : 'link', onUpdate: (res) => { if (res.state === 'ok') start(res.snapshot); } });
-  let res;
+  let res = null;
+  /* A config that says schema 2: v2.js decides with the contracts' configFlags (production stays 1 until the cutover);
+     public_menu is asked at once, while v2.js is on its way, so a slow line pays one round trip, not two. */
   if (live && cfg().schema === 2) {
-    const mod = await env.importModule(new URL('v2.js', document.baseURI).href).catch(() => null), kit ={ text, asset, assetUrl, details, httpsUrl, rooms: ROOM_IDS, h, svg, TAG_ICON, tx, formatMoney };      // the v1 pieces it uses, handed in (src/v2/menu.js says why)
-    res = mod ? await mod.loadMenu(source.slug, env, kit) : { state: 'error', message: 'the menu did not load' };
-    if (res.state === 'ok') { v2 = mod.createGuest(res.snapshot, { env, mem, src: env.src, kit }); track = (id, kind) => v2.track(id, kind); }
-  } else {
+    const c = cfg(), kit = { text, asset, assetUrl, details, httpsUrl, rooms: ROOM_IDS, h, svg, TAG_ICON, tx, formatMoney };      // the v1 pieces it uses, handed in (src/v2/menu.js says why)
+    const early = c.supabaseUrl && c.supabaseKey ? fetch(String(c.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/rpc/public_menu', { method: 'POST',
+      headers: { apikey: c.supabaseKey, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ p_slug: source.slug }) }).catch(() => null) : null;
+    const mod = await env.importModule(new URL(V2_FILE, document.baseURI).href).catch(() => null);
+    if (!mod) res = { state: 'error', message: 'the menu did not load' };
+    else if (mod.isV2(c)) {
+      res = await mod.loadMenu(source.slug, env, kit, early);
+      if (res.state === 'ok') { v2 = mod.createGuest(res.snapshot, { env, mem, src: env.src, kit }); track = (id, kind) => v2.track(id, kind); }
+    }
+  }
+  if (!res) {
     track = createTracker(source, env);
     res = await loadSnapshot(source, env);
   }

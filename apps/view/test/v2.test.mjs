@@ -95,7 +95,7 @@ test('loadMenu and poll: public_menu with the publishable key; the three answers
   };
   const fetch = async (url, init) => { const body = JSON.parse(init.body); calls.push({ url, key: init.headers.apikey, body }); if (body.p_slug === 'broken') return { ok: false, status: 500 }; return { ok: true, status: 200, json: async () => answers[body.p_slug]() }; };
   const env = { fetch, config: { supabaseUrl: 'https://db.test/', supabaseKey: 'sb_publishable_test' } };
-  const ok = await loadMenu('cafe-demo', env, kit, WED_0900);
+  const ok = await loadMenu('cafe-demo', env, kit, null, WED_0900);
   assert.equal(ok.state, 'ok'); assert.equal(ok.snapshot.v, 2);
   assert.deepEqual(calls[0], { url: 'https://db.test/rest/v1/rpc/public_menu', key: 'sb_publishable_test', body: { p_slug: 'cafe-demo' } });
   assert.deepEqual(await loadMenu('paused', env, kit), { state: 'unavailable', business: { name: { he: 'קפה', en: 'Café' } } });
@@ -194,6 +194,36 @@ test('events: the contract\'s props only, an offset in every time, batches of 50
   answer = { ok: false, status: 400 };
   ev.emit('dish_viewed', { dishId: ID.burger }); await ev.flush();
   assert.equal(ev.pending(), 0, 'refused: not retried');
+});
+
+test('the event queue never stops: a flush with nothing queued leaves no send behind (real timers)', async () => {
+  const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (cond, what) => { for (let i = 0; i < 400 && !cond(); i++) await pause(5); assert.ok(cond(), what); };
+  const sent = [], gates = [];
+  const ev = createEvents({ venueId: ID.venue, tz: 'Asia/Jerusalem', delay: 5, send: (batch) => new Promise((r) => { sent.push(batch.map((e) => e.name)); gates.push(() => r({ ok: true, status: 200 })); }) });
+  const open = () => gates.splice(0).forEach((g) => g());
+  const idle = { queued: 0, sending: false, failures: 0, waiting: false };
+
+  // 1. the page is hidden with nothing queued (visibilitychange → flush with keepalive), then the guest goes on
+  await ev.flush({ keepalive: true });
+  assert.deepEqual(ev.state(), idle, 'nothing left behind');
+  ev.emit('dish_viewed', { dishId: ID.burger });
+  await until(() => sent.length === 1, 'its own delay timer sends it');
+  open(); await ev.drained();
+  assert.deepEqual(ev.state(), idle);
+
+  // 2. an event queued while a batch is out: the loop sends it too, then that event's delay timer finds the queue empty
+  ev.emit('menu_opened', { src: 'qr', lang: 'he', revision: 1 });
+  await until(() => sent.length === 2, 'the first batch goes out');
+  ev.emit('basket_added', { dishId: ID.burger, qty: 1, fromSuggestion: false });
+  open(); await until(() => sent.length === 3, 'the loop sends the second');
+  open(); await pause(30);                                      // the second delay timer fires on an empty queue
+  assert.deepEqual(ev.state(), idle);
+  ev.emit('suggestion_shown', { ruleId: ID.ruleCheese, trigger: 'sheet', dishId: ID.burger });
+  await until(() => sent.length === 4, 'a later event is still sent by itself');
+  open(); await ev.drained();
+  assert.deepEqual(sent, [['dish_viewed'], ['menu_opened'], ['basket_added'], ['suggestion_shown']]);
+  assert.deepEqual(ev.state(), idle);
 });
 
 test('every event the queue builds passes the contracts\' validateBatch, with no field for a person', async () => {

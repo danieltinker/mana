@@ -137,10 +137,10 @@ export function rpc(env, fn, body, extra) {
 }
 
 /** → { state:'ok', snapshot } | { state:'unavailable', business } | { state:'not_found' } | { state:'error', message } (the v1 answers). */
-export async function loadMenu(slug, env, kit, now = Date.now()) {
+export async function loadMenu(slug, env, kit, early = null, now = Date.now()) {
   try {
     if (!env.config || !env.config.supabaseUrl || !env.config.supabaseKey) return { state: 'error', message: 'config.js is missing' };
-    const r = await rpc(env, 'public_menu', { p_slug: slug });
+    const r = (early && (await early)) || (await rpc(env, 'public_menu', { p_slug: slug }));      // the answer main.js already asked for, or ask now
     if (!r.ok) return { state: 'error', message: 'HTTP ' + r.status };
     const j = await r.json();
     if (j && j.state === 'ok') return { state: 'ok', snapshot: toModel(j.snapshot, j.live, kit, now) };
