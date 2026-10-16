@@ -2,9 +2,9 @@
 // phone against the simulator's stack, invented data only. An owner builds "after a coffee, a croissant, 7–11" and sees
 // the live preview say yes at 08:00 and no at 13:00, builds "at checkout, when the basket has no drink, a lemonade",
 // orders the two, sets breakfast as a day part on a section, sets the week's hours with a split Friday and a holiday
-// closure, publishes, and public_menu carries the rules, the schedule and the hours exactly. When the stack has
-// set_availability (the backend lane's phase-1 migration), the owner takes a dish off for two hours from the menu in two
-// taps, public_menu's live overlay shows it greyed, and everything taken off today comes back with one button.
+// closure, publishes, and public_menu carries the rules, the schedule and the hours exactly. Then the owner takes a dish
+// off for two hours from the menu in two taps (set_availability), public_menu's live overlay shows it greyed, and
+// everything taken off today comes back with one button (restore_today).
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-operate/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +18,7 @@ const SHOTS = path.join(OUT, 'studio-v2-operate');
 const PASSWORD = 'sim-owner-pass-1';
 const SLUG = 'morning-sim';
 const TZ = 'Asia/Jerusalem';
-let e, owner, ids, page, rpcReady = false;
+let e, owner, ids, page;
 
 /** The words the screens show, less the invisible marks that keep ranges whole and left to right. */
 const plain = (s) => s.replace(/[\u2060\u2066-\u2069]/g, '').trim();
@@ -54,9 +54,6 @@ before(async () => {
       { key: 'plates', name: { he: 'ארוחות בוקר', en: 'Breakfast plates' }, kind: 'food', dishes: [{ key: 'eggs', name: { he: 'ביצים ולחם', en: 'Eggs and bread' }, price: 4800 }] },
     ],
   });
-  // is the backend lane's set_availability on this stack? (PostgREST answers 404 for a function it does not have)
-  try { await owner.api.rpc('set_availability', { p_venue: owner.venueId, p_target_kind: 'dish', p_target_id: ids.dishes.tea, p_until: null, p_note: null }); rpcReady = true; }
-  catch (err) { rpcReady = err.status !== 404; }
   page = await e.page(e.webUrl + 'studio/');
   await page.getByLabel('אימייל').fill('owner-operate@sim.local');
   await page.getByLabel('סיסמה', { exact: true }).fill(PASSWORD);
@@ -300,8 +297,7 @@ test('a day part on a section, the week with a split Friday, a holiday closure, 
   assert.deepEqual(problems(), []);
 });
 
-test('availability from the phone: a dish off for two hours in two taps, greyed for guests, and everything taken off today back', { timeout: 300000 }, async (t) => {
-  if (!rpcReady) { t.skip('set_availability is not on this stack yet (the backend lane\'s phase-1 migration)'); return; }
+test('availability from the phone: a dish off for two hours in two taps, greyed for guests, and everything taken off today back', { timeout: 300000 }, async () => {
   await go('menu');
   const croissant = ids.dishes.croissant;
   // tap 1: the row's availability; tap 2: "for 2 hours"
