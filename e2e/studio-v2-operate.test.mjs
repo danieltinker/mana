@@ -20,8 +20,8 @@ const SLUG = 'morning-sim';
 const TZ = 'Asia/Jerusalem';
 let e, owner, ids, page, rpcReady = false;
 
-/** The words the screens show, less the left-to-right isolates around ranges. */
-const plain = (s) => s.replace(/[\u2066-\u2069]/g, '').trim();
+/** The words the screens show, less the invisible marks that keep ranges whole and left to right. */
+const plain = (s) => s.replace(/[\u2060\u2066-\u2069]/g, '').trim();
 const shot = (name) => page.screenshot({ path: path.join(SHOTS, name + '.png') });
 const problems = () => page.problems.filter((p) => !/Failed to load resource: the server responded with a status of (400|404)/.test(p));
 const go = async (hash) => { await page.goto(e.webUrl + 'studio/#/' + hash); };

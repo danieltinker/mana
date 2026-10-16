@@ -7,14 +7,16 @@ import { WEEK } from './data/hours.ts';
 import { lang, t } from './i18n.ts';
 
 /** Kept left to right inside a Hebrew sentence (a range "7–11" would otherwise read "11–7"). */
-export const ltr = (s: string): string => '⁦' + s + '⁩';
+export const ltr = (s: string): string => '\u2066' + s + '\u2069';
+/** A range's dash, held to both ends (word joiners): "7–11" never breaks across two lines. */
+const DASH = '\u2060–\u2060';
 
 /** '07:00' → '7', '07:30' → '7:30': a rule's hours, said short. */
 export function shortTime(t: HHMM): string {
   const h = Number(t.slice(0, 2)), m = t.slice(3, 5);
   return m === '00' ? String(h) : `${h}:${m}`;
 }
-export const timeRange = (from: HHMM, to: HHMM, short = false): string => ltr((short ? shortTime(from) : from) + '–' + (short ? shortTime(to) : to));
+export const timeRange = (from: HHMM, to: HHMM, short = false): string => ltr((short ? shortTime(from) : from) + DASH + (short ? shortTime(to) : to));
 
 export const dayName = (d: Weekday, long = false): string => t((long ? 'dayl.' : 'day.') + d);
 

@@ -16,7 +16,8 @@ import { daysText, momentText, orList, ruleSummary } from '../../src/v2/words.ts
 
 const TZ = 'Asia/Jerusalem';
 const V = ID.venue;
-const plain = (s) => s.replace(/[⁦-⁩]/g, '');
+/** The words without the invisible marks that keep ranges whole and left to right. */
+const plain = (s) => s.replace(/[\u2060\u2066-\u2069]/g, '');
 const inLang = (l, fn) => { const before = lang.value; lang.value = l; try { return fn(); } finally { lang.value = before; } };
 const at = (date, time) => zonedTime(date, time, TZ);
 let n = 0;
@@ -49,8 +50,8 @@ test('a rule reads as one plain line, in Hebrew and in English', () => {
   assert.deepEqual(both(row({ trigger: 'sheet', suggest_dish_id: ID.lemonade, days: [0, 1, 2, 3, 4, 5, 6] })), ['כשפותחים מנה כלשהי, להציע לימונדה', 'When any dish is opened, suggest Lemonade']);
   // something deleted since reads as such, never as nothing (a condition must not read as "always")
   assert.deepEqual(both(row({ scope_kind: 'dish', scope_ids: [uid()], suggest_dish_id: uid() })), ['אחרי משהו שנמחק, להציע משהו שנמחק', 'After something deleted, suggest something deleted']);
-  // a range keeps its order inside Hebrew: the line carries left-to-right isolates around it
-  assert.match(inLang('he', () => ruleSummary(morning, nameOf)), /⁦7–11⁩/);
+  // a range keeps its order inside Hebrew (left-to-right isolates around it) and never breaks at its dash
+  assert.match(inLang('he', () => ruleSummary(morning, nameOf)), /\u20667\u2060–\u206011\u2069/);
 });
 
 test('days, lists and moments in words', () => {
