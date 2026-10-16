@@ -37,9 +37,11 @@ const MINUTE = 60_000;
 const DAY_MS = 86_400_000;
 
 export const isHHMM = (v: unknown): v is HHMM => typeof v === 'string' && HHMM_RE.test(v);
+/** A real calendar date between 2000-01-01 and 2100-12-31 (the database's `app.until_spec_ok` uses the same range). */
 export function isLocalDate(v: unknown): v is LocalDate {
   if (typeof v !== 'string' || !DATE_RE.test(v)) return false;
   const [y, m, d] = v.split('-').map(Number) as [number, number, number];
+  if (y < 2000 || y > 2100) return false;
   const t = new Date(Date.UTC(y, m - 1, d));
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }

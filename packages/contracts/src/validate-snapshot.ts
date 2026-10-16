@@ -15,7 +15,7 @@
  * `lintSnapshotV2` (below) finds what is valid but will not behave as the owner expects; publish returns those as
  * warnings, never as errors. The database's `app.lint_snapshot` gives the same warnings.
  */
-import { COLOR_RE, Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, type Issue, type Validation } from './common.ts';
+import { COLOR_RE, Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, textLength, type Issue, type Validation } from './common.ts';
 import {
   LIMITS, RELIEF_CLASSES, ROOMS, SCENES, SCHEDULE_KINDS, SECTION_KINDS, SELECTIONS, SOLD_OUT_DISPLAY, TAGS, TRIGGERS,
   VENUE_KINDS, VENUE_MODES,
@@ -33,7 +33,7 @@ function text(x: Issues, v: unknown, path: string, max: number, needName = false
     x.add('type', path, 'expected {he,en} strings');
     return;
   }
-  if (v.he.length > max || v.en.length > max) x.add('text_too_long', path);
+  if (textLength(v.he) > max || textLength(v.en) > max) x.add('text_too_long', path);
   if (needName && isBlank(v.he) && isBlank(v.en)) x.add('name_missing', path);
 }
 
@@ -58,7 +58,7 @@ function httpsOrNull(x: Issues, v: unknown, path: string): void {
 function strOrNull(x: Issues, v: unknown, path: string, max: number): void {
   if (v === null) return;
   if (!isString(v)) x.add('type', path);
-  else if (v.length > max) x.add('text_too_long', path);
+  else if (textLength(v) > max) x.add('text_too_long', path);
 }
 
 function uuidList(x: Issues, v: unknown, path: string, known: ReadonlySet<string> | null, max = 400): string[] {
