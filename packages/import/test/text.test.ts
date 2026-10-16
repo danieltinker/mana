@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IMPORT_TEXT_MAX } from '@mana/contracts';
-import { bilingual, clip, cleanLine, descShaped, headingShaped, mainLang, scriptOf, sourceLines } from '../src/text.ts';
+import { bilingual, clip, cleanLine, descShaped, headingShaped, LINE_MAX, mainLang, scriptOf, sourceLines } from '../src/text.ts';
 
 const cp = String.fromCodePoint;
 
@@ -19,6 +19,15 @@ test('sourceLines: numbered from 1, any line break, at most IMPORT_TEXT_MAX char
   assert.equal(r.truncated, true);
   assert.ok(r.lines.every((l) => l.text === '' || l.text === 'Dish 10'), 'no half line');
   assert.equal(sourceLines('').lines.length, 1);
+});
+
+test('sourceLines: a line past LINE_MAX is cut there and listed; tabs as columns when asked', () => {
+  const r = sourceLines(`short\n${'x'.repeat(LINE_MAX + 50)}\n${'🍕'.repeat(LINE_MAX)}`);
+  assert.deepEqual(r.clipped, [2, 3]);
+  assert.equal(r.lines[1]!.text.length, LINE_MAX);
+  assert.ok(r.lines[2]!.text.length <= LINE_MAX && !/[\uD800-\uDBFF]$/u.test(r.lines[2]!.text), 'never half an emoji');
+  assert.deepEqual(sourceLines('Schnitzel\t64\tCrispy', { tabs: 'pipe' }).lines[0]!.text, 'Schnitzel | 64 | Crispy');
+  assert.deepEqual(sourceLines('Schnitzel\t64').lines[0]!.text, 'Schnitzel 64');
 });
 
 test('scriptOf, mainLang, bilingual', () => {

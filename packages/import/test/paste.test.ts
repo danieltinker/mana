@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { DRAFT_CAPS } from '@mana/contracts';
 import { classifyPasteLine, parsePaste } from '../src/index.ts';
 import { PASTE_EN, PASTE_MIXED } from './fixtures.ts';
-import { answerFixes, exceptions, outline, reimportCreatesNothing, valid } from './helpers.ts';
+import { answerFixes, exceptions, fastest, outline, reimportCreatesNothing, valid } from './helpers.ts';
 
 test('classifyPasteLine: each line rule', () => {
   const cases: Array<[string, string]> = [
@@ -94,4 +94,74 @@ test('empty and huge pastes', () => {
   const long = parsePaste(`Soup ${'x'.repeat(200)} 30`);
   assert.equal(valid(long).sections[0]!.dishes[0]!.name.en.length <= 90, true, 'a name is cut to the draft\'s limit');
   assert.ok(long.notes.some((n) => n.code === 'text_clipped'));
+});
+
+test('QA-M1: no price is taken from inside a name; the name stays whole, with a check note when it is a dish', () => {
+  const read = (text: string) => { const r = parsePaste(text); return { d: valid(r), r }; };
+  // a number the name ends with, the price on the next line
+  assert.deepEqual(outline(read('# Deals\nCombo 1\n45\nTea for 2\n48\nPizza No. 5\n59').d).slice(1), ['Combo 1 4500', 'Tea for 2 4800', 'Pizza No. 5 5900']);
+  // the same on one line
+  assert.deepEqual(outline(read('# Deals\nCombo 1 45\nTea for 2 48\nPizza No. 5 59').d).slice(1), ['Combo 1 4500', 'Tea for 2 4800', 'Pizza No. 5 5900']);
+  // a description that ends in a number stays the description
+  const desc = read('# Mains\nFamily platter 180\nServes 4\n\nLamb chops 120\nOur recipe since 1998').d;
+  assert.deepEqual(desc.sections[0]!.dishes.map((x) => [x.name.en, x.price, x.desc.en]), [['Family platter', 18000, 'Serves 4'], ['Lamb chops', 12000, 'Our recipe since 1998']]);
+  // two numbers that may be two prices: one dish, whole, no price, a note
+  const two = read('# Wine\nHouse red 38 140\nRosé glass 36 bottle 130');
+  assert.deepEqual(outline(two.d).slice(1), ['House red 38 140 -', 'Rosé glass 36 bottle 130 -']);
+  assert.deepEqual(two.r.notes.filter((n) => n.code === 'price_ambiguous').map((n) => [n.severity, n.lines]), [['check', [2]], ['check', [3]]]);
+  assert.deepEqual(exceptions(two.d, ['en']), ['price_missing@House red 38 140', 'price_missing@Rosé glass 36 bottle 130']);
+  // a phone number is never a price (nor a range); hours after a priced dish are left out
+  const phone = read('# Mains\nSoup\n03-5551234\nStew 60\n12-23');
+  assert.deepEqual(outline(phone.d).slice(1), ['Soup -', 'Stew 6000']);
+  assert.ok(phone.r.notes.some((n) => n.code === 'noise' && n.rule === 'phone'));
+  for (const line of ['Combo 1', 'Tea for 2', 'Pizza No. 5', 'Serves 4', 'Our recipe since 1998', 'House red 38 140', 'Call 0541234567']) {
+    assert.notEqual(classifyPasteLine(line)?.token.k, 'dish', line);
+  }
+  // a plain price after a name still splits, a single digit included when nothing says it is the name's
+  assert.deepEqual(classifyPasteLine('Espresso 9')?.token, { k: 'dish', text: 'Espresso', price: { kind: 'one', agorot: 900 }, desc: '' });
+  assert.deepEqual(classifyPasteLine('Kids meal 45')?.token, { k: 'dish', text: 'Kids meal', price: { kind: 'one', agorot: 4500 }, desc: '' });
+});
+
+test('QA-L4: a range or "from" on the name\'s line is read, with the price note', () => {
+  const d = valid(parsePaste('# Pizza\nMargherita 42-58\nFunghi ₪46–62\nCalzone from 50'));
+  assert.deepEqual(d.sections[0]!.dishes.map((x) => [x.name.en, x.price, x.priceNote.en]), [['Margherita', 4200, '42-58'], ['Funghi', 4600, '₪46–62'], ['Calzone', 5000, 'from 50']]);
+});
+
+test('QA-H1: in a paste a tag word is a tag only right under its dish; after a blank line it is a heading', () => {
+  const cases: Array<[string, string[]]> = [
+    ['# Mains\nSteak 120\nLamb chops 110\n\nVegan\nTofu bowl 50\nLentil stew 45', ['# Mains (food)', 'Steak 12000', 'Lamb chops 11000', '# Vegan (food)', 'Tofu bowl 5000', 'Lentil stew 4500']],
+    ['# עיקריות\nשניצל 64\nפסטה 54\n\nללא גלוטן\nסלט קינואה 48', ['# עיקריות (food)', 'שניצל 6400', 'פסטה 5400', '# ללא גלוטן (food)', 'סלט קינואה 4800']],
+    ['Mains:\nSteak 120\n\nVegan:\nTofu bowl 50', ['# Mains (food)', 'Steak 12000', '# Vegan (food)', 'Tofu bowl 5000']],
+    ['MAINS\nSteak 120\n\nVEGAN\nTofu bowl 50', ['# MAINS (food)', 'Steak 12000', '# VEGAN (food)', 'Tofu bowl 5000']],
+    ['Vegan\nTofu bowl 50', ['# Vegan (food)', 'Tofu bowl 5000']],
+  ];
+  for (const [text, expected] of cases) {
+    const d = valid(parsePaste(text));
+    assert.deepEqual(outline(d), expected, text);
+    assert.ok(d.sections.every((s) => s.dishes.every((x) => x.tags.length === 0)), `${text}: no dish gains a tag`);
+  }
+  assert.deepEqual(valid(parsePaste('# Mains\nTofu bowl 50\nVegan\nSteak 120')).sections[0]!.dishes.map((x) => x.tags), [['vegan'], []], 'right under its dish, a tag');
+});
+
+test('QA-L3: a bare "Allergens:" never takes a line across a blank line', () => {
+  const r = parsePaste('# Mains\nSoup 30\nAllergens:\n\nChef special\n60');
+  const d = valid(r);
+  assert.deepEqual(outline(d), ['# Mains (food)', 'Soup 3000', 'Chef special 6000']);
+  assert.deepEqual(d.sections[0]!.dishes[0]!.allergens, { he: '', en: '' });
+  assert.deepEqual(valid(parsePaste('# Mains\nSoup 30\nAllergens:\ngluten, milk')).sections[0]!.dishes[0]!.allergens, { he: '', en: 'gluten, milk' });
+});
+
+test('a menu copied from a spreadsheet: tabs split the columns', () => {
+  const d = valid(parsePaste('# Mains\nSchnitzel\t64\tCrispy, with lemon\nBurger\t72'));
+  assert.deepEqual(d.sections[0]!.dishes.map((x) => [x.name.en, x.price, x.desc.en]), [['Schnitzel', 6400, 'Crispy, with lemon'], ['Burger', 7200, '']]);
+});
+
+test('QA-L8 and QA-M9: the worst lines stay fast and valid (60,000 characters, long runs of one sign)', () => {
+  const rep = (s: string, n: number) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
+  for (const line of [rep('₪ ', 60_000), `a${rep('.', 60_000)}x`, `a${rep('.·…_–—-', 60_000)}x`, `₪${rep('1', 60_000)}x`, `${rep('1', 60_000)}₪x`, rep('# ', 60_000), `# ${rep(' #', 60_000)}y`]) {
+    const { ms, r } = fastest(() => parsePaste(line));
+    valid(r);
+    assert.ok(ms < 100, `${line.slice(0, 12)}…: ${ms.toFixed(0)} ms`);
+    assert.ok(r.notes.some((n) => n.code === 'text_clipped' && n.rule === 'line'), 'the line was cut at LINE_MAX');
+  }
 });

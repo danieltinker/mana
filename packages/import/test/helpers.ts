@@ -67,3 +67,24 @@ export function answerFixes(d: ImportDraft): Record<string, string> {
   for (const e of draftExceptions(d)) if (e.severity === 'fix') choices[`${e.code}@${e.key}`] = first[e.code]!;
   return choices;
 }
+
+/**
+ * The CPU time of the fastest of three runs, and its result: CPU time, not wall time, and the fastest run, so a busy
+ * machine (other processes, the first run's compilation) does not count as the code's own cost.
+ */
+export function fastest<T>(f: () => T): { ms: number; r: T } {
+  let ms = Infinity, r: T | undefined;
+  for (let i = 0; i < 3; i++) {
+    const c0 = process.cpuUsage();
+    r = f();
+    const c = process.cpuUsage(c0);
+    ms = Math.min(ms, (c.user + c.system) / 1000);
+  }
+  return { ms, r: r! };
+}
+
+/** A seeded generator (the same numbers every run), so a fuzz test is a test. */
+export function seeded(seed: number): (n: number) => number {
+  let s = seed >>> 0;
+  return (n) => { s = (Math.imul(s, 1103515245) + 12345) >>> 0; return (s >>> 8) % n; };
+}

@@ -4,7 +4,8 @@ import { EMPTY_MENU, planApply, validateDraft, type ImportDraft } from '@mana/co
 import { bistroDraft, copy, dish, link, section } from '../../contracts/test/import-fixtures.ts';
 import { fromScanEvents, mergeDrafts, parsePaste, parseWoltText, readScanReply, scanDraft } from '../src/index.ts';
 import { PASTE_EN, PASTE_MIXED, REPLY_WOLT, SCAN_EVENTS, WOLT_EN_PAGE, WOLT_EN_SHEET, WOLT_HE_PAGE, WOLT_HE_SHEET } from './fixtures.ts';
-import { answerFixes, exceptions, outline, reimportCreatesNothing, valid } from './helpers.ts';
+import { mergeOrder } from '../src/order.ts';
+import { answerFixes, exceptions, fastest, outline, reimportCreatesNothing, valid } from './helpers.ts';
 
 function permutations<T>(xs: readonly T[]): T[][] {
   if (xs.length <= 1) return [[...xs]];
@@ -119,4 +120,90 @@ test('Hopa test 1 after a merge: the merged menu imported again creates nothing'
   reimportCreatesNothing(read, answerFixes(read().draft));
   const sections = [section('s1', 'עיקריות', 'Mains', [dish('d1', 'מרק', 'Soup', 3000)])];
   assert.ok(merged([{ v: 1, source: 'paste', sections, groups: [], dropped: 0 }]).sections[0]!.key.startsWith('s-mains-'), 'keys are the reader\'s, not the input\'s');
+});
+
+// ---------------------------------------------------------------- the fix round (QA M6, M9)
+
+const t = (en: string) => ({ he: '', en });
+const shot = (lines: unknown[]) => scanDraft('wolt_screenshots', [readScanReply(lines.map((l) => JSON.stringify(l)).join('\n'), { langs: ['en'], stock: [], page: 1, truncated: false })]).draft;
+const sameInEveryOrder = (drafts: readonly ImportDraft[]): ImportDraft => {
+  const all = permutations(drafts).map((p) => merged(p));
+  for (const m of all) assert.deepEqual(m, all[0]);
+  return all[0]!;
+};
+
+test('QA-M6: an option read at two prices has none (an exception asks), in any order; never the first copy\'s', () => {
+  const A = shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce'), r: 'Choose up to 2' }, { o: t('Tomato') }, { o: t('Cream'), f: true }, { o: t('Rice'), p: '+₪4.00' }]);
+  const B = shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce'), r: 'Choose up to 2' }, { o: t('Cream') }, { o: t('Rice'), p: '+₪5.00' }, { o: t('Pesto') }]);
+  const m = sameInEveryOrder([A, B]);
+  const rice = m.groups[0]!.options.find((o) => o.name.en === 'Rice')!;
+  assert.deepEqual([rice.price, rice.priceText], [null, '+₪4.00 / +₪5.00']);
+  assert.ok(exceptions(m, ['en']).includes('option_price_unreadable@Rice'));
+  // pre-selected in one copy only: not pre-selected, and the limits are the owner's to confirm
+  const cream = m.groups[0]!.options.find((o) => o.name.en === 'Cream')!;
+  assert.equal(cream.default, false);
+  assert.deepEqual([m.groups[0]!.min, m.groups[0]!.max], [null, null]);
+  assert.ok(exceptions(m, ['en']).includes('limits_guessed@Sauce'));
+  assert.ok(mergeDrafts([A, B]).notes.some((n) => n.code === 'defaults_cleared'));
+  // the same inside one scan (two calls): the same group
+  const call = (price: string, n: number) => readScanReply([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce'), r: 'Choose up to 2' }, { o: t('Rice'), p: price }]
+    .map((l) => JSON.stringify(l)).join('\n'), { langs: ['en'], stock: [], page: n, truncated: false });
+  const one = scanDraft('wolt_screenshots', [call('+₪4.00', 1), call('+₪5.00', 2)]).draft;
+  assert.deepEqual([one.groups[0]!.options[0]!.price, one.groups[0]!.options[0]!.priceText], [null, '+₪4.00 / +₪5.00']);
+  // four prices or more: their span
+  const prices = [4, 5, 6, 7].map((p) => shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce') }, { o: t('Rice'), p: `+₪${p}.00` }]));
+  assert.equal(merged(prices).groups[0]!.options[0]!.priceText, '+₪4.00…+₪7.00');
+});
+
+test('QA-M6: merge(merge(A, B), A) == merge(A, B), whatever the inputs disagree on', () => {
+  const A = shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce'), r: 'Choose up to 2' }, { o: t('Tomato') }, { o: t('Cream'), f: true }, { o: t('Rice'), p: '+₪4.00' }]);
+  const B = shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce'), r: 'Choose up to 3' }, { o: t('Cream') }, { o: t('Rice'), p: '+₪5.00' }, { o: t('Pesto') }]);
+  const C = shot([{ c: t('Mains') }, { n: t('Pasta'), p: '₪54.00' }, { g: t('Sauce') }, { o: t('Pesto') }, { o: t('Tomato') }, { o: t('Rice'), p: '+₪6.00' }]);
+  for (const [x, y] of [[A, B], [B, A], [A, C], [B, C]] as const) {
+    const m = merged([x, y]);
+    assert.deepEqual(merged([m, x]), m);
+    assert.deepEqual(merged([m, y]), m);
+    assert.deepEqual(merged([x, m, y]), m);
+  }
+  // limits stated in one copy and not in another: left unstated, and stays so
+  const m = merged([A, C]);
+  assert.deepEqual([m.groups[0]!.min, m.groups[0]!.max], [null, null]);
+  // three copies whose orders contradict each other (a cycle): one order, whichever copy comes first
+  sameInEveryOrder([A, B, C]);
+});
+
+test('the same dish at two prices, merged in any order: two dishes in price order', () => {
+  const a = shot([{ c: t('Mains') }, { n: t('Soup'), p: '₪30.00' }, { n: t('Stew'), p: '₪60.00' }]);
+  const b = shot([{ c: t('Mains') }, { n: t('Soup'), p: '₪38.00' }, { n: t('Stew') }]);
+  const c = shot([{ c: t('Mains') }, { n: t('Stew'), p: '₪60.00' }, { n: t('Pie'), p: '₪40.00' }]);
+  const m = sameInEveryOrder([a, b, c]);
+  assert.deepEqual(outline(m), ['# Mains (food)', 'Soup 3000', 'Soup 3800', 'Stew 6000', 'Pie 4000']);
+});
+
+test('groups of one name on a dish: Hebrew first, as the contracts compare names; symbol names by their text', () => {
+  const he = (h: string, en: string) => ({ he: h, en });
+  const d = scanDraft('wolt_screenshots', [readScanReply([
+    { c: he('עיקריות', 'Mains') }, { n: he('פסטה', 'Pasta'), p: '₪54' },
+    { g: he('רוטב', 'Sauce') }, { o: he('עגבניות', 'Tomato') }, { g: he('תוספת', 'Sauce') }, { o: he('גבינה', 'Cheese') },
+    { g: he('', '🌶️') }, { o: he('', 'Mild') }, { g: he('', '🌶️') }, { o: he('', 'Hot') },
+  ].map((l) => JSON.stringify(l)).join('\n'), { langs: ['he', 'en'], stock: [], page: 1, truncated: false })]).draft;
+  assert.ok(validateDraft(d).ok, JSON.stringify(validateDraft(d)));
+  assert.deepEqual(outline(d).slice(2), [
+    '[רוטב / Sauce] multiple ?-?: עגבניות / Tomato', '[תוספת / Sauce] multiple ?-?: גבינה / Cheese', '[🌶️] multiple ?-?: Mild, Hot',
+  ], 'the same English name under two Hebrew names stays two groups; two groups named only "🌶️" are one');
+});
+
+test('QA-M9: merging is linear: thousands of groups of one name on a dish, a long contradicting order', () => {
+  // the model repeats the group line before every option (one answer, well under MAX_TOKENS)
+  const answer = ['{"n":{"he":"","en":"Burger"},"p":"₪72.00"}', ...Array.from({ length: 800 }, (_, i) => `{"g":{"he":"","en":"Extras"}}\n{"o":{"he":"","en":"Extra ${i}"},"p":"+₪1"}`)].join('\n');
+  const { ms, r } = fastest(() => scanDraft('wolt_screenshots', [readScanReply(answer, { langs: ['en'], stock: [], page: 1, truncated: false })]));
+  const d = valid(r);
+  assert.equal(d.groups.length, 1);
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+  // two long orders that disagree everywhere
+  const ids = Array.from({ length: 20_000 }, (_, i) => `n${i}`);
+  const rank = new Map(ids.map((id, i) => [id, [i]] as const));
+  const t0 = fastest(() => mergeOrder([ids, [...ids].reverse()], rank));
+  assert.equal(new Set(t0.r).size, ids.length);
+  assert.ok(t0.ms < 1000, `${t0.ms.toFixed(0)} ms`);
 });

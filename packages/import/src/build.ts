@@ -7,9 +7,13 @@
  *   and have the same name, and their prices agree (one price, or none); a dish read with two different prices stays
  *   two dishes, and the draft's `dish_duplicate` exception lets the owner choose. Two option groups are the same when
  *   everything about them is: names, choice, limits, and each option's name, price, quantity, default and nested group.
- * - **Values.** Of the values the copies give, the printed one beats a translated one; a description cut short
- *   ("…") gives way to the full one it begins; then the most frequent; then the longest; then the first in code-unit
- *   order. Tags are joined. So the result does not depend on the order of the inputs.
+ *   Groups one dish shows under one name become one (`combine`).
+ * - **Values** are joined, never taken from the first copy: of the values the copies give, the printed one beats a
+ *   translated one, then the longest (a description cut short gives way to the full one), then the first in code-unit
+ *   order; a section's kind is its most specific; tags are joined. Values that cannot both be true are left for the
+ *   owner instead: limits that differ are left unstated (`limits_guessed`), an option read at two prices has none
+ *   (`option_price_unreadable`, the prices kept as its text), an option pre-selected in one copy only is not. So the
+ *   result does not depend on the order of the inputs, and merging it again with any of them changes nothing.
  * - **Order.** One order that each input's own order agrees with (`mergeOrder`).
  * - **Keys** come from what a node is (`KeyMaker`), so reading the same text again gives the same keys.
  * - **Bounds.** Texts are made storable and cut to what the draft allows, limits a group cannot have are dropped, a
@@ -17,8 +21,8 @@
  *   dishes are left out, each with a note: every draft built here passes `validateDraft`.
  */
 import {
-  DRAFT_BYTES_MAX, DRAFT_CAPS, draftBytes, draftExceptions, draftGroupLimits, DROPPED_MAX, EXCEPTIONS_MAX, GROUP_UNITS_MAX, importKey, isBlank, isInt,
-  LANGS, LIMITS, nameScore, PRICE_TEXT_MAX, ROOMS, SECTION_KINDS, stripBlank, TAGS,
+  DRAFT_BYTES_MAX, DRAFT_CAPS, draftBytes, draftExceptions, draftGroupLimits, DROPPED_MAX, EXCEPTIONS_MAX, fallbackKey, GROUP_UNITS_MAX, importKey, isBlank, isInt,
+  LANGS, LIMITS, PRICE_TEXT_MAX, ROOMS, SECTION_KINDS, stripBlank, TAGS,
   type DraftDish, type DraftDishGroup, type DraftGroup, type DraftOption, type DraftPhoto, type DraftSection, type ImportDraft, type ImportSource,
   type Lang, type Room, type SectionKind, type Text,
 } from '@mana/contracts';
@@ -58,21 +62,22 @@ export function nameIdentity(name: Text, translated: readonly Lang[]): string {
 
 type Cand = { readonly value: string; readonly translated: boolean };
 
-function cutOf(t: string, u: string): boolean {
-  const m = /^(.*\S)\s*(?:…|\.\.\.)$/u.exec(t);
-  return m !== null && u !== t && u.length > m[1]!.length && u.startsWith(m[1]!);
-}
+const points = (s: string): number => { let n = 0; for (const _ of s) n++; return n; };
+/** The order values are joined by: printed before translated, then longer (a description cut short gives way to the
+ * full one), then the first in code-unit order. A total order, so the pick is a join: the same whatever the order of
+ * the copies, how many there are, or whether one of them is already a merge. */
+const better = (a: Cand & { n: number }, b: Cand & { n: number }): boolean =>
+  a.translated !== b.translated ? !a.translated : a.n !== b.n ? a.n > b.n : cmp(a.value, b.value) < 0;
 
 function pick(cands: readonly Cand[]): Cand {
-  const vals = cands.map((c) => ({ value: stripBlank(c.value), translated: c.translated })).filter((c) => c.value !== '');
-  if (vals.length === 0) return { value: '', translated: false };
-  const printed = vals.filter((c) => !c.translated);
-  const count = new Map<string, number>();
-  for (const c of printed.length ? printed : vals) count.set(c.value, (count.get(c.value) ?? 0) + 1);
-  const distinct = [...count.keys()];
-  const full = distinct.filter((t) => !distinct.some((u) => cutOf(t, u)));
-  const best = full.sort((a, b) => count.get(b)! - count.get(a)! || [...b].length - [...a].length || cmp(a, b))[0]!;
-  return { value: best, translated: printed.length === 0 };
+  let best: (Cand & { n: number }) | null = null;
+  for (const c of cands) {
+    const value = stripBlank(c.value);
+    if (value === '') continue;
+    const x = { value, translated: c.translated, n: points(value) };
+    if (best === null || better(x, best)) best = x;
+  }
+  return best === null ? { value: '', translated: false } : { value: best.value, translated: best.translated };
 }
 
 /** A bilingual text picked language by language, and the languages whose pick was a translation. */
@@ -84,13 +89,13 @@ function pickText(items: ReadonlyArray<{ text: Text; translated: readonly Lang[]
 
 const printedText = (texts: readonly Text[]): Text => pickText(texts.map((text) => ({ text, translated: [] }))).text;
 
-function mostFrequent<T extends string>(values: readonly T[], order: readonly T[]): T | null {
-  if (values.length === 0) return null;
-  const count = new Map<T, number>();
-  for (const v of values) count.set(v, (count.get(v) ?? 0) + 1);
-  return [...count.entries()].sort((a, b) => b[1] - a[1] || order.indexOf(a[0]) - order.indexOf(b[0]) || cmp(a[0], b[0]))[0]![0];
-}
+/** A section's kind among its copies: the most specific (food, the default, last): a join, as `pick`. */
+const joinKind = (kinds: readonly SectionKind[]): SectionKind => kinds.reduce<SectionKind>((a, k) => (SECTION_KINDS.indexOf(k) > SECTION_KINDS.indexOf(a) ? k : a), 'food');
+/** The first in a fixed order (`order`, then code units), among the values given; null when none. */
+const joinFirst = <T extends string>(values: readonly T[], order: readonly T[] = []): T | null =>
+  values.reduce<T | null>((a, v) => (a === null || order.indexOf(v) < order.indexOf(a) || (order.indexOf(v) === order.indexOf(a) && cmp(v, a) < 0) ? v : a), null);
 
+/** The value all copies give, else null (two copies that differ, or one that states it and one that does not). */
 const allSame = <T>(values: readonly T[]): T | null => (values.length > 0 && values.every((v) => v === values[0]) ? values[0]! : null);
 
 // ---------------------------------------------------------------- normalising one reading (a copy; inputs are left as they are)
@@ -119,27 +124,119 @@ function settle(g: MGroup): void {
   }
 }
 
-/** Two groups one dish may not carry together (the contracts' `addon_duplicate`): the same choice and name. */
-const sameGroup = (a: MGroup, b: MGroup): boolean => a.selection === b.selection && nameScore(a.name, b.name) > 0;
+/**
+ * The classes of groups one dish may not carry side by side (the contracts' `addon_duplicate`, by `nameScore`): the
+ * same choice and the same Hebrew key, or the same English key where the Hebrew ones do not differ; a name of symbols
+ * only by its exact text (`fallbackKey`). Joined transitively; linear: each key points at the groups it names.
+ */
+function sameNameClasses(groups: readonly MGroup[]): number[][] {
+  const parent = groups.map((_, i) => i);
+  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]!]!; i = parent[i]!; } return i; };
+  const join = (i: number, j: number): void => { const a = find(i), b = find(j); if (a !== b) parent[Math.max(a, b)] = Math.min(a, b); };
+  const heOf = groups.map((g) => {
+    const he = importKey(g.name.he);
+    return he !== '' || importKey(g.name.en) !== '' || (isBlank(g.name.he) && isBlank(g.name.en)) ? he : fallbackKey(g.name);
+  });
+  const byHe = new Map<string, number>();
+  const byEn = new Map<string, number[]>();
+  groups.forEach((g, i) => {
+    const he = heOf[i]!, en = importKey(g.name.en);
+    if (he !== '') {
+      const id = `${g.selection}|${he}`;
+      const j = byHe.get(id);
+      if (j === undefined) byHe.set(id, i); else join(i, j);
+    }
+    if (en !== '') {
+      const id = `${g.selection}|${en}`;
+      let seen = byEn.get(id);
+      if (!seen) byEn.set(id, (seen = []));
+      // an English match counts only where the Hebrew names do not differ (one Hebrew name per entry is enough)
+      const j = seen.find((x) => heOf[x] === '' || he === '' || heOf[x] === he);
+      if (j !== undefined) join(i, j);
+      if (!seen.some((x) => heOf[x] === he)) seen.push(i);
+    }
+  });
+  const classes = new Map<number, number[]>();
+  groups.forEach((_, i) => { const r = find(i); const c = classes.get(r); if (c) c.push(i); else classes.set(r, [i]); });
+  return [...classes.values()];
+}
+
+/** Prices a merge could not choose between, written so a later merge reads them back: "+₪4.00 / +₪5.00", "+₪4.00…+₪9.00". */
+const money = (a: number): string => `+₪${Math.floor(a / 100)}.${String(a % 100).padStart(2, '0')}`;
+const PRICES_LIST = /^\+₪\d{1,6}\.\d{2}(?: \/ \+₪\d{1,6}\.\d{2}){1,2}$/u;
+const PRICES_SPAN = /^\+₪(\d{1,6}\.\d{2})…\+₪(\d{1,6}\.\d{2})$/u;
+const centsOf = (s: string): number => Math.round(Number(s) * 100);
 
 /**
- * One group from two that a dish shows under one name (screenshots that each show part of its options): the options
- * of both, in the order both agree with; a limit one states and the other leaves out is kept; two that differ are not.
+ * An option's price among its copies. One price: that price. Prices that differ: none, and all of them as the price
+ * text (the draft's `option_price_unreadable` asks the owner): never the first copy's. A price beats a text the reader
+ * could not read; texts alone: `pick`. A join: the result read again with any of the copies gives the same.
  */
-function combine(a: MGroup, b: MGroup): MGroup {
-  const v = pickText([{ text: a.name, translated: a.translated }, { text: b.name, translated: b.translated }]);
-  const ids = (g: MGroup) => g.options.map((o) => nameIdentity(o.name, o.translated));
+function joinPrices(copies: readonly MOption[]): { price: number | null; priceText: string | null } {
+  const values = new Set<number>();
+  let lo = Infinity, hi = -Infinity;
+  const texts: string[] = [];
+  for (const o of copies) {
+    if (o.price !== null) { values.add(o.price); continue; }
+    if (o.priceText === null) continue;
+    const span = PRICES_SPAN.exec(o.priceText);
+    if (span) { lo = Math.min(lo, centsOf(span[1]!)); hi = Math.max(hi, centsOf(span[2]!)); }
+    else if (PRICES_LIST.test(o.priceText)) for (const p of o.priceText.split(' / ')) values.add(centsOf(p.slice(2)));
+    else texts.push(o.priceText);
+  }
+  if (lo <= hi) {
+    for (const v of values) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    return { price: null, priceText: `${money(lo)}…${money(hi)}` };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length === 1) return { price: sorted[0]!, priceText: null };
+  if (sorted.length > 3) return { price: null, priceText: `${money(sorted[0]!)}…${money(sorted[sorted.length - 1]!)}` };
+  if (sorted.length > 1) return { price: null, priceText: sorted.map(money).join(' / ') };
+  return { price: null, priceText: texts.length ? pick(texts.map((value) => ({ value, translated: false }))).value : null };
+}
+
+/**
+ * One option from its copies (screenshots that each show the group): names and price joined, the largest quantity,
+ * the nested group with the smallest signature, and pre-selected only when every copy shows it so (`defaultsDiffer`
+ * when they disagree: never the first copy's word).
+ */
+function joinOption(copies: readonly MOption[], sig: (g: MGroup) => string): { option: MOption; defaultsDiffer: boolean } {
+  const v = pickText(copies.map((o) => ({ text: o.name, translated: o.translated })));
+  const price = joinPrices(copies);
+  const isDefault = allSame(copies.map((o) => o.isDefault));
+  let opens: MGroup | null = null;
+  for (const o of copies) if (o.opens && (opens === null || cmp(sig(o.opens), sig(opens)) < 0)) opens = o.opens;
+  const maxQty = opens ? 1 : Math.max(...copies.map((o) => o.maxQty));
+  return { option: newOption(v.text, price.price, { translated: v.translated, priceText: price.priceText, maxQty, isDefault: isDefault === true, opens }), defaultsDiffer: isDefault === null };
+}
+
+/**
+ * One group from the groups a dish shows under one name (screenshots that each show part of its options): the options
+ * of all, in the order they agree with, each joined (`joinOption`); a limit is kept only when every copy states the
+ * same one, and copies that disagree on what is pre-selected leave the limits unstated (`limits_guessed` asks the
+ * owner). A join: combining the result again with any of the copies gives the same group.
+ */
+function combine(members: readonly MGroup[], sig: (g: MGroup) => string): MGroup {
+  const v = pickText(members.map((g) => ({ text: g.name, translated: g.translated })));
+  const seqs = members.map((g) => g.options.map((o) => nameIdentity(o.name, o.translated)));
   const rank = new Map<string, Rank>();
-  const byId = new Map<string, MOption>();
-  [a, b].forEach((g, i) => ids(g).forEach((id, j) => {
-    if (!rank.has(id)) { rank.set(id, [i, j]); byId.set(id, g.options[j]!); }
+  const copies = new Map<string, MOption[]>();
+  members.forEach((g, i) => g.options.forEach((o, j) => {
+    const id = seqs[i]![j]!;
+    if (!rank.has(id)) { rank.set(id, [i, j]); copies.set(id, []); }
+    copies.get(id)!.push(o);
   }));
-  const either = (x: number | null, y: number | null): number | null => (x === null ? y : y === null || x === y ? x : null);
-  const g = newGroup(v.text, {
-    translated: v.translated, selection: a.selection, min: either(a.min, b.min), max: either(a.max, b.max),
-    options: mergeOrder([ids(a), ids(b)], rank).map((id) => byId.get(id)!), notes: [...a.notes, ...b.notes],
+  const notes: PendingNote[] = members.flatMap((g) => g.notes);
+  const min = allSame(members.map((g) => g.min)), max = allSame(members.map((g) => g.max));
+  if ((min === null && members.some((g) => g.min !== null)) || (max === null && members.some((g) => g.max !== null))) notes.push({ code: 'limits_dropped', lines: [] });
+  let defaultsDiffer = false;
+  const options = mergeOrder(seqs, rank).map((id) => {
+    const r = joinOption(copies.get(id)!, sig);
+    defaultsDiffer ||= r.defaultsDiffer;
+    return r.option;
   });
-  if ((a.min !== null && b.min !== null && a.min !== b.min) || (a.max !== null && b.max !== null && a.max !== b.max)) g.notes.push({ code: 'limits_dropped', lines: [] });
+  const g = newGroup(v.text, { translated: v.translated, selection: members[0]!.selection, min, max, options, notes });
+  if (defaultsDiffer) { g.min = null; g.max = null; notes.push({ code: 'defaults_cleared', lines: [] }); }
   settle(g);
   return g;
 }
@@ -153,7 +250,16 @@ function clipText(t: Text, max: number, notes: PendingNote[], line: number | nul
 const translatedOf = (tr: readonly Lang[], ...texts: Text[]): Lang[] => LANGS.filter((l) => tr.includes(l) && texts.some((t) => !isBlank(t[l])));
 const named = (t: Text): boolean => !isBlank(t.he) || !isBlank(t.en);
 
-function normalise(model: MenuModel): MenuModel {
+/**
+ * How much of one reading is looked at, past which the rest is left out before any merging (with a `caps_reached`
+ * note): several times what a draft holds (`DRAFT_CAPS`), so repeats that merge away still fit, and never so much
+ * that ordering and merging take long.
+ */
+const READ_BOUND = { sections: 4 * DRAFT_CAPS.sections, dishes: 8 * DRAFT_CAPS.dishes, groupsPerDish: 4 * DRAFT_CAPS.groupsPerDish, optionsPerGroup: 4 * DRAFT_CAPS.optionsPerGroup } as const;
+/** What was left out past `READ_BOUND`, by the note's rule (a machine word, as the contracts' notes want). */
+type Left = { sections: number; dishes: number; groups_per_dish: number; options_per_group: number };
+
+function normalise(model: MenuModel, left: Left): MenuModel {
   const groups = new Map<MGroup, MGroup | null>();
   const group = (g: MGroup): MGroup | null => {
     if (groups.has(g)) return groups.get(g)!;
@@ -164,7 +270,8 @@ function normalise(model: MenuModel): MenuModel {
     groups.set(g, copy);
     copy.min = g.min;
     copy.max = g.max;
-    for (const o of g.options) {
+    left.options_per_group += Math.max(0, g.options.length - READ_BOUND.optionsPerGroup);
+    for (const o of g.options.slice(0, READ_BOUND.optionsPerGroup)) {
       const oname = clipText(o.name, NAME_MAX.option, notes, null);
       if (!named(oname)) continue;
       const opens = o.opens ? group(o.opens) : null;
@@ -181,21 +288,27 @@ function normalise(model: MenuModel): MenuModel {
   };
 
   const sections: MSection[] = [];
-  for (const s of model.sections) {
+  let dishBudget: number = READ_BOUND.dishes;
+  left.sections += Math.max(0, model.sections.length - READ_BOUND.sections);
+  for (const s of model.sections.slice(0, READ_BOUND.sections)) {
     const notes: PendingNote[] = [...s.notes];
     const name = clipText(s.name, NAME_MAX.section, notes, s.line);
     if (!named(name)) continue;
     const copy = newSection(name, (SECTION_KINDS as readonly string[]).includes(s.kind) ? s.kind : 'food', {
       translated: translatedOf(s.translated, name), room: s.room !== null && (ROOMS as readonly string[]).includes(s.room) ? s.room : null, notes, line: s.line,
     });
-    for (const d of s.dishes) {
+    left.dishes += Math.max(0, s.dishes.length - dishBudget);
+    const dishes = s.dishes.slice(0, Math.max(0, dishBudget));
+    dishBudget -= dishes.length;
+    for (const d of dishes) {
       const dn: PendingNote[] = [...d.notes];
       const dname = clipText(d.name, NAME_MAX.dish, dn, d.line);
       if (!named(dname)) continue;
       const desc = clipText(d.desc, LIMITS.descLength, dn, d.line);
       const price = isInt(d.price) && d.price >= 0 && d.price <= LIMITS.price ? d.price : null;
       const links: MLink[] = [];
-      for (const a of d.links) {
+      left.groups_per_dish += Math.max(0, d.links.length - READ_BOUND.groupsPerDish);
+      for (const a of d.links.slice(0, READ_BOUND.groupsPerDish)) {
         const g = group(a.group);
         if (g && !links.some((l) => l.group === g)) links.push({ group: g, min: a.min, max: a.max });
       }
@@ -234,9 +347,11 @@ type DishOcc = { readonly d: MDish; readonly rank: Rank };
  * are left out until it fits, with a `caps_reached` note.
  */
 export function buildDraft(source: ImportSource, readings: readonly Reading[]): ReadResult {
+  const left: Left = { sections: 0, dishes: 0, groups_per_dish: 0, options_per_group: 0 };
+  const models = readings.map((r) => normalise(r.model, left));
   let cap: number = DRAFT_CAPS.dishes, rule = 'dishes';
   for (let pass = 0; ; pass++) {
-    const r = build(source, readings, cap, rule);
+    const r = build(source, readings, models, left, cap, rule);
     const dishes = r.draft.sections.flatMap((s) => s.dishes);
     const bytes = draftBytes(r.draft), exceptions = draftExceptions(r.draft).length;
     if ((bytes <= DRAFT_BYTES_MAX && exceptions <= EXCEPTIONS_MAX) || dishes.length === 0 || pass === 8) return r;
@@ -253,14 +368,14 @@ export function buildDraft(source: ImportSource, readings: readonly Reading[]): 
   }
 }
 
-function build(source: ImportSource, readings: readonly Reading[], dishCap: number, capRule: string): ReadResult {
+function build(source: ImportSource, readings: readonly Reading[], models: readonly MenuModel[], left: Left, dishCap: number, capRule: string): ReadResult {
   const book = new NoteBook();
   let dropped = 0;
   for (const r of readings) {
     dropped += r.dropped;
     for (const n of r.notes) book.add(n.code, n.lines, { key: n.key, rule: n.rule, count: n.count });
   }
-  const models = readings.map((r) => normalise(r.model));
+  for (const [rule, count] of Object.entries(left)) if (count > 0) book.add('caps_reached', [], { rule, count });
 
   // ---- sections: the same name is the same section
   const sectionOccs = new Map<string, SectionOcc[]>();
@@ -295,7 +410,7 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
         ? [{ id: `${sid}/${did}`, occs: all }]
         : [...prices.map((p) => ({ id: `${sid}/${did}#${p}`, occs: all.filter((o) => o.d.price === p) })),
           ...(all.some((o) => o.d.price === null) ? [{ id: `${sid}/${did}#none`, occs: all.filter((o) => o.d.price === null) }] : [])];
-      parts.sort((a, b) => cmpRank(a.occs[0]!.rank, b.occs[0]!.rank));
+      // the copies of one name at different prices, by price (never by which input came first)
       dishes.push(...parts);
     }
     plan.push({ id: sid, occs, dishes });
@@ -319,14 +434,16 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
   // ---- each dish's groups (merged in order), and every group reached from them
   const sigOf = new Map<MGroup, string>();
   const sig = (g: MGroup): string => { let s = sigOf.get(g); if (s === undefined) sigOf.set(g, (s = signature(g))); return s; };
-  const groupOccs = new Map<string, MGroup[]>();
+  const groupOccs = new Map<string, { list: MGroup[]; seen: Set<MGroup> }>();
   const groupOrder: string[] = [];
   const visit = (g: MGroup, path: Set<MGroup>): void => {
     if (path.has(g)) return;
     const s = sig(g);
-    if (!groupOccs.has(s)) { groupOccs.set(s, []); groupOrder.push(s); }
-    const list = groupOccs.get(s)!;
-    if (!list.includes(g)) list.push(g);
+    let occ = groupOccs.get(s);
+    if (!occ) { groupOccs.set(s, (occ = { list: [], seen: new Set() })); groupOrder.push(s); }
+    if (occ.seen.has(g)) return;
+    occ.seen.add(g);
+    occ.list.push(g);
     const inner = new Set(path).add(g);
     for (const o of g.options) if (o.opens) visit(o.opens, inner);
   };
@@ -336,21 +453,17 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
   for (const p of live) for (const m of p.dishes) {
     const seqs = m.occs.map((o) => o.d.links.map((a) => sig(a.group)));
     const rank = new Map<string, Rank>();
-    m.occs.forEach((o) => o.d.links.forEach((a, k) => { const s = sig(a.group); if (!rank.has(s)) rank.set(s, [...o.rank, k]); }));
-    const kept = mergeOrder(seqs, rank).map((s) => {
-      const all = m.occs.flatMap((o) => o.d.links.filter((a) => sig(a.group) === s));
-      return { group: all[0]!.group, all, combined: false };
-    });
-    // a dish never carries two groups of the same name and choice: they become one
-    for (let found = true; found;) {
-      found = false;
-      for (let i = 0; i < kept.length && !found; i++) for (let j = i + 1; j < kept.length && !found; j++) {
-        if (!sameGroup(kept[i]!.group, kept[j]!.group)) continue;
-        kept[i] = { group: combine(kept[i]!.group, kept[j]!.group), all: [...kept[i]!.all, ...kept[j]!.all], combined: true };
-        kept.splice(j, 1);
-        found = true;
-      }
-    }
+    const bySig = new Map<string, MLink[]>();
+    m.occs.forEach((o) => o.d.links.forEach((a, k) => {
+      const s = sig(a.group);
+      if (!rank.has(s)) { rank.set(s, [...o.rank, k]); bySig.set(s, []); }
+      bySig.get(s)!.push(a);
+    }));
+    const ordered = mergeOrder(seqs, rank).map((s) => ({ group: bySig.get(s)![0]!.group, all: bySig.get(s)!, combined: false }));
+    // a dish never carries two groups of the same name and choice: each class becomes one, where its first one was
+    const kept = sameNameClasses(ordered.map((k) => k.group)).map((c) => (c.length === 1 ? ordered[c[0]!]! : {
+      group: combine(c.map((i) => ordered[i]!.group), sig), all: c.flatMap((i) => ordered[i]!.all), combined: true,
+    }));
     linksLeft += Math.max(0, kept.length - DRAFT_CAPS.groupsPerDish);
     const links: DishLinks = kept.slice(0, DRAFT_CAPS.groupsPerDish).map((k) => {
       for (const g of k.combined ? [k.group] : k.all.map((a) => a.group)) visit(g, new Set());
@@ -358,7 +471,7 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
     });
     linksOf.set(m.id, links);
   }
-  if (linksLeft > 0) book.add('caps_reached', [], { rule: 'groupsPerDish', count: linksLeft });
+  if (linksLeft > 0) book.add('caps_reached', [], { rule: 'groups_per_dish', count: linksLeft });
   let groupsKept = new Set(groupOrder.slice(0, DRAFT_CAPS.groups));
   if (groupOrder.length > DRAFT_CAPS.groups) book.add('caps_reached', [], { rule: 'groups', count: groupOrder.length - DRAFT_CAPS.groups });
   // a group is kept only when a kept dish, or a kept option of a kept group, still reaches it
@@ -367,7 +480,7 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
     const reach = (s: string): void => {
       if (!groupsKept.has(s) || reached.has(s)) return;
       reached.add(s);
-      for (const o of groupOccs.get(s)![0]!.options.slice(0, DRAFT_CAPS.optionsPerGroup)) if (o.opens) reach(sig(o.opens));
+      for (const o of groupOccs.get(s)!.list[0]!.options.slice(0, DRAFT_CAPS.optionsPerGroup)) if (o.opens) reach(sig(o.opens));
     };
     for (const links of linksOf.values()) for (const l of links) reach(l.sig);
     if (reached.size === groupsKept.size) break;
@@ -395,7 +508,7 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
   const keptOrder = groupOrder.filter((s) => groupsKept.has(s));
   const groupName = new Map<string, ReturnType<typeof pickText>>();
   for (const s of keptOrder) {
-    const v = pickText(groupOccs.get(s)!.map((g) => ({ text: g.name, translated: g.translated })));
+    const v = pickText(groupOccs.get(s)!.list.map((g) => ({ text: g.name, translated: g.translated })));
     groupName.set(s, v);
     groupKey.set(s, keys.make('g', v.text.en, s));
   }
@@ -405,7 +518,7 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
   const groups: DraftGroup[] = [];
   let optionsLeft = 0;
   for (const s of keptOrder) {
-    const occs = groupOccs.get(s)!;
+    const occs = groupOccs.get(s)!.list;
     const first = occs[0]!;
     const key = groupKey.get(s)!;
     const name = groupName.get(s)!;
@@ -414,14 +527,14 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
       const v = pickText(occs.map((g) => ({ text: g.options[j]!.name, translated: g.options[j]!.translated })));
       const opened = o.opens ? sig(o.opens) : null;
       return {
-        key: keys.make('o', v.text.en, `${s}/${j}`), name: v.text, translated: v.translated, price: o.price, priceText: o.price === null ? o.priceText : null,
+        key: keys.make('o', v.text.en, `${s}/${nameIdentity(o.name, o.translated)}`), name: v.text, translated: v.translated, price: o.price, priceText: o.price === null ? o.priceText : null,
         maxQty: o.maxQty, default: o.isDefault, opens: opened !== null && groupsKept.has(opened) ? groupKey.get(opened)! : null,
       };
     });
     groups.push({ key, name: name.text, translated: name.translated, selection: first.selection, min: first.min, max: first.max, options });
     notesOn(key, dedupeNotes(occs.flatMap((g) => g.notes)));
   }
-  if (optionsLeft > 0) book.add('caps_reached', [], { rule: 'optionsPerGroup', count: optionsLeft });
+  if (optionsLeft > 0) book.add('caps_reached', [], { rule: 'options_per_group', count: optionsLeft });
   const groupByKey = new Map(groups.map((g) => [g.key, g] as const));
 
   const draftSections: DraftSection[] = live.map((p) => {
@@ -443,12 +556,12 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
         key: k, name: name.text, desc: desc.text, translated: LANGS.filter((l) => name.translated.includes(l) || desc.translated.includes(l)),
         price, priceText: price === null && shown.length ? pick(shown.map((value) => ({ value, translated: false }))).value : null,
         priceNote: printedText(ds.map((d) => d.priceNote)), tags: TAGS.filter((t) => ds.some((d) => d.tags.includes(t))),
-        allergens: printedText(ds.map((d) => d.allergens)), photo: photoOf(ds), illustration: mostFrequent(ds.map((d) => d.illustration).filter((x): x is string => x !== null), []),
+        allergens: printedText(ds.map((d) => d.allergens)), photo: photoOf(ds), illustration: joinFirst(ds.map((d) => d.illustration).filter((x): x is string => x !== null)),
         groups: links,
       };
     });
-    const kind: SectionKind = mostFrequent(p.occs.map((o) => o.s.kind), SECTION_KINDS) ?? 'food';
-    const room: Room | null = mostFrequent(p.occs.map((o) => o.s.room).filter((r): r is Room => r !== null), ROOMS);
+    const kind: SectionKind = joinKind(p.occs.map((o) => o.s.kind));
+    const room: Room | null = joinFirst(p.occs.map((o) => o.s.room).filter((r): r is Room => r !== null), ROOMS);
     return { key, name: sv.text, translated: sv.translated, kind, room, dishes };
   });
 
@@ -457,15 +570,15 @@ function build(source: ImportSource, readings: readonly Reading[], dishCap: numb
 
 /**
  * A dish's own limits on a group, kept only when the contracts allow them (else the group's own: null): within 0–30,
- * tightening the group's stated limits, and reachable (the dish's minimum within its maximum and the group's options).
+ * the minimum within the maximum, and only tightening, never contradicting, the group's stated limits. (What the
+ * group's options can reach is the draft's `limits_unreachable`, not the reader's to drop.)
  */
 function tightening(g: DraftGroup, min: number | null, max: number | null): { min: number | null; max: number | null } {
   if (min === null && max === null) return { min, max };
   const own = draftGroupLimits(g, g.options);
   const loosens = own.stated && ((min !== null && g.min !== null && min < g.min) || (max !== null && g.max !== null && max > g.max));
-  const lo = min ?? own.min, hi = max ?? own.max;
-  const ok = within({ min, max }, g.selection) && !loosens && lo <= hi && lo <= own.capacity;
-  return ok ? { min, max } : { min: null, max: null };
+  const contradicts = (min !== null && g.max !== null && min > g.max) || (max !== null && g.min !== null && max < g.min);
+  return within({ min, max }, g.selection) && !loosens && !contradicts ? { min, max } : { min: null, max: null };
 }
 
 function photoOf(dishes: readonly MDish[]): DraftPhoto | null {
@@ -479,11 +592,6 @@ function dedupeNotes(notes: readonly PendingNote[]): PendingNote[] {
   const by = new Map<string, number[]>();
   for (const n of notes) by.set(n.code, [...(by.get(n.code) ?? []), ...n.lines]);
   return [...by.entries()].map(([code, lines]) => ({ code: code as PendingNote['code'], lines: [...new Set(lines)] }));
-}
-
-function cmpRank(a: Rank, b: Rank): number {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] ?? -1) - (b[i] ?? -1); if (d) return d; }
-  return 0;
 }
 
 // ---------------------------------------------------------------- a draft back into a model, and merging drafts

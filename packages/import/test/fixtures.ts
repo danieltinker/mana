@@ -1,6 +1,6 @@
 /**
- * SYNTHETIC inputs for the readers' tests, invented from scratch: "Test Kitchen" / "מטבח ניסוי" is not a real venue,
- * and its dishes and prices are made up. No real venue's menu, and no text copied from a real Wolt page, belongs in
+ * SYNTHETIC inputs for the readers' tests, invented from scratch: "Imaginary Bistro" / "ביסטרו דמיוני" is an obviously
+ * invented venue, and its dishes and prices are made up. No real venue's menu, and no text copied from a real Wolt page, belongs in
  * this repository.
  *
  * The Wolt texts are written in the shape this package ASSUMES a copied Wolt page has (`src/wolt-text.ts` lists each
@@ -8,7 +8,7 @@
  */
 
 /** The venue page in English, copied top to bottom: header, the section list, "Most ordered", sections, footer. */
-export const WOLT_EN_PAGE = `Test Kitchen
+export const WOLT_EN_PAGE = `Imaginary Bistro
 Israeli · Grill · ₪₪
 9.2
 Delivery ₪9.90
@@ -34,9 +34,9 @@ Crispy chicken breast, lemon and parsley…
 ₪64.00
 Popular
 Burger
+Vegan
 Beef patty, tomato, pickles
 ₪72.00
-Vegan
 Shakshuka
 Two eggs in a spicy tomato sauce
 from ₪48.00
@@ -87,7 +87,7 @@ Avocado
 Add to order ₪64.00`;
 
 /** The same venue in Hebrew, with right-to-left marks as browsers copy them. */
-export const WOLT_HE_PAGE = `מטבח ניסוי
+export const WOLT_HE_PAGE = `ביסטרו דמיוני
 ישראלי · גריל
 9.4
 משלוח \u200F9.90 ₪
@@ -108,8 +108,8 @@ export const WOLT_HE_PAGE = `מטבח ניסוי
 \u200F64.00 ₪
 המבורגר
 קציצת בקר, עגבנייה וחמוצים
-\u200F72.00 ₪
 חריף
+\u200F72.00 ₪
 פלאפל (טבעוני)
 \u200F38.00 ₪
 אזל מהמלאי

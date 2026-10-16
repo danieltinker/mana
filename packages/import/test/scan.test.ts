@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fromScanEvents, readScanReply, scanDraft, scanPrompt, scanSystem } from '../src/index.ts';
 import { REPLY_MENU, REPLY_WOLT, SCAN_EVENTS } from './fixtures.ts';
-import { answerFixes, exceptions, outline, reimportCreatesNothing, valid } from './helpers.ts';
+import { answerFixes, exceptions, fastest, outline, reimportCreatesNothing, valid } from './helpers.ts';
 
 const page = (text: string, n = 1, o: { truncated?: boolean; langs?: Array<'he' | 'en'> } = {}) =>
   readScanReply(text, { langs: o.langs ?? ['he', 'en'], stock: [{ id: 'schnitzel', label: 'schnitzel' }], page: n, truncated: o.truncated ?? false });
@@ -111,4 +111,59 @@ test('a page that continues the section of the page before; overlapping screensh
 test('Hopa test 1 through the scanner\'s answers', () => {
   const read = () => scanDraft('wolt_screenshots', [page(REPLY_WOLT)]);
   reimportCreatesNothing(read, answerFixes(read().draft));
+});
+
+const j = (lines: unknown[]) => lines.map((l) => JSON.stringify(l)).join('\n');
+const en = (s: string) => ({ he: '', en: s });
+
+test('QA-L2: the next run of screenshots starts with the last one again: its leading dishes stay in their own section', () => {
+  // run 1: the mains, then on its last screenshot the last mains and the desserts heading
+  const run1 = page(j([{ lang: 'en' }, { c: en('Mains') }, { n: en('Soup'), p: '₪30.00' }, { n: en('Stew'), p: '₪60.00' }, { n: en('Pie'), p: '₪40.00' },
+    { c: en('Desserts'), k: 'dessert' }, { n: en('Malabi'), p: '₪26.00' }]), 1, { langs: ['en'] });
+  // run 2 starts with that screenshot again, read with no context: the last mains come before any heading
+  const run2 = page(j([{ lang: 'en' }, { n: en('Pie'), p: '₪40.00' }, { c: en('Desserts'), k: 'dessert' }, { n: en('Malabi'), p: '₪26.00' }, { n: en('Tart'), p: '₪25.00' }]), 2, { langs: ['en'] });
+  const d = valid(scanDraft('wolt_screenshots', [run1, run2]));
+  assert.deepEqual(outline(d), ['# Mains (food)', 'Soup 3000', 'Stew 6000', 'Pie 4000', '# Desserts (dessert)', 'Malabi 2600', 'Tart 2500']);
+  assert.deepEqual(exceptions(d, ['en']), [], 'no duplicate, nothing in the wrong section');
+  // leading dishes no earlier call read: they continue the last section before them (a page that goes on)
+  const run3 = page(j([{ n: en('Cake'), p: '₪30.00' }]), 3, { langs: ['en'] });
+  assert.deepEqual(outline(valid(scanDraft('wolt_screenshots', [run1, run2, run3]))).slice(-1), ['Cake 3000']);
+  assert.equal(valid(scanDraft('wolt_screenshots', [run1, run2, run3])).sections.at(-1)!.name.en, 'Desserts');
+});
+
+test('QA-M5: "Required" alone states no limits; a count does; "Optional" on round buttons is min 0', () => {
+  const d = valid(scanDraft('wolt_screenshots', [page(j([{ n: en('Burger'), p: '₪72' },
+    { g: en('Toppings'), r: 'Required' }, { o: en('Lettuce') }, { o: en('Tomato') },
+    { g: en('Side'), r: 'Required', m: 'single' }, { o: en('Fries') }, { o: en('Salad') },
+    { g: en('Sauce'), r: 'Required · Choose 1' }, { o: en('Aioli') },
+    { g: en('Drink'), r: 'Optional', m: 'single' }, { o: en('Cola') }]), 1, { langs: ['en'] })]));
+  assert.deepEqual(d.groups.map((g) => [g.name.en, g.selection, g.min, g.max]), [
+    ['Toppings', 'single', null, null], ['Side', 'single', null, null], ['Sauce', 'single', 1, 1], ['Drink', 'single', 0, null],
+  ]);
+  assert.deepEqual(exceptions(d, ['en']).filter((e) => e.startsWith('limits_guessed')), ['limits_guessed@Toppings', 'limits_guessed@Side']);
+});
+
+test('QA-M9 / security L4: the worst answers stay fast: five long calls, a 50,000-character price, a 50,000-character rule', () => {
+  const call = (c: number) => {
+    const lines: unknown[] = [{ lang: 'en' }];
+    for (let s = 0; s < 4; s++) {
+      lines.push({ c: en(`Section ${c}-${s}`), k: 'food' });
+      for (let i = 0; i < 20; i++) {
+        lines.push({ n: en(`Dish ${c}-${s}-${i}`), d: en('Tomato, basil, olive oil, garlic'), p: `₪${40 + i}.00` });
+        lines.push({ g: en('Choose a side'), r: 'Required · Choose 1' }, ...['Fries', 'Salad', 'Rice', 'Mash'].map((o) => ({ o: en(o) })));
+        lines.push({ g: en('Choose a sauce'), r: 'Optional', u: 'Fries' }, ...['Aioli', 'Ketchup', 'Chili mayo'].map((o) => ({ o: en(o), p: '+₪2.00' })));
+        lines.push({ g: en(`Extras ${i % 7}`), r: 'Choose up to 3' }, ...Array.from({ length: 6 }, (_, k) => ({ o: en(`Extra ${k}`), p: `+₪${k + 1}.00` })));
+      }
+    }
+    return j(lines);
+  };
+  const answers = Array.from({ length: 5 }, (_, c) => call(c));
+  const { ms, r } = fastest(() => scanDraft('wolt_screenshots', answers.map((a, i) => page(a, i + 1, { langs: ['en'] }))));
+  assert.equal(valid(r).sections.reduce((n, s) => n + s.dishes.length, 0), 400);
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms for ${answers.reduce((n, a) => n + a.length, 0)} characters`);
+  const long = `₪${'1'.repeat(50_000)}x`;
+  const odd = fastest(() => scanDraft('scan_menu', [page(j([{ c: en('Mains') }, { n: en('Soup'), p: long }, { g: en('Side'), r: 'Choose '.repeat(7000) }, { o: en('Fries'), p: long }]), 1, { langs: ['en'] })]));
+  const d = valid(odd.r);
+  assert.equal(d.sections[0]!.dishes[0]!.priceText!.length, 40);
+  assert.ok(odd.ms < 100, `${odd.ms.toFixed(0)} ms`);
 });

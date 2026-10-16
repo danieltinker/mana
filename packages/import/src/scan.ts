@@ -13,11 +13,11 @@
  * rule comes back as the words shown and is read by `readRule`. So the model copies and this code interprets.
  */
 import { isObject, isString, LANGS, SECTION_KINDS, TAGS, type ImportSource, type Lang, type SectionKind, type Tag, type Text } from '@mana/contracts';
-import { buildDraft, type Reading, type ReadResult } from './build.ts';
+import { buildDraft, nameIdentity, type Reading, type ReadResult } from './build.ts';
 import { DEFAULT_SECTION_NAME, newDish, newGroup, newOption, newSection, note, optionNamed, setPrice, type MDish, type MGroup, type MSection } from './model.ts';
 import { NoteBook } from './notes.ts';
 import { amount, readOptionPrice, readPrice } from './price.ts';
-import { NO_RULE, readRule, ruleLimits, type GroupRule } from './rules.ts';
+import { counted, NO_RULE, readRule, ruleLimits, type GroupRule } from './rules.ts';
 import { cleanLine, NO_TEXT } from './text.ts';
 
 export const SCAN_MODES = ['scan_menu', 'wolt_screenshots'] as const;
@@ -210,28 +210,47 @@ export function readScanReply(text: string, ctx: { readonly langs: readonly Lang
 
 /**
  * A group's limits from its rule as shown, and from what the choices look like ("m"): round buttons are one choice,
- * square boxes several. A count shown wins over the look.
+ * square boxes several. A count shown wins over the look. "Optional" on round buttons is one choice that none is
+ * required (min 0); otherwise the look, or "Required" alone, states no limits (the owner confirms the guess:
+ * `limits_guessed`).
  */
 function groupLimits(rule: GroupRule, look: unknown): ReturnType<typeof ruleLimits> {
   const lim = ruleLimits(rule);
-  const counted = rule.exact !== null || rule.upTo !== null || rule.range !== null || rule.atLeast !== null;
-  if (counted || (look !== 'single' && look !== 'multiple')) return lim;
-  if (look === 'multiple') return { selection: 'multiple' as const, min: rule.required === true ? 1 : null, max: null };
-  return { selection: 'single' as const, min: rule.required === true ? 1 : rule.required === false ? 0 : null, max: null };
+  if (counted(rule) || (look !== 'single' && look !== 'multiple')) return lim;
+  return { selection: look, min: look === 'single' && rule.required === false ? 0 : null, max: null };
 }
 
 /**
- * The draft of a scan from each call's reading, in call order: dishes a call read before any heading join the last
- * section of the calls before it (a page that continues a section), and overlapping screenshots become one menu.
+ * The earlier section that dishes read before any heading continue: the one where some of them were read already
+ * (an overlapping screenshot shows them again), the one holding most of them and the latest on a tie; null when none.
+ */
+function continued(first: MSection, seen: readonly MSection[]): MSection | null {
+  const ids = new Set(first.dishes.map((d) => nameIdentity(d.name, d.translated)));
+  let best: MSection | null = null, most = 0;
+  for (const s of seen) {
+    let n = 0;
+    for (const d of s.dishes) if (ids.has(nameIdentity(d.name, d.translated))) n++;
+    if (n > 0 && n >= most) { best = s; most = n; }
+  }
+  return best;
+}
+
+/**
+ * The draft of a scan from each call's reading, in call order: dishes a call read before any heading join the section
+ * of an earlier call that already holds them (the overlap of two runs of screenshots), else the last section of the
+ * calls before it (a page that continues a section); overlapping screenshots become one menu.
  */
 export function scanDraft(mode: ScanMode, pages: readonly PageReading[]): ReadResult {
   let last: MSection | null = null;
+  const seen: MSection[] = [];
   const readings = pages.map((p): Reading => {
     let sections = p.model.sections;
-    if (p.leading && last && sections[0]) {
+    if (p.leading && sections[0]) {
       const [first, ...rest] = sections as [MSection, ...MSection[]];
-      sections = [{ ...first, name: last.name, translated: [...last.translated], kind: last.kind, room: last.room }, ...rest];
+      const home = continued(first, seen) ?? last;
+      if (home) sections = [{ ...first, name: home.name, translated: [...home.translated], kind: home.kind, room: home.room }, ...rest];
     }
+    seen.push(...sections);
     last = sections[sections.length - 1] ?? last;
     return { model: { sections }, notes: p.notes, dropped: p.dropped };
   });

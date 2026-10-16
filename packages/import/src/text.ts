@@ -32,14 +32,27 @@ export function cleanLine(raw: string): string {
 export type SourceLine = { readonly n: number; readonly text: string };
 
 /**
- * The input's lines (1-based numbers), cleaned, blank ones kept as ''. Reads at most `IMPORT_TEXT_MAX` characters
- * (what `create_import` accepts); `truncated` says the rest was left.
+ * The longest line the readers look at: a menu line is far shorter, and a longer one is cut there (a `text_clipped`
+ * note with the rule `line`), so no rule ever works on more than this.
  */
-export function sourceLines(text: string): { lines: SourceLine[]; truncated: boolean } {
+export const LINE_MAX = 1000;
+
+/**
+ * The input's lines (1-based numbers), cleaned, blank ones kept as ''. Reads at most `IMPORT_TEXT_MAX` characters
+ * (what `create_import` accepts); `truncated` says the rest was left; `clipped` lists the lines cut to `LINE_MAX`.
+ * `tabs: 'pipe'`: a tab separates columns (a menu copied from a spreadsheet) and reads as " | ".
+ */
+export function sourceLines(text: string, o: { readonly tabs?: 'space' | 'pipe' } = {}): { lines: SourceLine[]; truncated: boolean; clipped: number[] } {
   const s = typeof text === 'string' ? text : '';
   const truncated = s.length > IMPORT_TEXT_MAX;
   const body = truncated ? s.slice(0, s.lastIndexOf('\n', IMPORT_TEXT_MAX) + 1 || IMPORT_TEXT_MAX) : s;
-  return { lines: body.split(LINE_BREAK).map((raw, i) => ({ n: i + 1, text: cleanLine(raw) })), truncated };
+  const clipped: number[] = [];
+  const lines = body.split(LINE_BREAK).map((raw, i) => {
+    let t = cleanLine(o.tabs === 'pipe' && raw.includes('\t') ? raw.replace(/\t+/g, ' | ') : raw);
+    if (t.length > LINE_MAX) { t = clip(t, LINE_MAX).text; clipped.push(i + 1); }
+    return { n: i + 1, text: t };
+  });
+  return { lines, truncated, clipped };
 }
 
 const HEBREW_LETTER = /[א-תװ-ײיִ-ﭏ]/u;
@@ -72,7 +85,7 @@ export function inScript(s: string, fallback: Lang): Text {
  * Hebrew letters and the other only in Latin ones. Otherwise the whole line in the language of its script.
  */
 export function bilingual(s: string, fallback: Lang): Text {
-  const parts = s.split(/\s+\/\s+/u);
+  const parts = s.split(' / ');
   if (parts.length === 2) {
     const [a, b] = parts as [string, string];
     const sa = onlyScript(a), sb = onlyScript(b);
@@ -126,4 +139,8 @@ export function descShaped(s: string): boolean {
 }
 
 /** Lowercase A–Z only (as the contracts' keys do); Hebrew has no case. */
-export const lower = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+export function lower(s: string): string {
+  if (!/[A-Z]/.test(s)) return s;
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) > 127) return s.replace(/[A-Z]+/g, (c) => c.toLowerCase());
+  return s.toLowerCase();
+}

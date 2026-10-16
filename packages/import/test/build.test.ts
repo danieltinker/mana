@@ -36,7 +36,7 @@ test('bounds: groups per dish, options per group and groups past DRAFT_CAPS are 
   const d = valid(r);
   assert.equal(d.sections[0]!.dishes[0]!.groups.length, DRAFT_CAPS.groupsPerDish);
   assert.equal(d.groups.find((g) => g.name.en === 'Many')!.options.length, DRAFT_CAPS.optionsPerGroup);
-  assert.deepEqual(r.notes.filter((n) => n.code === 'caps_reached').map((n) => [n.rule, n.count]), [['groupsPerDish', 4], ['optionsPerGroup', 3]]);
+  assert.deepEqual(r.notes.filter((n) => n.code === 'caps_reached').map((n) => [n.rule, n.count]), [['groups_per_dish', 4], ['options_per_group', 3]]);
   assert.ok(!d.groups.some((g) => g.name.en === `Group ${DRAFT_CAPS.groupsPerDish}`), 'a group no kept dish reaches is not in the draft');
   const many = draftOf([{ c: t('Mains') }, ...Array.from({ length: DRAFT_CAPS.groups + 10 }, (_, i) => [{ n: t(`Dish ${i}`), p: '₪10' }, { g: t(`Side ${i}`) }, { o: t(`Fries ${i}`) }]).flat()]);
   assert.equal(valid(many).groups.length, DRAFT_CAPS.groups);
@@ -86,8 +86,10 @@ test('text the database cannot store (NUL, half an emoji) is removed', () => {
 });
 
 test('a draft past DRAFT_BYTES_MAX keeps its first dishes, with a note', () => {
-  const desc = 'א'.repeat(590);
-  const lines = Array.from({ length: 700 }, (_, i) => ({ n: t(`Dish ${i}`), d: { he: desc, en: '' }, p: '₪10' }));
+  // characters of three bytes each, a full description and allergens: 700 such dishes are past DRAFT_BYTES_MAX (1.5 MB)
+  // while within DRAFT_CAPS
+  const desc = '€'.repeat(590), allergens = '€'.repeat(290);
+  const lines = Array.from({ length: 700 }, (_, i) => ({ n: t(`Dish ${i}`), d: { he: desc, en: '' }, a: { he: allergens, en: '' }, p: '₪10' }));
   const r = scanDraft('wolt_screenshots', [readScanReply(jsonl([{ c: t('Mains') }, ...lines]), { langs: ['he', 'en'], stock: [], page: 1, truncated: false })]);
   const d = valid(r);
   assert.ok(draftBytes(d) <= DRAFT_BYTES_MAX);

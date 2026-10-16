@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LIMITS, PRICE_TEXT_MAX } from '@mana/contracts';
 import { amount, readOptionPrice, readPrice, splitPrice } from '../src/index.ts';
+import { hasMoney } from '../src/price.ts';
 
 const RLM = String.fromCodePoint(0x200f);
 
@@ -70,4 +71,33 @@ test('splitPrice: a name and its price on one line', () => {
   assert.deepEqual(at('Kids burger ₪ 4O', true), { text: 'Kids burger', price: { kind: 'unreadable', text: '₪ 4O' }, option: false });
   assert.deepEqual(at('שניצל 64.00 ₪', false)?.price, { kind: 'one', agorot: 6400 });
   for (const s of ['Coke 330ml', 'Pizza 4 cheeses', '12 14']) assert.equal(at(s, true), null, s);
+  // QA-L4: a range or "from" on the name's line
+  assert.deepEqual(at('Funghi ₪46–62', true), { text: 'Funghi', price: { kind: 'several', agorot: 4600, note: '₪46–62' }, option: false });
+  assert.deepEqual(at('Margherita 42-58', true)?.price, { kind: 'several', agorot: 4200, note: '42-58' });
+  assert.deepEqual(at('Calzone from 50', true)?.price, { kind: 'several', agorot: 5000, note: 'from 50' });
+  // the reader is told when no currency was shown, and what the price token was
+  assert.deepEqual([splitPrice('Combo 1 45', true)?.bare, splitPrice('Combo 1 45', true)?.token], [true, '45']);
+  assert.equal(splitPrice('Burger ₪72', true)?.bare, false);
+});
+
+test('QA-M1: numbers without a currency are prices only when they look like menu prices', () => {
+  for (const s of ['03-5551234', '2026-10-16', '0541234567', '12345', '58-42']) assert.equal(readPrice(s, true), null, s);
+  assert.deepEqual(readPrice('12-14', true), { kind: 'several', agorot: 1200, note: '12-14' });
+  assert.equal(readPrice('03-5551234 ₪', true)?.kind, 'several', 'with a shekel sign, the source said it is a price');
+});
+
+test('QA-M9 / security L4: every price rule reads a bounded text, in time linear in the line', () => {
+  const rep = (s: string, n: number) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
+  const t0 = process.cpuUsage();
+  for (const s of [rep('₪ ', 60_000), `a${rep('.', 60_000)}x`, `a${rep('.', 60_000)}1x`, `${rep('1', 60_000)}x`, `₪${rep('1', 60_000)}x`, `${rep('1', 60_000)}₪x`,
+    `a${rep('.·…_–—-', 60_000)}x`, rep('+₪', 60_000), `${rep(' 1', 60_000)}x`, rep('1/', 60_000)]) {
+    assert.equal(readPrice(s, true), null);
+    assert.equal(readOptionPrice(s), null);
+    splitPrice(s, true);
+    hasMoney(s);
+  }
+  const c = process.cpuUsage(t0);
+  assert.ok((c.user + c.system) / 1000 < 300, `${(c.user + c.system) / 1000} ms for ten 60,000-character lines`);
+  assert.equal(hasMoney('Delivery ₪9.90'), true);
+  assert.equal(hasMoney('Delivery Box 2'), false);
 });

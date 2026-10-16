@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { DRAFT_CAPS, IMPORT_TEXT_MAX } from '@mana/contracts';
+import { DRAFT_CAPS, draftExceptions, IMPORT_TEXT_MAX } from '@mana/contracts';
 import { classifyWoltLine, parseWoltText } from '../src/index.ts';
 import { WOLT_EN_PAGE, WOLT_EN_SHEET, WOLT_HE_PAGE, WOLT_HE_SHEET } from './fixtures.ts';
-import { answerFixes, exceptions, outline, reimportCreatesNothing, valid } from './helpers.ts';
+import { answerFixes, exceptions, fastest, outline, reimportCreatesNothing, valid } from './helpers.ts';
 
 const rule = (line: string) => classifyWoltLine(line).rule;
 const notes = (r: ReturnType<typeof parseWoltText>) => r.notes.map((n) => `${n.code}${n.rule ? `:${n.rule}` : ''}${n.count > 1 ? `x${n.count}` : ''}`);
@@ -43,6 +43,9 @@ test('an English page with a dish sheet: sections, dishes, prices, labels, a nes
   const d = valid(r);
   assert.equal(d.source, 'wolt_text');
   assert.deepEqual(outline(d), [
+    '# Most ordered (food)',
+    'Schnitzel 6400',
+    'Burger 7200',
     '# Mains (food)',
     'Schnitzel 6400 groups:Choose a side,Extras',
     'Burger 7200 tags:vegan',
@@ -57,19 +60,22 @@ test('an English page with a dish sheet: sections, dishes, prices, labels, a nes
     '[Choose a sauce] multiple ?-?: Aioli, Ketchup, Chili mayo +200',
     '[Extras] multiple ?-2: Fried egg +500, Avocado +600',
   ]);
-  const schnitzel = d.sections[0]!.dishes[0]!;
+  const schnitzel = d.sections[1]!.dishes[0]!;
   assert.equal(schnitzel.desc.en, 'Crispy chicken breast, lemon and parsley, served with a side of choice', "the sheet's full description, not the list's cut one");
   assert.deepEqual(schnitzel.allergens, { he: '', en: 'gluten, egg' }, 'copied as written');
-  assert.deepEqual(d.sections[0]!.dishes[2]!.priceNote, { he: '', en: 'from ₪48.00' });
-  assert.deepEqual(d.sections[0]!.dishes[2]!.tags, [], '"spicy" in a description is not a label');
-  // what a person would expect to check or fix
-  assert.deepEqual(exceptions(d, ['en']), ['allergens_check@Schnitzel', 'price_unreadable@Fish of the day', 'limits_guessed@Choose a sauce']);
+  assert.deepEqual(d.sections[1]!.dishes[2]!.priceNote, { he: '', en: 'from ₪48.00' });
+  assert.deepEqual(d.sections[1]!.dishes[2]!.tags, [], '"spicy" in a description is not a label');
+  // what a person would expect to check or fix: "Most ordered" repeats two dishes (the copies in Mains are kept)
+  assert.deepEqual(exceptions(d, ['en']), [
+    'dish_repeated@Schnitzel', 'dish_repeated@Burger', 'allergens_check@Schnitzel', 'price_unreadable@Fish of the day', 'limits_guessed@Choose a sauce',
+  ]);
+  assert.deepEqual(draftExceptions(d).filter((e) => e.code === 'dish_repeated').map((e) => e.key), d.sections[0]!.dishes.map((x) => x.key));
   assert.deepEqual(notes(r), [
     'noise:buttonx2', 'noise:delivery', 'noise:feex2', 'noise:footerx4', 'noise:headerx2', 'noise:hours', 'noise:labelx2', 'noise:navx4', 'noise:quantity',
-    'noise:rating', 'popular_droppedx2', 'sold_out', 'price_range', 'price_discount',
+    'noise:rating', 'sold_out', 'price_range', 'price_discount',
   ]);
   assert.equal(r.notes.find((n) => n.code === 'sold_out')!.severity, 'check');
-  assert.equal(r.notes.find((n) => n.code === 'sold_out')!.key, d.sections[0]!.dishes[3]!.key, 'the sold-out mark is on the fish');
+  assert.equal(r.notes.find((n) => n.code === 'sold_out')!.key, d.sections[1]!.dishes[3]!.key, 'the sold-out mark is on the fish');
   assert.equal(r.draft.dropped, 0);
 });
 
@@ -77,6 +83,8 @@ test('a Hebrew page with a dish sheet: right-to-left marks, a sauce for the frie
   const r = parseWoltText(`${WOLT_HE_PAGE}\n${WOLT_HE_SHEET}`);
   const d = valid(r);
   assert.deepEqual(outline(d), [
+    '# פופולרי (food)',
+    'שניצל 6400',
     '# עיקריות (food)',
     'שניצל 6400',
     'המבורגר 7200 tags:spicy groups:בחרו תוספת,תוספות',
@@ -88,8 +96,7 @@ test('a Hebrew page with a dish sheet: right-to-left marks, a sauce for the frie
     '[רוטב לצ׳יפס] multiple ?-?: איולי, קטשופ +200',
     '[תוספות] multiple ?-3: ביצת עין +500, גבינה +300',
   ]);
-  assert.deepEqual(exceptions(d, ['he']), ['limits_guessed@רוטב לצ׳יפס']);
-  assert.ok(notes(r).includes('popular_dropped'), 'the "פופולרי" section is left out');
+  assert.deepEqual(exceptions(d, ['he']), ['dish_repeated@שניצל', 'limits_guessed@רוטב לצ׳יפס'], 'the "פופולרי" section is kept; its repeat is asked about');
   assert.ok(notes(r).includes('sold_out'));
 });
 
@@ -131,10 +138,27 @@ test('dishes before any heading go to one section named in both languages', () =
   assert.equal(d.sections[0]!.dishes.length, 2);
 });
 
-test('the "Popular" section is left out; a dish found only there is kept out and flagged', () => {
-  const r = parseWoltText('Most ordered\nMains\nMost ordered\nSoup\n₪30.00\nTart\n₪25.00\nMains\nSoup\n₪30.00');
-  assert.deepEqual(outline(valid(r)), ['# Mains (food)', 'Soup 3000']);
-  assert.deepEqual(r.notes.filter((n) => n.code.startsWith('popular')).map((n) => [n.code, n.severity, n.count]), [['popular_dropped', 'info', 1], ['popular_only', 'check', 1]]);
+test('QA-M4: the "Popular" section is kept; its repeats are dish_repeated, a dish found only there stays with a check note', () => {
+  const r = parseWoltText('Most ordered\nMains\nMost ordered\nSoup\n₪30.00\nTart\n₪25.00\nMains\nSoup\n₪30.00\nStew\n₪60.00\nPie\n₪40.00');
+  const d = valid(r);
+  assert.deepEqual(outline(d), ['# Most ordered (food)', 'Soup 3000', 'Tart 2500', '# Mains (food)', 'Soup 3000', 'Stew 6000', 'Pie 4000']);
+  assert.deepEqual(exceptions(d, ['en']), ['dish_repeated@Soup']);
+  assert.equal(draftExceptions(d).find((e) => e.code === 'dish_repeated')!.key, d.sections[0]!.dishes[0]!.key, 'the copy in "Most ordered" is the repeat');
+  assert.deepEqual(r.notes.filter((n) => n.code.startsWith('popular')).map((n) => [n.code, n.severity, n.count, n.lines]), [['popular_only', 'check', 1, [6]]]);
+  // listed last, the same
+  const last = valid(parseWoltText('Mains\nSoup\n₪30.00\nPopular items\nSoup\n₪30.00\nTart\n₪25.00'));
+  assert.deepEqual(outline(last), ['# Mains (food)', 'Soup 3000', '# Popular items (food)', 'Soup 3000', 'Tart 2500']);
+});
+
+test('QA-M4: a dish sheet copied under "Popular" keeps its groups, on the dish in its own section', () => {
+  const r = parseWoltText('Most ordered\nMains\nMost ordered\nBurger\n₪72.00\nChoose a side\nRequired\nChoose 1\nFries\nSalad\nAdd to order\nMains\nBurger\n₪72.00');
+  const d = valid(r);
+  assert.deepEqual(outline(d), ['# Most ordered (food)', 'Burger 7200', '# Mains (food)', 'Burger 7200 groups:Choose a side', '[Choose a side] single 1-1: Fries, Salad']);
+  assert.deepEqual(exceptions(d, ['en']), ['dish_repeated@Burger']);
+  assert.equal(draftExceptions(d).find((e) => e.code === 'dish_repeated')!.key, d.sections[0]!.dishes[0]!.key, 'the copy with the groups is the one kept');
+  // a sheet found only under "Popular" stays there with its groups
+  const only = valid(parseWoltText('Most ordered\nMains\nMost ordered\nBurger\n₪72.00\nChoose a side\nRequired\nChoose 1\nFries\nSalad\nAdd to order\nMains\nSoup\n₪30.00'));
+  assert.deepEqual(outline(only).slice(0, 2), ['# Most ordered (food)', 'Burger 7200 groups:Choose a side']);
 });
 
 test('a "Popular" mark on a dish is not a heading', () => {
@@ -151,16 +175,47 @@ test('sold out is a check note on the dish, never an availability', () => {
 });
 
 test('tags only from explicit labels; other labels are noted and left out', () => {
-  const r = parseWoltText('Mains\nVegan bowl\n₪50.00\nSpicy noodles\n₪48.00\nTofu\n₪40.00\nVegan · Gluten free\nSteak\n₪120.00\nKosher');
+  const r = parseWoltText('Mains\nVegan bowl\n₪50.00\nSpicy noodles\n₪48.00\nTofu\nVegan · Gluten free\n₪40.00\nSteak\n₪120.00\nKosher');
   const d = valid(r);
   assert.deepEqual(d.sections[0]!.dishes.map((x) => x.tags), [[], [], ['vegan', 'gf'], []]);
   assert.ok(r.notes.some((n) => n.code === 'label_dropped' && n.key === d.sections[0]!.dishes[3]!.key));
+  // after the price, at the end of the copy (or with only the footer after it), a tag is still the dish's
+  assert.deepEqual(valid(parseWoltText('Mains\nTofu\n₪40.00\nVegan')).sections[0]!.dishes[0]!.tags, ['vegan']);
+  assert.deepEqual(valid(parseWoltText('Mains\nTofu\n₪40.00\nVegan\nPrivacy statement\nBurger\n₪72.00')).sections[0]!.dishes[0]!.tags, ['vegan']);
+});
+
+test('QA-H1: a tag word with the next dish under it is a heading, never a diet tag on the dish before', () => {
+  const cases: Array<[string, string, string[]]> = [
+    ['no section list', 'Mains\nSteak\n₪120.00\nLamb chops\n₪110.00\nVegan\nTofu bowl\n₪50.00\nLentil stew\n₪45.00',
+      ['# Mains (food)', 'Steak 12000', 'Lamb chops 11000', '# Vegan (food)', 'Tofu bowl 5000', 'Lentil stew 4500']],
+    ["one of the page's own sections", 'Imaginary Bistro\nMains\nVegan\nDrinks\nMains\nSteak\nAged sirloin, butter\n₪120.00\nVegan\nTofu bowl\nRice and greens, sesame\n₪50.00\nDrinks\nCola\n₪12.00',
+      ['# Mains (food)', 'Steak 12000', '# Vegan (food)', 'Tofu bowl 5000', '# Drinks (drinks)', 'Cola 1200']],
+    ['Hebrew', 'עיקריות\nאנטריקוט\n120.00 ₪\nללא גלוטן\nסלט קינואה\n48.00 ₪',
+      ['# עיקריות (food)', 'אנטריקוט 12000', '# ללא גלוטן (food)', 'סלט קינואה 4800']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const d = valid(parseWoltText(text));
+    assert.deepEqual(outline(d), expected, label);
+    assert.ok(d.sections.every((s) => s.dishes.every((x) => x.tags.length === 0)), `${label}: no dish gains a tag`);
+  }
 });
 
 test('allergens: a bare "Allergens" heading takes the next line as written', () => {
   const d = valid(parseWoltText('Soup\n₪30.00\nCreamy tomato soup\nAllergens\nGluten, milk\nAdd to order'));
   assert.deepEqual(d.sections[0]!.dishes[0]!.desc, { he: '', en: 'Creamy tomato soup' });
   assert.deepEqual(d.sections[0]!.dishes[0]!.allergens, { he: '', en: 'Gluten, milk' });
+});
+
+test('QA-L3: a bare "Allergens" with no list does not shift the lines after it', () => {
+  const r = parseWoltText('Burger\n₪72.00\nBeef patty\nAllergens\nChoose a side\nRequired\nChoose 1\nFries\nSalad\nAdd to order');
+  const d = valid(r);
+  assert.deepEqual(outline(d), ['# תפריט / Menu (food)', 'Burger 7200 groups:Choose a side', '[Choose a side] single 1-1: Fries, Salad']);
+  assert.deepEqual(d.sections[0]!.dishes[0]!.desc, { he: '', en: 'Beef patty' });
+  assert.deepEqual(d.sections[0]!.dishes[0]!.allergens, { he: '', en: '' });
+  assert.ok(r.notes.some((n) => n.code === 'noise' && n.rule === 'allergens'));
+  // the line under it is a group's own heading with its rule under it: no list either
+  const g = valid(parseWoltText('Burger\n₪72.00\nAllergens\nToppings\nOptional\nLettuce\nAdd to order'));
+  assert.deepEqual(outline(g).slice(1), ['Burger 7200 groups:Toppings', '[Toppings] multiple ?-?: Lettuce']);
 });
 
 test('option groups: limits only when stated; options with no price are free; a rule over two lines', () => {
@@ -170,20 +225,37 @@ test('option groups: limits only when stated; options with no price are free; a 
   assert.deepEqual(exceptions(d, ['en']), ['limits_guessed@Toppings'], '"Optional" alone states no limits: the owner confirms them');
 });
 
-test('ASSUMPTION (tuning): a group heading is known by the rule line under it', () => {
+test('ASSUMPTION (tuning): a group heading is known by the rule line under it, or by its words', () => {
   // the first group of a sheet, with no rule line: its first line is taken as its heading
   const first = valid(parseWoltText('Pasta\n₪54.00\nToppings\nParmesan\nBasil\n+₪2.00\nAdd to order'));
   assert.deepEqual(outline(first).slice(2), ['[Toppings] multiple ?-?: Parmesan, Basil +200']);
-  // a later heading with no rule line cannot be told from a free option: its lines join the group before
+  // QA-M5: a later heading with no rule line starts a new group when its words say so, never a ₪0 option
   const later = valid(parseWoltText('Pasta\n₪54.00\nChoose a sauce\nRequired\nTomato\n+₪4.00\nToppings\nBasil\n+₪2.00\nAdd to order'));
-  assert.deepEqual(outline(later).slice(2), ['[Choose a sauce] single 1-?: Tomato +400, Toppings, Basil +200']);
+  assert.deepEqual(outline(later).slice(2), ['[Choose a sauce] single ?-?: Tomato +400', '[Toppings] multiple ?-?: Basil +200']);
+  const two = valid(parseWoltText('Burger\n₪72.00\nChoose a side\nFries\nSalad\n+₪4.00\nChoose a sauce\nAioli\nKetchup\n+₪2.00\nAdd a drink?\nCola\n+₪8.00\nAdd to order'));
+  assert.deepEqual(outline(two).slice(2), ['[Choose a side] multiple ?-?: Fries, Salad +400', '[Choose a sauce] multiple ?-?: Aioli, Ketchup +200', '[Add a drink?] multiple ?-?: Cola +800']);
+  const he = valid(parseWoltText('המבורגר\n72.00 ₪\nבחרו תוספת\nצ׳יפס\nסלט\nבחרו רוטב\nאיולי\n+2.00 ₪\nהוספה להזמנה'));
+  assert.deepEqual(outline(he).slice(2), ['[בחרו תוספת] multiple ?-?: צ׳יפס, סלט', '[בחרו רוטב] multiple ?-?: איולי +200']);
+  // a heading's words with a price right under it are an option's name; on a listed dish's line they are a dish
+  const opt = valid(parseWoltText('Burger\n₪72.00\nChoose a side\nRequired\nChoose 1\nChoose your own sauce\n+₪3.00\nAdd to order'));
+  assert.deepEqual(outline(opt).slice(2), ['[Choose a side] single 1-1: Choose your own sauce +300']);
+  const dish = valid(parseWoltText("Mains\nSoup\nClear broth\n₪30.00\nPick of the day\nChef's choice\n₪60.00"));
+  assert.deepEqual(outline(dish), ['# Mains (food)', 'Soup 3000', 'Pick of the day 6000']);
+});
+
+test('QA-M5: "Required" or "Optional" alone states no limits: limits_guessed, never confirmed', () => {
+  const d = valid(parseWoltText('Burger\n₪72.00\nToppings\nRequired\nLettuce\nTomato\nOnion\nAdd to order'));
+  assert.deepEqual(outline(d).slice(2), ['[Toppings] single ?-?: Lettuce, Tomato, Onion']);
+  assert.deepEqual(exceptions(d, ['en']), ['limits_guessed@Toppings']);
+  const counted = valid(parseWoltText('Burger\n₪72.00\nToppings\nRequired\nChoose 1\nLettuce\nTomato\nAdd to order'));
+  assert.deepEqual(exceptions(counted, ['en']), [], 'a count states the limits');
 });
 
 test('a nested choice only when the text shows it', () => {
   const plain = valid(parseWoltText('Burger\n₪72.00\nChoose a side\nRequired\nFries\nSalad\nChoose a sauce\nRequired\nAioli\nKetchup\nAdd to order'));
   assert.ok(plain.groups.every((g) => g.options.every((o) => o.opens === null)), 'a group after a group is not nested by itself');
   const nested = valid(parseWoltText('Burger\n₪72.00\nChoose a side\nRequired\nFries\nSalad\nSauce for fries\nRequired\nAioli\nAdd to order'));
-  assert.deepEqual(outline(nested).slice(2), ['[Choose a side] single 1-?: Fries >Sauce for fries, Salad', '[Sauce for fries] single 1-?: Aioli']);
+  assert.deepEqual(outline(nested).slice(2), ['[Choose a side] single ?-?: Fries >Sauce for fries, Salad', '[Sauce for fries] single ?-?: Aioli']);
   assert.deepEqual(nested.sections[0]!.dishes[0]!.groups.map((g) => g.group), [nested.groups[0]!.key], 'the nested group hangs on its option, not on the dish');
   const r = parseWoltText('Burger\n₪72.00\nChoose a side\nRequired\nFries\nOnion rings › Choose a dip\nOptional\nMayo\nAdd to order');
   assert.ok(r.notes.some((n) => n.code === 'nesting_unmatched'), 'an option the dish does not show: a plain group, noted');
@@ -221,6 +293,68 @@ test('huge input: read up to IMPORT_TEXT_MAX, kept within DRAFT_CAPS, still vali
   const long = parseWoltText(`Mains\n${'Soup\n₪30.00\n'.repeat(Math.ceil(IMPORT_TEXT_MAX / 12) + 100)}`);
   assert.ok(long.notes.some((n) => n.code === 'input_truncated' && n.severity === 'check'));
   valid(long);
+});
+
+test('QA-M3: noise rules match whole known lines only: a dish or a heading with noise words in it is kept', () => {
+  const cases: Array<[string, string, string[]]> = [
+    ['a name and its price on one line', 'Mains\nSoup\n₪30.00\nDelivery Burger₪52.00\nPickup Combo\n₪60.00\nWolt Special Wrap\n₪44.00',
+      ['# Mains (food)', 'Soup 3000', 'Delivery Burger 5200', 'Pickup Combo 6000', 'Wolt Special Wrap 4400']],
+    ['noise words with a price under them', 'Mains\nSoup\n₪30.00\nDelivery Box 2\n₪52.00\nShare\n₪60.00',
+      ['# Mains (food)', 'Soup 3000', 'Delivery Box 2 5200', 'Share 6000']],
+    ['a heading with hours in it', 'Mains\nSoup\n₪30.00\nBusiness lunch 12:00–16:00\nLunch schnitzel\n₪55.00\nLunch pasta\n₪49.00',
+      ['# Mains (food)', 'Soup 3000', '# Business lunch 12:00–16:00 (food)', 'Lunch schnitzel 5500', 'Lunch pasta 4900']],
+    ['the same in Hebrew', 'עיקריות\nמרק\n30.00 ₪\nעסקיות 12:00-17:00\nשניצל עסקית\n55.00 ₪',
+      ['# עיקריות (food)', 'מרק 3000', '# עסקיות 12:00-17:00 (food)', 'שניצל עסקית 5500']],
+    ['a "Special offer" section', 'Mains\nSoup\n₪30.00\nSpecial offer\nTwo pizzas\n₪80.00',
+      ['# Mains (food)', 'Soup 3000', '# Special offer (food)', 'Two pizzas 8000']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(outline(valid(r)), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+    assert.ok(!r.notes.some((n) => n.code === 'noise'), `${label}: nothing read as noise`);
+  }
+  // the real ones still are: a fee is its words and its price, hours a line of their own
+  for (const line of ['Delivery ₪9.90', 'Delivery fee: ₪9.90', '₪9.90 delivery', 'Delivery: free', 'Open until 23:00', 'Opens tomorrow at 10:00', 'א׳-ה׳ 10:00-22:00', '12:00-23:00']) {
+    assert.match(rule(line), /^noise_/u, line);
+  }
+  assert.equal(rule('Special offer'), 'text');
+});
+
+test('QA-M2: a short description never becomes the name; a heading over a long name stays a heading', () => {
+  const cases: Array<[string, string, string[]]> = [
+    ['no section list', 'Mains\nSoup\n₪30.00\nMalabi\nHomemade\n₪26.00\nTart\nSeasonal\n₪25.00',
+      ['# Mains (food)', 'Soup 3000', 'Malabi 2600 desc:Homemade', 'Tart 2500 desc:Seasonal']],
+    ["the page's own sections", 'Imaginary Bistro\nMains\nDesserts\nMains\nSoup\n₪30.00\nDesserts\nMalabi\nHomemade\n₪26.00\nTart\nSeasonal fruit\n₪25.00',
+      ['# Mains (food)', 'Soup 3000', '# Desserts (dessert)', 'Malabi 2600 desc:Homemade', 'Tart 2500 desc:Seasonal fruit']],
+    ['Hebrew', 'ביסטרו דמיוני\nעיקריות\nקינוחים\nעיקריות\nמרק\n30.00 ₪\nקינוחים\nמלבי\nביתי\n26.00 ₪',
+      ['# עיקריות (food)', 'מרק 3000', '# קינוחים (dessert)', 'מלבי 2600 desc:ביתי']],
+    ['a heading, then a long name with no description', 'Mains\nSoup\n₪30.00\nDesserts\nChocolate cake with vanilla ice cream\n₪40.00\nMalabi\n₪26.00',
+      ['# Mains (food)', 'Soup 3000', '# Desserts (dessert)', 'Chocolate cake with vanilla ice cream 4000', 'Malabi 2600']],
+    ['the same in Hebrew', 'עיקריות\nמרק\n30.00 ₪\nקינוחים\nעוגת שוקולד עם גלידת וניל\n40.00 ₪',
+      ['# עיקריות (food)', 'מרק 3000', '# קינוחים (dessert)', 'עוגת שוקולד עם גלידת וניל 4000']],
+    ['a description with a price in it', 'Mains\nSoup\n₪30.00\nSchnitzel\nFamily size ₪120\n₪64.00',
+      ['# Mains (food)', 'Soup 3000', 'Schnitzel 6400 desc:Family size ₪120']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const d = valid(parseWoltText(text));
+    const withDesc = d.sections.flatMap((s) => [`# ${s.name.he || s.name.en} (${s.kind})`, ...s.dishes.map((x) => `${x.name.he || x.name.en} ${x.price}${x.desc.he || x.desc.en ? ` desc:${x.desc.he || x.desc.en}` : ''}`)]);
+    assert.deepEqual(withDesc, expected, label);
+  }
+});
+
+test('QA-M9 / security L4: a 60,000-character line, and thousands of groups of one name, stay fast and valid', () => {
+  const rep = (s: string, n: number) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
+  for (const line of [rep('₪ ', 60_000), `a${rep('.', 60_000)}x`, `a${rep('.·…_–—-', 60_000)}x`, `₪${rep('1', 60_000)}x`, `delivery ${rep('1', 60_000)}x`,
+    `a${rep('!', 60_000)}x`, `Falafel${rep(' (vegan)', 60_000)}`, `a${rep(' (for x', 60_000)}`, `${rep('Choose ', 60_000)}`, `Burger\n₪72.00\n${rep('Side › ', 60_000)}\nRequired\nFries`]) {
+    const { ms, r } = fastest(() => parseWoltText(line));
+    valid(r);
+    assert.ok(ms < 100, `${line.slice(0, 12)}…: ${ms.toFixed(0)} ms`);
+  }
+  const groups = `Burger\n₪72.00\n${Array.from({ length: 3000 }, (_, i) => `Side\nRequired\nO${i.toString(36)}\n+₪1.00`).join('\n')}`;
+  const { ms, r } = fastest(() => parseWoltText(groups));
+  assert.equal(valid(r).groups.length, 1, 'one group of that name on the dish');
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
 });
 
 test('D33: the readers never fetch anything and name no Wolt address', () => {

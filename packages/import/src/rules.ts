@@ -1,15 +1,31 @@
 /**
  * The words the text readers recognise, in Hebrew and English, each list a named rule with its own tests: a group's
- * limits ("Required", "Choose up to 2", "בחרו עד 2"), the dish labels that are tags (`TAGS` only), sold out, allergens,
- * the labels that are not tags, and the kind of a section by its heading. A label is a whole line (or a whole part
- * of one); a word inside a dish's name or description is never a label.
+ * limits ("Required", "Choose up to 2", "בחרו עד 2"), a group's heading, the dish labels that are tags (`TAGS` only),
+ * sold out, allergens, the labels that are not tags, and the kind of a section by its heading. A label is a whole
+ * line (or a whole part of one); a word inside a dish's name or description is never a label. Every rule here runs
+ * in time linear in its line (no pattern can backtrack over the line twice), and labels are short: a longer line is
+ * never one.
  */
 import type { SectionKind, SelectionKind, Tag } from '@mana/contracts';
 import { lower } from './text.ts';
 
-/** A line as a label: lowercase A–Z, no edge punctuation, single spaces. */
-const label = (s: string): string => lower(s).replace(/^[\s"'“”«»(\[]+|[\s"'“”«»)\].!:]+$/gu, '').replace(/\s+/gu, ' ');
+/** The longest line any label, rule or heading cue can be. */
+const LABEL_MAX = 80;
+const isSpace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+const EDGE_START = new Set(['"', "'", '“', '”', '«', '»', '(', '[']);
+const EDGE_END = new Set(['"', "'", '“', '”', '«', '»', ')', ']', '.', '!', ':']);
+
+/** A line as a label: lowercase A–Z, no edge quotes, brackets or final punctuation, single spaces. */
+function label(s: string): string {
+  const t = lower(s);
+  let a = 0, b = t.length;
+  while (a < b && (isSpace(t[a]!) || EDGE_START.has(t[a]!))) a++;
+  while (b > a && (isSpace(t[b - 1]!) || EDGE_END.has(t[b - 1]!))) b--;
+  const inner = t.slice(a, b);
+  return /\s\s|[^\S ]/u.test(inner) ? inner.split(/\s+/u).filter((w) => w !== '').join(' ') : inner;
+}
 const words = (...list: string[]): ReadonlySet<string> => new Set(list.map(label));
+const has = (set: ReadonlySet<string>, line: string): boolean => line.length <= LABEL_MAX && set.has(label(line));
 
 // ---------------------------------------------------------------- group limits
 
@@ -27,15 +43,16 @@ const NUMBER_WORDS: Readonly<Record<string, number>> = {
 };
 const N = String.raw`(\d{1,2}|one|two|three|four|five|אחד|אחת|שניים|שתיים|שני|שתי|שלושה|שלוש|ארבעה|ארבע|חמישה|חמש)`;
 const VERB = String.raw`(?:choose|select|pick|בחרו|בחר|בחרי|ניתן לבחור|אפשר לבחור|יש לבחור|לבחור)`;
-const TAIL = String.raw`(?:\s+(.+))?`;
+const TAIL = String.raw`(?: (\S.*))?`;
 const RULE_RE = {
   required: /^(?:required|mandatory|חובה|שדה חובה|נדרש|בחירת חובה)$/u,
   optional: /^(?:optional|not required|רשות|אופציונלי|אופציונאלי|לא חובה)$/u,
   oneChoice: /^(?:בחירה אחת|one choice|single choice)$/u,
-  upTo: new RegExp(`^(?:${VERB}\\s+)?(?:up to|max(?:imum)?\\.?|עד|מקסימום)\\s+${N}${TAIL}$`, 'u'),
-  atLeast: new RegExp(`^(?:${VERB}\\s+)?(?:at least|min(?:imum)?\\.?|לפחות|מינימום)\\s+${N}${TAIL}$`, 'u'),
-  range: new RegExp(`^(?:${VERB}\\s+)?(?:between\\s+|בין\\s+)?${N}\\s?(?:[-–]|and|to|ל[-־]?|עד)\\s?${N}${TAIL}$`, 'u'),
-  exact: new RegExp(`^${VERB}\\s+${N}${TAIL}$`, 'u'),
+  upTo: new RegExp(`^(?:${VERB} )?(?:up to|max(?:imum)?\\.?|עד|מקסימום) ${N}${TAIL}$`, 'u'),
+  atLeast: new RegExp(`^(?:${VERB} )?(?:at least|min(?:imum)?\\.?|לפחות|מינימום) ${N}${TAIL}$`, 'u'),
+  // a range is a rule only with a verb or "between": "Choose 1-3", "between 1 and 3", "בין 1 ל-3"; never "12-23"
+  range: new RegExp(`^(?:${VERB} (?:between |בין )?|between |בין )${N} ?(?:[-–]|and|to|ל[-־]?|עד) ?${N}${TAIL}$`, 'u'),
+  exact: new RegExp(`^${VERB} ${N}${TAIL}$`, 'u'),
 };
 /** Words after a count that only say what is counted ("Choose 2 items"): the line names no group. */
 const COUNTED = words('item', 'items', 'option', 'options', 'choice', 'choices', 'פריט', 'פריטים', 'אפשרות', 'אפשרויות', 'מתוך', 'בחירות');
@@ -64,8 +81,8 @@ function fragment(f: string): { rule: Partial<GroupRule>; tail: string | null } 
  * rule line.
  */
 export function readRule(line: string): { rule: GroupRule; heading: string | null } | null {
-  if (line.length > 80) return null;
-  const parts = line.split(/\s*[·•|,()]\s*/u).filter((p) => p !== '');
+  if (line.length > LABEL_MAX) return null;
+  const parts = line.split(/[·•|,()]/u).map((p) => p.trim()).filter((p) => p !== '');
   if (parts.length === 0) return null;
   const read = parts.map(fragment);
   // "Choose a side (required)": a name first, then only rule fragments
@@ -87,10 +104,13 @@ export function joinRules(a: GroupRule, b: GroupRule): GroupRule {
   };
 }
 
+/** A rule that states a count ("Choose 1", "up to 2", "at least 1", "1-3"), not only required or optional. */
+export const counted = (r: GroupRule): boolean => r.exact !== null || r.upTo !== null || r.range !== null || r.atLeast !== null;
+
 /**
- * What a rule means for the group, stating only what the source stated: a count of 1 is a single choice; "Required"
- * alone is a single required choice; "Optional" alone, or no rule at all, states nothing (a multiple choice whose
- * limits the owner confirms: `limits_guessed`).
+ * What a rule means for the group, stating only what the source stated: a count of 1 is a single choice. "Required"
+ * or "Optional" alone states no count, so the group's limits are the owner's to confirm (`limits_guessed`): "Required"
+ * alone reads as a single choice; "Optional" alone, or no rule at all, as a multiple one.
  */
 export function ruleLimits(r: GroupRule): { selection: SelectionKind; min: number | null; max: number | null } {
   const req = r.required;
@@ -107,11 +127,32 @@ export function ruleLimits(r: GroupRule): { selection: SelectionKind; min: numbe
     return { selection: 'multiple', min: req === true ? 1 : req === false ? 0 : null, max: r.upTo };
   }
   if (r.atLeast !== null) return { selection: 'multiple', min: r.atLeast, max: null };
-  if (req === true) return { selection: 'single', min: 1, max: null };
+  if (req === true) return { selection: 'single', min: null, max: null };
   return { selection: 'multiple', min: null, max: null };
 }
 
 export const NO_RULE: GroupRule = { required: null, exact: null, upTo: null, atLeast: null, range: null };
+
+/** Words that name a group of choices ("Extras", "תוספות"): a heading inside a dish sheet even with no rule line. */
+const GROUP_NOUNS = words(
+  'extras', 'extra', 'toppings', 'topping', 'sides', 'side', 'side dish', 'sauces', 'sauce', 'add-ons', 'addons', 'dressing', 'dressings', 'dips', 'dip',
+  'size', 'sizes', 'bread', 'drink', 'drinks', 'תוספות', 'תוספת', 'רטבים', 'רוטב', 'גודל', 'גדלים', 'ממרחים', 'מטבלים', 'לחם', 'שתייה', 'שתיה',
+);
+const GROUP_VERB = /^(?:choose|select|pick|בחרו|בחר|בחרי|בחירת|בחירה של) \S/u;
+/**
+ * Rule `group_heading`: a line of a dish sheet that opens a new group even without a rule line under it. `strong`: it
+ * opens with a choice verb ("Choose a sauce", "בחרו רוטב") or asks ("Add a drink?"), which no section heading does;
+ * `weak`: it ends with ":" or is a group's common name ("Extras", "תוספות"), which a section heading of the page may
+ * also be, so it counts only inside a sheet. null: neither. (A line with a price right under it is an option, whatever
+ * its words: the reader checks that.)
+ */
+export function groupCue(line: string): 'strong' | 'weak' | null {
+  if (line.length > LABEL_MAX) return null;
+  const s = lower(line.trim());
+  if (GROUP_VERB.test(s) || s.endsWith('?')) return 'strong';
+  if (s.endsWith(':') || GROUP_NOUNS.has(label(line))) return 'weak';
+  return null;
+}
 
 // ---------------------------------------------------------------- labels
 
@@ -121,30 +162,43 @@ const TAG_WORDS: ReadonlyArray<readonly [Tag, ReadonlySet<string>]> = [
   ['spicy', words('spicy', 'חריף', 'חריפה', 'חריפים', '🌶', '🌶️')],
   ['gf', words('gluten free', 'gluten-free', 'gf', 'ללא גלוטן', 'נטול גלוטן', 'נטולת גלוטן')],
 ];
-const tagOf = (s: string): Tag | null => TAG_WORDS.find(([, w]) => w.has(label(s)))?.[0] ?? null;
+const tagOf = (s: string): Tag | null => { const l = label(s); return TAG_WORDS.find(([, w]) => w.has(l))?.[0] ?? null; };
 
 /** Rule `tags`: a line made only of tag labels ("Vegan", "טבעוני · ללא גלוטן", "🌶️"). null: not such a line. */
 export function readTags(line: string): Tag[] | null {
-  const parts = line.split(/\s*[·•|,/]\s*|\s+[-–]\s+/u).filter((p) => p !== '');
+  if (line.length > LABEL_MAX || /:\s*$/u.test(line)) return null;
+  const parts = line.split(/[·•|,/]| [-–] /u).map((p) => p.trim()).filter((p) => p !== '');
   const tags = parts.map(tagOf);
   if (parts.length === 0 || tags.some((t) => t === null)) return null;
   return [...new Set(tags as Tag[])];
 }
 
-const MARKER = /\s*(?:\(\s*([^()]{1,20})\s*\)|(🌶️?))\s*$/u;
+/** How far from the end of a name the markers are looked for, and how many. */
+const MARKERS_SPAN = 60, MARKERS_MAX = 3;
 /**
  * Rule `name_markers`: tag labels written at the end of a name, "Falafel (vegan)", "Curry 🌶️", "סלט (ללא גלוטן)": the
  * name without them, and their tags. A marker that is not a tag ("(V)", which may mean vegan or vegetarian) stays in
- * the name.
+ * the name. At most three, within the name's last 60 characters.
  */
 export function nameMarkers(name: string): { name: string; tags: Tag[] } {
-  let rest = name;
+  let rest = name.trimEnd();
   const tags: Tag[] = [];
-  for (let m = MARKER.exec(rest); m; m = MARKER.exec(rest)) {
-    const t = tagOf(m[1] ?? m[2]!);
-    if (t === null || m.index === 0) break;
+  const floor = Math.max(0, rest.length - MARKERS_SPAN);
+  for (let i = 0; i < MARKERS_MAX; i++) {
+    let marker: string, at: number;
+    if (rest.endsWith(')')) {
+      at = rest.lastIndexOf('(');
+      if (at <= floor || rest.length - at > 22) break;
+      marker = rest.slice(at + 1, -1);
+    } else if (rest.endsWith('🌶️') || rest.endsWith('🌶')) {
+      marker = '🌶';
+      at = rest.length - (rest.endsWith('🌶️') ? '🌶️'.length : '🌶'.length);
+    } else break;
+    const t = tagOf(marker);
+    const before = rest.slice(0, at).trimEnd();
+    if (t === null || before === '') break;
     if (!tags.includes(t)) tags.unshift(t);
-    rest = rest.slice(0, m.index);
+    rest = before;
   }
   return { name: rest, tags };
 }
@@ -158,8 +212,8 @@ const SOLD_OUT = words(
 const POPULAR = words('popular', 'פופולרי', 'פופולארי', 'פופולרית', 'bestseller', 'best seller', 'רב מכר', 'רבי מכר', 'הכי נמכר');
 /** Rule `label_new`. */
 const NEW = words('new', 'new!', 'חדש', 'חדשה', 'חדש!');
-/** Rule `label_discount`: "-20%", "Sale", "מבצע". */
-const DISCOUNT = words('discount', 'sale', 'deal', 'offer', 'special offer', 'מבצע', 'הנחה', 'דיל');
+/** Rule `label_discount`: a percentage mark ("-20%", "20% off", "15% הנחה"); words like "Special offer" may head a
+ * section, so they are not labels. */
 const DISCOUNT_RE = /^-?\d{1,2}%(?: off| הנחה)?$/u;
 /** Rule `label_other`: labels that are not among Mana's tags; left out with a note. */
 const OTHER_LABELS = words(
@@ -175,20 +229,21 @@ const POPULAR_SECTIONS = words(
 export type Label = 'sold_out' | 'popular' | 'new' | 'discount' | 'other';
 /** The label a whole line is, if it is one. */
 export function readLabel(line: string): Label | null {
+  if (line.length > LABEL_MAX) return null;
   const s = label(line);
   if (SOLD_OUT.has(s)) return 'sold_out';
   if (POPULAR.has(s)) return 'popular';
   if (NEW.has(s)) return 'new';
-  if (DISCOUNT.has(s) || DISCOUNT_RE.test(s)) return 'discount';
+  if (DISCOUNT_RE.test(s)) return 'discount';
   if (OTHER_LABELS.has(s)) return 'other';
   return null;
 }
-export const isPopularSection = (heading: string): boolean => POPULAR_SECTIONS.has(label(heading));
+export const isPopularSection = (heading: string): boolean => has(POPULAR_SECTIONS, heading);
 
-const ALLERGENS_RE = /^(?:allergens|allergen info(?:rmation)?|allergy info(?:rmation)?|contains allergens|אלרגנים|מידע על אלרגנים|מידע אלרגני|רכיבים אלרגניים)(?:\s*[:：–-]\s*|\s*$)(.*)$/iu;
+const ALLERGENS_RE = /^(?:allergens|allergen info(?:rmation)?|allergy info(?:rmation)?|contains allergens|אלרגנים|מידע על אלרגנים|מידע אלרגני|רכיבים אלרגניים)(?: ?[:：–-] ?| ?$)(.*)$/iu;
 /**
  * Rule `allergens`: "Allergens: gluten, egg", "אלרגנים: גלוטן, ביצים" (the words after the label, copied as they are), or
- * a bare "Allergens" heading (`text` null: the list is on the next line).
+ * a bare "Allergens" heading (`text` null: the list may be on the next line).
  */
 export function readAllergens(line: string): { text: string | null } | null {
   const m = ALLERGENS_RE.exec(line);
@@ -199,19 +254,35 @@ export function readAllergens(line: string): { text: string | null } | null {
 
 // ---------------------------------------------------------------- sections
 
-const KIND_WORDS: ReadonlyArray<readonly [SectionKind, RegExp]> = [
-  ['wine', /\bwines?\b|יין|יינות/iu],
-  ['beer', /\bbeers?\b|בירה|בירות/iu],
-  ['dessert', /dessert|sweets?\b|cakes?\b|קינוח|מתוק|עוג/iu],
-  ['drinks', /drink|beverage|cocktail|coffee|juice|soft|\bbar\b|שתי|משק|קוקטייל|קפה|מיצ|אלכוהול/iu],
+/** Words of a heading that say its kind, matched as whole words (so "Sweet potato" or "Salad bar" stay food). */
+const KIND_WORDS: ReadonlyArray<readonly [SectionKind, ReadonlySet<string>]> = [
+  ['wine', words('wine', 'wines', 'יין', 'יינות')],
+  ['beer', words('beer', 'beers', 'בירה', 'בירות')],
+  ['dessert', words('dessert', 'desserts', 'sweets', 'קינוח', 'קינוחים', 'מתוקים')],
+  ['drinks', words(
+    'drinks', 'drink', 'beverages', 'cocktails', 'coffee', 'tea', 'teas', 'juices', 'smoothies', 'lemonades', 'spirits', 'alcohol',
+    'שתייה', 'שתיה', 'משקאות', 'קוקטיילים', 'קפה', 'תה', 'מיצים', 'שייקים', 'אלכוהול',
+  )],
 ];
-/** The kind of a section by the words of its heading (the owner can change it); "food" when nothing says otherwise. */
+/** Whole headings that say a kind though none of their words does on its own ("Cakes", where "Fish cakes" is food). */
+const KIND_HEADINGS: ReadonlyArray<readonly [SectionKind, ReadonlySet<string>]> = [
+  ['dessert', words('cakes', 'cakes & pastries', 'cakes and pastries', 'עוגות', 'עוגות ומאפים')],
+];
+/**
+ * Rule `section_kind`: the kind of a section by the whole words of its heading (the owner can change it): "Hot drinks"
+ * and "קינוחים" say theirs; "Pancakes", "Sweet potato", "Salad bar" or "שתי פיצות" stay food. "food" when nothing says
+ * otherwise.
+ */
 export function guessKind(heading: string): SectionKind {
-  for (const [k, re] of KIND_WORDS) if (re.test(heading)) return k;
+  if (heading.length > LABEL_MAX) return 'food';
+  const whole = label(heading);
+  for (const [k, set] of KIND_HEADINGS) if (set.has(whole)) return k;
+  const ws = whole.split(/[ ,&/+]+/u).map(label);
+  for (const [k, set] of KIND_WORDS) if (ws.some((w) => set.has(w))) return k;
   return 'food';
 }
 
-/** Rule `common_section`: headings menus often use (a strong sign that a pasted line opens a section). */
+/** Rule `common_section`: headings menus often use (a strong sign that a line opens a section). */
 const COMMON_SECTIONS = words(
   'starters', 'appetizers', 'first courses', 'mains', 'main courses', 'main dishes', 'desserts', 'drinks', 'beverages', 'soft drinks', 'hot drinks',
   'cold drinks', 'salads', 'soups', 'pizzas', 'pasta', 'sandwiches', 'burgers', 'sides', 'side dishes', 'extras', 'kids', 'kids menu', 'breakfast',
@@ -220,4 +291,4 @@ const COMMON_SECTIONS = words(
   'פיצות', 'פסטות', 'פסטה', 'כריכים', 'סנדוויצ׳ים', 'המבורגרים', 'תוספות', 'ילדים', 'מנות ילדים', 'ארוחות בוקר', 'ארוחת בוקר', 'בוקר', 'צהריים',
   'ערב', 'קוקטיילים', 'יינות', 'יין', 'בירות', 'בירה', 'קפה', 'מיוחדים', 'ספיישלים', 'תפריט',
 );
-export const isCommonSection = (line: string): boolean => COMMON_SECTIONS.has(label(line));
+export const isCommonSection = (line: string): boolean => has(COMMON_SECTIONS, line);
