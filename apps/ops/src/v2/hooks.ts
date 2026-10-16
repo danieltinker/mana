@@ -50,7 +50,10 @@ export function useLive<T>(fetch: () => Promise<Result<T>>, deps: readonly unkno
     };
     const subscribe = ctx.realtime && o.subscribe ? o.subscribe : undefined;
     // a page that does not poll (leads: every read is logged) fetches once and on demand
-    live.current = startLive({ load, pollMs: window.__OPS_POLL_MS || LIVE_REFRESH.pollMs.ops, poll: o.poll !== false, ...(subscribe ? { subscribe } : {}) });
+    live.current = startLive({
+      load, pollMs: window.__OPS_POLL_MS || LIVE_REFRESH.pollMs.ops, poll: o.poll !== false, ...(subscribe ? { subscribe } : {}),
+      onMode: (mode) => { if (alive) setState((s) => ({ ...s, mode })); },
+    });
     return () => { alive = false; live.current?.stop(); live.current = null; };
   }, deps);
   return { ...state, refresh: () => live.current?.refresh() ?? Promise.resolve(false) };

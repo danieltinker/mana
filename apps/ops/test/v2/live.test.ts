@@ -114,11 +114,13 @@ test('realtime: subscribed stops polling; messages are signals, debounced to one
   let signal = () => {};
   let status: (s: ChannelStatus) => void = () => {};
   let unsubscribed = 0;
-  const live = startLive({ load: l.load, pollMs: POLL, clock, visibility: v, random: noJitter, debounceMs: 1500,
+  const modes: string[] = [];
+  const live = startLive({ load: l.load, pollMs: POLL, clock, visibility: v, random: noJitter, debounceMs: 1500, onMode: (m) => modes.push(m),
     subscribe: (sig, st) => { signal = sig; status = st; return () => { unsubscribed++; }; } });
   await settle();
   status('SUBSCRIBED');
   assert.equal(live.mode, 'realtime');
+  assert.deepEqual(modes, ['realtime'], 'the page is told at once');
   await advance(POLL * 3);
   assert.equal(l.calls.length, 1, 'no polling while subscribed');
   for (let i = 0; i < 10; i++) signal();

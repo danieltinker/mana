@@ -148,7 +148,7 @@ function NotStaff({ user, refused, api, onRetry, onLeave }: {
       <h1 data-not-staff>{refused ? 'Not accepted as staff' : 'Not Halom staff'}</h1>
       <p>Signed in as <T>{user.email}</T>.</p>
       {refused ? (
-        <div data-refused={passwordOnly ? 'aal1' : 'other'}>
+        <div class="stack-s" data-refused={passwordOnly ? 'aal1' : 'other'}>
           <Notice tone="warn">
             This account has a staff row, but the database did not accept this session as staff.{' '}
             {passwordOnly

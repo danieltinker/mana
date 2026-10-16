@@ -265,7 +265,8 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     const opens = ledger.n('menu_opened');
     assert.ok(opens > 0);
     await e.stack.buildRollups();
-    await until(async () => Number(await p.locator('[data-strip] [data-opens-today]').innerText()), opens, 'opens today on the venue page', 15_000);
+    // the guests came in the last 20 minutes: the venue's last hour counts them all (today could straddle midnight)
+    await until(async () => Number(await p.locator('[data-strip] [data-opens-hour]').innerText()), opens, 'opens in the last hour on the venue page', 15_000);
     await p.locator('[data-venue-analytics]').click();
     await p.locator('[data-range="1h"]').click();
     await p.locator('[data-filter=demo]').selectOption('include');

@@ -39,6 +39,8 @@ export type LiveOptions = {
   readonly clock?: Clock;
   readonly visibility?: Visibility;
   readonly random?: () => number;
+  /** Told when the mode changes (a channel subscribed, or failed and polling took over). */
+  readonly onMode?: (mode: LiveMode) => void;
 };
 export type LiveMode = 'realtime' | 'polling';
 export type Live = {
@@ -102,12 +104,14 @@ export function startLive(o: LiveOptions): Live {
   function onStatus(s: ChannelStatus): void {
     if (stopped) return;
     if (s === 'SUBSCRIBED') {
+      if (mode !== 'realtime') o.onMode?.('realtime');
       mode = 'realtime';
       clearPoll();
       if (everSubscribed) signal();      // back after a gap that polling covered: catch up once
       everSubscribed = true;
     } else if (mode !== 'polling') {
       mode = 'polling';
+      o.onMode?.('polling');
       schedule();
     }
   }

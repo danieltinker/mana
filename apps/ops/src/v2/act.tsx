@@ -134,7 +134,7 @@ export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
       }}
       run={(reason) => api.actForOwner({ ...actPlan(f, v.id, detail, snapshot, nameOf).input, reason } as ActInput)}
       done={(d) => `Done${isAct(d.action) ? `: ${ACT_LABEL[d.action].toLowerCase()}` : ''}. It is in the timeline, with your reason.`}
-      onDone={onDone}>
+      onDone={() => { set({ target: '' }); return onDone(); }}>
       <label class="field"><span>Action</span>
         <select value={f.action} onChange={(e) => set({ action: e.currentTarget.value as ActForOwnerAction })} data-act-action>
           {ACT_FOR_OWNER_ACTIONS.map((a) => <option key={a} value={a}>{ACT_LABEL[a]}</option>)}

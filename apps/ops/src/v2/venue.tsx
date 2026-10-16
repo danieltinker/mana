@@ -111,7 +111,7 @@ function Head({ data, live }: { data: VenueData; live: LiveData<VenueData> }) {
       {chips.length > 0 && <div class="wchips" aria-label="Warnings">{chips.map((c) => <WarningChip key={c.code} chip={c} />)}</div>}
       <dl class="strip" data-strip>
         <div><dt>Opens today</dt><dd data-opens-today>{fmtInt(v.opens.today)}</dd></div>
-        <div><dt>Last hour</dt><dd>{fmtInt(v.opens.lastHour)}</dd></div>
+        <div><dt>Last hour</dt><dd data-opens-hour>{fmtInt(v.opens.lastHour)}</dd></div>
         <div><dt>Last 7 days</dt><dd>{fmtInt(v.opens.last7d)}</dd></div>
         <div><dt>Suggestions accepted, 7d</dt><dd>{fmtPct(v.suggestions7d.accepted, v.suggestions7d.shown)} <span class="muted small">of {fmtInt(v.suggestions7d.shown)}</span></dd></div>
         <div><dt>Photos approved</dt><dd>{fmtInt(v.photos.withPhoto)}/{fmtInt(v.photos.dishes)}{v.photos.awaitingReview ? <span class="muted small"> · {v.photos.awaitingReview} to approve</span> : null}</dd></div>

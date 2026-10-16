@@ -15,7 +15,7 @@ export type WritePlan = { readonly ok: true; readonly what: string; readonly not
 export type WriteProps<D> = {
   /** data-write="…" for tests and a stable id prefix. */
   readonly id: string;
-  /** The write cannot be made at all (shown, fields kept readable). */
+  /** The write cannot be made at all: the reason is shown and the fields are disabled. */
   readonly blocked?: string | null;
   readonly plan: () => WritePlan;
   /** The reason's hint; `false` for a write whose function takes no reason. */
@@ -60,7 +60,12 @@ export function Write<D>(p: WriteProps<D>) {
   const left = REASON_MAX - stripBlank(reason).length;
 
   if (p.blocked) {
-    return <div class="write is-blocked" data-write={p.id} data-blocked><Notice tone="warn">{p.blocked}</Notice>{p.children}</div>;
+    return (
+      <div class="write is-blocked" data-write={p.id} data-blocked>
+        <Notice tone="warn">{p.blocked}</Notice>
+        <fieldset class="write-fields" disabled>{p.children}</fieldset>
+      </div>
+    );
   }
   return (
     <div class="write" data-write={p.id}>
