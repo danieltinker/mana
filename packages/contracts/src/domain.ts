@@ -231,7 +231,11 @@ export type ScheduleRow = {
   updated_at: Iso;
 };
 
-export type VenueHoursRow = { id: Uuid; venue_id: Uuid; weekday: Weekday; opens: string; closes: string; created_at: Iso };
+export type VenueHoursRow = {
+  id: Uuid; venue_id: Uuid; weekday: Weekday; opens: string; closes: string; created_at: Iso;
+  /** Moves on every change (the phase-1 migration): an edit names the one it read. */
+  updated_at: Iso;
+};
 export type VenueClosureRow = { id: Uuid; venue_id: Uuid; from_date: string; to_date: string; note_he: string; note_en: string; created_at: Iso };
 
 export type MenuRevisionRow = {
@@ -335,7 +339,7 @@ export const TABLE_COLUMNS = {
   upsell_rules: ['id', 'venue_id', 'label', 'trigger', 'scope_kind', 'scope_ids', 'days', 'from_time', 'to_time', 'basket_has_dishes', 'basket_has_sections', 'basket_lacks_dishes', 'basket_lacks_sections', 'suggest_kind', 'suggest_dish_id', 'suggest_option_id', 'line_he', 'line_en', 'priority', 'cap', 'active', 'inactive_reason', 'created_at', 'updated_at'],
   availability_overrides: ['id', 'venue_id', 'target_kind', 'target_id', 'starts_at', 'until_kind', 'until_spec', 'until_at', 'note', 'created_by', 'created_by_kind', 'restored_at', 'restored_by', 'created_at'],
   schedules: ['id', 'venue_id', 'kind', 'name_he', 'name_en', 'windows', 'valid_from', 'valid_to', 'created_at', 'updated_at'],
-  venue_hours: ['id', 'venue_id', 'weekday', 'opens', 'closes', 'created_at'],
+  venue_hours: ['id', 'venue_id', 'weekday', 'opens', 'closes', 'created_at', 'updated_at'],
   venue_closures: ['id', 'venue_id', 'from_date', 'to_date', 'note_he', 'note_en', 'created_at'],
   menu_revisions: ['id', 'venue_id', 'number', 'snapshot_version', 'snapshot', 'note', 'created_by', 'created_at'],
   onboarding_progress: ['venue_id', 'step', 'state', 'blockers', 'updated_by', 'updated_at'],

@@ -46,7 +46,9 @@ describe('act_for_owner', () => {
     assert.deepEqual(await afo(U.support, 'venue.delete', {}), { ok: false, code: 'action_unknown' });
     assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { slug: 'x' } }), { ok: false, code: 'payload_invalid' });
     assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { price: -5 } }), { ok: false, code: 'payload_invalid' });
-    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: w.b.dish, patch: { price: 1 } }), { ok: false, code: 'target_unknown' }, 'B\'s dish through A');
+    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { price: 1 } }), { ok: false, code: 'payload_invalid' }, 'no expectedUpdatedAt');
+    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: w.b.dish, patch: { price: 1 }, expectedUpdatedAt: new Date().toISOString() }),
+      { ok: false, code: 'target_unknown' }, 'B\'s dish through A');
     assert.deepEqual(await afo(U.support, 'availability.set', { targetKind: 'dish', targetId: ID.burger, until: { kind: 'forever' } }), { ok: false, code: 'payload_invalid' });
     const after = (await w.admin.query('select count(*)::int as n from public.activity_log')).rows[0].n;
     assert.equal(after, before, 'a refused act leaves no trace and no change');
@@ -55,14 +57,15 @@ describe('act_for_owner', () => {
   });
 
   test('staff fix a price for the owner: one dish row changed, the change and the reason in the log', async () => {
-    const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' } }, 'Typo in the imported price');
+    const at = (await w.admin.query(`select updated_at from public.dishes where id = $1`, [ID.lemonade])).rows[0].updated_at.toISOString();
+    const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' }, expectedUpdatedAt: at }, 'Typo in the imported price');
     assert.equal(r.ok, true);
     const log = (await ownerLog()).filter((x) => x.action === 'dishes.update' && x.via === 'act_for_owner').at(-1);
     assert.deepEqual(log.detail.changes, { price: [1600, 1700] }, 'numbers with their values; words only as "changed"');
     assert.deepEqual(log.detail.columns, ['desc_en', 'price']);
     assert.equal(log.reason, 'Typo in the imported price');
     const act = (await ownerLog()).filter((x) => x.action === 'support.act_for_owner').at(-1);
-    assert.deepEqual(act.detail, { action: 'dish.update', keys: ['dishId', 'patch'], patchKeys: ['desc_en', 'price'],
+    assert.deepEqual(act.detail, { action: 'dish.update', keys: ['dishId', 'expectedUpdatedAt', 'patch'], patchKeys: ['desc_en', 'price'],
       result: { dishId: ID.lemonade, fields: ['desc_en', 'price'] } });
     assert.ok(!JSON.stringify(act.detail).includes('Fresh'), 'the words staff typed are not in the log');
   });

@@ -1,12 +1,13 @@
-// The import's lifecycle around the reader (ADR-006, ADR-008): create_import, claim_import_scan, discard_import, the
-// scanner's (service role's) narrow rights, the raw input nobody reads back, and its purge after the retention period.
-// What the reader saves and what applying does (save_import_draft, apply_import) is tested with their SQL twins.
+// The import's lifecycle around the reader (ADR-006, ADR-008): create_import, claim_import_scan, save_import_draft,
+// discard_import, the scanner's (service role's) narrow rights, the images' own folder, the raw input nobody reads back,
+// and its purge. What applying does (apply_import) is in apply.test.mjs; the rules' SQL twins in import-twins.test.mjs.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { IMPORT_CLIENT_COLUMNS, IMPORT_TEXT_MAX } from '../../packages/contracts/src/index.ts';
+import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX } from '../../packages/contracts/src/index.ts';
+import { dish, draftOf, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
 before(async () => { w = await world(); });
@@ -36,11 +37,14 @@ const paste = (who, venue, text) => rpc(w.url, who, 'create_import', { p_venue: 
 let shaN = 0;
 const sha = () => (++shaN).toString(16).padStart(64, 'a');
 /** Screenshots: the client makes the import's id, uploads under <venue>/imports/<id>/, then creates the import. */
-const scan = (who, venue, files = 1, extra = {}) => {
+const scan = (who, venue, files = 1, extra = {}, source = 'scan') => {
   const id = randomUUID();
-  return rpc(w.url, who, 'create_import', { p_venue: venue, p_source: 'scan', p_import_id: id,
+  return rpc(w.url, who, 'create_import', { p_venue: venue, p_source: source, p_import_id: id,
     p_paths: pgArray(Array.from({ length: files }, (_, i) => `${venue}/imports/${id}/page-${i}.jpg`)), p_input_sha256: sha(), ...extra });
 };
+const claim = (who, id, mode = 'scan_menu') => rpc(w.url, who, 'claim_import_scan', { p_import: id, p_mode: mode });
+const counters = async () => Object.fromEntries((await w.admin.query(`select key, n from app.event_counters where key like 'import-images:%'`)).rows.map((r) => [r.key, r.n]));
+const clearCounters = () => w.admin.query(`delete from app.event_counters where key like 'import-images:%'`);
 const clearImports = () => w.admin.query(`delete from public.menu_imports where venue_id in ($1, $2)`, [A, w.B]);
 
 describe('create_import', () => {
@@ -110,11 +114,23 @@ describe('create_import', () => {
     assert.equal(await img([]), 'paths_missing');
     assert.equal(await code({ p_source: 'scan', p_text: 'x', p_import_id: I, p_paths: pgArray([`${dir}/a.jpg`]), p_input_sha256: sha() }), 'input_mismatch');
     assert.equal(await code({ p_source: 'scan', p_paths: pgArray([`${dir}/a.jpg`]), p_input_sha256: sha() }), 'id_invalid', 'images name their import');
-    assert.equal(await img(Array.from({ length: 21 }, (_, i) => `${dir}/${i}.jpg`)), 'too_many');
+    assert.deepEqual(IMPORT_IMAGES_MAX, { scan: 8, wolt_screenshots: 24 });
+    assert.equal(await img(Array.from({ length: 9 }, (_, i) => `${dir}/${i}.jpg`)), 'too_many', 'a scan: at most 8 pages');
+    const W = randomUUID();
+    const wolt = (n) => code({ p_source: 'wolt_screenshots', p_import_id: W, p_input_sha256: sha(),
+      p_paths: pgArray(Array.from({ length: n }, (_, i) => `${A}/imports/${W}/${i}.png`)) });
+    assert.equal(await wolt(25), 'too_many', 'Wolt screenshots: at most 24');
+    assert.equal(await wolt(24), undefined);
     assert.equal(await img([`${w.B}/imports/${I}/a.jpg`]), 'path_invalid', 'another venue\'s folder');
     assert.equal(await img([`${A}/imports/${randomUUID()}/a.jpg`]), 'path_invalid', 'another import\'s folder');
     assert.equal(await img([`${A}/imports/a.jpg`]), 'path_invalid', 'not in the import\'s own folder');
     assert.equal(await img([`${dir}/../a.jpg`]), 'path_invalid');
+    // exactly <venue>/imports/<import>/<name>: a name of letters, digits, dot, dash or underscore, 1 to 100 of them
+    for (const bad of [`${dir}/sub/a.jpg`, `${dir}/..`, `${dir}/.`, `${dir}/a b.jpg`, `${dir}/${'n'.repeat(101)}`, `${dir}/`, `${dir}/a%2Fb.jpg`,
+      `${dir}/שם.jpg`, `${dir.toUpperCase()}/a.jpg`]) {
+      assert.equal(await img([bad]), 'path_invalid', bad);
+    }
+    assert.equal(await img([`${dir}/${'n'.repeat(100)}`]), undefined, 'a 100-character name');
     assert.equal(await img([`${dir}/a.jpg`], { p_input_sha256: 'A'.repeat(64) }), 'sha_invalid');
     assert.equal(await img([`${dir}/a.jpg`], { p_rights_confirmed: true }), 'rights_invalid');
     const O = '44444444-4444-4444-8444-4444444444a1';
@@ -126,7 +142,7 @@ describe('create_import', () => {
 
   test('a venue\'s imports per local day are capped (app_config.import_caps)', async () => {
     await clearImports();
-    await withCfg('import_caps', { per_venue_day: 2, scans_per_venue_day: 10 }, async () => {
+    await withCfg('import_caps', { ...(await cfg('import_caps')), per_venue_day: 2 }, async () => {
       assert.equal((await paste(U.ownerB, w.B, 'One 10')).ok, true);
       assert.equal((await paste(U.ownerB, w.B, 'Two 20')).ok, true);
       assert.deepEqual(await paste(U.ownerB, w.B, 'Three 30'), { ok: false, code: 'rate_limited' });
@@ -139,55 +155,194 @@ describe('create_import', () => {
 });
 
 describe('claim_import_scan: the scanner, with the owner\'s token, before any paid call', () => {
-  test('owners and managers of the venue only', async () => {
+  test('owners and managers of the venue only; anyone else, and an import that does not exist, the same import_unknown', async () => {
+    await clearImports();
     const s = await scan(U.ownerA, A);
     const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerB: U.ownerB, support: U.support, admin: U.admin };
-    assert.deepEqual(await whoMay('claim_import_scan', { p_import: s.importId }, roles),
-      { anon: '42501', stranger: '42501', counterA: '42501', ownerB: '42501', support: '42501', admin: '42501' });
+    assert.deepEqual(await whoMay('claim_import_scan', { p_import: s.importId, p_mode: 'scan_menu' }, roles),
+      { anon: '42501', stranger: 'import_unknown', counterA: 'import_unknown', ownerB: 'import_unknown', support: 'import_unknown', admin: 'import_unknown' });
+    assert.deepEqual(await claim(U.ownerA, '00000000-0000-4000-8000-00000000ffff'), { ok: false, code: 'import_unknown' });
     assert.equal((await row(s.importId)).status, 'uploaded');
+    assert.deepEqual(await counters(), {}, 'nothing charged');
   });
 
-  test('the claim: parsing, what to read, once at a time; a stale claim may be taken again; a failed read retried', async () => {
+  test('the claim: parsing, what to read and how many images, once at a time; a stale claim may be taken again; a failed read retried', async () => {
     await clearImports();
+    await clearCounters();
     const s = await scan(U.ownerA, A, 2);
-    const c = await rpc(w.url, U.managerA, 'claim_import_scan', { p_import: s.importId });
+    const c = await claim(U.managerA, s.importId);
     const r = await row(s.importId);
-    assert.deepEqual(c, { ok: true, importId: s.importId, venueId: A, source: 'scan', paths: r.raw_paths, rightsConfirmed: false,
+    assert.deepEqual(c, { ok: true, importId: s.importId, venueId: A, source: 'scan', paths: r.raw_paths, images: 2, rightsConfirmed: false,
       langs: (await w.admin.query(`select langs from public.venues where id = $1`, [A])).rows[0].langs });
     assert.equal(r.status, 'parsing');
-    assert.deepEqual(await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: s.importId }), { ok: false, code: 'import_busy' });
+    assert.deepEqual(await claim(U.ownerA, s.importId), { ok: false, code: 'import_busy' });
     assert.deepEqual(await rpc(w.url, U.ownerA, 'discard_import', { p_import: s.importId }), { ok: false, code: 'import_busy' });
     await raw(`update public.menu_imports set updated_at = now() - interval '11 minutes' where id = $1`, [s.importId]);
-    assert.equal((await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: s.importId })).ok, true, 'a crashed read is claimed again');
+    assert.equal((await claim(U.ownerA, s.importId)).ok, true, 'a crashed read is claimed again');
     const failed = await as(w.url, 'service', async (x) => (await x.query(`update public.menu_imports set status = 'failed', error_code = 'model_failed' where id = $1`, [s.importId])).rowCount);
     assert.equal(failed, 1, 'the scanner marks its read failed');
-    assert.equal((await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: s.importId })).ok, true, 'a failed read may be retried');
+    assert.equal((await claim(U.ownerA, s.importId)).ok, true, 'a failed read may be retried');
     assert.equal((await row(s.importId)).error_code, null);
     const log = (await w.admin.query(`select actor_kind, via from public.activity_log where venue_id = $1 and action = 'menu_imports.update' order by id desc limit 2`, [A])).rows;
     assert.deepEqual([log[0].actor_kind, log[0].via], ['owner', 'rpc'], 'the claim');
     assert.equal(log[1].actor_kind, 'system', 'the scanner');
+    // every successful claim charges its images: three claims of two
+    assert.deepEqual(await counters(), { [`import-images:venue:${A}`]: 6, [`import-images:user:${U.managerA}`]: 2, [`import-images:user:${U.ownerA}`]: 4, 'import-images:all': 6 });
+    const wolt = await scan(U.ownerA, A, 3, { p_rights_confirmed: true }, 'wolt_screenshots');
+    const cw = await claim(U.ownerA, wolt.importId, 'wolt_screenshots');
+    assert.deepEqual([cw.ok, cw.source, cw.images, cw.rightsConfirmed], [true, 'wolt_screenshots', 3, true]);
+    await clearCounters();
   });
 
-  test('every code; the scans per local day (app_config.import_caps)', async () => {
+  test('the mode must be the import\'s source; a mismatch is not_scannable and costs nothing', async () => {
     await clearImports();
+    await clearCounters();
+    const s = await scan(U.ownerA, A);
     const p = await paste(U.ownerA, A, 'Soup 38');
-    assert.deepEqual(await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: p.importId }), { ok: false, code: 'not_scannable' });
-    assert.deepEqual(await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: '00000000-0000-4000-8000-00000000ffff' }), { ok: false, code: 'import_unknown' });
+    const wolt = await scan(U.ownerA, A, 1, {}, 'wolt_screenshots');
+    for (const [id, mode] of [[s.importId, 'wolt_screenshots'], [s.importId, 'scan'], [s.importId, null], [wolt.importId, 'scan_menu'], [p.importId, 'scan_menu'], [p.importId, 'paste']]) {
+      assert.deepEqual(await claim(U.ownerA, id, mode), { ok: false, code: 'not_scannable' }, `${id} ${mode}`);
+    }
+    assert.deepEqual(await counters(), {});
+    assert.deepEqual([(await row(s.importId)).status, (await row(wolt.importId)).status], ['uploaded', 'uploaded']);
+  });
+
+  test('closed: discarded, parsed, applied, purged', async () => {
+    await clearImports();
     const d = await scan(U.ownerA, A);
     await rpc(w.url, U.ownerA, 'discard_import', { p_import: d.importId });
-    assert.deepEqual(await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: d.importId }), { ok: false, code: 'import_closed' });
-    await w.admin.query(`delete from app.event_counters where key like 'import-scan:%'`);
-    await withCfg('import_caps', { per_venue_day: 20, scans_per_venue_day: 2 }, async () => {
-      const a = await scan(U.ownerA, A), b = await scan(U.ownerA, A), c = await scan(U.ownerA, A);
-      assert.equal((await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: a.importId })).ok, true);
-      await raw(`update public.menu_imports set updated_at = now() - interval '11 minutes' where id = $1`, [a.importId]);
-      assert.equal((await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: a.importId })).ok, true, 'a second read of the same import counts too');
-      assert.deepEqual(await rpc(w.url, U.ownerA, 'claim_import_scan', { p_import: b.importId }), { ok: false, code: 'rate_limited' });
-      assert.equal((await row(b.importId)).status, 'uploaded', 'a refused claim changes nothing');
-      assert.equal((await w.admin.query(`select n from app.event_counters where key = $1`, [`import-scan:${A}`])).rows[0].n, 2);
-      void c;
+    assert.deepEqual(await claim(U.ownerA, d.importId), { ok: false, code: 'import_closed' });
+    const f = await scan(U.ownerA, A);
+    assert.equal((await claim(U.ownerA, f.importId)).ok, true);
+    await as(w.url, 'service', (x) => x.query(`update public.menu_imports set status = 'failed', error_code = 'model_failed' where id = $1`, [f.importId]));
+    await as(w.url, 'service', (x) => x.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1`, [f.importId]));
+    assert.deepEqual(await claim(U.ownerA, f.importId), { ok: false, code: 'import_closed' }, 'its images are gone');
+    for (const status of ['parsed', 'applied']) {
+      const x = await scan(U.ownerA, A);
+      await raw(`update public.menu_imports set status = $2 where id = $1`, [x.importId, status]);
+      assert.deepEqual(await claim(U.ownerA, x.importId), { ok: false, code: 'import_closed' }, status);
+    }
+    await clearCounters();
+  });
+
+  test('the images per venue (local day), per person and in all (UTC day) are capped; rate_limited names the cap', async () => {
+    const base = await cfg('import_caps');
+    assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000 });
+    for (const [cap, other] of [['scan_images_per_venue_day', null], ['scan_images_per_user_day', null], ['scan_images_per_day', 'B']]) {
+      await clearImports();
+      await clearCounters();
+      await withCfg('import_caps', { ...base, [cap]: 3 }, async () => {
+        const a = await scan(U.ownerA, A, 2);
+        assert.equal((await claim(U.ownerA, a.importId)).ok, true);
+        // the second: the same venue and person, or (for the cap on all venues) another venue's owner
+        const b = other ? await scan(U.ownerB, w.B, 2) : await scan(U.ownerA, A, 2);
+        assert.deepEqual(await claim(other ? U.ownerB : U.ownerA, b.importId), { ok: false, code: 'rate_limited', cap });
+        assert.equal((await row(b.importId)).status, 'uploaded', 'a refused claim changes nothing');
+        const one = other ? await scan(U.ownerB, w.B, 1) : await scan(U.ownerA, A, 1);
+        assert.equal((await claim(other ? U.ownerB : U.ownerA, one.importId)).ok, true, 'up to the cap exactly');
+      });
+    }
+    // the person's cap follows the person across venues; the venue's cap counts everyone
+    await clearImports();
+    await clearCounters();
+    await withCfg('import_caps', { ...base, scan_images_per_venue_day: 3 }, async () => {
+      assert.equal((await claim(U.ownerA, (await scan(U.ownerA, A, 2)).importId)).ok, true);
+      assert.deepEqual(await claim(U.managerA, (await scan(U.managerA, A, 2)).importId), { ok: false, code: 'rate_limited', cap: 'scan_images_per_venue_day' });
+      assert.equal((await claim(U.ownerB, (await scan(U.ownerB, w.B, 2)).importId)).ok, true, 'another venue has its own');
     });
-    await w.admin.query(`delete from app.event_counters where key like 'import-scan:%'`);
+    // yesterday's images do not count
+    await w.admin.query(`update app.event_counters set window_start = window_start - interval '1 day' where key like 'import-images:%'`);
+    await withCfg('import_caps', { ...base, scan_images_per_venue_day: 3 }, async () => {
+      assert.equal((await claim(U.managerA, (await scan(U.managerA, A, 2)).importId)).ok, true);
+    });
+    await clearCounters();
+    await clearImports();
+  });
+});
+
+describe('save_import_draft: what a reader made of the input', () => {
+  const draft = (source = 'paste', o = {}) => draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800), dish('d-salad', 'סלט', 'Salad', null)])], [],
+    { source, ...o });
+  const save = (who, id, d, notes) => rpc(w.url, who, 'save_import_draft', { p_import: id, p_draft: d, ...(notes === undefined ? {} : { p_notes: notes }) });
+
+  test('owners and managers save a text import; the exceptions in the venue\'s languages; the notes readable, the text not', async () => {
+    await clearImports();
+    const p = await paste(U.ownerA, A, 'Soup 38\nSalad');
+    const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerB: U.ownerB, support: U.support, admin: U.admin };
+    assert.deepEqual(await whoMay('save_import_draft', { p_import: p.importId, p_draft: draft() }, roles),
+      { anon: '42501', stranger: 'import_unknown', counterA: 'import_unknown', ownerB: 'import_unknown', support: 'import_unknown', admin: 'import_unknown' });
+    const r = await save(U.managerA, p.importId, draft(), [{ code: 'lines_merged', count: 2 }]);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.counts, { sections: 1, dishes: 2, groups: 0, options: 0, photos: 0, dropped: 0 });
+    const langs = (await w.admin.query(`select langs from public.venues where id = $1`, [A])).rows[0].langs;
+    assert.deepEqual(r.exceptions, (await w.admin.query(`select app.import_exceptions($1::jsonb, $2::text[]) as e`, [JSON.stringify(draft()), langs])).rows[0].e);
+    assert.ok(r.exceptions.some((e) => e.code === 'price_missing' && e.key === 'd-salad'));
+    const x = await row(p.importId);
+    assert.deepEqual([x.status, x.error_code, x.parsed, x.exceptions, x.notes], ['parsed', null, draft(), r.exceptions, [{ code: 'lines_merged', count: 2 }]]);
+    const seen = await q(w.url, U.ownerA, `select ${IMPORT_CLIENT_COLUMNS.join(', ')} from public.menu_imports where id = $1`, [p.importId]);
+    assert.deepEqual(seen[0].notes, [{ code: 'lines_merged', count: 2 }]);
+    assert.equal((await q(w.url, U.ownerA, `select raw_text from public.menu_imports`)).error?.code, '42501');
+    const log = (await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'menu_imports.update' order by id desc limit 1`, [A])).rows[0];
+    for (const hidden of ['parsed', 'exceptions', 'notes']) assert.ok(!(hidden in (log.detail.changes ?? {})), `${hidden} is not copied into the log`);
+    const ev = (await w.admin.query(`select props from public.events where name = 'import_parsed' and props->>'importId' = $1`, [p.importId])).rows;
+    assert.deepEqual(ev.map((e) => e.props), [{ importId: p.importId, source: 'paste', sections: 1, dishes: 2, exceptions: r.exceptions.length }]);
+    // a correction of a parsed draft
+    const fixed = draft('paste', { dropped: 1 });
+    assert.equal((await save(U.ownerA, p.importId, fixed)).ok, true);
+    assert.deepEqual([(await row(p.importId)).parsed.dropped, (await row(p.importId)).notes], [1, []], 'no notes: none');
+  });
+
+  test('every code', async () => {
+    await clearImports();
+    const p = await paste(U.ownerA, A, 'Soup 38');
+    const code = async (d, notes, who = U.ownerA, id = p.importId) => (await save(who, id, d, notes)).code;
+    assert.equal(await code(null), 'too_large');
+    assert.equal(await code({ ...draft(), pad: 'x'.repeat(1500001) }), 'too_large', 'over 1 500 000 bytes');
+    const bad = await save(U.ownerA, p.importId, { ...draft(), v: 2 });
+    assert.deepEqual([bad.code, bad.errors], ['invalid_draft', [{ code: 'version', path: 'v' }]]);
+    assert.equal(await code(draft('wolt_text')), 'source_mismatch');
+    for (const notes of [{}, [1], [{ code: 'x', count: 1 }], [{ code: 'Lines', count: 1 }], [{ code: 'ok_code', count: -1 }], [{ code: 'ok_code', count: 1.5 }],
+      [{ code: 'ok_code', count: 1, text: 'Soup' }], Array.from({ length: 101 }, () => ({ code: 'ok_code', count: 1 }))]) {
+      assert.equal(await code(draft(), notes), 'notes_invalid', JSON.stringify(notes).slice(0, 60));
+    }
+    assert.equal(await code(draft(), []), undefined);
+    await raw(`update public.menu_imports set status = 'parsing' where id = $1`, [p.importId]);
+    assert.equal(await code(draft()), 'import_busy', 'a claim is reading it');
+    for (const status of ['applied', 'discarded']) {
+      await raw(`update public.menu_imports set status = $2 where id = $1`, [p.importId, status]);
+      assert.equal(await code(draft()), 'import_closed', status);
+    }
+    assert.equal(await code(draft(), undefined, U.ownerA, '00000000-0000-4000-8000-00000000ffff'), 'import_unknown');
+  });
+
+  test('the scanner saves only an import it claimed; photos only from the import\'s own folder, confirmed only when the owner confirmed them', async () => {
+    await clearImports();
+    await clearCounters();
+    const s = await scan(U.ownerA, A, 1);
+    const photo = (path, rights = 'unknown') => draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800, { photo: { path, rights } })])], [],
+      { source: 'scan' });
+    const own = `${A}/imports/${s.importId}/page-0.jpg`;
+    assert.deepEqual(await save('service', s.importId, photo(own)), { ok: false, code: 'import_closed' }, 'not claimed');
+    assert.equal((await claim(U.ownerA, s.importId)).ok, true);
+    assert.deepEqual(await save(U.ownerA, s.importId, photo(own)), { ok: false, code: 'import_busy' }, 'the owner waits for the read');
+    for (const path of [`${A}/imports/${randomUUID()}/page-0.jpg`, `${w.B}/imports/${s.importId}/page-0.jpg`, `${A}/dishes/page-0.jpg`]) {
+      const r = await save('service', s.importId, photo(path));
+      assert.deepEqual([r.code, r.errors], ['invalid_draft', [{ code: 'path_invalid', path: 'sections[0].dishes[0].photo.path' }]], path);
+    }
+    const r = await save('service', s.importId, photo(own, 'confirmed'));
+    assert.deepEqual([r.code, r.errors], ['rights_unconfirmed', [{ code: 'rights_unconfirmed', path: 'sections[0].dishes[0].photo.rights' }]]);
+    const ok = await save('service', s.importId, photo(own), [{ code: 'pages_read', count: 1 }]);
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    assert.deepEqual([(await row(s.importId)).status, ok.counts.photos], ['parsed', 1]);
+    assert.ok(ok.exceptions.some((e) => e.code === 'photo_rights_unknown'));
+    assert.deepEqual(await save('service', s.importId, photo(own)), { ok: false, code: 'import_closed' }, 'once saved, the claim is over');
+    const wolt = await scan(U.ownerA, A, 1, { p_rights_confirmed: true }, 'wolt_screenshots');
+    assert.equal((await claim(U.ownerA, wolt.importId, 'wolt_screenshots')).ok, true);
+    const confirmed = draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800,
+      { photo: { path: `${A}/imports/${wolt.importId}/page-0.jpg`, rights: 'confirmed' } })])], [], { source: 'wolt_screenshots' });
+    assert.equal((await save('service', wolt.importId, confirmed)).ok, true, 'rights confirmed at upload');
+    await clearCounters();
+    await clearImports();
   });
 });
 
@@ -237,12 +392,61 @@ describe('the raw input: written once, read by nobody, purged after the retentio
     assert.match((await q(w.url, 'service', `update public.menu_imports set status = 'failed' where id = $1`, [p.importId])).error?.message ?? '', /import_transition/,
       'only a read it claimed');
     const s = await scan(U.ownerA, A);
+    const purge = `update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null returning status`;
     assert.match((await q(w.url, 'service', `update public.menu_imports set raw_paths = '{}' where id = $1`, [s.importId])).error?.message ?? '', /import_input_fixed/,
       'a purge says when');
-    assert.deepEqual(await q(w.url, 'service', `update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 returning status`, [s.importId]), [{ status: 'uploaded' }]);
+    assert.match((await q(w.url, 'service', purge, [s.importId])).error?.message ?? '', /import_not_purgeable/, 'an import still waiting for its read');
+    assert.equal((await claim(U.ownerA, s.importId)).ok, true);
+    assert.match((await q(w.url, 'service', purge, [s.importId])).error?.message ?? '', /import_not_purgeable/, 'never one a claim is reading');
+    await as(w.url, 'service', (x) => x.query(`update public.menu_imports set status = 'failed', error_code = 'model_failed' where id = $1`, [s.importId]));
+    assert.match((await q(w.url, 'service', `update public.menu_imports set status = 'uploaded', raw_paths = '{}', raw_purged_at = now() where id = $1`, [s.importId])).error?.message ?? '',
+      /import_not_purgeable|import_transition/, 'a purge changes nothing else');
+    assert.deepEqual(await q(w.url, 'service', purge, [s.importId]), [{ status: 'failed' }]);
+    assert.deepEqual(await q(w.url, 'service', purge, [s.importId]), [], 'once: the condition finds nothing the second time');
     assert.match((await q(w.url, 'service', `update public.menu_imports set raw_purged_at = now() where id = $1`, [s.importId])).error?.message ?? '', /import_input_fixed/, 'once');
-    assert.match((await q(w.url, 'service', `update public.menu_imports set raw_paths = $2 where id = $1`, [s.importId, [`${A}/imports/new.jpg`]])).error?.message ?? '', /import_input_fixed/);
+    assert.match((await q(w.url, 'service', `update public.menu_imports set raw_paths = $2 where id = $1`, [s.importId, [`${A}/imports/${s.importId}/new.jpg`]])).error?.message ?? '', /import_input_fixed/);
     await clearImports();
+    await clearCounters();
+  });
+
+  test('the table itself holds the images to their import\'s folder (menu_imports_paths_ck)', async () => {
+    const id = randomUUID();
+    const ins = (paths) => w.admin.query(`insert into public.menu_imports (id, venue_id, source, raw_paths, input_sha256) values ($1, $2, 'scan', $3, $4)`,
+      [id, A, paths, sha()]);
+    for (const bad of [[`${A}/imports/${randomUUID()}/a.jpg`], [`${A}/imports/${id}/sub/a.jpg`], [`${A}/imports/${id}/..`], [`${A}/imports/${id}/a b.jpg`]]) {
+      await assert.rejects(ins(bad), (e) => e.code === '23514' && /menu_imports_paths_ck/.test(e.message), bad[0]);
+    }
+    await assert.rejects(ins(Array.from({ length: 25 }, (_, i) => `${A}/imports/${id}/${i}.png`)), (e) => e.code === '23514');
+    await ins([`${A}/imports/${id}/a.jpg`]);
+    await clearImports();
+  });
+
+  test('list_purgeable_imports (the scanner\'s purge mode): image imports whose images may go, with their venue and paths', async () => {
+    await clearImports();
+    await clearCounters();
+    const fresh = await scan(U.ownerA, A, 1);
+    const stale = await scan(U.ownerA, A, 2);
+    const done = await scan(U.ownerB, w.B, 1);
+    const reading = await scan(U.ownerA, A, 1);
+    await paste(U.ownerA, A, 'Text is purged by the daily job');
+    await rpc(w.url, U.ownerB, 'discard_import', { p_import: done.importId });
+    assert.equal((await claim(U.ownerA, reading.importId)).ok, true);
+    await raw(`update public.menu_imports set updated_at = now() - interval '31 days' where id in ($1, $2)`, [stale.importId, reading.importId]);
+    await raw(`update public.menu_imports set status = 'parsing', updated_at = now() where id = $1`, [reading.importId]);
+    for (const who of ['anon', U.ownerA, U.support, U.admin]) {
+      assert.equal((await rpc(w.url, who, 'list_purgeable_imports', {})).error?.code, '42501', String(who));
+    }
+    const list = await rpc(w.url, 'service', 'list_purgeable_imports', {});
+    assert.deepEqual(new Set(list.map((x) => x.importId)), new Set([stale.importId, done.importId]), 'not a fresh one, not one being read, not text');
+    const st = list.find((x) => x.importId === stale.importId);
+    assert.deepEqual(st, { importId: stale.importId, venueId: A, status: 'uploaded', paths: (await row(stale.importId)).raw_paths });
+    assert.ok(st.paths.every((x) => x.startsWith(`${A}/imports/${stale.importId}/`)));
+    assert.equal((await rpc(w.url, 'service', 'list_purgeable_imports', { p_limit: 1 })).length, 1);
+    for (const x of list) await as(w.url, 'service', (c) => c.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null`, [x.importId]));
+    assert.deepEqual(await rpc(w.url, 'service', 'list_purgeable_imports', {}), []);
+    assert.equal((await row(fresh.importId)).raw_purged_at, null);
+    await clearImports();
+    await clearCounters();
   });
 
   test('the daily job empties the raw text of finished imports past import_raw_retention_days; the row and its hash stay', async () => {
@@ -254,16 +458,16 @@ describe('the raw input: written once, read by nobody, purged after the retentio
     await rpc(w.url, U.ownerA, 'discard_import', { p_import: fresh.importId });
     await raw(`update public.menu_imports set updated_at = now() - interval '31 days' where id in ($1, $2)`, [old.importId, open.importId]);
     const job = (await w.admin.query('select app.daily_maintenance() as r')).rows[0].r;
-    assert.equal(job.importsPurged, 1);
+    assert.equal(job.importsPurged, 2, 'a finished import, and one left waiting past the retention period');
     const o = await row(old.importId);
     assert.deepEqual([o.raw_text, o.raw_purged_at !== null, o.status, o.input_sha256.length], [null, true, 'discarded', 64]);
     assert.equal((await row(fresh.importId)).raw_text, 'Fresh soup 38', 'within the retention period');
-    assert.equal((await row(open.importId)).raw_text, 'Open soup 38', 'not finished');
+    assert.deepEqual([(await row(open.importId)).raw_text, (await row(open.importId)).status], [null, 'uploaded'], 'never read, past the retention period');
     assert.equal((await w.admin.query('select app.daily_maintenance() as r')).rows[0].r.importsPurged, 0, 'once');
     await withCfg('import_raw_retention_days', 0, async () => {
       assert.equal((await w.admin.query('select app.daily_maintenance() as r')).rows[0].r.importsPurged, 1, 'the setting is read each time');
     });
-    assert.equal((await w.admin.query(`select count(*)::int as n from public.menu_imports where raw_purged_at is not null and raw_text is null`)).rows[0].n, 2);
+    assert.equal((await w.admin.query(`select count(*)::int as n from public.menu_imports where raw_purged_at is not null and raw_text is null`)).rows[0].n, 3);
     await clearImports();
   });
 });

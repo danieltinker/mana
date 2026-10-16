@@ -8,9 +8,9 @@ import { startCluster } from './harness/cluster.mjs';
 import { recordContractCalls } from './harness/import-corpus.mjs';
 import { ABSENT, compareValidator, inputs, storable } from './harness/parity.mjs';
 import {
-  draftExceptions, importKey, planApply, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
+  draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, importKey, planApply, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
 } from '../../packages/contracts/src/index.ts';
-import { bistroDraft, copy } from '../../packages/contracts/test/import-fixtures.ts';
+import { applyPlan, bistroDraft, copy, dish, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let db;
 let calls;
@@ -128,18 +128,76 @@ describe('decisions and the RPCs\' inputs', () => {
 });
 
 describe('the plan', () => {
-  test('app.plan_import_on is planApply on every plan the contracts make (steps, summary, exceptions, errors)', async () => {
-    const list = (calls.planApply ?? []).filter((a) => storable(a));
-    assert.ok(list.length > 50, String(list.length));
+  /** Runs the SQL twin on each [draft, existing, decisions, opts] and compares it with planApply; returns how many. */
+  async function comparePlans(list, label) {
+    const bad = [];
     for (const [i, [draft, existing, decisions, opts]] of list.entries()) {
       const { rows } = await db.admin.query(`select app.plan_import_on($1::jsonb, $2::jsonb, $3::jsonb, $4::text[]) as r`,
         [JSON.stringify(draft), JSON.stringify(existing), JSON.stringify(decisions), opts?.langs ?? ['he', 'en']]);
-      const want = planApply(draft, existing, decisions, opts ?? {});
-      assert.deepEqual(rows[0].r, JSON.parse(JSON.stringify(want)), `plan ${i}`);
+      const want = JSON.parse(JSON.stringify(planApply(draft, existing, decisions, opts ?? {})));
+      try { assert.deepEqual(rows[0].r, want); } catch (e) { bad.push(`${label} ${i}: ${e.message.slice(0, 1500)}`); }
     }
+    assert.deepEqual(bad.slice(0, 3), [], `${bad.length} of ${list.length} plans differ`);
+    return list.length;
+  }
+
+  test('app.plan_import_on is planApply on every plan the contracts make (steps, summary, exceptions, fromDraft, errors)', async () => {
+    const list = (calls.planApply ?? []).filter((a) => storable(a));
+    assert.ok(list.length > 50, String(list.length));
+    await comparePlans(list, 'recorded');
   });
 
-  test('the plan on generated answers to the base draft over the menu it made (skips, choices, every check answered both ways)', async () => {
-    void copy;
+  test('the plan on generated drafts over the menu the base draft made, with every check answered each way', async () => {
+    const base = bistroDraft();
+    const answerFixes = (d, existing = EMPTY_MENU) => {
+      const choices = {};
+      for (const e of draftExceptions(d)) if (e.severity === 'fix') choices[`${e.code}@${e.key}`] = EXCEPTION_CHOICES[e.code][0];
+      const p = planApply(d, existing, { v: 1, pricesConfirmed: true, choices });
+      if (p.ok) for (const e of p.value.exceptions) if (e.severity === 'fix') choices[`${e.code}@${e.key}`] = EXCEPTION_CHOICES[e.code][0];
+      return { v: 1, pricesConfirmed: true, choices };
+    };
+    const first = planApply(base, EMPTY_MENU, answerFixes(base));
+    assert.equal(first.ok, true);
+    const menu = applyPlan(EMPTY_MENU, first.value);
+    const variants = {
+      same: (d) => d,
+      prices: (d) => { d.sections[0].dishes[0].price = 6600; d.sections[0].dishes[1].price = 7400; d.groups[2].options[0].price = 350; return d; },
+      renamed: (d) => { d.sections[0].name = { he: 'מנות', en: 'Main courses' }; d.sections[0].key = 's-main-courses'; return d; },
+      moved: (d) => { d.sections[1].dishes.push(d.sections[0].dishes.pop()); return d; },
+      newDish: (d) => { d.sections[0].dishes.push(dish('d-steak', 'סטייק', 'Steak', 9800, { groups: [link('g-side', 1, 1)] })); return d; },
+      fewerOptions: (d) => { d.groups[0].options.pop(); return d; },
+      moreOptions: (d) => { d.groups[0].options.push(opt('o-rice', 'אורז', 'Rice', 0)); return d; },
+      nested: (d) => { d.groups[1].options.push(opt('o-mayo', 'מיונז', 'Mayo', 0)); return d; },
+      unreachable: (d) => { d.groups[2].min = 3; d.groups[2].max = 3; d.groups[2].options[1].maxQty = 1; return d; },
+      zero: (d) => { d.sections[1].dishes[0].price = 0; return d; },
+      otherKind: (d) => { d.sections[1].kind = 'food'; return d; },
+      twins: (d) => { d.sections.unshift(section('s-popular', 'פופולרי', 'Popular', [dish('d-burger-2', 'המבורגר', 'Burger', 7200)])); return d; },
+    };
+    const list = [];
+    for (const [name, change] of Object.entries(variants)) {
+      const d = change(copy(base));
+      const fixed = answerFixes(d, menu);
+      const asked = planApply(d, menu, fixed);
+      const exceptions = asked.ok ? asked.value.exceptions : draftExceptions(d);
+      const decisions = [fixed, { ...fixed, pricesConfirmed: false }];
+      // every check and fix answered with each of its choices, one at a time; grouped price questions overridden per node
+      for (const e of exceptions) {
+        for (const c of EXCEPTION_CHOICES[e.code]) decisions.push({ ...fixed, choices: { ...fixed.choices, [`${e.code}@${e.key}`]: c } });
+        decisions.push({ ...fixed, choices: { ...fixed.choices, [`${e.code}@${e.key}`]: 'nonsense_choice' } });
+      }
+      for (const dk of ['d-schnitzel', 'd-burger', 'o-cheese']) {
+        decisions.push({ ...fixed, choices: { ...fixed.choices, [`price_differs@${dk}`]: 'take_new' } });
+        decisions.push({ ...fixed, choices: { ...fixed.choices, [`price_differs@${dk}`]: 'merge' } });
+      }
+      for (const skip of [['s-mains'], ['d-burger'], ['g-side'], ['o-fries'], ['d-burger>g-extras'], ['g-sauce', 'o-salad']]) decisions.push({ ...fixed, skip });
+      for (const dec of decisions) list.push([d, menu, dec], [d, EMPTY_MENU, dec]);
+      list.push([d, menu, fixed, { langs: ['he'] }]);
+    }
+    const n = await comparePlans(list.filter((a) => storable(a)), 'generated');
+    assert.ok(n > 300, String(n));
+    // Hopa test 1: the same draft again creates nothing
+    const again = planApply(base, menu, answerFixes(base, menu));
+    assert.equal(again.ok, true);
+    assert.deepEqual(again.value.steps.filter((x) => x.op === 'create'), []);
   });
 });
