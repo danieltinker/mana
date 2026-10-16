@@ -905,9 +905,9 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 export type CreateImportInput = {
   readonly venueId: string;
   readonly source: ImportSource;
-  readonly text: string | null;
-  readonly paths: readonly string[] | null;
-  readonly inputSha256: string | null;
+  readonly text?: string | null;
+  readonly paths?: readonly string[] | null;
+  readonly inputSha256?: string | null;
   readonly rightsConfirmed: boolean;
 };
 export type CreateImportReply = { readonly ok: true; readonly importId: string; readonly status: MenuImportRow['status']; readonly reused: boolean };
@@ -919,12 +919,14 @@ export function validateCreateImport(raw: unknown): Validation<CreateImportInput
   if (!isUuid(raw.venueId)) x.add('id_invalid', 'venueId');
   if (!oneOf(IMPORT_SOURCES, raw.source)) return { ok: false, errors: [...x.list, { code: 'enum_invalid', path: 'source' }] };
   const textSource = (TEXT_SOURCES as readonly string[]).includes(raw.source);
+  // a field left out counts as null
+  const text = raw.text ?? null, paths = raw.paths ?? null, sha = raw.inputSha256 ?? null;
   if (textSource) {
-    if (raw.paths !== null || raw.inputSha256 !== null) x.add('input_mismatch', 'paths');
-    if (!isString(raw.text) || isBlank(raw.text)) x.add('text_missing', 'text');
-    else if (raw.text.length > IMPORT_TEXT_MAX) x.add('text_too_long', 'text');
+    if (paths !== null || sha !== null) x.add('input_mismatch', 'paths');
+    if (!isString(text) || isBlank(text)) x.add('text_missing', 'text');
+    else if (text.length > IMPORT_TEXT_MAX) x.add('text_too_long', 'text');
   } else {
-    if (raw.text !== null) x.add('input_mismatch', 'text');
+    if (text !== null) x.add('input_mismatch', 'text');
     if (!Array.isArray(raw.paths) || raw.paths.length === 0) x.add('paths_missing', 'paths');
     else if (raw.paths.length > IMPORT_IMAGES_MAX) x.add('too_many', 'paths');
     else raw.paths.forEach((p, i) => {

@@ -417,6 +417,7 @@ test('validateCreateImport: text for text sources, private paths and a hash for 
   const err = (o: object) => { const r = validateCreateImport(o); return r.ok ? [] : r.errors.map((e) => e.code).sort(); };
   assert.ok(ok({ venueId: venue, source: 'wolt_text', text: 'Mains\nSchnitzel 64', paths: null, inputSha256: null, rightsConfirmed: false }));
   assert.ok(ok({ venueId: venue, source: 'wolt_screenshots', text: null, paths: [`${venue}/imports/1.png`], inputSha256: sha, rightsConfirmed: true }));
+  assert.ok(ok({ venueId: venue, source: 'paste', text: 'Soup 32', rightsConfirmed: false }), 'a field left out is null');
   assert.deepEqual(err({ venueId: venue, source: 'paste', text: ' \n ', paths: null, inputSha256: null, rightsConfirmed: false }), ['text_missing']);
   assert.deepEqual(err({ venueId: venue, source: 'paste', text: 'x'.repeat(60_001), paths: null, inputSha256: null, rightsConfirmed: false }), ['text_too_long']);
   assert.deepEqual(err({ venueId: venue, source: 'scan', text: 'x', paths: [`${venue}/a.jpg`], inputSha256: sha, rightsConfirmed: false }), ['input_mismatch']);
