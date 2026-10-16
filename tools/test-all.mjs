@@ -63,7 +63,8 @@ const run = (name, dir, cmd) => new Promise((done) => {
     const tap = (k) => { const m = [...out.matchAll(new RegExp('^# ' + k + ' (\\d+)$', 'gm'))]; return m.length ? m.reduce((a, x) => a + +x[1], 0) : null; };
     const own = /(\d+) passed, (\d+) failed/.exec(out);
     const counts = tap('pass') !== null ? `${tap('pass')} pass, ${tap('fail')} fail` : own ? `${own[1]} pass, ${own[2]} fail` : '';
-    done({ name, ok: code === 0, counts, s: ((Date.now() - t0) / 1000).toFixed(0) });
+    const note = /^# note: ([^(\n]+)/m.exec(out);        // a suite that checked less than it could says so (names: no list)
+    done({ name, ok: code === 0, counts: [note && note[1].trim(), counts].filter(Boolean).join('; '), s: ((Date.now() - t0) / 1000).toFixed(0) });
   });
 });
 
