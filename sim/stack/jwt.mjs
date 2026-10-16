@@ -1,6 +1,10 @@
 // HS256 JSON Web Tokens with node:crypto only (the stack mints its own anon and service keys with a LOCAL secret).
 import crypto from 'node:crypto';
 
+// LOCAL ONLY. Never a project's secret: it signs the stack's own anon and service keys and GoTrue's sessions. Kept in
+// this module, which needs no package, so tools/env.mjs can verify the local anon key on a machine without the stack.
+export const JWT_SECRET = 'sim-local-only-secret-not-for-any-project-0123456789';
+
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 
 export function signJwt(payload, secret, { expiresInSec = 10 * 365 * 24 * 3600, issuedAt = null } = {}) {

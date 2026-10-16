@@ -1,11 +1,9 @@
-# These lines hold Supabase's publishable key (sb_publishable_…). It is made for browsers, is already served publicly
-# at halom.io/mana/config.js, and row-level security guards the data, so gitleaks' generic-api-key rule is a false
-# positive here. Secret keys (sb_secret_…, service_role) must never be in this repository.
-# The entries are line numbers: after editing CONTRACT.md or config.js, run `gitleaks detect --no-git --source .` and
-# move them to the new lines. Every config file (config.js, config/demo.js: the demo database `mana`'s publishable key)
-# keeps its key on line 4, so `config.js:generic-api-key:4` also covers _site/config.js; tools/check-config.mjs checks
-# that each entry here still points at a publishable key.
-config.js:generic-api-key:4
-config/demo.js:generic-api-key:4
-CONTRACT.md:generic-api-key:45
-CONTRACT.md:generic-api-key:195
+# Findings gitleaks may skip, by fingerprint (file:rule:line). There are none: the Supabase publishable keys
+# (sb_publishable_… in config.js, config/demo.js and CONTRACT.md: made for browsers, served publicly, guarded by
+# row-level security) are allowed by their value in .gitleaks.toml, and nothing else is. A fingerprint here would let
+# any finding of that rule on that line through, a pasted secret key included, so add one only for a reviewed false
+# positive that no value pattern can describe. Secret keys (sb_secret_…, service_role) must never be in this repository.
+# Scan the commits of a branch before a push, not the working tree (whose ignored outputs, _site/ and config/local.js,
+# are never committed):
+#   gitleaks detect --source . --log-opts="origin/feat/platform-foundation..HEAD" --redact --no-banner
+# tools/check-config.mjs checks that any entry here points at a publishable key.
