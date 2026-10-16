@@ -179,6 +179,8 @@ test('from Home: a dish off for two hours in two taps, back in one; everything t
   await hrs.locator('[data-action="close-today"]').click();
   await hrs.locator('[data-action="reopen-today"]').waitFor();
   await page.unroute(closures);
+  // the retry's insert meets the stored row (409) and reads it back: the one console line this step causes on purpose
+  page.problems = page.problems.filter((p) => !/status of 409 \(Conflict\)/.test(p));
   const today = localParts(Date.now(), TZ).date;
   assert.equal((await owner.api.select('venue_closures', { select: 'id', venue_id: `eq.${owner.venueId}`, from_date: `eq.${today}` })).length, 1, 'one closed date');
   assert.equal((await live()).open, false, 'closed today');
