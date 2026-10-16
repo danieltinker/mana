@@ -87,10 +87,13 @@ export const IMPORT_SOURCE_LABEL: Readonly<Record<ImportSource, string>> = {
   scan: 'Scan of a printed menu', paste: 'Pasted text', wolt_screenshots: 'Wolt screenshots', wolt_text: 'Wolt text',
 };
 export const EXCEPTION_LABEL: Readonly<Record<ImportExceptionCode, string>> = {
-  price_missing: 'No price', price_unreadable: 'Price unreadable', option_price_unreadable: 'Add-on price unreadable', limits_guessed: 'Limits guessed',
-  limits_unreachable: 'Minimum unreachable', section_duplicate: 'Section twice', dish_duplicate: 'Dish twice', name_missing_lang: 'Name in one language only',
-  translation_check: 'Translated: needs a native read', nesting_too_deep: 'Add-ons nested too deep', too_many: 'Over the limits',
-  photo_rights_unknown: 'Photo rights not confirmed', allergens_check: 'Allergens to check',
+  price_missing: 'No price', price_unreadable: 'Price unreadable', price_zero: 'Price 0', option_price_unreadable: 'Add-on price unreadable',
+  limits_guessed: 'Limits guessed', limits_unreachable: 'Minimum unreachable', section_duplicate: 'Section twice', dish_duplicate: 'Dish twice',
+  dish_repeated: 'Dish repeated in another section', name_missing_lang: 'Names in one language only', translation_check: 'Translated: needs a native read',
+  nesting_too_deep: 'Add-ons nested too deep', too_many: 'Over the limits', photo_rights_unknown: 'Photo rights not confirmed',
+  allergens_check: 'Allergens to check', section_renamed: 'Section renamed?', dish_elsewhere: 'Dish already in another section',
+  dish_other_kind: 'Same name, another kind of section', price_differs: 'Price differs from the menu', group_changed: 'Add-ons differ from the menu',
+  opens_changed: 'Nested add-ons differ',
 };
 export const TARGET_LABEL: Readonly<Record<TargetKind, string>> = { section: 'Section', dish: 'Dish', option: 'Add-on' };
 const A_TARGET: Readonly<Record<TargetKind, string>> = { section: 'a section', dish: 'a dish', option: 'an add-on' };
@@ -216,6 +219,7 @@ export function describe(e: ActivityEntry, nameOf: NameOf = () => null): Said {
     case 'menu.restore': return { title: 'An earlier menu restored', detail: num(d.revision) !== null ? `Revision ${num(d.revision)}` : null };
     case 'menu.unpublish': return { title: 'Menu taken offline', detail: null };
     case 'menu.export': return { title: 'Menu exported', detail: null };
+    case 'menu.read': return { title: 'Halom read a stored menu', detail: num(d.revision) !== null ? `Revision ${num(d.revision)}` : null };
     case 'support.act_for_owner': {
       const a = str(d.action);
       return { title: 'Halom acted for the owner', detail: a && isAct(a) ? ACT_LABEL[a] : a };
@@ -311,6 +315,37 @@ export function snapshotNames(s: SnapshotV2 | null): NameOf {
   }
   return (id) => m.get(id.toLowerCase()) ?? m.get(id) ?? null;
 }
+
+/** What changed from one stored revision to another, by id (a dish keeps its id when it is renamed or repriced). */
+export type MenuDiff = {
+  readonly sectionsAdded: readonly { readonly id: string; readonly name: Text }[];
+  readonly sectionsRemoved: readonly { readonly id: string; readonly name: Text }[];
+  readonly dishesAdded: readonly { readonly id: string; readonly name: Text }[];
+  readonly dishesRemoved: readonly { readonly id: string; readonly name: Text }[];
+  readonly prices: readonly { readonly id: string; readonly name: Text; readonly from: number | null; readonly to: number | null }[];
+  readonly renamed: readonly { readonly id: string; readonly from: Text; readonly to: Text }[];
+};
+
+export function compareSnapshots(base: SnapshotV2, next: SnapshotV2): MenuDiff {
+  const dishes = (s: SnapshotV2) => new Map(allDishes(s).map(({ dish }) => [dish.id, dish] as const));
+  const sections = (s: SnapshotV2) => new Map(s.sections.map((x) => [x.id, x] as const));
+  const [bd, nd, bs, ns] = [dishes(base), dishes(next), sections(base), sections(next)];
+  const same = (a: Text, b: Text) => a.he === b.he && a.en === b.en;
+  return {
+    sectionsAdded: [...ns.values()].filter((x) => !bs.has(x.id)).map((x) => ({ id: x.id, name: x.name })),
+    sectionsRemoved: [...bs.values()].filter((x) => !ns.has(x.id)).map((x) => ({ id: x.id, name: x.name })),
+    dishesAdded: [...nd.values()].filter((x) => !bd.has(x.id)).map((x) => ({ id: x.id, name: x.name })),
+    dishesRemoved: [...bd.values()].filter((x) => !nd.has(x.id)).map((x) => ({ id: x.id, name: x.name })),
+    prices: [...nd.values()].flatMap((x) => {
+      const was = bd.get(x.id);
+      const from = was?.price?.amount ?? null, to = x.price?.amount ?? null;
+      return was && from !== to ? [{ id: x.id, name: x.name, from, to }] : [];
+    }),
+    renamed: [...nd.values()].flatMap((x) => { const was = bd.get(x.id); return was && !same(was.name, x.name) ? [{ id: x.id, from: was.name, to: x.name }] : []; }),
+  };
+}
+export const diffSize = (d: MenuDiff): number =>
+  d.sectionsAdded.length + d.sectionsRemoved.length + d.dishesAdded.length + d.dishesRemoved.length + d.prices.length + d.renamed.length;
 
 /** The choices for "until" when Halom takes something off for the owner. */
 export const UNTIL_CHOICES: ReadonlyArray<{ readonly id: string; readonly label: string; readonly spec: UntilSpec }> = [

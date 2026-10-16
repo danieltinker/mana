@@ -7,11 +7,12 @@
  * typed fake in the tests.
  */
 import {
-  ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, PLANS, TAGS, TARGET_KINDS, isObject, isReason, isUntilSpec, isUuid, oneOf,
-  stripBlank, validateOpsAnalyticsQuery, validateOpsVenueQuery, validateOpsVenuesQuery, validateSetDemo, validateSetStep, validateUpdateCase,
-  type ActForOwnerAction, type CaseStatus, type EntitlementStatus, type Issue, type OnboardingState, type OnboardingStep, type OpsAnalytics,
-  type OpsAnalyticsQuery, type OpsVenueDetail, type OpsVenues, type OpsVenuesQuery, type Plan, type PublicMenuResponse, type SetDemoInput,
-  type SetDemoReply, type StaffRole, type Tag, type TargetKind, type UntilSpec, type UpdateCaseInput, type UpdateCaseReply,
+  isObject, stripBlank, validateActForOwner, validateApproveVenue, validateOpsAnalyticsQuery, validateOpsLeadsQuery, validateOpsRevisionQuery,
+  validateOpsVenueQuery, validateOpsVenuesQuery, validateSetDemo, validateSetPlan, validateUpdateCase, validateUpdateLead,
+  type ActForOwnerInput, type ActForOwnerReply, type ApproveVenueInput, type ApproveVenueReply, type Issue, type OpsAnalytics,
+  type OpsAnalyticsQuery, type OpsLeads, type OpsLeadsQuery, type OpsRevision, type OpsRevisionQuery, type OpsVenueDetail, type OpsVenues,
+  type OpsVenuesQuery, type PublicMenuResponse, type SetDemoInput, type SetDemoReply, type SetPlanInput, type SetPlanReply, type StaffRole,
+  type UpdateCaseInput, type UpdateCaseReply, type UpdateLeadInput, type UpdateLeadReply,
 } from '@mana/contracts';
 
 // ---------------------------------------------------------------- results
@@ -40,7 +41,7 @@ export type Raw = { readonly data: unknown; readonly error: RawError | null };
 
 /** The RPCs this page calls, by their database names. */
 export const RPC = [
-  'ops_venues', 'ops_venue', 'ops_analytics', 'ops_update_case', 'ops_set_demo', 'ops_approve_venue', 'act_for_owner', 'ops_set_plan',
+  'ops_venues', 'ops_venue', 'ops_revision', 'ops_analytics', 'ops_update_case', 'ops_set_demo', 'ops_approve_venue', 'act_for_owner', 'ops_set_plan',
   'ops_leads', 'ops_update_lead', 'public_menu', 'redeem_staff_invite',
 ] as const;
 export type RpcName = (typeof RPC)[number];
@@ -61,6 +62,14 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   action_unknown: 'The database does not know this action.',
   payload_invalid: 'The database refused the details of this action. Nothing was changed.',
   target_unknown: 'That dish, section, option or case is not in this venue any more.',
+  until_invalid: 'That “until” is not one the database accepts.',
+  plan_expired: 'The venue’s plan has expired, so its menu cannot be published.',
+  plan_suspended: 'The venue’s plan is suspended, so its menu cannot be published.',
+  empty_menu: 'The menu has no dish guests can see, so there is nothing to publish.',
+  invalid_menu: 'The menu has a problem that stops a publish; the owner app lists it.',
+  revision_unknown: 'That revision does not exist.',
+  revision_invalid: 'That is not a revision number.',
+  text_invalid: 'Some text holds characters that cannot be stored.',
   already_approved: 'This venue was already approved.',
   not_published: 'The owner has not published yet, so there is nothing to approve.',
   case_unknown: 'This case no longer exists.',
@@ -109,105 +118,8 @@ const invalid = (errors: readonly Issue[]): Fail => ({
 });
 const malformed: Fail = { ok: false, kind: 'server', message: 'The server sent an answer this page does not understand.' };
 
-// ---------------------------------------------------------------- inputs the contracts do not type (phase 0's RPCs)
-
-/** `ops_approve_venue`. */
-export type ApproveInput = { readonly venueId: string; readonly reason: string };
-export type ApproveReply = { readonly ok: true; readonly trialEndsAt: string | null };
-
-/** `ops_set_plan` (admins): the plan by hand until billing exists. `until` is an instant with an offset, or null. */
-export type SetPlanInput = {
-  readonly venueId: string; readonly state: EntitlementStatus; readonly until: string | null; readonly reason: string; readonly plan: Plan | null;
-};
-export type SetPlanReply = { readonly ok: true; readonly state: EntitlementStatus };
-
-/** The dish columns `act_for_owner('dish.update')` may change (the database's allow-list). */
-export const DISH_PATCH_KEYS = [
-  'name_he', 'name_en', 'desc_he', 'desc_en', 'price', 'price_note_he', 'price_note_en', 'tags', 'allergens_he', 'allergens_en', 'hidden',
-  'stock_id', 'position',
-] as const;
-export type DishPatch = Partial<{
-  name_he: string; name_en: string; desc_he: string; desc_en: string; price: number | null; price_note_he: string; price_note_en: string;
-  tags: Tag[]; allergens_he: string; allergens_en: string; hidden: boolean; stock_id: string | null; position: number;
-}>;
-
-/** Each action's payload, as `act_for_owner`'s internal functions read it. */
-export type ActPayloads = {
-  'availability.set': { readonly targetKind: TargetKind; readonly targetId: string; readonly until: UntilSpec; readonly note?: string };
-  'availability.restore': { readonly targetKind: TargetKind; readonly targetId: string };
-  'dish.update': { readonly dishId: string; readonly patch: DishPatch };
-  'menu.publish': { readonly note?: string };
-  'onboarding.set': { readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers?: readonly string[] };
-  'support_case.update': { readonly caseId: string; readonly status: CaseStatus };
-};
-export type ActInput<A extends ActForOwnerAction = ActForOwnerAction> = A extends ActForOwnerAction
-  ? { readonly venueId: string; readonly reason: string; readonly action: A; readonly payload: ActPayloads[A] }
-  : never;
-export type ActReply = { readonly ok: true; readonly action: ActForOwnerAction; readonly result: Readonly<Record<string, unknown>>; readonly logId: number | null };
-
-/** The checks `act_for_owner` makes on a payload, made here first (codes as the validators' words). */
-export function validateAct(input: ActInput): readonly Issue[] {
-  const out: Issue[] = [];
-  const add = (code: string, path: string): void => void out.push({ code, path });
-  if (!isUuid(input.venueId)) add('id_invalid', 'venueId');
-  if (!isReason(input.reason)) add('reason_required', 'reason');
-  if (!oneOf(ACT_FOR_OWNER_ACTIONS, input.action)) { add('action_unknown', 'action'); return out; }
-  const p = input.payload as Readonly<Record<string, unknown>>;
-  if (!isObject(p)) { add('type', 'payload'); return out; }
-  switch (input.action) {
-    case 'availability.set':
-      if (!oneOf(TARGET_KINDS, p.targetKind)) add('enum_invalid', 'payload.targetKind');
-      if (!isUuid(p.targetId)) add('id_invalid', 'payload.targetId');
-      if (!isUntilSpec(p.until)) add('until_invalid', 'payload.until');
-      if (p.note !== undefined && (typeof p.note !== 'string' || p.note.length > 200)) add('text_too_long', 'payload.note');
-      break;
-    case 'availability.restore':
-      if (!oneOf(TARGET_KINDS, p.targetKind)) add('enum_invalid', 'payload.targetKind');
-      if (!isUuid(p.targetId)) add('id_invalid', 'payload.targetId');
-      break;
-    case 'dish.update': {
-      if (!isUuid(p.dishId)) add('id_invalid', 'payload.dishId');
-      const patch = p.patch;
-      if (!isObject(patch) || Object.keys(patch).length === 0) { add('nothing_to_change', 'payload.patch'); break; }
-      for (const [k, v] of Object.entries(patch)) {
-        if (!(DISH_PATCH_KEYS as readonly string[]).includes(k)) add('field_not_allowed', `payload.patch.${k}`);
-        else if (k === 'price' && v !== null && !(Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= LIMITS.price)) add('price_invalid', 'payload.patch.price');
-        else if (k === 'hidden' && typeof v !== 'boolean') add('type', 'payload.patch.hidden');
-        else if (k === 'tags' && !(Array.isArray(v) && v.every((t) => oneOf(TAGS, t)))) add('enum_invalid', 'payload.patch.tags');
-      }
-      break;
-    }
-    case 'menu.publish':
-      if (p.note !== undefined && (typeof p.note !== 'string' || p.note.length > 200)) add('text_too_long', 'payload.note');
-      break;
-    case 'onboarding.set': {
-      const r = validateSetStep({ venueId: input.venueId, step: p.step, state: p.state, ...(p.blockers === undefined ? {} : { blockers: p.blockers }) });
-      if (!r.ok) for (const e of r.errors) if (e.path !== 'venueId') add(e.code, 'payload.' + e.path);
-      break;
-    }
-    case 'support_case.update':
-      if (!isUuid(p.caseId)) add('id_invalid', 'payload.caseId');
-      if (!oneOf(CASE_STATUSES, p.status)) add('enum_invalid', 'payload.status');
-      break;
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------- leads (Mana's own; the contracts have no type for them yet)
-
-export const LEAD_STATUSES = ['new', 'contacted', 'qualified', 'onboarding', 'won', 'lost', 'spam'] as const;
-export type LeadStatus = (typeof LEAD_STATUSES)[number];
-/** One lead as `ops_leads` returns it (the table's columns, snake_case). Personal data: every read is logged. */
-export type OpsLead = {
-  readonly id: string; readonly ref: string; readonly created_at: string; readonly source: string; readonly message: string; readonly contact: string;
-  readonly name: string | null; readonly venue_name: string | null; readonly locale: 'he' | 'en' | null; readonly status: LeadStatus;
-  readonly owner: string | null; readonly notes: string | null;
-};
-export type OpsLeads = { readonly leads: readonly OpsLead[]; readonly count: number };
-/** null = every status but spam; 'all' = everything. */
-export type LeadsQuery = { readonly status?: LeadStatus | 'all' | null; readonly limit?: number };
-/** A field left out (or null) is kept; '' clears a text. */
-export type UpdateLeadInput = { readonly id: string; readonly status?: LeadStatus; readonly owner?: string; readonly notes?: string };
+/** The success half of a write's reply (the contracts type both halves; the failure becomes a `Fail`). */
+export type Ok<R> = Extract<R, { readonly ok: true }>;
 
 // ---------------------------------------------------------------- the API
 
@@ -226,12 +138,12 @@ export function opsApi(backend: Backend) {
     return isObject(r.data) && shape(r.data) ? { ok: true, data: r.data as T } : malformed;
   }
   /** A write RPC: `{ ok: true, … }`, or `{ ok: false, code }` (nothing changed). */
-  async function write<T extends { ok: true }>(fn: RpcName, args: Readonly<Record<string, unknown>>): Promise<Result<T>> {
+  async function write<R extends { readonly ok: boolean }>(fn: RpcName, args: Readonly<Record<string, unknown>>): Promise<Result<Ok<R>>> {
     const r = await call(fn, args);
     if (!r.ok) return r;
     const d = r.data;
     if (!isObject(d)) return malformed;
-    if (d.ok === true) return { ok: true, data: d as T };
+    if (d.ok === true) return { ok: true, data: d as Ok<R> };
     const code = typeof d.code === 'string' ? d.code : 'failed';
     return { ok: false, kind: 'refused', code, message: codeText(code), ...(Array.isArray(d.errors) ? { errors: d.errors as Issue[] } : {}) };
   }
@@ -269,66 +181,64 @@ export function opsApi(backend: Backend) {
       return read<PublicMenuResponse>('public_menu', { p_slug: slug }, (d) => d.state === 'ok' || d.state === 'unavailable' || d.state === 'not_found');
     },
 
-    approve(input: ApproveInput): Promise<Result<ApproveReply>> {
-      const errors: Issue[] = [];
-      if (!isUuid(input.venueId)) errors.push({ code: 'id_invalid', path: 'venueId' });
-      if (!isReason(input.reason)) errors.push({ code: 'reason_required', path: 'reason' });
-      if (errors.length) return Promise.resolve(invalid(errors));
-      return write<ApproveReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason) });
+    /** A stored revision as Halom reviews it (the newest unless a number is asked). Each read is logged (`menu.read`). */
+    revision(query: OpsRevisionQuery): Promise<Result<Ok<OpsRevision>>> {
+      const v = validateOpsRevisionQuery(query);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return write<OpsRevision>('ops_revision', { p_venue: query.venueId, p_revision: query.revision ?? null });
     },
 
-    actForOwner(input: ActInput): Promise<Result<ActReply>> {
-      const errors = validateAct(input);
-      if (errors.length) return Promise.resolve(invalid(errors));
-      return write<ActReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
+    approve(input: ApproveVenueInput): Promise<Result<Ok<ApproveVenueReply>>> {
+      const v = validateApproveVenue(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return write<ApproveVenueReply>('ops_approve_venue', { p_venue: input.venueId, p_reason: stripBlank(input.reason) });
     },
 
-    updateCase(input: UpdateCaseInput): Promise<Result<UpdateCaseReply>> {
+    actForOwner(input: ActForOwnerInput): Promise<Result<Ok<ActForOwnerReply>>> {
+      const v = validateActForOwner(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return write<ActForOwnerReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
+    },
+
+    updateCase(input: UpdateCaseInput): Promise<Result<Ok<UpdateCaseReply>>> {
       const v = validateUpdateCase(input);
       if (!v.ok) return Promise.resolve(invalid(v.errors));
       return write<UpdateCaseReply>('ops_update_case', {
-        p_case: input.caseId, p_status: input.status ?? null, p_topic: input.topic ?? null, p_reason: stripBlank(input.reason),
+        p_case: input.caseId, p_status: input.status ?? null, p_topic: input.topic ?? null, p_reason: input.reason ? stripBlank(input.reason) : null,
       });
     },
 
-    setDemo(input: SetDemoInput): Promise<Result<SetDemoReply>> {
+    setDemo(input: SetDemoInput): Promise<Result<Ok<SetDemoReply>>> {
       const v = validateSetDemo(input);
       if (!v.ok) return Promise.resolve(invalid(v.errors));
       return write<SetDemoReply>('ops_set_demo', { p_venue: input.venueId, p_demo: input.demo, p_reason: stripBlank(input.reason) });
     },
 
-    setPlan(input: SetPlanInput): Promise<Result<SetPlanReply>> {
-      const errors: Issue[] = [];
-      if (!isUuid(input.venueId)) errors.push({ code: 'id_invalid', path: 'venueId' });
-      if (!oneOf(ENTITLEMENT_STATUSES, input.state)) errors.push({ code: 'state_invalid', path: 'state' });
-      if (input.plan !== null && !oneOf(PLANS, input.plan)) errors.push({ code: 'plan_invalid', path: 'plan' });
-      if (input.until !== null && Number.isNaN(Date.parse(input.until))) errors.push({ code: 'time_invalid', path: 'until' });
-      if (!isReason(input.reason)) errors.push({ code: 'reason_required', path: 'reason' });
-      if (errors.length) return Promise.resolve(invalid(errors));
+    setPlan(input: SetPlanInput): Promise<Result<Ok<SetPlanReply>>> {
+      const v = validateSetPlan(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
       return write<SetPlanReply>('ops_set_plan', {
-        p_venue: input.venueId, p_state: input.state, p_until: input.until, p_reason: stripBlank(input.reason), p_plan: input.plan,
+        p_venue: input.venueId, p_state: input.state, p_until: input.until ?? null, p_reason: stripBlank(input.reason), p_plan: input.plan ?? null,
       });
     },
 
-    leads(query: LeadsQuery = {}): Promise<Result<OpsLeads>> {
-      const status = query.status ?? null;
-      if (status !== null && status !== 'all' && !oneOf(LEAD_STATUSES, status)) return Promise.resolve(invalid([{ code: 'enum_invalid', path: 'status' }]));
-      return read<OpsLeads>('ops_leads', { p_status: status, p_source: null, p_since: null, p_limit: query.limit ?? 300 }, (d) => Array.isArray(d.leads));
+    /** Mana's own leads. Personal data: the database logs every read. */
+    leads(query: OpsLeadsQuery = {}): Promise<Result<OpsLeads>> {
+      const v = validateOpsLeadsQuery(query);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return read<OpsLeads>('ops_leads', { p_status: query.status ?? null, p_source: query.source ?? null, p_since: query.since ?? null, p_limit: query.limit ?? 300 },
+        (d) => Array.isArray(d.leads));
     },
 
-    updateLead(input: UpdateLeadInput): Promise<Result<{ ok: true }>> {
-      const errors: Issue[] = [];
-      if (!isUuid(input.id)) errors.push({ code: 'id_invalid', path: 'id' });
-      if (input.status !== undefined && !oneOf(LEAD_STATUSES, input.status)) errors.push({ code: 'status_invalid', path: 'status' });
-      if (input.owner !== undefined && input.owner.length > 80) errors.push({ code: 'text_too_long', path: 'owner' });
-      if (input.notes !== undefined && input.notes.length > 4000) errors.push({ code: 'text_too_long', path: 'notes' });
-      if (input.status === undefined && input.owner === undefined && input.notes === undefined) errors.push({ code: 'nothing_to_change', path: '' });
-      if (errors.length) return Promise.resolve(invalid(errors));
-      return write<{ ok: true }>('ops_update_lead', { p_id: input.id, p_status: input.status ?? null, p_owner: input.owner ?? null, p_notes: input.notes ?? null });
+    /** A field left out (or null) stays as it is; '' clears a text. */
+    updateLead(input: UpdateLeadInput): Promise<Result<Ok<UpdateLeadReply>>> {
+      const v = validateUpdateLead(input);
+      if (!v.ok) return Promise.resolve(invalid(v.errors));
+      return write<UpdateLeadReply>('ops_update_lead', { p_id: input.id, p_status: input.status ?? null, p_owner: input.owner ?? null, p_notes: input.notes ?? null });
     },
 
-    redeemInvite(code: string): Promise<Result<{ ok: true; role?: StaffRole }>> {
-      return write<{ ok: true; role?: StaffRole }>('redeem_staff_invite', { p_code: code.trim() });
+    redeemInvite(code: string): Promise<Result<{ readonly ok: true; readonly role?: StaffRole }>> {
+      return write<{ readonly ok: true; readonly role?: StaffRole } | { readonly ok: false; readonly code: string }>('redeem_staff_invite', { p_code: code.trim() });
     },
   };
 }

@@ -27,7 +27,7 @@ const noHtmlFromData = async (page) => {
 async function staff(who = ACCOUNTS.admin, opts = {}) {
   const s = await open(browser, base, { prefix: '/mana', ...opts });
   await signIn(s.page, who);
-  await s.page.locator('[data-page=clients]').waitFor();
+  await s.page.locator('[data-page=clients] [data-totals]').waitFor();
   return s;
 }
 async function toVenue(page, slug) {
@@ -150,6 +150,19 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     assert.deepEqual([...new Set(await page.locator('[data-panel=timeline] [data-entry]').evaluateAll((els) => els.map((e) => e.dataset.kind)))], ['import']);
     await page.locator('[data-strand=all]').click();
 
+    // the menu to approve: the newest stored revision, compared with the one before; each read is in the timeline
+    const rev = page.locator('[data-panel=revision] [data-revision="2"]');
+    await rev.waitFor();
+    assert.deepEqual(calls('ops_revision').map((c) => c.args), [{ p_venue: VENUE.demo, p_revision: null }, { p_venue: VENUE.demo, p_revision: 1 }]);
+    const diff = await page.locator('[data-panel=revision] [data-diff]').innerText();
+    assert.match(diff, /Since revision 1/);
+    assert.match(diff, /1 dish added: Lemonade/);
+    assert.match(diff, /1 price changed: Burger ₪66 → ₪68/);
+    assert.equal(await rev.locator(`[data-id="${ID.lemonade}"] [data-badge=new]`).count(), 1);
+    await page.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
+    assert.match(await page.locator('[data-panel=timeline] [data-action="menu.read"]').first().innerText(), /Halom read a stored menu/);
+    await shot(page, `v2-revision-${tag}`, { fullPage: false });
+
     // approve: a reason first, then what it will do, then the call
     const approve = page.locator('[data-write=approve]');
     await approve.locator('[data-review]').click();
@@ -157,7 +170,7 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     assert.equal(calls('ops_approve_venue').length, 0);
     await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
     await approve.locator('[data-review]').click();
-    assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish/);
+    assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish \(revision 2\)/);
     await approve.locator('[data-go]').click();
     await page.locator('[data-badge=review-approved]').waitFor();
     assert.deepEqual(calls('ops_approve_venue')[0].args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner by phone' });
@@ -187,6 +200,7 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     assert.match(await acted.locator('[data-badge=halom]').innerText(), /acting for the owner/);
     assert.match(await acted.locator('[data-reason-shown]').innerText(), /the machine works again/);
     assert.match(await page.locator('[data-panel=timeline] [data-action="availability_overrides.update"]').first().innerText(), /Brought back/);
+    assert.equal(calls('ops_revision').length, 2, 'stored revisions are read when asked, not by the refreshes (each read is logged)');
     await shot(page, `v2-venue-after-${tag}`);
     await noSideScroll(page);
     await noHtmlFromData(page);
@@ -201,6 +215,8 @@ test('act for owner: closed when the owner’s switch is off, and refused plainl
   assert.equal(await page.locator('[data-write=act] [data-review]').count(), 0);
   await page.locator('[data-tab=clients]').click();
   await toVenue(page, 'cafe-demo');
+  // the page has loaded everything it loads on its own (the menu to approve, then the refresh that shows that read)
+  await page.locator('[data-panel=timeline] [data-action="menu.read"]').first().waitFor();
   await control({ supportCanAct: { venueId: VENUE.demo, value: false } });
   const act = page.locator('[data-write=act]');
   await act.locator('[data-act-action]').selectOption('menu.publish');

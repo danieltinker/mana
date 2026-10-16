@@ -129,6 +129,10 @@ a.card-title { text-decoration: none; }
 .mrow.is-off .mrow-name { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1px; }
 .mrow-off { display: inline-flex; gap: 8px; align-items: center; }
 
+/* a stored revision and what changed since another */
+.diff { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
+.diff strong { font-weight: 600; }
+
 /* cases */
 .cases { padding: 0 18px 14px; display: grid; gap: 10px; }
 .case { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
@@ -166,8 +170,8 @@ a.card-title { text-decoration: none; }
   /* one column, the actions before the history */
   .venue-grid { display: flex; flex-direction: column; align-items: stretch; }
   .col { display: contents; }
-  .p-approve { order: 1; } .p-guests { order: 2; } .p-act { order: 3; } .p-onboarding { order: 4; } .p-timeline { order: 5; }
-  .p-cases { order: 6; } .p-imports { order: 7; } .p-admin { order: 8; }
+  .p-approve { order: 1; } .p-revision { order: 2; } .p-guests { order: 3; } .p-act { order: 4; } .p-onboarding { order: 5; } .p-timeline { order: 6; }
+  .p-cases { order: 7; } .p-imports { order: 8; } .p-admin { order: 9; }
 }
 @media (max-width: 699px) {
   .tiles-7 { grid-template-columns: 1fr 1fr; }

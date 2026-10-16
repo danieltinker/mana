@@ -4,7 +4,7 @@
  * timer. Every enquiry's words are shown as text.
  */
 import { useMemo, useState } from 'preact/hooks';
-import { LEAD_STATUSES, type LeadStatus, type OpsLead, type OpsLeads } from './api.ts';
+import { LEAD_STATUSES, type LeadStatus, type OpsLead, type OpsLeads } from '@mana/contracts';
 import { useLive } from './hooks.ts';
 import { ago, fmtDateTime, fmtInt } from './model.ts';
 import { Freshness } from './freshness.tsx';

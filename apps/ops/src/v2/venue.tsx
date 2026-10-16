@@ -19,6 +19,7 @@ import { Freshness } from './freshness.tsx';
 import { Write } from './write.tsx';
 import { ActForOwner, type Preset } from './act.tsx';
 import { Admin, Cases, GuestsSee } from './panels.tsx';
+import { Revisions } from './revision.tsx';
 
 export type VenueData = { readonly detail: OpsVenueDetail; readonly menu: Result<PublicMenuResponse> };
 
@@ -60,12 +61,14 @@ export function Venue({ id }: { id: string }) {
       <div class="venue-grid">
         <div class="col col-main">
           {v.review === 'pending' && <Approve detail={detail} onDone={live.refresh} />}
+          {v.review === 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
           <Onboarding detail={detail} />
           <Timeline detail={detail} nameOf={nameOf} />
           <Imports detail={detail} />
         </div>
         <div class="col col-side">
           <GuestsSee detail={detail} menu={menu} onRestore={restore} />
+          {v.review !== 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
           <section class="panel p-act" aria-labelledby="act-h" ref={actRef} tabIndex={-1} data-panel="act">
             <div class="panel-head"><h2 id="act-h">Act for the owner</h2>
               <p class="muted small">Halom writes into a venue only here: one of six actions, with a reason the owner sees in their activity log.</p></div>
@@ -132,10 +135,11 @@ function Approve({ detail, onDone }: { detail: OpsVenueDetail; onDone: () => Pro
   return (
     <section class="panel p-approve is-attention" aria-labelledby="approve-h" data-panel="approve">
       <div class="panel-head"><h2 id="approve-h">First publish waits for your approval</h2>
-        <p class="muted small">Published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.</p></div>
+        <p class="muted small">Published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
+          Read the menu below first.</p></div>
       <div class="panel-body">
         <Write id="approve" submit="Approve"
-          plan={() => ({ ok: true, what: `Approve ${name}’s first publish: guests can open the menu at once, and the trial starts.` })}
+          plan={() => ({ ok: true, what: `Approve ${name}’s first publish${v.menu.revision ? ` (revision ${v.menu.revision})` : ''}: guests can open the menu at once, and the trial starts.` })}
           run={(reason) => api.approve({ venueId: v.id, reason })}
           done={(d) => `Approved. Guests can open the menu now${d.trialEndsAt ? `; the trial runs until ${fmtDay(d.trialEndsAt.slice(0, 10))}` : ''}.`}
           onDone={onDone} />

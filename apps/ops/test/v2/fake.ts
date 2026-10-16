@@ -10,10 +10,10 @@ import {
   ONBOARDING_STEPS, isReason, onboardingProgress, stripBlank, type ActivityAction, type ActivityEntry, type CaseStatus,
   type DemoScope, type EntitlementStatus, type ImportExceptionCode, type OffEntry, type OnboardingState, type OnboardingStep, type OpsAnalytics, type OpsAnalyticsQuery,
   type OpsImport, type OpsTotals, type OpsVenueDetail, type OpsVenueRow, type OpsVenues, type OpsVenuesQuery, type Plan,
-  type ReviewState, type SnapshotV2, type StaffRole, type SupportCase, type Text, addDays, localParts,
+  type OpsLead, type ReviewState, type SnapshotV2, type StaffRole, type SupportCase, type Text, addDays, localParts,
 } from '@mana/contracts';
 import { ID, cafeDemo, liveOf } from '@mana/contracts/fixtures';
-import type { Backend, OpsLead, Raw, RpcName } from '../../src/v2/api.ts';
+import type { Backend, Raw, RpcName } from '../../src/v2/api.ts';
 
 export const VENUE = { demo: ID.venue, bistro: '00000000-0000-4000-8000-0000000000c2', pita: '00000000-0000-4000-8000-0000000000c3' } as const;
 export const USERS = {
@@ -38,6 +38,8 @@ export type FakeVenue = {
   cases: Mutable<SupportCase>[];
   activity: ActivityEntry[];
   snapshot: SnapshotV2 | null;
+  /** Stored revisions, oldest first; the published one is `row.menu.revision`. */
+  revisions: { id: string; number: number; createdAt: string; note: string | null; snapshot: SnapshotV2 }[];
   off: OffEntry[];
   members: { owners: number; managers: number; counters: number };
 };
@@ -81,6 +83,16 @@ function entry(w: World, venueId: string, at: number, action: ActivityAction, o:
   };
 }
 
+/** Café Demo's first publish: the burger was ₪66 and there was no lemonade yet (what the comparison shows). */
+function firstTry(s: SnapshotV2): SnapshotV2 {
+  const m = structuredClone(s) as unknown as { sections: { dishes: { id: string; price: { amount: number } | null }[] }[] };
+  for (const sec of m.sections) {
+    sec.dishes = sec.dishes.filter((d) => d.id !== ID.lemonade);
+    for (const d of sec.dishes) if (d.id === ID.burger && d.price) d.price.amount = 6600;
+  }
+  return m as unknown as SnapshotV2;
+}
+
 /** A fresh world. `traffic: false` leaves every venue without guest events (the "no traffic yet" state). */
 export function world({ now = () => Date.now(), traffic = true }: { now?: () => number; traffic?: boolean } = {}): World {
   const w: World = { now, venues: [], leads: [], staff: new Map([[USERS.admin, 'admin'], [USERS.support, 'support']]), traffic: new Map(), calls: [], faults: {},
@@ -93,7 +105,7 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
   const demo: FakeVenue = {
     row: row(n - 3 * DAY, { id: VENUE.demo, slug: 'cafe-demo', name: t('Café Demo', 'קפה דמו'), isDemo: true, review: 'pending',
       onboarding: { stage: 'photos', done: 4, total: 9, since: iso(n - 2.5 * DAY), blocked: [{ step: 'photos', blockers: ['dish_without_photo'] }] },
-      menu: { live: true, revision: 1, lastPublishedAt: iso(n - 5 * HOUR), firstPublishedAt: iso(n - 5 * HOUR) },
+      menu: { live: true, revision: 2, lastPublishedAt: iso(n - 5 * HOUR), firstPublishedAt: iso(n - 26 * HOUR) },
       photos: { dishes: 7, withPhoto: 1, awaitingReview: 2 }, imports: { total: 1, lastAt: iso(n - 2.8 * DAY), lastStatus: 'applied', failed2d: 0 },
       openCases: 1, lastOwnerSignInAt: iso(n - 4 * HOUR), lastActivityAt: iso(n - 20 * MIN), warnings: ['awaiting_review', 'stuck_step_2d', 'case_open'] }),
     steps: [
@@ -104,11 +116,15 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
       { step: 'photos', state: 'blocked', blockers: ['dish_without_photo'], updatedAt: iso(n - 2.5 * DAY) },
     ],
     imports: [{ id: uuid(0x1001), source: 'paste', status: 'applied', createdAt: iso(n - 2.8 * DAY), appliedAt: iso(n - 2.8 * DAY + 20 * MIN), errorCode: null,
-      rightsConfirmed: false, counts: { sections: 4, dishes: 7, groups: 6, options: 16, photos: 0 },
+      rightsConfirmed: false, counts: { sections: 4, dishes: 7, groups: 6, options: 16, photos: 0, dropped: 0 },
       exceptions: { fix: 2, check: 3, byCode: { price_missing: 2, limits_guessed: 2, translation_check: 1 } } }],
     cases: [{ id: uuid(0x2001), venueId: VENUE.demo, topic: 'photos', status: 'open', subject: 'Photos for the drinks?', body: `Can Halom help with the drinks photos? ${HOSTILE}`,
       openedBy: 'owner', openedAt: iso(n - 6 * HOUR), updatedAt: iso(n - 6 * HOUR), resolvedAt: null, supportCanAct: true }],
-    activity: [], snapshot: demoSnap, off: [{ kind: 'dish', id: ID.espresso, from: iso(n - 20 * MIN), until: iso(Math.ceil((n + 100 * MIN) / MIN) * MIN) }],
+    activity: [], snapshot: demoSnap, revisions: [
+      { id: uuid(0x5001), number: 1, createdAt: iso(n - 26 * HOUR), note: 'first try', snapshot: firstTry(demoSnap) },
+      { id: uuid(0x5002), number: 2, createdAt: iso(n - 5 * HOUR), note: null, snapshot: structuredClone(demoSnap) },
+    ],
+    off: [{ kind: 'dish', id: ID.espresso, from: iso(n - 20 * MIN), until: iso(Math.ceil((n + 100 * MIN) / MIN) * MIN) }],
     members: { owners: 1, managers: 0, counters: 0 },
   };
   demo.activity = [
@@ -117,7 +133,8 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
     entry(w, VENUE.demo, n - 2.8 * DAY + 20 * MIN, 'import.apply', { via: 'rpc', targetIds: [uuid(0x1001)], detail: { source: 'paste', sections: 4, dishes: 7 } }),
     entry(w, VENUE.demo, n - 2.8 * DAY + 21 * MIN, 'onboarding_progress.update', { via: 'rpc', targetIds: [`${VENUE.demo}/review`], detail: { columns: ['state'], changes: { state: ['todo', 'done'] } } }),
     entry(w, VENUE.demo, n - 2.5 * DAY, 'onboarding_progress.update', { targetIds: [`${VENUE.demo}/photos`], detail: { columns: ['state', 'blockers'], changes: { state: ['todo', 'blocked'] } } }),
-    entry(w, VENUE.demo, n - 5 * HOUR, 'menu.publish', { via: 'rpc', detail: { revision: 1 } }),
+    entry(w, VENUE.demo, n - 26 * HOUR, 'menu.publish', { via: 'rpc', detail: { revision: 1 } }),
+    entry(w, VENUE.demo, n - 5 * HOUR, 'menu.publish', { via: 'rpc', detail: { revision: 2 } }),
     entry(w, VENUE.demo, n - 6 * HOUR, 'support_cases.insert', { targetTable: 'support_cases', targetIds: [uuid(0x2001)], detail: { topic: 'photos', status: 'open' } }),
     entry(w, VENUE.demo, n - 40 * MIN, 'dishes.update', { targetTable: 'dishes', targetIds: [ID.burger], targetName: t('Burger', 'המבורגר'),
       detail: { columns: ['price'], changes: { price: [6600, 6800] } } }),
@@ -133,7 +150,7 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
       photos: { dishes: 6, withPhoto: 6, awaitingReview: 0 }, imports: { total: 2, lastAt: iso(n - 11 * DAY), lastStatus: 'applied', failed2d: 0 },
       lastOwnerSignInAt: iso(n - 1 * DAY), lastActivityAt: iso(n - 1 * DAY), plan: { plan: 'pilot', state: 'trialing', trialEndsAt: iso(n + 19 * DAY) } }),
     steps: ONBOARDING_STEPS.map((step) => ({ step, state: 'done' as const, blockers: [], updatedAt: iso(n - 11 * DAY) })),
-    imports: [], cases: [], activity: [], snapshot: null, off: [], members: { owners: 1, managers: 1, counters: 1 },
+    imports: [], cases: [], activity: [], snapshot: null, revisions: [], off: [], members: { owners: 1, managers: 1, counters: 1 },
   };
   bistro.activity = [
     entry(w, VENUE.bistro, n - 12 * DAY, 'venue.create', { via: 'rpc' }),
@@ -156,7 +173,7 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
     ],
     cases: [{ id: uuid(0x2002), venueId: VENUE.pita, topic: 'import', status: 'waiting_halom', subject: 'The scan does not work', body: 'Tried twice with the printed menu.',
       openedBy: 'owner', openedAt: iso(n - 1.6 * DAY), updatedAt: iso(n - 1.6 * DAY), resolvedAt: null, supportCanAct: false }],
-    activity: [], snapshot: null, off: [], members: { owners: 1, managers: 0, counters: 0 },
+    activity: [], snapshot: null, revisions: [], off: [], members: { owners: 1, managers: 0, counters: 0 },
   };
   pita.activity = [
     entry(w, VENUE.pita, n - 4 * DAY, 'venue.create', { via: 'rpc' }),
@@ -406,6 +423,17 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
     case 'ops_venues': staffOnly(); return venues(w, (a.p_filters ?? {}) as OpsVenuesQuery);
     case 'ops_venue': { staffOnly(); const v = find(w, a.p_venue); return v ? detail(v) : bad('venue_unknown'); }
     case 'ops_analytics': staffOnly(); return analytics(w, a.p_query as OpsAnalyticsQuery);
+    case 'ops_revision': {
+      staffOnly();
+      const v = find(w, a.p_venue);
+      if (!v) return { ok: false, code: 'venue_unknown' };
+      const latest = v.revisions.at(-1)?.number ?? null;
+      const r = v.revisions.find((x) => x.number === ((a.p_revision as number | null) ?? latest));
+      if (!r) return { ok: false, code: 'revision_unknown' };
+      log(w, v, 'menu.read', { via: 'rpc', targetTable: 'menu_revisions', targetIds: [r.id], detail: { revision: r.number } });
+      return { ok: true, venueId: v.row.id, revision: { id: r.id, number: r.number, createdAt: r.createdAt, note: r.note, live: r.number === v.row.menu.revision },
+        latest, review: v.row.review, snapshot: r.snapshot };
+    }
     case 'ops_approve_venue': {
       staffOnly();
       const reason = reasonOf();

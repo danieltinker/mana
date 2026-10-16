@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { OPS_WARNINGS, TIMELINE_KINDS, validateOpsAnalyticsQuery, type ActivityEntry } from '@mana/contracts';
 import { ID, cafeDemo, liveOf } from '@mana/contracts/fixtures';
 import {
-  analyticsQuery, bucketLabel, describe, fmtMoney, fmtPct, menuView, names, snapshotNames, timeline, timelineDays, warningChips,
+  analyticsQuery, bucketLabel, compareSnapshots, describe, diffSize, fmtMoney, fmtPct, menuView, names, snapshotNames, timeline, timelineDays, warningChips,
 } from '../../src/v2/model.ts';
 
 const entry = (id: number, at: string, action: ActivityEntry['action'], o: Partial<ActivityEntry> = {}): ActivityEntry => ({
@@ -73,6 +73,7 @@ test('describe: named actions, Halom\'s act for owner, availability with the dis
   assert.deepEqual(said(entry(8, '2026-10-16T07:00:00Z', 'venue.set_demo', { detail: { demo: true } })), ['Marked as a demo venue', null]);
   assert.deepEqual(said(entry(9, '2026-10-16T07:00:00Z', 'support_cases.update', { detail: { columns: ['status'], changes: { status: ['open', 'resolved'] } } })),
     ['Support case updated', 'Resolved']);
+  assert.deepEqual(said(entry(11, '2026-10-16T07:00:00Z', 'menu.read', { actorKind: 'staff', via: 'rpc', detail: { revision: 2 } })), ['Halom read a stored menu', 'Revision 2']);
   const hostile = describe(entry(10, '2026-10-16T07:00:00Z', 'support.act_for_owner', { detail: { action: '<b>x</b>' } }));
   assert.equal(hostile.detail, '<b>x</b>', 'an unknown value is passed on as text, for the page to render as text');
 });
@@ -115,4 +116,22 @@ test('analytics ranges: whole minutes ending with the current one, or Israel day
   for (const id of ['1h', '24h', '7d', '30d'] as const) assert.equal(validateOpsAnalyticsQuery(analyticsQuery(id, now)).ok, true, id);
   assert.equal(bucketLabel('2026-10-16T21:05:00.000Z', 'minute'), '00:05');
   assert.equal(bucketLabel('2026-10-17', 'day'), '17 Oct');
+});
+
+test('compare two stored revisions: dishes and sections added or removed, prices and names changed, by id', () => {
+  const base = cafeDemo() as any;
+  const next = cafeDemo() as any;
+  base.sections[2].dishes = base.sections[2].dishes.filter((d: any) => d.id !== ID.lemonade);   // no lemonade before
+  base.sections[1].dishes[0].price.amount = 6600;                                               // the burger was ₪66
+  next.sections[3].dishes[0].name = { he: 'קרואסון חמאה', en: 'Butter croissant' };             // renamed, same id
+  next.sections = next.sections.filter((x: any) => x.id !== ID.morning);                        // breakfast gone
+  const d = compareSnapshots(base, next);
+  assert.deepEqual(d.dishesAdded.map((x) => x.name.en), ['Lemonade']);
+  assert.deepEqual(d.dishesRemoved.map((x) => x.name.en), ['Shakshuka']);
+  assert.deepEqual(d.sectionsRemoved.map((x) => x.name.en), ['Breakfast']);
+  assert.deepEqual(d.sectionsAdded, []);
+  assert.deepEqual(d.prices.map((p) => [p.name.en, p.from, p.to]), [['Burger', 6600, 6800]]);
+  assert.deepEqual(d.renamed.map((r) => [r.from.en, r.to.en]), [['Croissant', 'Butter croissant']]);
+  assert.equal(diffSize(d), 5);
+  assert.equal(diffSize(compareSnapshots(cafeDemo(), cafeDemo())), 0);
 });

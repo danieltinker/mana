@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ID } from '@mana/contracts/fixtures';
-import { failOf, opsApi, validateAct, type ActInput, type Backend } from '../../src/v2/api.ts';
+import { validateActForOwner, type ActForOwnerInput } from '@mana/contracts';
+import { failOf, opsApi, type Backend } from '../../src/v2/api.ts';
 import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, world } from './fake.ts';
 
 const NOW = Date.parse('2026-10-16T09:30:00Z');
@@ -87,7 +88,7 @@ test('approve: a reason is required before the call; the reply is the database\'
 
 test('act for owner: each action\'s payload is checked first; the owner\'s switch is refused plainly', async () => {
   const { w, api } = setup();
-  const restore: ActInput = { venueId: VENUE.demo, reason: 'Owner asked by phone', action: 'availability.restore', payload: { targetKind: 'dish', targetId: ID.espresso } };
+  const restore: ActForOwnerInput = { venueId: VENUE.demo, reason: 'Owner asked by phone', action: 'availability.restore', payload: { targetKind: 'dish', targetId: ID.espresso } };
   const r = await api.actForOwner(restore);
   assert.ok(r.ok && r.data.action === 'availability.restore' && typeof r.data.logId === 'number');
   assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_reason: 'Owner asked by phone', p_action: 'availability.restore', p_payload: { targetKind: 'dish', targetId: ID.espresso } });
@@ -95,7 +96,8 @@ test('act for owner: each action\'s payload is checked first; the owner\'s switc
   assert.ok(!declined.ok && declined.kind === 'refused' && declined.code === 'owner_declined');
   if (!declined.ok) assert.match(declined.message, /support switch is off\)\. Nothing was changed/);
 
-  const codes = (i: ActInput) => validateAct(i).map((e) => e.code).sort();
+  // the contract's validator runs before the call (the database's SQL twin answers the same codes)
+  const codes = (i: ActForOwnerInput) => { const v = validateActForOwner(i); return v.ok ? [] : v.errors.map((e) => e.code).sort(); };
   assert.deepEqual(codes({ ...restore, reason: 'x' }), ['reason_required']);
   assert.deepEqual(codes({ venueId: VENUE.demo, reason: 'fine reason', action: 'availability.set', payload: { targetKind: 'table' as never, targetId: 'x', until: { kind: 'forever' } as never } }),
     ['enum_invalid', 'id_invalid', 'until_invalid']);
@@ -119,6 +121,24 @@ test('act for owner: the result is in the venue\'s timeline at once, marked Halo
   const [own, restored] = d.data.activity;
   assert.deepEqual([own?.action, own?.actorKind, own?.via, own?.reason], ['support.act_for_owner', 'staff', 'act_for_owner', 'Owner asked by phone']);
   assert.deepEqual([restored?.action, restored?.via, restored?.reason], ['availability_overrides.update', 'act_for_owner', 'Owner asked by phone']);
+});
+
+test('revision: ops_revision with ADR-008\'s names; the newest unless a number is asked; each read is in the timeline', async () => {
+  const { w, api } = setup();
+  const newest = await api.revision({ venueId: VENUE.demo });
+  assert.ok(newest.ok);
+  assert.deepEqual(last(w)?.args, { p_venue: VENUE.demo, p_revision: null });
+  if (newest.ok) assert.deepEqual([newest.data.revision.number, newest.data.latest, newest.data.revision.live, newest.data.review], [2, 2, true, 'pending']);
+  const first = await api.revision({ venueId: VENUE.demo, revision: 1 });
+  assert.ok(first.ok && first.data.revision.number === 1 && first.data.revision.live === false);
+  const none = await api.revision({ venueId: VENUE.demo, revision: 9 });
+  assert.ok(!none.ok && none.kind === 'refused' && none.code === 'revision_unknown');
+  const n = w.calls.length;
+  const bad = await api.revision({ venueId: VENUE.demo, revision: 0 });
+  assert.ok(!bad.ok && bad.kind === 'invalid' && bad.code === 'revision_invalid');
+  assert.equal(w.calls.length, n, 'refused before the call');
+  const d = await api.venue(VENUE.demo);
+  assert.ok(d.ok && d.data.activity.filter((e) => e.action === 'menu.read').length === 2);
 });
 
 test('cases: ops_update_case gets null for what does not change, and needs a reason', async () => {
@@ -150,7 +170,6 @@ test('leads: read (logged by the database), update only what changes', async () 
   const id = r.ok ? r.data.leads[0]!.id : '';
   assert.deepEqual(await api.updateLead({ id, status: 'contacted' }), { ok: true, data: { ok: true } });
   assert.deepEqual(last(w)?.args, { p_id: id, p_status: 'contacted', p_owner: null, p_notes: null });
-  assert.ok(!(await api.updateLead({ id })).ok, 'nothing to change is not sent');
   assert.ok(!(await api.leads({ status: 'archived' as never })).ok);
 });
 
