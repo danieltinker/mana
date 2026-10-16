@@ -10,10 +10,12 @@
  * And for dishes, `choices`: a required add-on group has nothing left to choose (every option off, or every
  * option that opens a required nested group leads to a group with nothing left).
  */
-import type { TargetKind } from './enums.ts';
+import { isObject, isUuid, oneOf, type Validation } from './common.ts';
+import { TARGET_KINDS, type TargetKind } from './enums.ts';
 import type { LiveOverlay } from './live.ts';
+import { optionalText, validateInput } from './rpc.ts';
 import type { AddonGroupV2, DishV2, SnapshotV2 } from './snapshot.ts';
-import { inSchedule, isOpenAt, nextOpening, nextScheduleStart, type ScheduleTimes, type VenueHours } from './time.ts';
+import { inSchedule, isOpenAt, isUntilSpec, nextOpening, nextScheduleStart, type ScheduleTimes, type UntilSpec, type VenueHours } from './time.ts';
 
 export type AvailabilityTarget =
   | { readonly kind: 'section'; readonly id: string }
@@ -172,4 +174,60 @@ export function unavailableOf(av: MenuAvailability, includeClosed = false): Unav
   const options = new Set<string>();
   for (const [id, a] of av.options) if (!a.available) options.add(id);
   return { dishes, options };
+}
+
+// ---------------------------------------------------------------- the quick actions' inputs (F05, F08; ADR-008)
+
+/** An availability override's note (who asked, why): at most this many characters; never shown to guests. */
+export const AVAILABILITY_NOTE_MAX = 200;
+
+/**
+ * `set_availability`: take a section, dish or add-on option off until `until` (resolved by `resolveUntil` when stored),
+ * or bring it back now (`until: null`). The newest answer counts: whatever is off for the same target now is restored
+ * in the same transaction. Owners, managers and counters; Halom through `act_for_owner`.
+ */
+export type SetAvailabilityInput = {
+  readonly venueId: string;
+  readonly target: { readonly kind: TargetKind; readonly id: string };
+  readonly until: UntilSpec | null;
+  readonly note?: string | null;
+};
+export type SetAvailabilityReply = {
+  readonly ok: true;
+  /** The new override; null when `until` was null. */
+  readonly overrideId: string | null;
+  /** When it comes back (whole minutes); null = until the owner restores it, or back now. */
+  readonly untilAt: string | null;
+  /** How many overrides of this target were restored first. */
+  readonly restored: number;
+};
+
+/** Codes: type, field_not_allowed, id_invalid, enum_invalid, until_invalid, text_too_long. */
+export function validateSetAvailability(raw: unknown): Validation<SetAvailabilityInput> {
+  return validateInput<SetAvailabilityInput>(raw, ['venueId', 'target', 'until', 'note'], (x, o) => {
+    if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
+    const t = o.target;
+    if (!isObject(t)) x.add('type', 'target');
+    else {
+      if (!oneOf(TARGET_KINDS, t.kind)) x.add('enum_invalid', 'target.kind');
+      if (!isUuid(t.id)) x.add('id_invalid', 'target.id');
+    }
+    if (o.until !== null && !isUntilSpec(o.until)) x.add('until_invalid', 'until');
+    optionalText(x, o.note, 'note', AVAILABILITY_NOTE_MAX);
+  });
+}
+
+/**
+ * `restore_today`: bring back everything taken off today (the venue's local date) that is still off. An override that
+ * started on an earlier day ("until Sunday", "indefinitely" from last week) stays.
+ */
+export type RestoreTodayInput = { readonly venueId: string };
+export type RestoreTodayReply = {
+  readonly ok: true;
+  readonly restored: number;
+  readonly targets: ReadonlyArray<{ readonly kind: TargetKind; readonly id: string }>;
+};
+
+export function validateRestoreToday(raw: unknown): Validation<RestoreTodayInput> {
+  return validateInput<RestoreTodayInput>(raw, ['venueId'], (x, o) => void (isUuid(o.venueId) || x.add('id_invalid', 'venueId')));
 }

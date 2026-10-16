@@ -228,7 +228,8 @@ export const MAX_DURATION_MINUTES = 60 * 24 * 30;
 /**
  * When an override that starts `now` ends (null = indefinitely). The database computes the same moment when the
  * override is stored (app.resolve_until), so the restore happens by the clock with no job.
- * - duration: now + minutes (absolute time; a DST change does not stretch it);
+ * - duration: now + minutes (absolute time; a DST change does not stretch it), rounded up to the whole minute, so the
+ *   moment the guest's phone shows ("back at 14:32") is the moment the database restores it, to the second;
  * - time: the next time the wall clock shows HH:MM (today, or tomorrow when it has passed);
  * - next_opening: the next opening after now, skipping closed dates; without hours, the start of tomorrow;
  * - date: 00:00 of that local date (back on that day).
@@ -238,7 +239,7 @@ export function resolveUntil(spec: UntilSpec, now: Date | number, hours: VenueHo
   const tz = hours.timeZone;
   switch (spec.kind) {
     case 'duration':
-      return new Date(t + spec.minutes * MINUTE);
+      return new Date(Math.ceil((t + spec.minutes * MINUTE) / MINUTE) * MINUTE);
     case 'time': {
       const today = localParts(t, tz).date;
       const at = zonedTime(today, spec.at, tz);
@@ -250,5 +251,24 @@ export function resolveUntil(spec: UntilSpec, now: Date | number, hours: VenueHo
       return new Date(zonedTime(spec.date, '00:00', tz));
     case 'indefinite':
       return null;
+  }
+}
+
+/** Is this a well-formed `UntilSpec`? The database's `app.until_spec_ok` accepts exactly the same. */
+export function isUntilSpec(v: unknown): v is UntilSpec {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  switch (o.kind) {
+    case 'duration':
+      return Number.isInteger(o.minutes) && (o.minutes as number) >= 1 && (o.minutes as number) <= MAX_DURATION_MINUTES;
+    case 'time':
+      return isHHMM(o.at);
+    case 'date':
+      return isLocalDate(o.date);
+    case 'next_opening':
+    case 'indefinite':
+      return true;
+    default:
+      return false;
   }
 }
