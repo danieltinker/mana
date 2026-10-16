@@ -145,14 +145,18 @@ export function parsePaste(text: string): ReadResult {
           break;
         }
         // rule `description`: right under a dish (or its description), not a heading by its own look, and reading like
-        // a description or followed by the next dish (a heading would have a blank line before it)
-        if (contiguous && (role === 'dish' || role === 'desc') && d && !strongHeading(t.text) && (descShaped(t.text) || dishAt(i + 1))) {
+        // a description, or under a priced dish and followed by the next dish (a heading would have a blank line
+        // before it; under a dish with no price, a short line is the next dish of a list without prices)
+        const priced = d !== null && (d.price !== null || d.priceText !== null);
+        if (contiguous && (role === 'dish' || role === 'desc') && d && !strongHeading(t.text) && (descShaped(t.text) || (priced && dishAt(i + 1)))) {
           d.desc = append(d.desc, script, t.text);
           role = 'desc';
           break;
         }
-        // rule `heading`: a heading by its own look, or a short line followed by a dish (or by a heading: an empty section)
-        if (strongHeading(t.text) || (headingShaped(t.text) && (dishAt(i + 1) || next?.t.k === 'heading'))) { open(t.text, n); break; }
+        // rule `heading`: a heading by its own look; or a short line followed by a dish (or by a heading: an empty
+        // section), when a blank line, the start or another heading comes before it (right under a dish it is a dish)
+        const free = blankBefore || role === null || role === 'heading';
+        if (strongHeading(t.text) || (free && headingShaped(t.text) && (dishAt(i + 1) || next?.t.k === 'heading'))) { open(t.text, n); break; }
         add(t.text, n, null);
         break;
       }

@@ -65,11 +65,11 @@ function pick(cands: readonly Cand[]): Cand {
   const vals = cands.map((c) => ({ value: stripBlank(c.value), translated: c.translated })).filter((c) => c.value !== '');
   if (vals.length === 0) return { value: '', translated: false };
   const printed = vals.filter((c) => !c.translated);
-  const pool = (printed.length ? printed : vals).map((c) => c.value);
-  const full = pool.filter((t) => !pool.some((u) => cutOf(t, u)));
   const count = new Map<string, number>();
-  for (const t of full) count.set(t, (count.get(t) ?? 0) + 1);
-  const best = [...count.entries()].sort((a, b) => b[1] - a[1] || [...b[0]].length - [...a[0]].length || cmp(a[0], b[0]))[0]![0];
+  for (const c of printed.length ? printed : vals) count.set(c.value, (count.get(c.value) ?? 0) + 1);
+  const distinct = [...count.keys()];
+  const full = distinct.filter((t) => !distinct.some((u) => cutOf(t, u)));
+  const best = full.sort((a, b) => count.get(b)! - count.get(a)! || [...b].length - [...a].length || cmp(a, b))[0]!;
   return { value: best, translated: printed.length === 0 };
 }
 
