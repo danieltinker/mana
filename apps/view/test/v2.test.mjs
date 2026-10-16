@@ -224,7 +224,8 @@ test('a suggestion on screen is checked again: sold out, filtered out, chosen me
   const v2 = createVisit(g.snap.upsellRules, g.menu), mains = [{ dishId: ID.burger }];
   v2.offer('checkout', Object.assign({}, base, { basket: mains, where: 'tray' }));
   assert.equal(v2.pending.ruleId, ID.ruleLemonade);
-  assert.equal(v2.still(Object.assign({}, base, { basket: mains, filteredOut: new Set([ID.lemonade]) })), false, 'the filter now hides the lemonade');
+  assert.equal(v2.still(Object.assign({}, base, { basket: mains, tags: ['vegetarian'] })), true, 'a vegan lemonade passes "vegetarian"');
+  assert.equal(v2.still(Object.assign({}, base, { basket: mains, tags: ['spicy'] })), false, 'the filter now hides the lemonade');
   v2.offer('checkout', Object.assign({}, base, { basket: mains }));
   assert.equal(v2.pending, null, 'cap 1: shown once this visit');
   const v3 = createVisit(g.snap.upsellRules, g.menu);
@@ -322,6 +323,8 @@ test('suggestion wiring: counted once when shown, a dismissed rule stays quiet, 
   const v3 = createVisit(g.snap.upsellRules, g.menu), espresso = [{ dishId: ID.espresso }];
   assert.equal(ask(v3, 'add', { dishId: ID.espresso, basket: espresso, fromSuggestion: true }), null, 'after an accepted suggestion nothing follows');
   assert.equal(ask(v3, 'add', { dishId: ID.espresso, basket: espresso, filteredOut: new Set([ID.croissant]) }), null, 'never what the filter hides');
+  assert.equal(ask(v3, 'add', { dishId: ID.espresso, basket: espresso, tags: ['vegan'] }), null, 'the guest\'s tags, through the contracts\' passesTagFilter: the croissant is only vegetarian');
+  assert.equal(ask(createVisit(g.snap.upsellRules, g.menu), 'add', { dishId: ID.espresso, basket: espresso, tags: ['vegetarian'] }).ruleId, ID.ruleCroissant, 'vegetarian: it passes');
   const p = ask(v3, 'add', { dishId: ID.espresso, basket: espresso, where: 'float', lineKey: 'l1' });
   assert.deepEqual([p.ruleId, p.where, p.lineKey], [ID.ruleCroissant, 'float', 'l1']);
   assert.equal(v3.accept().ruleId, ID.ruleCroissant); assert.equal(v3.pending, null);

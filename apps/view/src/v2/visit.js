@@ -16,9 +16,9 @@ export function createVisit(rules, menu) {
      * The suggestion for this moment, or null. `where` (sheet, float, tray) and `lineKey` (the line an "add"
      * suggestion is about) travel with it for the page. Counted as shown once, here.
      */
-    offer(trigger, { dishId = null, selection = null, basket, unavailable, filteredOut, fromSuggestion = false, now = Date.now(), where = null, lineKey = null }) {
+    offer(trigger, { dishId = null, selection = null, basket, unavailable, tags = [], filteredOut, fromSuggestion = false, now = Date.now(), where = null, lineKey = null }) {
       pending = null;
-      const sug = matchSuggestion(rules, { trigger, menu, dishId, selection, basket, now, unavailable, filteredOut, shown, dismissed, fromSuggestion });
+      const sug = matchSuggestion(rules, { trigger, menu, dishId, selection, basket, now, unavailable, tags, filteredOut, shown, dismissed, fromSuggestion });
       if (!sug) return null;
       shown = recordShown(shown, sug.ruleId);
       pending = { ruleId: sug.ruleId, suggest: sug.suggest, line: sug.line, trigger, dishId, selection, where, lineKey, seen: shown.get(sug.ruleId) };
@@ -30,13 +30,13 @@ export function createVisit(rules, menu) {
      * twice. One that no longer does goes, unrecorded. `selection`: the choices it is about now (the sheet's, or the
      * line's), else those it was offered with.
      */
-    still({ selection, basket, unavailable, filteredOut, now = Date.now() }) {
+    still({ selection, basket, unavailable, tags = [], filteredOut, now = Date.now() }) {
       const p = pending;
       if (!p) return false;
       const rule = rules.find((r) => r.id === p.ruleId), seen = new Map(shown);
       seen.set(p.ruleId, Math.max(0, (seen.get(p.ruleId) || 0) - 1));
       const ok = !!rule && !!matchSuggestion([rule], { trigger: p.trigger, menu, dishId: p.dishId, selection: selection === undefined ? p.selection : selection, basket, now,
-        unavailable, filteredOut, shown: seen, dismissed, fromSuggestion: false });
+        unavailable, tags, filteredOut, shown: seen, dismissed, fromSuggestion: false });
       if (!ok) pending = null;
       return ok;
     },

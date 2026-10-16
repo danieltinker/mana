@@ -11,7 +11,7 @@
    by main.js rather than imported: a module this chunk imported from app.js would be split into a chunk of its own, and
    every v1 menu would wait for one more request. */
 import {
-  allDishes, fromPrice, indexMenu, isHHMM, isLocalDate, isUuid, isWeekday, localParts, menuAvailability, nextOpening, pricingContext, unavailableOf,
+  allDishes, fromPrice, indexMenu, isHHMM, isLocalDate, isUuid, isWeekday, localParts, menuAvailability, nextOpening, passesTagFilter, pricingContext, unavailableOf,
   validateSnapshotV2, venueHoursOf, TARGET_KINDS,
 } from '@mana/contracts';
 import { deadOpeners } from './choices.js';
@@ -113,15 +113,13 @@ export function setLive(model, rawLive, now = Date.now()) {
 }
 
 /* ---------- the tag filter ---------- */
-/** Does a dish carry every chosen tag? A vegan dish is also vegetarian (by definition, not by guess). */
-export function matchesTags(tags, chosen) {
-  return chosen.every((t) => tags.includes(t) || (t === 'vegetarian' && tags.includes('vegan')));
-}
-/** Dishes the filter hides (what matchSuggestion calls `filteredOut`). */
+/* The filter is the contracts' passesTagFilter (every chosen tag, a vegan dish counting as vegetarian): the same one
+   matchSuggestion and the owner app's rule preview use, so what the guest sees and what may be suggested agree. */
+/** Dishes the filter hides. */
 export function filteredOut(model, chosen) {
   const out = new Set();
   if (!chosen.length) return out;
-  for (const { dish } of allDishes(model.v2.snap)) if (!matchesTags(dish.tags, chosen)) out.add(dish.id);
+  for (const { dish } of allDishes(model.v2.snap)) if (!passesTagFilter(dish, chosen)) out.add(dish.id);
   return out;
 }
 /** The model as the filter shows it: only matching dishes, sections without any left out. The items are the same objects. */

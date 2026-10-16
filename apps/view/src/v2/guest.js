@@ -16,8 +16,8 @@
 
    Every price, limit, default, availability and suggestion is @mana/contracts' (through menu.js, choices.js,
    basket.js); nothing here depends on WebGL, so the list view gets exactly the same choices. */
-import { TAGS, configFlags, priceDish } from '@mana/contracts';
-import { closedText, filtered, filteredOut, loadMenu, matchesTags, poll, refresh, rpc, setLive, toModel } from './menu.js';
+import { TAGS, configFlags, passesTagFilter, priceDish } from '@mana/contracts';
+import { closedText, filtered, loadMenu, poll, refresh, rpc, setLive, toModel } from './menu.js';
 import { chosenList, groupIn, issues, qtyOf, runningPrice, selectionKey, setOption, startOf, unitsOf } from './choices.js';
 import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, splitOne, storedLines } from './basket.js';
 import { createEvents } from './events.js';
@@ -68,7 +68,6 @@ export function createGuest(model, { env, mem, src, kit }) {
   const groupName = (id) => { const gr = groupOf(id); return gr ? name(gr.name) : ''; };
   const optionName = (id) => { for (const gr of g().snap.addonGroups) { const o = gr.options.find((x) => x.id === id); if (o) return name(o.name); } return ''; };
   const shownNow = (id) => !!store && store.getModel().itemById.has(id);
-  const hidden = () => filteredOut(full, tags);
   const say = (text) => { if (els.live) { els.live.textContent = ''; els.live.textContent = text; } };
 
   /* ---------- the basket, kept on this phone ---------- */
@@ -91,7 +90,7 @@ export function createGuest(model, { env, mem, src, kit }) {
   /* ---------- suggestions: one at a time, never chained, capped per visit ---------- */
   function offer(trigger, dishId, selection, { fromSuggestion = false, where, lineKey = null } = {}) {
     const p = visit.offer(trigger, { dishId, selection, basket: basketNow(), unavailable: g().unavailable,
-      filteredOut: hidden(), fromSuggestion, where, lineKey });
+      tags, fromSuggestion, where, lineKey });
     if (!p) return null;
     ev.emit('suggestion_shown', { ruleId: p.ruleId, trigger, dishId });
     say(word(lang(), 'suggestion') + ': ' + name(p.line));
@@ -113,7 +112,7 @@ export function createGuest(model, { env, mem, src, kit }) {
       if (!l) { visit.drop(); return true; }
       selection = l.selection;
     }
-    return !visit.still({ selection, basket: basketNow(), unavailable: g().unavailable, filteredOut: hidden() });
+    return !visit.still({ selection, basket: basketNow(), unavailable: g().unavailable, tags });
   }
   function accept() {
     if (recheck()) { redrawAll(); return; }                     // it no longer applies: nothing is added
@@ -400,8 +399,8 @@ export function createGuest(model, { env, mem, src, kit }) {
 
   /* ---------- the tag filter and the line under the bar ---------- */
   const tagWord = (t) => (ui ? ui.t.group('tags')[t] : t) || t;
-  const present = () => TAGS.filter((t) => [...items.values()].some((it) => matchesTags(it.tags, [t])));
-  const countWith = (list) => [...items.values()].filter((it) => matchesTags(it.tags, list)).length;
+  const present = () => TAGS.filter((t) => [...items.values()].some((it) => passesTagFilter(it, [t])));
+  const countWith = (list) => [...items.values()].filter((it) => passesTagFilter(it, list)).length;
   function setTags(next) {
     tags = TAGS.filter((t) => next.includes(t));
     const went = recheck();                                     // a suggestion the filter now hides goes
