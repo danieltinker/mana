@@ -3,7 +3,9 @@
 // fields, tabs, and the error line in v2's words.
 import { useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
+import type { FromPrice } from '@mana/contracts';
 import { Btn, Icon, IconBtn, Note, Seg } from '../ui.tsx';
+import { shekels } from './format.ts';
 import { errText, lang, t } from './i18n.ts';
 
 // icons the v1 set does not have (same stroke and size rules as ../ui.tsx)
@@ -18,6 +20,15 @@ export function Icon2({ name, size = 20 }: { name: string; size?: number }) {
 }
 function GlyphBtn({ icon, label, ...rest }: { icon: string; label: string; [k: string]: any }) {
   return <button type="button" class="iconbtn" aria-label={label} title={label} {...rest}><Icon2 name={icon} /></button>;
+}
+
+/** "₪62", "from ₪62" or "No price": the amount stays left to right inside a Hebrew sentence. */
+export function Price({ p }: { p: FromPrice | null }) {
+  if (!p) return <span>{t('menu.item.noPrice')}</span>;
+  const amount = <bdi dir="ltr" class="price">{shekels(p.amount)}</bdi>;
+  if (!p.from) return amount;
+  const [before, after = ''] = t('gp.from').split('{price}');
+  return <span>{before}{amount}{after}</span>;
 }
 
 export function ErrorLine({ code, scope, onRetry }: { code: string; scope?: string; onRetry?: () => void }) {

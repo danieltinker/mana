@@ -81,14 +81,15 @@ function DishDetails({ row, L, onDeleted }: { row: DishRow; L: 'he' | 'en'; onDe
       <Field label={t('item.desc') + ' · ' + t('app.' + L)} optional>{(p) => (
         <textarea {...p} dir="auto" lang={L} maxLength={LIMITS.descLength} rows={3} value={form[k('desc')] as string} disabled={!editable} data-field={'dish-desc-' + L} onInput={(e) => set({ [k('desc')]: input(e) })} />
       )}</Field>
-      <div class="dish-top">
+      <div class="price-row">
+        <Field label={t('item.price')} error={errOf('price')}>{(p) => (
+          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={form.price} onInput={(v) => set({ price: v })} />
+        )}</Field>
         <Field label={t('item.priceNote') + ' · ' + t('app.' + L)} optional>{(p) => (
           <input {...p} type="text" dir="auto" lang={L} maxLength={LIMITS.noteLength} placeholder={t('item.priceNoteEg')} value={form[k('priceNote')] as string} disabled={!editable} onInput={(e) => set({ [k('priceNote')]: input(e) })} />
         )}</Field>
-        <Field label={t('dish.price')} error={errOf('price')}>{(p) => (
-          <MoneyInput id={p.id} describedBy={p['aria-describedby']} invalid={!!p['aria-invalid']} value={form.price} onInput={(v) => set({ price: v })} />
-        )}</Field>
       </div>
+      <p class="fine">{t('gp.vat')}</p>
       <fieldset class="tags">
         <legend>{t('item.tags')}</legend>
         {TAGS.map((tag) => {
@@ -247,7 +248,7 @@ function DishRelated({ row }: { row: DishRow }) {
       {editable && (full ? <p class="hint">{t('e.limit_related', { n: LIMITS.related })}</p> : others.length > 0 && (
         <div class="related-add">
           <Field label={t('dish.related.add')}>{(p) => (
-            <select {...p} value={pick} data-field="related-pick" onChange={(e) => setPick((e.target as HTMLSelectElement).value)}>
+            <select {...p} key={related.length} value={pick} data-field="related-pick" onChange={(e) => setPick((e.target as HTMLSelectElement).value)}>
               <option value="">{t('dish.related.choose')}</option>
               {others.map((x) => <option key={x.id} value={x.id}>{named(x, lang.value) || t('menu2.unnamed')}</option>)}
             </select>

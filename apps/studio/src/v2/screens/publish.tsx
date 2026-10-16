@@ -117,7 +117,8 @@ export function PublishScreen() {
           {d.revisions.map((r) => (
             <li key={r.id} data-revision={r.number}>
               <span class="rev-main"><span class="strong">{t('pub.rev', { n: r.number })}</span><span class="fine">{fmtDateTime(r.created_at)}</span></span>
-              {r.id === v.published_revision_id ? <span class="badge badge-ok">{t('pub.revLive')}</span>
+              {r.id === v.published_revision_id
+                ? (standing === 'pending' ? <span class="badge badge-warn">{t('pub2.revPending')}</span> : <span class="badge badge-ok">{t('pub.revLive')}</span>)
                 : canEdit() && <Btn small onClick={() => setRestoreN(r.number)} data-restore={r.number}>{t('pub2.restoreShort')}</Btn>}
             </li>
           ))}

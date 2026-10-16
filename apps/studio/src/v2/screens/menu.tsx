@@ -3,16 +3,16 @@
 // buttons (keyboard and screen readers, each move announced).
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ROOMS, SECTION_KINDS, type DishRow, type SectionRow } from '@mana/contracts';
-import { Btn, Confirm, Empty, Field, Icon, IconBtn, Ltr, Note, PageHead, Sheet, Switch, go } from '../../ui.tsx';
+import { Btn, Confirm, Empty, Field, Icon, IconBtn, Note, PageHead, Sheet, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
 import { agorotOf, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
 import { menuPrice } from '../data/guest.ts';
 import { byPosition, named } from '../data/rows.ts';
 import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
-import { langsOf, priceLine } from '../format.ts';
+import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { LangSeg, MoneyInput, ReorderList, useEntryLang } from '../ui.tsx';
+import { LangSeg, MoneyInput, Price, ReorderList, useEntryLang } from '../ui.tsx';
 import { DishSheet } from './dish.tsx';
 
 export function MenuScreen({ rest }: { rest: string[] }) {
@@ -91,7 +91,7 @@ function DishLine({ dish }: { dish: DishRow }) {
       <span class="row-text">
         <span class="row-name">{name}</span>
         <span class="row-sub">
-          <Ltr class="price" data-price>{priceLine(menuPrice(d, dish.id))}</Ltr>
+          <span data-price><Price p={menuPrice(d, dish.id)} /></span>
           {groups > 0 && <span class="badge badge-todo">{tn('menu2.groups', groups)}</span>}
           {part && <span class="badge badge-ok">{named(part, L)}</span>}
           {dish.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}

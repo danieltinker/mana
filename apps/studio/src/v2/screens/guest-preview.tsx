@@ -5,9 +5,9 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { defaultSelection, fromPrice, priceDish, type AddonOptionV2, type DishSelection, type PriceError } from '@mana/contracts';
 import { Btn, Ltr } from '../../ui.tsx';
 import { choose, chosenOption, clearGroup, maxOf, minOf, pricingOf, setQty, unitsIn, type GroupPath, type GuestModel } from '../data/guest.ts';
-import { priceLine, ruleLine, shekels } from '../format.ts';
+import { ruleLine, shekels } from '../format.ts';
 import { t } from '../i18n.ts';
-import { Stepper } from '../ui.tsx';
+import { Price, Stepper } from '../ui.tsx';
 
 export function GuestPreview({ model, L }: { model: GuestModel; L: 'he' | 'en' }) {
   const ctx = useMemo(() => pricingOf(model), [model]);
@@ -21,7 +21,7 @@ export function GuestPreview({ model, L }: { model: GuestModel; L: 'he' | 'en' }
     <section class="gp" aria-labelledby="gp-title" data-guest-preview>
       <header class="gp-head"><h3 id="gp-title">{t('gp.title')}</h3><p class="fine">{t('gp.sub')}</p></header>
       <div class="gp-card" lang={L} dir={L === 'he' ? 'rtl' : 'ltr'}>
-        <p class="gp-dish"><span class="gp-name">{name(model.dish)}</span><Ltr class="gp-from" data-from>{priceLine(fromPrice(model.dish, { groups: model.groups }))}</Ltr></p>
+        <p class="gp-dish"><span class="gp-name">{name(model.dish)}</span><span class="gp-from" data-from><Price p={fromPrice(model.dish, { groups: model.groups })} /></span></p>
         {model.dish.addons.map((a) => <GroupBlock key={a.groupId} model={model} path={{ groupId: a.groupId, parentOptionId: null }} sel={sel} onSel={setSel} name={name} />)}
         <p class="gp-total" aria-live="polite" data-total={result.ok ? result.total : ''}>
           {result.ok ? <><span>{t('gp.total')}</span><Ltr class="price">{shekels(result.total)}</Ltr></> : <span class="gp-err">{problem(result.error, model, name)}</span>}
@@ -39,7 +39,7 @@ function GroupBlock({ model, path, sel, onSel, name }: { model: GuestModel; path
   const min = minOf(model, path), max = maxOf(model, path), units = unitsIn(sel, path);
   const one = max === 1;
   const radioName = 'gp-' + (path.parentOptionId ?? 'top') + '-' + g.id;
-  const label = (o: AddonOptionV2) => name(o) + (o.price > 0 ? ' +' + shekels(o.price) : '');
+  const label = (o: AddonOptionV2) => <>{name(o)}{o.price > 0 && <> <Ltr>+{shekels(o.price)}</Ltr></>}</>;
   return (
     <fieldset class={'gp-group' + (path.parentOptionId ? ' is-nested' : '')} data-preview-group={g.id}>
       <legend><span class="gp-gname">{name(g)}</span><span class="fine">{ruleLine(min, max)}</span></legend>

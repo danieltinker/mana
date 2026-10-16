@@ -61,7 +61,7 @@
 
 /* the group editor: one card per choice */
 .opts{display:grid;gap:12px;counter-reset:none}
-.opt{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff}
+.optcard{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff}
 .opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-4px -6px -4px 0}
 [dir=rtl] .opt-head{margin:-4px 0 -4px -6px}
 .opt-n{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--soft);font-weight:600;font-size:.86rem;color:var(--charcoal)}
@@ -72,3 +72,4 @@
 .standing h2{font:600 1.15rem/1.25 var(--body)}
 .notices{display:grid;gap:8px}
 .notices ul{display:grid;gap:6px}
+.price-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;align-items:start}

@@ -101,7 +101,14 @@ function GroupEditor({ id }: { id: string | null }) {
       if (!id) go('addons/' + g.id, true); else setForm(groupToForm(g, menu.value!.options));
     } catch (e) {
       const err = toV2Error(e) as V2Error;
-      if (err.code === 'form_invalid') setErrors(err.detail as FieldError[]); else setError(errText(err.code, 'lib.e'));
+      if (err.code === 'form_invalid') { setErrors(err.detail as FieldError[]); return; }
+      setError(errText(err.code));
+      if (err.code === 'nesting_too_deep') {
+        // the library as it is stored now decides: an opener it no longer allows is dropped from the form
+        const fresh = menu.value!;
+        const allowed = new Set(openTargets(id, byCreated(fresh.groups), fresh.options).map((g) => g.id));
+        setForm((f) => ({ ...f, options: f.options.map((o) => (o.opensGroupId && !allowed.has(o.opensGroupId) ? { ...o, opensGroupId: null } : o)) }));
+      }
     } finally { setBusy(false); }
   }
   async function remove() {
@@ -163,8 +170,7 @@ function GroupEditor({ id }: { id: string | null }) {
         {editable && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-group">{t('lib.delete')}</Btn>}
       </section>}
 
-      {error && <Note kind="error">{error}</Note>}
-      {editable && <Sticky note={dirty ? t('save.leave') : undefined}><Btn kind="primary" block busy={busy} disabled={!dirty && !!row} onClick={save} data-action="save-group">{row ? t('lib.save') : t('lib.create')}</Btn></Sticky>}
+      {editable && <Sticky note={error ? <span class="ferr" role="alert" data-error>{error}</span> : dirty ? t('save.leave') : undefined}><Btn kind="primary" block busy={busy} disabled={!dirty && !!row} onClick={save} data-action="save-group">{row ? t('lib.save') : t('lib.create')}</Btn></Sticky>}
       <Confirm open={del} title={t('lib.delete')} body={u.dishes.length ? tn('lib.deleteUsed', u.dishes.length, { name: named(row, UI) }) : t('lib.deleteConfirm', { name: named(row, UI) })}
         confirmLabel={t('app.delete')} danger busy={busy} onConfirm={remove} onClose={() => setDel(false)} />
       <Confirm open={leave} title={t('lib.leave.title')} body={t('lib.leave.body')} confirmLabel={t('lib.leave.go')} onConfirm={() => { setLeave(false); go('addons'); }} onClose={() => setLeave(false)} />
@@ -182,7 +188,7 @@ function OptionCard({ o, i, n, L, many, nested, targets, editable, errAt, onChan
   // the current target stays listed even if it is no longer allowed, so the owner sees it (and saving says why not)
   const list = o.opensGroupId && !targets.some((g) => g.id === o.opensGroupId) ? [...targets, ...(menu.value!.groups.filter((g) => g.id === o.opensGroupId))] : targets;
   return (
-    <li class="opt" data-option={o.id ?? o.key}>
+    <li class="optcard" data-option={o.id ?? o.key}>
       <div class="opt-head">
         <span class="opt-n">{i + 1}</span>
         <div class="tools">

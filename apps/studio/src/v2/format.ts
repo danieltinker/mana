@@ -1,5 +1,5 @@
 // How the v2 screens say prices, limits and languages. Browser-free, but reads the current language.
-import type { FromPrice, VenueRow } from '@mana/contracts';
+import type { VenueRow } from '@mana/contracts';
 import { formatPrice } from '../lib/money.ts';
 import { t } from './i18n.ts';
 
@@ -10,12 +10,6 @@ export function langsOf(v: Pick<VenueRow, 'langs' | 'default_lang'>): ('he' | 'e
 }
 
 export const shekels = (agorot: number) => formatPrice(agorot, 'ILS');
-
-/** "₪62", "from ₪62", or "No price". */
-export function priceLine(p: FromPrice | null): string {
-  if (!p) return t('menu.item.noPrice');
-  return p.from ? t('gp.from', { price: shekels(p.amount) }) : shekels(p.amount);
-}
 
 /** "Choose 1", "Choose 1 to 2", "Up to 3", with "required" or "optional". */
 export function ruleLine(min: number, max: number): string {
