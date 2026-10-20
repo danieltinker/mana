@@ -955,7 +955,8 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    the whole pass, since a skip may make another group unreachable. A draft-level `limits_unreachable` is not asked
  *    again. A group not asked for its global match and created all the same (`new_group`) has its minimum lowered to
  *    its kept capacity (rule 10).
- * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes; the other kept
+ * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes (left out with it:
+ *    its dishes, their links and photos are `parent_skipped`, the section itself `merged`); the other kept
  *    sections claim existing ones in one pass (`assign`: best `nameScore`, then the row's position, id, then the draft
  *    key), so the result does not depend on the draft's order.
  * 4. **Dishes in their section:** every kept dish whose section resolved, against the dishes of that existing section,
@@ -1147,8 +1148,10 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     }
   };
   const out = (key: string): boolean => skipped.has(key);
+  /** The dishes of a section merged (`merge`) into a section left out: they go with it (filled in step 3). */
+  const gone = new Set<string>();
   const linkOut = (d: DraftDish, a: DraftDishGroup): SkipReason | null =>
-    out(d.key) || out(a.group) ? 'parent_skipped' : asked.has(linkKey(d.key, a.group)) ? 'choice' : null;
+    out(d.key) || gone.has(d.key) || out(a.group) ? 'parent_skipped' : asked.has(linkKey(d.key, a.group)) ? 'choice' : null;
   const keptOptions = (g: DraftGroup): DraftOption[] => g.options.filter((o) => !out(o.key));
   // a group whose kept options no longer reach its minimum (the draft's own options did): asked once, unless it lands on
   // a venue's group by itself (whose limits are the venue's). The owner's `skip` counts whatever the venue has: the
@@ -1201,6 +1204,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     () => exSections, claimedSections);
   for (const [key, m] of byName) { target.set(key, { id: m.id, ref: null }); nameMatched.add(key); }
   const rootOf = (sectionKey: string): string => mergedInto.get(sectionKey) ?? sectionKey;
+  for (const s of draft.sections) if (out(rootOf(s.key))) for (const d of s.dishes) if (!out(d.key)) gone.add(d.key);
 
   // ---- 4–7. dishes: in their section, elsewhere in the family, renamed sections, another kind
   type DNode = { key: string; keys: Keys; dish: DraftDish; section: DraftSection };
@@ -1839,9 +1843,17 @@ export function validateCreateImport(raw: unknown): Validation<CreateImportInput
   return x.ok ? { ok: true, value: raw as unknown as CreateImportInput } : { ok: false, errors: x.list };
 }
 
+/** The caps on the images the scanner reads (each a paid model call), in `app_config.import_caps`: per venue per local
+ * day, per person per UTC day, for all venues together per UTC day. */
+export const SCAN_IMAGE_CAPS = ['scan_images_per_venue_day', 'scan_images_per_user_day', 'scan_images_per_day'] as const;
+export type ScanImageCap = (typeof SCAN_IMAGE_CAPS)[number];
 /**
- * `claim_import_scan` (called by the scanner with the owner's own token, before any paid call): the import moves to
- * `parsing` and the scanner gets what it reads. A claim older than 10 minutes (a crashed read) may be claimed again.
+ * `claim_import_scan(p_import, p_mode)` (called by the scanner with the owner's own token, before any paid call):
+ * `p_mode` names what it reads, the import's source (`scan` or `wolt_screenshots`; another mode is `not_scannable` and
+ * costs nothing). The import moves to `parsing` and the scanner gets what it reads. A claim older than 10 minutes (a
+ * crashed read) may be claimed again; a purged import never (`import_closed`). Owners and managers only: anyone else,
+ * and an import that does not exist, get the same `import_unknown`. The images (`images`) are charged when the claim
+ * succeeds, against the three `SCAN_IMAGE_CAPS`; `rate_limited` names the cap reached.
  */
 export type ClaimScanReply =
   | RpcOk<{
@@ -1849,11 +1861,14 @@ export type ClaimScanReply =
       readonly venueId: string;
       readonly source: (typeof IMAGE_SOURCES)[number];
       readonly paths: readonly string[];
+      /** How many images this claim charged (`paths.length`). */
+      readonly images: number;
       readonly rightsConfirmed: boolean;
       /** The venue's languages, for the reader's prompt and `draftExceptions`. */
       readonly langs: readonly Lang[];
     }>
-  | RpcFail<'import_unknown' | 'not_scannable' | 'import_busy' | 'import_closed' | 'rate_limited'>;
+  | { readonly ok: false; readonly code: 'rate_limited'; readonly cap: ScanImageCap }
+  | RpcFail<'import_unknown' | 'not_scannable' | 'import_busy' | 'import_closed'>;
 /** Why the scanner marks an import `failed` (`menu_imports.error_code`). */
 export const SCAN_ERROR_CODES = ['image_unreadable', 'model_failed', 'draft_invalid', 'timeout'] as const;
 export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
