@@ -649,3 +649,65 @@ test('a section saved after a failed save: the failed change and the new one go 
   await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { name_he: 'שתייה', hidden: false });
   await page.context().close();
 });
+
+// ------------------------------------------------------------------ round 4
+test('a dish\'s own limits saved while a whole-menu read is late: the late read keeps them, and the next change is no question', { timeout: 150000 }, async () => {
+  const page = await signedIn();
+  await page.goto(e.webUrl + 'studio/#/menu');
+  await page.locator('[data-screen="menu"]').waitFor();
+  // the next whole-menu read of the dishes' group links (rows without a version) answers 10 s late
+  let armed = false, heldAt = 0, releasedAt = 0;
+  const links = (u) => u.pathname.endsWith('/rest/v1/dish_addon_groups');
+  await page.route(links, async (r) => {
+    if (!armed || r.request().method() !== 'GET' || !/venue_id=eq/.test(r.request().url())) return r.continue();
+    armed = false; heldAt = Date.now();
+    const answer = await r.fetch();
+    await sleep(10000);
+    releasedAt = Date.now();
+    return r.fulfill({ response: answer });
+  });
+  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 7 });      // the move is stale
+  armed = true;
+  await page.locator('[data-tool="arrange"]').click();
+  await page.locator(`section[data-section="${ids.sections.mains}"] .sec-head [data-move="down"]`).click();
+  await until(async () => heldAt > 0, 'the menu read again');
+  await page.locator('[data-tool="arrange"]').click();
+  const sheet = await openDish(page, 'burger', 'addons');
+  const limits = () => sheet.getByRole('button', { name: /הגבולות של/ }).first().click();
+  const lim = sheet.locator('[data-limits]');
+  const storedMax = async () => (await owner.api.select('dish_addon_groups', { select: 'max_units', dish_id: `eq.${ids.dishes.burger}` }))[0].max_units;
+  await limits();
+  await lim.locator('[data-field="dish-max"]').selectOption('2');
+  await lim.locator('[data-action="save-limits"]').click();
+  await sheet.locator('[data-tighter]').waitFor();
+  const rule = await sheet.locator('[data-rule]').first().innerText();
+  assert.equal(releasedAt, 0, 'saved while the read was still on its way');
+  await until(async () => releasedAt > 0, 'the late answer', 20000);
+  await sleep(1500);
+  assert.equal(await sheet.locator('[data-rule]').first().innerText(), rule, 'the limits the owner saved stay on screen');
+  assert.equal(await sheet.locator('[data-tighter]').count(), 1, 'and the "own limits" mark with them');
+  await shot(page, '10-limits-after-late-read');
+  await limits();
+  await lim.locator('[data-field="dish-max"]').selectOption('1');
+  await lim.locator('[data-action="save-limits"]').click();
+  await until(async () => (await storedMax()) === 1, 'the next limits stored');
+  assert.equal(await sheet.locator('.note-error').count(), 0, 'no "changed somewhere else"');
+  await page.unroute(links);
+  await owner.api.update('dish_addon_groups', { dish_id: `eq.${ids.dishes.burger}` }, { max_units: null });
+  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 1 });
+  await page.context().close();
+});
+
+test('the session ends (401) during a group save: the start screen names the group', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const ed = await openGroup(page, 'extras');
+  await page.route((u) => u.pathname.endsWith('/rest/v1/rpc/save_addon_group'), (r) =>
+    r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }) }));
+  await ed.locator('[data-field="group-label"]').fill('תווית שלא תישמר');
+  await ed.locator('[data-action="save-group"]').click();
+  await page.locator('[data-screen="start"] [data-session-ended]').waitFor({ timeout: 15000 });
+  assert.match(await page.locator('[data-session-unsaved]').innerText(), /"תוספות"/);
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'no question left over the start screen');
+  assert.equal((await groupRow('extras')).label, '');
+  await page.context().close();
+});

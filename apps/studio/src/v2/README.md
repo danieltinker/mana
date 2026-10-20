@@ -46,14 +46,17 @@ makes this the app.
   - a failure (no connection, a lost answer, or no answer within 15 s, `ANSWER_MS`) takes in everything typed after it
     for that row; nothing more is sent for that row until the owner retries (the "not saved" line, on the page and inside
     an open sheet) or the connection comes back (`online`); the retry sends all of it as one patch, so a later value
-    always wins. Any other write (a move, a group save, a new row) also gives up after 15 s, so nothing (a flush,
-    signing out, switching place, a deletion) waits forever; signing out says it is waiting meanwhile;
+    always wins. Any other write (a move, a group save, a new row) also gives up after 15 s, and so do the re-reads after
+    a refusal (the role, the row, the menu), so nothing (a flush, signing out, switching place, a deletion) waits
+    forever; signing out says it is waiting meanwhile;
   - a write that stored a column takes it out of the failed patch.
 - **An answer that comes late never takes the screen back.** A row the database returned is put on screen only when it
   is not older (`updated_at`, at full precision: `stampOrder`) than the one there, and the queue's baseline (what this
   screen last read) never moves back either. A whole menu read again (`reloadMenuQuietly`) is merged by
   `rowsAfterRead`: a read sent before one already shown is dropped, a row deleted here after the read was sent does not
-  come back, a row added here after it stays.
+  come back, a row added here after it stays, and a row without a version (a dish's link to a group with its own
+  limits, "goes well with", their order) that this screen stored after the read was sent stays as stored here.
+  Known gap: a row edited here after a read was sent and deleted elsewhere before it ran stays until the next read.
 - **Every change of a row is guarded** (`api.updateIf`): it is written only while the row still has the `updated_at` this
   screen read (a move: the position it started from; a dish's limits: the limits it read). Zero rows back is read again:
   - changed elsewhere (`stale`): nothing of it is written, and nothing typed after it is sent; `conflicts` holds the
@@ -91,7 +94,8 @@ makes this the app.
   browser's Back, Forward or a typed address: `leave.ts`, which puts the address back on `popstate` before the router
   hears of it).
 - **The session ending by itself** (a 401 during a save) signs out and says so on the start screen, naming the rows
-  whose latest changes may not be saved (`sessionEnded`).
+  whose latest changes may not be saved (`sessionEnded`): those in the save queue, and the forms holding changes not
+  sent yet (a group form, a section sheet: `formHolds`).
 - **Publishing waits for saving**: while a change is on its way, failed, or waiting for a decision, the publish button
   is off and the screen says which.
 - **Prices are agorot**, typed in shekels (`agorotOf`, `shekelsOf`), never floats.
