@@ -1,6 +1,8 @@
-// Run by old-safari.test.ts in its own process: the JavaScript of Safari and iOS 15.0 (no regular-expression
-// lookbehind, no `Object.hasOwn`, no `crypto.randomUUID`, no `Array.prototype.at` / `findLast`, no `structuredClone`),
-// then every contract module loaded and used. Prints one JSON line; any throw fails the parent test.
+// Run by old-safari.test.ts in its own process: as much of Safari and iOS 15.0's JavaScript as a script can impose,
+// then every contract module loaded and used. `RegExp` refuses a lookbehind pattern it is given (as `new RegExp('…')`
+// does at module load); a lookbehind written as a literal never reaches `RegExp`, so the parent's text check covers that.
+// `Object.hasOwn`, `crypto.randomUUID`, `Array.prototype.at` / `findLast` / `findLastIndex`, `String.prototype.at` and
+// `structuredClone` are removed. Prints one JSON line; any throw fails the parent test.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
