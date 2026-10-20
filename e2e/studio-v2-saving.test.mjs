@@ -437,8 +437,14 @@ test('signing out with a change that did not save asks first; leaving a changed 
 
 // ------------------------------------------------------------------ round 3: answers that come late, or never
 const sectionRow = async (key) => (await owner.api.select('sections', { select: '*', id: `eq.${ids.sections[key]}` }))[0];
+/** Mains first, drinks second, with distinct positions: a tie would leave their order to the rows' random ids. */
+const sectionsInOrder = () => Promise.all([
+  owner.api.update('sections', { id: `eq.${ids.sections.mains}` }, { position: 0 }),
+  owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 1 }),
+]);
 
 test('a whole-menu read answered late (after a stale move) never puts back what the owner renamed meanwhile, nor asks about it', { timeout: 150000 }, async () => {
+  await sectionsInOrder();
   const page = await signedIn();
   await page.goto(e.webUrl + 'studio/#/menu');
   await page.locator('[data-screen="menu"]').waitFor();
@@ -477,7 +483,7 @@ test('a whole-menu read answered late (after a stale move) never puts back what 
   assert.equal(await page.locator('dialog[data-conflict]').count(), 0);
   await page.unroute(dishes);
   await reset('cola', { name_he: 'קולה', price: 1000 });
-  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 1 });
+  await sectionsInOrder();                               // the move stored mains at 1: both go back
   await page.context().close();
 });
 
@@ -652,6 +658,7 @@ test('a section saved after a failed save: the failed change and the new one go 
 
 // ------------------------------------------------------------------ round 4
 test('a dish\'s own limits saved while a whole-menu read is late: the late read keeps them, and the next change is no question', { timeout: 150000 }, async () => {
+  await sectionsInOrder();                               // mains can move down, whatever ran before
   const page = await signedIn();
   await page.goto(e.webUrl + 'studio/#/menu');
   await page.locator('[data-screen="menu"]').waitFor();
@@ -694,7 +701,45 @@ test('a dish\'s own limits saved while a whole-menu read is late: the late read 
   assert.equal(await sheet.locator('.note-error').count(), 0, 'no "changed somewhere else"');
   await page.unroute(links);
   await owner.api.update('dish_addon_groups', { dish_id: `eq.${ids.dishes.burger}` }, { max_units: null });
-  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 1 });
+  await sectionsInOrder();
+  await page.context().close();
+});
+
+test('a reorder of a dish\'s groups whose answers come after the 15 s wait never takes back the limits saved since', { timeout: 180000 }, async () => {
+  const linksOf = () => owner.api.select('dish_addon_groups', { select: 'id,group_id,position,max_units', dish_id: `eq.${ids.dishes.burger}`, order: 'position' });
+  const [spareLink] = await owner.insert('dish_addon_groups', [{ dish_id: ids.dishes.burger, group_id: ids.groups.spare, position: 1 }]);
+  const extrasLink = (await linksOf()).find((l) => l.group_id === ids.groups.extras);
+  const page = await signedIn();
+  const sheet = await openDish(page, 'burger', 'addons');
+  // the move's two writes run at the database at once; their answers reach the phone 20 s later
+  let held = 0;
+  const links = (u) => u.pathname.endsWith('/rest/v1/dish_addon_groups');
+  await page.route(links, async (r) => {
+    if (r.request().method() !== 'PATCH' || held >= 2 || !/"position"/.test(r.request().postData() || '')) return r.continue();
+    held++;
+    const answer = await r.fetch();
+    await sleep(20000);
+    return r.fulfill({ response: answer }).catch(() => {});
+  });
+  const t0 = Date.now();
+  await sheet.getByRole('button', { name: 'סידור' }).click();
+  await sheet.locator(`li[data-row="${extrasLink.id}"] [data-move="down"]`).click();
+  await sheet.getByRole('button', { name: 'סיום הסידור' }).click();
+  await until(async () => (await linksOf())[0].group_id === ids.groups.spare, 'the move ran at the database', 10000);
+  await sleep(Math.max(0, 16500 - (Date.now() - t0)));                       // past the 15 s wait: the move gave up here
+  const row = sheet.locator(`li[data-row="${extrasLink.id}"]`);
+  await row.getByRole('button', { name: /הגבולות של/ }).click();
+  await sheet.locator('[data-limits] [data-field="dish-max"]').selectOption('2');
+  await sheet.locator('[data-limits] [data-action="save-limits"]').click();
+  await until(async () => (await linksOf()).find((l) => l.group_id === ids.groups.extras).max_units === 2, 'the limits stored', 10000);
+  const saved = await row.locator('[data-rule]').innerText();
+  assert.ok(Date.now() - t0 < 20000, 'saved before the move\'s late answers');
+  await sleep(Math.max(0, 23000 - (Date.now() - t0)));                       // the late answers have come
+  await sleep(1000);
+  assert.equal(await row.locator('[data-rule]').innerText(), saved, 'a late answer never takes the limits back');
+  await page.unroute(links);
+  await owner.api.remove('dish_addon_groups', { id: `eq.${spareLink.id}` });
+  await owner.api.update('dish_addon_groups', { id: `eq.${extrasLink.id}` }, { position: 0, max_units: null });
   await page.context().close();
 });
 

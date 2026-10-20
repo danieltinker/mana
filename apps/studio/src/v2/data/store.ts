@@ -213,14 +213,16 @@ const withTyped = (table: MenuTable, r: AnyRow): AnyRow => { const typed = saves
 
 /**
  * Rows the database returned, on screen (with what is still being typed over them). A row older than the one on screen
- * (an answer that came late) is not put back.
+ * (an answer that came late) is not put back. `sentAt` is the clock when the write that returned them was sent: a row
+ * this screen stored after that is newer than the answer, version or not (a write whose answer came after its wait).
  */
-function put<T extends MenuTable>(table: T, rows: Rows[T][]) {
+function put<T extends MenuTable>(table: T, rows: Rows[T][], sentAt?: number) {
   const d = menu.value; if (!d || !rows.length) return;
   const k = KEY[table], on = d[k] as AnyRow[];
   const by = new Map<string, AnyRow>();
   for (const r of rows as unknown as AnyRow[]) {
     const mine = on.find((x) => x.id === r.id);
+    if (sentAt !== undefined && (storedAt.get(keyOf(table, r.id)) ?? 0) > sentAt) continue;
     if (mine && stampOrder(mine.updated_at as string | undefined, r.updated_at as string | undefined) > 0) continue;
     saves.read(table, r as Row);
     storedAt.set(keyOf(table, r.id), ++clock);
@@ -480,8 +482,10 @@ export function moveRow(table: MenuTable, siblings: readonly { id: string; posit
   const d = menu.value!, k = KEY[table], gen = generation;
   menu.value = { ...d, [k]: (d[k] as { id: string; position: number }[]).map((r) => (positions.has(r.id) ? { ...r, position: positions.get(r.id)! } : r)) };
   const moves = [...positions].map(([id, position]) => onRow(keyOf(table, id), async () => {
+    const sentAt = clock;
     const r = await api.updateIf<AnyRow>(table, id, { position: was.get(id)! }, { position });
-    if (r.ok && gen === generation) { put(table, [r.row as never]); saves.settled(table, id, ['position']); }
+    // (an answer after the lane's wait still lands here: `sentAt` keeps it off a row stored since)
+    if (r.ok && gen === generation) { put(table, [r.row as never], sentAt); saves.settled(table, id, ['position']); }
     return r;
   }));
   return Promise.all(moves).then(async (results) => {
@@ -616,11 +620,14 @@ export function setDishLimits(dagId: string, limits: DishLimits): Promise<DishAd
   const was = rowIn('dish_addon_groups', dagId) as DishAddonGroupRow | undefined;
   if (!was) return Promise.reject(new V2Error('not_found'));
   return onRow(keyOf('dish_addon_groups', dagId), () => write(async () => {
+    const sentAt = clock;
     const r = await api.updateIf<DishAddonGroupRow>('dish_addon_groups', dagId, { min_units: was.min_units, max_units: was.max_units }, limits);
     if (r.ok) return r.row;
     if (r.why === 'stale' && r.row.min_units === limits.min_units && r.row.max_units === limits.max_units) return r.row;
-    if (r.why === 'stale') put('dish_addon_groups', [r.row]);
-    throw new V2Error(r.why === 'stale' ? 'stale' : 'forbidden');
+    if (r.why === 'stale') { put('dish_addon_groups', [r.row], sentAt); throw new V2Error('stale'); }
+    // not readable any more: removed elsewhere (the menu is read again), or this account may no longer edit here
+    if (r.why === 'gone' && editorRole(await refreshRole())) { await reloadMenuQuietly(); throw new V2Error('not_found'); }
+    throw new V2Error('forbidden');
   }, (r) => put('dish_addon_groups', [r])));
 }
 
