@@ -139,7 +139,8 @@ describe('the reader\'s notes', () => {
     const recorded = (calls.readerNoteIssues ?? []).map(([n, d, prefix]) => [n, d ?? null, prefix ?? 'notes']);
     const generated = inputs([note, { ...note, code: 'price_range', severity: 'check', key: 'd-burger', lines: [4], count: 1, rule: null }], {
       0: [ABSENT, 5, null, [], {}], '0.code': [ABSENT, 'nope', 5, 'price_range'], '0.severity': [ABSENT, 'check', null], '0.key': [ABSENT, 'd-burger', 'd-nope', 'D', 5, ''],
-      '0.lines': [ABSENT, [], [0], [1, 1], [2, 1], [1, 2.5], Array.from({ length: 101 }, (_, i) => i + 1), Array.from({ length: 100 }, (_, i) => i + 1), [1000001], '1'],
+      '0.lines': [ABSENT, [], [0], [1, 1], [2, 1], [1, 2.5], [2.5, 3], [1, 2.5, 2], [null], [1, '2'], [-1], [1e300], [1, {}], Array.from({ length: 101 }, (_, i) => i + 1),
+        Array.from({ length: 100 }, (_, i) => i + 1), [1000001], [1000000], '1'],
       '0.count': [ABSENT, 0, 1, 1000000, 1000001, 1.5, '2'], '0.rule': [ABSENT, 'Header', 'a'.repeat(40), 'a'.repeat(41), '_x', 5], '0.text': ['Soup'],
       '1.key': ['g-side', 'o-fries', 's-mains', 'x'], 2: [5],
     }, { random: 200, seed: 13 }).filter((n) => storable(n));

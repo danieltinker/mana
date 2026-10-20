@@ -171,6 +171,51 @@ describe('opening hours: updated_at, and windows never overlap (hours_overlap)',
     assert.ok(!(await q(w.url, '22222222-2222-4222-8222-2222222222a9', `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, 5, '10:00', '14:00')`, [other])).error,
       'per venue');
   });
+
+  test('the overlap is checked after the statement: one update that moves a shared boundary passes; one whose end state overlaps is undone whole (QA-L3)', async () => {
+    const O = '22222222-2222-4222-8222-2222222222aa';
+    const v = await newVenue(O, 'hours-boundary');
+    for (const [opens, closes] of [['08:00', '12:00'], ['12:00', '16:00']]) {
+      assert.ok(!(await q(w.url, O, `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, 2, $2, $3)`, [v, opens, closes])).error);
+    }
+    const day = async () => (await w.admin.query(`select opens::text || '-' || closes::text as t from public.venue_hours where venue_id = $1 and weekday = 2 order by opens`, [v]))
+      .rows.map((r) => r.t);
+    // 08-12 and 12-16 become 08-13 and 13-16 in one statement: row by row, the first row would meet the second's old window
+    const moved = await q(w.url, O, `update public.venue_hours set
+        opens = case when opens = '12:00' then '13:00'::time else opens end, closes = case when closes = '12:00' then '13:00'::time else closes end
+      where venue_id = $1 and weekday = 2`, [v]);
+    assert.ok(!moved.error, JSON.stringify(moved.error));
+    assert.deepEqual(await day(), ['08:00:00-13:00:00', '13:00:00-16:00:00']);
+    // an end state that overlaps (08-14 and 13-16): refused, and neither row changes
+    const bad = await q(w.url, O, `update public.venue_hours set closes = case when opens = '08:00' then '14:00'::time else closes end where venue_id = $1 and weekday = 2`, [v]);
+    assert.match(bad.error?.message ?? '', /hours_overlap/);
+    assert.deepEqual(await day(), ['08:00:00-13:00:00', '13:00:00-16:00:00']);
+    // and two windows inserted by one statement that overlap each other
+    const two = await q(w.url, O, `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, 1, '09:00', '12:00'), ($1, 1, '11:00', '13:00')`, [v]);
+    assert.match(two.error?.message ?? '', /hours_overlap/);
+    assert.equal((await w.admin.query(`select count(*)::int as n from public.venue_hours where venue_id = $1 and weekday = 1`, [v])).rows[0].n, 0);
+  });
+
+  test('a stranger, another venue\'s owner or a counter learns nothing of a venue\'s hours or rows from the triggers: 42501 first (SEC-L1)', async () => {
+    const hours = (await w.admin.query(`select weekday, opens::text, closes::text from public.venue_hours where venue_id = $1 order by weekday limit 1`, [A])).rows[0];
+    for (const who of [U.stranger, U.ownerB, U.counterA]) {
+      // overlapping a window A has, and one it does not: the same answer, before anything is read
+      for (const [opens, closes] of [[hours.opens, hours.closes], ['03:00', '03:30']]) {
+        const r = await q(w.url, who, `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, $2, $3, $4)`, [A, hours.weekday, opens, closes]);
+        assert.deepEqual([r.error?.code, /not_allowed/.test(r.error?.message ?? '')], ['42501', true], `${who} ${opens}`);
+      }
+    }
+    // a venue at its limit of sections: a stranger gets 42501, not limit_sections
+    const n = (await w.admin.query(`select count(*)::int as n from public.sections where venue_id = $1`, [A])).rows[0].n;
+    await withCfg('limits', { ...(await cfg('limits')), sections: n }, async () => {
+      for (const who of [U.stranger, U.ownerB]) {
+        const r = await q(w.url, who, `insert into public.sections (venue_id, name_en) values ($1, 'Probe')`, [A]);
+        assert.deepEqual([r.error?.code, /not_allowed/.test(r.error?.message ?? '')], ['42501', true], who);
+      }
+      const own = await q(w.url, U.ownerA, `insert into public.sections (venue_id, name_en) values ($1, 'One more')`, [A]);
+      assert.match(own.error?.message ?? '', /limit_sections/, 'the owner still meets the limit');
+    });
+  });
 });
 
 describe('support cases: open_case and ops_update_case', () => {
@@ -530,6 +575,25 @@ describe('my_dashboard reads ids from rollup keys only inside the venue (SEC-M1)
     assert.equal(made.length, 1, 'another venue may hold the id now');
     assert.deepEqual(await top(), [], 'its name never appears here');
     assert.deepEqual((await rpc(w.url, OA, 'my_dashboard', { p_venue: va, p_range: '7d' })).topDishes, []);
+  });
+
+  test('the ten are the venue\'s dishes: a deleted dish with the most views leaves ten, not nine (QA-L6)', async () => {
+    const O = '22222222-2222-4222-8222-2222222222b3';
+    const v = await newVenue(O, 'top-dish-ten');
+    const ids = await as(w.url, O, async (c) => {
+      const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [v])).rows[0].id;
+      const out = [];
+      for (let i = 0; i < 11; i++) out.push((await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, $3, 1000) returning id`, [v, s, `Dish ${i}`])).rows[0].id);
+      return out;
+    });
+    const day = (await w.admin.query(`select app.local_date(now(), time_zone) as d from public.venues where id = $1`, [v])).rows[0].d;
+    for (const [i, id] of ids.entries()) {
+      await w.admin.query(`insert into public.rollups_day (venue_id, day, name, key, demo, n) values ($1, $2, 'dish_viewed', 'dish:' || $3, false, $4)`, [v, day, id, 100 - i]);
+    }
+    const top = async () => (await rpc(w.url, O, 'my_dashboard', { p_venue: v, p_range: 'today' })).topDishes.map((d) => d.name.en);
+    assert.deepEqual(await top(), ids.slice(0, 10).map((_, i) => `Dish ${i}`));
+    await q(w.url, O, `delete from public.dishes where id = $1`, [ids[0]]);
+    assert.deepEqual(await top(), ids.slice(1).map((_, i) => `Dish ${i + 1}`), 'ten again, the eleventh moved up');
   });
 });
 
