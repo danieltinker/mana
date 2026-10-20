@@ -7,12 +7,11 @@
 // each dish shows "no photo yet" (or its illustration) until the owner adds one. The same input imported again finds
 // the earlier import (`reused`), so nothing is read or stored twice.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { IMPORT_SOURCES, IMPORT_TEXT_MAX, oneOf, textLength, type ImportSource } from '@mana/contracts';
+import { IMPORT_SOURCES, IMPORT_TEXT_MAX, newUuid, oneOf, textLength, type ImportSource } from '@mana/contracts';
 import { Btn, Field, Icon, Loading, Note, go } from '../../ui.tsx';
 import { toV2Error, V2Error } from '../data/errors.ts';
 import { imagesMax, isEmptyDraft, isTextSource, readText, type ImageSource, type TextSource } from '../data/imports.ts';
 import { checkScanner, createImageImport, importApi, keepNotes, loadImports, prepareImage, runScan, saveTextDraft, scanner, type Prepared } from '../data/onboarding.ts';
-import { newId } from '../data/rows.ts';
 import { menu } from '../data/store.ts';
 import { errText, has, lang, t, tn } from '../i18n.ts';
 
@@ -158,7 +157,7 @@ function Pictures({ source }: { source: ImageSource }) {
   const [busy, setBusy] = useState<'' | 'preparing' | 'uploading' | 'reading'>(''), [error, setError] = useState('');
   const [applied, setApplied] = useState<string | null>(null);
   // the import's id is made once and kept, so trying again after a lost answer uploads into the same folder
-  const importId = useRef(newId());
+  const importId = useRef(newUuid());
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => { for (const c of chosen) URL.revokeObjectURL(c.url); }, []);
   function add(files: FileList | null) {
@@ -167,14 +166,14 @@ function Pictures({ source }: { source: ImageSource }) {
     const room = max - chosen.length;
     const list = [...files];
     if (list.length > room) setError(t('ob.src.e.too_many', { n: max }));
-    const more = list.slice(0, Math.max(0, room)).map((file) => ({ key: newId(), file, url: URL.createObjectURL(file) }));
+    const more = list.slice(0, Math.max(0, room)).map((file) => ({ key: newUuid(), file, url: URL.createObjectURL(file) }));
     setChosen([...chosen, ...more]);
-    importId.current = newId();                                    // other pictures: another input
+    importId.current = newUuid();                                    // other pictures: another input
   }
   function remove(key: string) {
     const c = chosen.find((x) => x.key === key); if (c) URL.revokeObjectURL(c.url);
     setChosen(chosen.filter((x) => x.key !== key));
-    importId.current = newId();
+    importId.current = newUuid();
   }
   async function read() {
     if (busy || !chosen.length) return;

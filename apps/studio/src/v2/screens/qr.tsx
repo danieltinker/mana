@@ -10,28 +10,11 @@ import { PRODUCT } from '../../product.ts';
 import { qrUrl, shortText, shortUrl } from '../../lib/links.ts';
 import { Btn, CopyBtn, Ltr } from '../../ui.tsx';
 import { runtime } from '../data/client.ts';
+import { DEMO_MARK, DEMO_RED, marksDemo, withDemoBand } from '../data/demo-mark.ts';
 import { t } from '../i18n.ts';
 
 const QR_OPTS = { errorCorrectionLevel: 'Q' as const, margin: 4 };
-/** The mark outside production: the same words in both languages, so a card in either language carries it. */
-export const DEMO_MARK = 'DEMO · הדגמה';
-export const isDemo = () => runtime.env !== 'production';
-
-/**
- * The code as SVG; outside production with a band under it that says "demo". The band is outside the code's own
- * square (the picture grows), so the code scans as it is.
- */
-export function withDemoBand(svg: string): string {
-  const m = /viewBox="0 0 (\d+(?:\.\d+)?) (\d+(?:\.\d+)?)"/.exec(svg);
-  if (!m) return svg;
-  const w = Number(m[1]), h = Number(m[2]), band = Math.max(6, Math.round(w * 0.16));
-  const grown = svg
-    .replace(m[0], `viewBox="0 0 ${w} ${h + band}"`)
-    .replace(/(<svg[^>]*?)\s(?:width|height)="[^"]*"/g, '$1');
-  const mark = `<rect x="0" y="${h}" width="${w}" height="${band}" fill="#b4232a"/>` +
-    `<text x="${w / 2}" y="${h + band * 0.68}" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="${band * 0.56}" fill="#fff" data-demo="mark">${DEMO_MARK}</text>`;
-  return grown.replace(/<\/svg>\s*$/, mark + '</svg>');
-}
+const isDemo = () => marksDemo(runtime.env);
 
 function useQrSvg(url: string): string {
   const [svg, setSvg] = useState('');
@@ -61,7 +44,7 @@ async function qrPng(code: string): Promise<Blob> {
   out.width = size; out.height = size + band;
   const ctx = out.getContext('2d')!;
   ctx.drawImage(canvas, 0, 0);
-  ctx.fillStyle = '#b4232a'; ctx.fillRect(0, size, size, band);
+  ctx.fillStyle = DEMO_RED; ctx.fillRect(0, size, size, band);
   ctx.fillStyle = '#fff'; ctx.font = `700 ${Math.round(band * 0.56)}px Arial, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(DEMO_MARK, size / 2, size + band / 2);
   return new Promise((res, rej) => out.toBlob((b) => (b ? res(b) : rej(new Error('png'))), 'image/png'));

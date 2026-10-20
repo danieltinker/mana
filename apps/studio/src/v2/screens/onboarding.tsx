@@ -16,17 +16,18 @@ import { Btn, Icon, Loading, Ltr, Note, go, route } from '../../ui.tsx';
 import { standingOf } from '../data/changes.ts';
 import { draft, refreshDraft } from '../data/draft.ts';
 import { toV2Error } from '../data/errors.ts';
-import { blockersOf, endWrite, FLOW_STEPS, isFinished, isStep, nextOpenAfter, stateOf, stepEnd, stepNumber, visitWrite, type PlaceFacts } from '../data/flow.ts';
+import { blockersOf, endWrite, FLOW_STEPS, isFinished, isStep, nextOpenAfter, openStep, stateOf, stepEnd, stepNumber, visitWrite, type PlaceFacts } from '../data/flow.ts';
 import { guestModel } from '../data/guest.ts';
 import { imports, loadImports, loadProgress, progress, progressError, returnTo, setStep } from '../data/onboarding.ts';
 import { byCreated, byPosition, named } from '../data/rows.ts';
 import { canEdit, menu } from '../data/store.ts';
 import { langsOf, ruleLine } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
+import { leave, leaveGuarded } from '../leave.ts';
 import { ErrorLine, Icon2, LangSeg, Price, useEditOnly } from '../ui.tsx';
-import { NowCard, DayRow } from './hours.tsx';
 import { dayHours, WEEK } from '../data/hours.ts';
 import { GuestPreview } from './guest-preview.tsx';
+import { DayRow, NowCard } from './hours.tsx';
 import { ImportReview, ImportsWaiting } from './import-review.tsx';
 import { SourceScreen, SourceCards } from './import-source.tsx';
 import { PublishScreen } from './publish.tsx';
@@ -58,8 +59,10 @@ export function leaveFor(path: string, step: OnboardingStep) { returnTo.value = 
 export function BackToSetup() {
   const step = returnTo.value;
   if (!step || route.value[0] === 'onboarding') return null;
+  // a screen holding changes not saved yet (a group form) asks first, as every other way out of it does (leave.ts)
+  const back = (e: MouseEvent) => { if (!leaveGuarded()) return; e.preventDefault(); leave(() => go('onboarding/' + step)); };
   return (
-    <a class="backtoflow" href={'#/onboarding/' + step} data-back-to-setup={step}>
+    <a class="backtoflow" href={'#/onboarding/' + step} data-back-to-setup={step} onClick={(e) => back(e as unknown as MouseEvent)}>
       <Icon name="chev" size={16} back /><span>{t('ob.back', { step: t('step.' + step) })}</span>
     </a>
   );
@@ -67,17 +70,6 @@ export function BackToSetup() {
 
 /** Where the flow goes after a step: the next step still open, or "all set". */
 const after = (p: OnboardingProgress, s: OnboardingStep) => 'onboarding/' + (nextOpenAfter(p, s) ?? 'done');
-
-/**
- * Where the flow opens on its own: the first step not finished, except that an imported menu waiting for its check is
- * that check (the menu step is done by the import itself).
- */
-function openAt(p: OnboardingProgress, f: PlaceFacts): string {
-  const next = p.next;
-  if (!next) return 'done';
-  if (next === 'menu' && f.importsWaiting > 0) return 'review';
-  return next;
-}
 
 export function OnboardingScreen({ rest }: { rest: string[] }) {
   const editable = canEdit();
@@ -90,7 +82,7 @@ export function OnboardingScreen({ rest }: { rest: string[] }) {
   // a publish (or Halom's approval) marks the publish step done: read the progress again when the place's standing moves
   useEffect(() => { void loadProgress(); }, [d.venue.published_revision_id, d.dishes.length > 0]);
   useEffect(() => { returnTo.value = null; }, [first]);
-  useEffect(() => { if (p && editable && (!first || (first !== 'done' && !isStep(first)))) go('onboarding/' + openAt(p, placeFacts()), true); }, [p, first]);
+  useEffect(() => { if (p && editable && (!first || (first !== 'done' && !isStep(first)))) go('onboarding/' + openStep(p, placeFacts()), true); }, [p, first]);
   if (!editable) return null;
   if (!p) return <div class="page" data-screen="onboarding">{progressError.value ? <ErrorLine code={progressError.value} onRetry={() => loadProgress()} /> : <Loading />}</div>;
   if (first === 'done') return <AllSet p={p} />;

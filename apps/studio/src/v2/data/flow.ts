@@ -27,6 +27,17 @@ export const stateOf = (p: OnboardingProgress | null, s: OnboardingStep): Onboar
  */
 export const resumeStep = (p: OnboardingProgress): OnboardingStep | null => p.next;
 
+/**
+ * The address (inside `#/onboarding/`) the flow opens on by itself: the resume step, except that an imported menu
+ * waiting for its check is that check (the menu step is done by applying the import); `done` once every step is
+ * finished.
+ */
+export function openStep(p: OnboardingProgress, f: Pick<PlaceFacts, 'importsWaiting'>): OnboardingStep | 'done' {
+  const next = resumeStep(p);
+  if (!next) return 'done';
+  return next === 'menu' && f.importsWaiting > 0 ? 'review' : next;
+}
+
 /** The step after `s` that is still open (after it in order first, then from the start); null when every step is finished. */
 export function nextOpenAfter(p: OnboardingProgress, s: OnboardingStep): OnboardingStep | null {
   const i = FLOW_STEPS.indexOf(s);

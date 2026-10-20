@@ -43,12 +43,12 @@ type Call = <T>(fn: string, args: Record<string, unknown>) => Promise<T>;
 
 /**
  * The import RPCs over a caller that throws an RPC's `{ ok: false, code }` as a V2Error (`data/client.ts` `rpc`), so
- * each function answers its success or throws the code.
+ * each function answers its success or rejects with the code (an input its validator refuses too, before any call).
  */
 export function importsApi(call: Call) {
   return {
     /** `create_import`: the same input as a live import of the place answers that import (`reused`), writing nothing. */
-    create(input: CreateImportInput): Promise<Extract<CreateImportReply, { ok: true }>> {
+    async create(input: CreateImportInput): Promise<Extract<CreateImportReply, { ok: true }>> {
       const i = checked(validateCreateImport(input));
       return call('create_import', {
         p_venue: i.venueId, p_source: i.source, p_text: i.text ?? null, p_paths: i.paths ?? null, p_input_sha256: i.inputSha256 ?? null,
@@ -56,17 +56,17 @@ export function importsApi(call: Call) {
       });
     },
     /** `save_import_draft`: the draft read on the phone (or edited in the preview), with the notes the contracts know. */
-    saveDraft(importId: string, draft: ImportDraft, notes: readonly ReaderNote[] = []): Promise<Extract<SaveDraftReply, { ok: true }>> {
+    async saveDraft(importId: string, draft: ImportDraft, notes: readonly ReaderNote[] = []): Promise<Extract<SaveDraftReply, { ok: true }>> {
       const i = checked(validateSaveDraft({ importId, draft, notes: storableNotes(notes) }));
       return call('save_import_draft', { p_import: i.importId, p_draft: i.draft, p_notes: i.notes ?? [] });
     },
     /** `apply_import`: exactly the draft the database holds, with the owner's answers; the reply is the plan it ran. */
-    apply(importId: string, draft: ImportDraft, decisions: ImportDecisions): Promise<Extract<ApplyImportReply, { ok: true }>> {
+    async apply(importId: string, draft: ImportDraft, decisions: ImportDecisions): Promise<Extract<ApplyImportReply, { ok: true }>> {
       const i = checked(validateApplyImport({ importId, draft, decisions }));
       return call('apply_import', { p_import: i.importId, p_draft: i.draft, p_decisions: i.decisions });
     },
     /** `discard_import`: the owner gives an import up (twice is fine). */
-    discard(importId: string): Promise<DiscardImportReply> {
+    async discard(importId: string): Promise<DiscardImportReply> {
       return call('discard_import', { p_import: importId });
     },
   };
