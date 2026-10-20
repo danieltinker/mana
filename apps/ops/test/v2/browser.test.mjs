@@ -204,7 +204,7 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
     await approve.locator('[data-review]').click();
     assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish \(revision 2, the published one\): guests see that revision at once/);
-    assert.equal(await focused(page), 'review', 'the review gets the focus');
+    await until(() => focused(page), 'review', 'the review gets the focus (after the render, as an effect)');
     await approve.locator('[data-go]').click();
     await page.locator('[data-badge=review-approved]').waitFor();
     assert.deepEqual(calls('ops_approve_venue')[0].args, { p_venue: VENUE.demo, p_reason: 'Menu checked with the owner by phone', p_expected_revision: 2 });
