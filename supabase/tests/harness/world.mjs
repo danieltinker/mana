@@ -43,7 +43,7 @@ export async function world() {
     const pub = await rpc(c.url, U.ownerB, 'publish_menu', { p_venue: B, p_note: 'first' });
     assert.equal(pub.ok, true, JSON.stringify(pub));
     assert.equal(pub.review, 'pending', 'the first publish waits for Halom (publish_requires_approval)');
-    const ok = await rpc(c.url, U.support, 'ops_approve_venue', { p_venue: B, p_reason: 'Menu checked, test venue' });
+    const ok = await rpc(c.url, U.support, 'ops_approve_venue', { p_venue: B, p_reason: 'Menu checked, test venue', p_expected_revision: pub.revision });
     assert.equal(ok.ok, true, JSON.stringify(ok));
     return { ...c, B, b: ids };
   } catch (e) {

@@ -29,7 +29,7 @@ export async function liveVenue(stack, seed, slug, team = null) {
   const pub = await owner.publish('test');
   if (!pub.ok) throw new Error(JSON.stringify(pub));
   if (pub.review === 'pending') {
-    const ok = await t.support.approve(owner.venueId, 'Synthetic test venue checked');
+    const ok = await t.support.approve(owner.venueId, 'Synthetic test venue checked', pub.revision);
     if (!ok.ok) throw new Error(JSON.stringify(ok));
   }
   return { owner, ids, team: t, venueId: owner.venueId, slug };

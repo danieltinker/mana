@@ -58,10 +58,12 @@ describe('the inputs\' validators', () => {
       { venueId: V, topic: 'import', subject: 'The prices look off', body: 'Second section', allowAct: true },
       { venueId: ids, topic: [...ANY, 'billing', 'other'],
         subject: [...ANY, `${cp(0x200b)} `, 'x'.repeat(160), 'x'.repeat(161), ` ${'x'.repeat(160)} `, cp(0x1f600).repeat(100)],
-        body: [...ANY, 'x'.repeat(4000), 'x'.repeat(4001)], allowAct: ANY }));
+        body: [...ANY, 'x'.repeat(4000), 'x'.repeat(4001)], allowAct: ANY, id: [...ANY, V, V.toUpperCase(), 'a'.repeat(36)] }));
     await compareValidator(w.admin, 'app.validate_update_case', validateUpdateCase, inputs(
       { caseId: D, status: 'resolved', topic: 'menu', reason: 'Prices fixed with the owner' },
-      { caseId: ids, status: [...ANY, 'closed', 'open', 'waiting_owner'], topic: [...ANY, 'billing', 'photos'], reason: reasons }));
+      { caseId: ids, status: [...ANY, 'closed', 'open', 'waiting_owner'], topic: [...ANY, 'billing', 'photos'], reason: reasons,
+        expectedUpdatedAt: [...ANY, '2026-10-20T08:00:00.123456+00:00', '2026-10-20T08:00:00Z', '2026-02-30T08:00:00Z', '2026-10-20 08:00:00',
+          '2026-10-20T24:00:00Z', '2026-10-20T08:00:00.1234567Z', '2026-10-20T08:00:00+16:00'] }));
   });
 
   test('venue_activity, my_dashboard, ops_set_demo', async () => {
@@ -86,7 +88,12 @@ describe('the inputs\' validators', () => {
   test('ops_analytics: minute and day series', async () => {
     const instants = [...ANY, '2026-10-16T08:00:00Z', '2026-10-16T08:00:30Z', '2026-10-16T08:00:00', '2026-10-16T08:00Z', '2026-10-16T08:00:00.000Z',
       '2026-10-16T08:00:00.0004Z', '2026-10-16T08:00:00.5Z', '2026-10-16T10:00:00+02:00', '2026-10-15T08:00:00Z', '2026-10-17T08:00:00Z',
-      '2026-10-17T08:01:00Z', '2026-13-01T00:00:00Z', '2026-10-16', '2026-10-16 08:00:00Z'];
+      '2026-10-17T08:01:00Z', '2026-13-01T00:00:00Z', '2026-10-16', '2026-10-16 08:00:00Z',
+      // as PostgreSQL 16 reads them (the contracts' instantMs): no 30 February, 24:00 the next midnight, :60 the next
+      // minute, offsets up to 15:59, years 0001-9999
+      '2026-02-30T08:00:00Z', '2024-02-29T08:00:00Z', '2026-10-16T24:00:00Z', '2026-10-16T24:00:01Z', '2026-10-16T07:59:60Z', '2026-10-16T07:59:60.5Z',
+      '2026-10-16T08:60:00Z', '2026-10-16T23:00:00+15:00', '2026-10-16T08:00:00+15:59', '2026-10-16T08:00:00+16:00', '2026-10-16T08:00:00+05:60',
+      '0000-01-01T00:00:00Z', '0001-01-01T00:00:00Z', '9999-12-31T23:59:00Z', '2026-10-16T08:00:00.000000Z', '2026-10-16T08:00:00.0000001Z'];
     await compareValidator(w.admin, 'app.validate_ops_analytics_query', validateOpsAnalyticsQuery, inputs(
       { resolution: 'minute', from: '2026-10-16T08:00:00Z', to: '2026-10-16T09:00:00+00:00', venueId: V, demo: 'include', names: ['menu_opened', 'import_parsed'] },
       { venueId: ids, demo: [...ANY, 'exclude', 'all'], names: [...ANY, ['payment_confirmed'], ['menu_opened', 'menu_opened'], ['dish_viewed'], [...EVENT_NAMES]],
@@ -118,7 +125,7 @@ describe('the inputs\' validators', () => {
 
   test('ops_revision', async () => {
     await compareValidator(w.admin, 'app.validate_ops_revision_query', validateOpsRevisionQuery, inputs(
-      { venueId: V, revision: 3 }, { venueId: ids, revision: [...ANY, 3, 2 ** 53 - 1, 2 ** 53, '3'] }));
+      { venueId: V, revision: 3 }, { venueId: ids, revision: [...ANY, 3, 2147483647, 2147483648, 2 ** 53 - 1, 2 ** 53, '3'] }));
   });
 
   test('save_addon_group: the group and its options', async () => {

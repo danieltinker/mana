@@ -63,11 +63,15 @@ export function storable(v) {
  * set), and the same first issue when no key is unknown (the code an RPC answers). Inputs that cannot reach
  * PostgreSQL as JSON (unstorable text) are the contracts' alone and are left out.
  */
-export async function compareValidator(admin, sqlFn, tsFn, all) {
+export async function compareValidator(admin, sqlFn, tsFn, all, { anyFirst = [] } = {}) {
   const list = all.filter(storable);
-  const { rows } = await admin.query(`select coalesce(jsonb_agg(${sqlFn}(x) order by i), '[]') as r
-    from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list)]);
-  const sql = rows[0].r;
+  const sql = [];
+  // a few inputs per query (a draft at the limits takes a while; one query for all of them would meet the timeout)
+  for (let i = 0; i < list.length; i += 25) {
+    const { rows } = await admin.query(`select coalesce(jsonb_agg(${sqlFn}(x) order by i), '[]') as r
+      from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list.slice(i, i + 25))]);
+    sql.push(...rows[0].r);
+  }
   assert.equal(sql.length, list.length);
   list.forEach((input, i) => {
     const ts = tsFn(input);
@@ -75,7 +79,10 @@ export async function compareValidator(admin, sqlFn, tsFn, all) {
     const got = sql[i].map(key);
     const label = `${sqlFn} on ${JSON.stringify(input)?.slice(0, 160)}`;
     assert.deepEqual([...got].sort(), [...want].sort(), label);
-    if (!want.some((k) => k.startsWith('field_not_allowed@'))) assert.equal(got[0], want[0], label + ' (first issue)');
+    // the first issue is the code an RPC answers; unknown keys, and codes reported per key of an object (anyFirst),
+    // come in each side's own key order
+    const loose = (k) => k !== undefined && (k.startsWith('field_not_allowed@') || anyFirst.some((c) => k.startsWith(`${c}@`)));
+    if (!want.some((k) => k.startsWith('field_not_allowed@')) && !(loose(want[0]) && loose(got[0]))) assert.equal(got[0], want[0], label + ' (first issue)');
   });
   return list.length;
 }
