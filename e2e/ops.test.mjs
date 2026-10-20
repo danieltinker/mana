@@ -194,6 +194,10 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.ok(!again.ok && again.kind === 'refused' && again.code === 'already_approved');
 
   // act for owner: the payload names are act_for_owner's
+  const { actWant, logMark, ownEntry } = await import('../apps/ops/src/v2/landed.ts');
+  const staffBefore = await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 });
+  assert.ok(staffBefore.ok, JSON.stringify(staffBefore));
+  const markAct = logMark(staffBefore.data.entries);
   const espresso = v.ids.dishes.espresso;
   assert.equal((await v.owner.setAvailability('dish', espresso, { kind: 'duration', minutes: 120 })).ok, true);
   const menu = await admin.api.publicMenu('cafe-demo-api');
@@ -222,6 +226,26 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   const log = await v.owner.activity();
   assert.equal(log.filter((r) => r.action === 'support.act_for_owner' && r.reason === 'Owner asked, api').length, 4, 'each is in the owner’s log with the reason');
 
+  // QA-M5 on the real log: a lost write is recognised by its own entry (the reader's, the reason, what it set), and a
+  // write that set something else, or was never made, is not
+  const staffLog = await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 });
+  assert.ok(staffLog.ok, JSON.stringify(staffLog));
+  const atAct = { reason: 'Owner asked, api', mark: markAct };
+  const want = (action, payload) => actWant({ venueId: v.venueId, reason: '', action, payload });
+  const lemonade = v.ids.dishes.lemonade;
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: lemonade, until: { kind: 'duration', minutes: 60 } })), 'yes',
+    JSON.stringify(staffLog.data.entries.slice(0, 6)));
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: lemonade, until: { kind: 'indefinite' } })), 'no', 'another "until"');
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: espresso, until: { kind: 'duration', minutes: 60 } })), 'no', 'another target');
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.restore', { targetKind: 'dish', targetId: espresso })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('dish.update', { dishId: espresso, patch: { price: 1300 }, expectedUpdatedAt: '' })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('dish.update', { dishId: espresso, patch: { hidden: true }, expectedUpdatedAt: '' })), 'no', 'another column');
+  assert.equal(ownEntry(staffLog.data, atAct, want('onboarding.set', { step: 'photos', state: 'skipped', expectedUpdatedAt: null })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('onboarding.set', { step: 'photos', state: 'doing', expectedUpdatedAt: null })), 'no', 'another state');
+  assert.equal(ownEntry(staffLog.data, { ...atAct, reason: 'Another reason' }, want('availability.restore', { targetKind: 'dish', targetId: espresso })), 'no', 'another reason');
+  const ownerReads = await owner.api.activity({ venueId: v.venueId, limit: 100 });
+  assert.ok(!ownerReads.ok || ownerReads.data.entries.every((x) => x.action !== 'support.act_for_owner' || !x.you), 'Halom\'s entries are never the owner\'s own');
+
   // a case carries its version (L4, backend 050b7ad): the updatedAt staff read, sent back exactly; a second page with the
   // version it read is refused with the case as stored, and never overwrites the first answer
   const opened = await v.owner.askForHelp('photos', 'Photos for the drinks?', 'Invented for the test');
@@ -246,8 +270,14 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.ok(!declined.ok && declined.kind === 'refused' && declined.code === 'owner_declined');
 
   // plans: admins only (a support member is refused as not_admin)
+  const markPlan = logMark((await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 })).data.entries);
   const plan = await admin.api.setPlan({ venueId: v.venueId, state: 'active', until: null, plan: 'pilot', reason: 'Pilot agreed, api' });
   assert.deepEqual(plan, { ok: true, data: { ok: true, state: 'active' } });
+  // its own entry: the state, the plan and the date it set (an active plan's end never comes back on the venue's row)
+  const planLog = (await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 })).data;
+  const planWant = (state, p, until) => ({ action: 'plan.set', match: (x) => x.detail.state === state && (x.detail.plan ?? null) === p && (x.detail.until ?? null) === until });
+  assert.equal(ownEntry(planLog, { reason: 'Pilot agreed, api', mark: markPlan }, planWant('active', 'pilot', null)), 'yes', JSON.stringify(planLog.entries.slice(0, 3)));
+  assert.equal(ownEntry(planLog, { reason: 'Pilot agreed, api', mark: markPlan }, planWant('active', 'pilot', '2027-01-31T21:59:59Z')), 'no', 'another date');
   const notStaff = await owner.api.setPlan({ venueId: v.venueId, state: 'active', until: null, plan: 'pilot', reason: 'Pilot agreed, api' });
   assert.ok(!notStaff.ok && notStaff.kind === 'not_admin');
   const ownerApprove = await owner.api.approve({ venueId: v.venueId, reason: 'Trying as the owner', expectedRevision: 1 });
