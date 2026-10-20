@@ -44,10 +44,9 @@ before(async () => {
       { key: 'spare', name: n('רזרבה', 'Spare'), selection: 'single', min: 0, max: 1, options: [{ key: 'sp1', name: n('אחת', 'One') }] },
     ],
   });
-  const published = await owner.publish('saving');
-  assert.equal(published.ok, true);
+  assert.equal((await owner.publish('saving')).ok, true);
   const halom = await HalomBot.firstAdmin(e.stack, e.stack, { email: 'save-halom@sim.local' });
-  assert.equal((await halom.approve(venueId, 'e2e: the saving venue', published.revision)).ok, true);
+  assert.equal((await halom.approve(venueId, 'e2e: the saving venue')).ok, true);
 }, { timeout: 240000 });
 after(async () => { await e?.stop(); });
 
