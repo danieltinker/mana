@@ -25,6 +25,7 @@ import { Freshness } from './freshness.tsx';
 import { Write } from './write.tsx';
 import { ActForOwner, type Preset } from './act.tsx';
 import { FORM_ACTIONS } from './act-model.ts';
+import { checkLog, logMark } from './landed.ts';
 import { Admin, Cases, GuestsSee, OwnerSees } from './panels.tsx';
 import { Revisions, type OnScreen } from './revision.tsx';
 
@@ -213,7 +214,8 @@ function Approve({ detail, onScreen, refresh, onApproved }: {
           }}
           run={(input, reason) => api.approve({ ...input, reason })}
           done={approvedText}
-          landed={async () => { const d = await api.venue(v.id); return !d.ok ? 'unknown' : d.data.venue.review === 'approved' ? 'yes' : 'no'; }}
+          landed={(input, at) => checkLog(api, v.id, at, { action: 'venue.approve', match: (e) => e.detail.revision === input.expectedRevision })}
+          mark={() => logMark(detail.activity)}
           already={(f) => {
             said.current = f.code === 'already_approved' ? 'Already approved (by another Halom staff member, or by a send whose answer was lost): guests can open the menu.' : null;
             return said.current;

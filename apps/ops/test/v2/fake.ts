@@ -71,6 +71,9 @@ export type World = {
   delays: Partial<Record<string, number>>;
   rolledUpAt: string | null;
   nextLog: number;
+  /** Who is calling now (set for the length of one RPC), and who made each log entry: `you` is computed per reader. */
+  actor: string | null;
+  actors: Map<number, string | null>;
 };
 
 // ---------------------------------------------------------------- the synthetic world
@@ -101,10 +104,14 @@ function entry(w: World, venueId: string, at: number, action: ActivityAction, o:
 /** Where the fake's pictures live: the stub serves it from its own origin (stub.mjs rewrites this address). */
 export const MEDIA_BASE = 'https://media.stub.invalid/menu/';
 
-/** Café Demo with what a full review shows: words in both languages, a photo, a relief whose file is missing. */
+/** Café Demo with what a full review shows: words in both languages, a photo, a relief whose file is missing, the
+ * venue's block (a logo, an area, links and a phone, all invented) and the owner's own table photo, whose file is missing. */
 function withDetails(s: SnapshotV2): SnapshotV2 {
-  const m = structuredClone(s) as unknown as { assetBase: string; sections: { dishes: Record<string, unknown>[] }[] };
+  const m = structuredClone(s) as unknown as { assetBase: string; venue: Record<string, unknown>; theme: Record<string, unknown>; sections: { dishes: Record<string, unknown>[] }[] };
   m.assetBase = MEDIA_BASE;
+  Object.assign(m.venue, { logo: 'cafe/logo_t.png', area: t('Test Quarter', 'רובע הבדיקה'), orderUrl: 'https://order.example.invalid/cafe-demo',
+    bookUrl: 'https://book.example.invalid/cafe-demo', phone: '+972-3-000-0000' });
+  Object.assign(m.theme, { surface: 'custom', tableImg: 'cafe/table_missing.jpg' });
   for (const sec of m.sections) for (const d of sec.dishes) {
     if (d.id === ID.burger) {
       Object.assign(d, { desc: t('Beef, brioche, pickles', 'בקר, בריוש, חמוצים'), allergens: t('gluten, sesame', 'גלוטן, שומשום'),
@@ -129,7 +136,7 @@ function firstTry(s: SnapshotV2): SnapshotV2 {
 /** A fresh world. `traffic: false` leaves every venue without guest events (the "no traffic yet" state). */
 export function world({ now = () => Date.now(), traffic = true }: { now?: () => number; traffic?: boolean } = {}): World {
   const w: World = { now, venues: [], leads: [], staff: new Map([[USERS.admin, 'admin'], [USERS.support, 'support']]), traffic: new Map(), calls: [], faults: {},
-    delays: {}, rolledUpAt: null, nextLog: 1 };
+    delays: {}, rolledUpAt: null, nextLog: 1, actor: null, actors: new Map() };
   const n = now();
   w.rolledUpAt = iso(Math.floor(n / MIN) * MIN);
 
@@ -312,9 +319,13 @@ function venues(w: World, q: OpsVenuesQuery): OpsVenues {
   return { generatedAt: iso(w.now()), rolledUpAt: w.rolledUpAt, totals: totals(w), total: list.length, venues: structuredClone(list.slice(offset, offset + limit)) };
 }
 
-function detail(v: FakeVenue): OpsVenueDetail {
+/** Log entries as one reader gets them: `you` when that reader made the entry (as app.activity_entry does). */
+const seenBy = (w: World, user: string | null, es: readonly ActivityEntry[]): ActivityEntry[] =>
+  es.map((e) => ({ ...e, you: user !== null && w.actors.get(e.id) === user }));
+
+function detail(w: World, v: FakeVenue, user: string | null): OpsVenueDetail {
   const progress = onboardingProgress(v.steps);
-  return structuredClone({ venue: v.row as OpsVenueRow, members: v.members, onboarding: progress, imports: v.imports, cases: v.cases, activity: v.activity.slice(0, 100) });
+  return structuredClone({ venue: v.row as OpsVenueRow, members: v.members, onboarding: progress, imports: v.imports, cases: v.cases, activity: seenBy(w, user, v.activity.slice(0, 100)) });
 }
 
 function analytics(w: World, q: OpsAnalyticsQuery): OpsAnalytics {
@@ -368,6 +379,7 @@ const find = (w: World, id: unknown): FakeVenue | undefined => w.venues.find((v)
 /** Logs an action as the database does: Halom staff, with the reason; returns the new row. */
 function log(w: World, v: FakeVenue, action: ActivityAction, o: Partial<ActivityEntry> = {}): ActivityEntry {
   const e = entry(w, v.row.id, w.now(), action, { actorKind: 'staff', ...o });
+  w.actors.set(e.id, w.actor);
   v.activity.unshift(e);
   v.row.lastActivityAt = e.at;
   return e;
@@ -528,11 +540,13 @@ function actForOwner(w: World, v: FakeVenue, reason: string, action: string, p: 
     case 'availability.set': {
       const until = p.until as { kind: string; minutes?: number };
       const untilAt = until.kind === 'duration' ? iso(Math.ceil((w.now() + (until.minutes ?? 0) * MIN) / MIN) * MIN) : null;
+      // as app.set_availability: whatever of the target is off is restored first; the newest answer counts
+      v.off = v.off.filter((o) => !(o.kind === p.targetKind && o.id === p.targetId));
       v.off.push({ kind: p.targetKind as OffEntry['kind'], id: String(p.targetId), from: iso(w.now()), until: untilAt });
       const e = log(w, v, 'availability_overrides.insert', { ...via, targetTable: 'availability_overrides', targetIds: [uuid(0x3100 + w.nextLog)],
         detail: { target_kind: p.targetKind, target_id: p.targetId, until_kind: until.kind, until_at: untilAt } });
       result = { overrideId: e.targetIds[0], untilAt };
-      ids = [String(p.targetId)];
+      ids = [String(p.targetId), String(e.targetIds[0])];
       break;
     }
     case 'dish.update': {
@@ -575,7 +589,14 @@ function actForOwner(w: World, v: FakeVenue, reason: string, action: string, p: 
     default:
       return { ok: false, code: 'action_unknown' };
   }
-  const own = log(w, v, 'support.act_for_owner', { ...via, targetIds: ids, detail: { action, keys: Object.keys(p).sort() } });
+  // what act_for_owner logs: the action, the payload's keys, the patch's keys, the kind of the "until", the result's plain values
+  const plainOnly = Object.fromEntries(Object.entries(result).filter(([, x]) => x === null || ['number', 'boolean', 'string'].includes(typeof x)));
+  const own = log(w, v, 'support.act_for_owner', { ...via, targetIds: ids, detail: {
+    action, keys: Object.keys(p).sort(),
+    ...(p.patch && typeof p.patch === 'object' ? { patchKeys: Object.keys(p.patch).sort() } : {}),
+    ...(p.until && typeof p.until === 'object' ? { until: (p.until as { kind?: unknown }).kind } : {}),
+    result: plainOnly,
+  } });
   return { ok: true, action, result, logId: own.id };
 }
 
@@ -598,7 +619,7 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       return { ok: true, role: 'support' };
     }
     case 'ops_venues': staffOnly(); return venues(w, (a.p_filters ?? {}) as OpsVenuesQuery);
-    case 'ops_venue': { staffOnly(); const v = find(w, a.p_venue); return v ? detail(v) : bad('venue_unknown'); }
+    case 'ops_venue': { staffOnly(); const v = find(w, a.p_venue); return v ? detail(w, v, user) : bad('venue_unknown'); }
     case 'ops_analytics': staffOnly(); return analytics(w, a.p_query as OpsAnalyticsQuery);
     case 'ops_revision': {
       staffOnly();
@@ -652,11 +673,15 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       if (a.p_expected_updated_at !== undefined && a.p_expected_updated_at !== null && a.p_expected_updated_at !== c.updatedAt) {
         return { ok: false, code: 'stale', current: structuredClone(c) };
       }
+      const was = { status: c.status, topic: c.topic };
       if (typeof a.p_status === 'string') { c.status = a.p_status as CaseStatus; c.resolvedAt = c.status === 'resolved' ? iso(w.now()) : null; }
       if (typeof a.p_topic === 'string') c.topic = a.p_topic as SupportCase['topic'];
       c.updatedAt = iso(Math.max(w.now(), Date.parse(c.updatedAt) + 1));
       v.row.openCases = v.cases.filter((x) => x.status !== 'resolved').length;
-      log(w, v, 'support_cases.update', { via: 'rpc', reason, targetTable: 'support_cases', targetIds: [c.id], detail: { columns: ['status'], changes: { status: [null, c.status] } } });
+      // the audit row of the update, with the reason (mana.reason): the columns changed, before and after
+      const cols = (['status', 'topic'] as const).filter((k) => was[k] !== c[k]);
+      log(w, v, 'support_cases.update', { via: 'rpc', reason, targetTable: 'support_cases', targetIds: [c.id],
+        detail: { columns: cols, changes: Object.fromEntries(cols.map((k) => [k, [was[k], c[k]]])) } });
       return { ok: true, case: structuredClone(c) };
     }
     case 'ops_set_demo': {
@@ -691,7 +716,7 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       const before = typeof a.p_before === 'number' ? a.p_before : null;
       const all = v.activity.filter((e) => (before === null || e.id < before) && (a.p_actor == null || e.actorKind === a.p_actor) && (a.p_via == null || e.via === a.p_via));
       const entries = all.slice(0, limit);
-      return { entries: structuredClone(entries), next: all.length > limit ? entries.at(-1)!.id : null };
+      return { entries: structuredClone(seenBy(w, user, entries)), next: all.length > limit ? entries.at(-1)!.id : null };
     }
     case 'my_dashboard': {
       staffOnly();
@@ -754,10 +779,11 @@ export function fakeBackend(w: World, user: string | null): Backend {
       const f = fault(fn);
       if (f) return f;
       if (!user) return { data: null, error: { code: 'PGRST301', message: 'JWT expired', status: 401 } };
+      w.actor = user;
       try { return { data: structuredClone(handle(w, user, fn, args)), error: null }; } catch (e) {
         if (e instanceof RpcError) return { data: null, error: { code: e.code, message: e.message, status: e.status } };
         throw e;
-      }
+      } finally { w.actor = null; }
     },
     async staffRow(userId) {
       w.calls.push({ fn: 'staff', args: { userId }, user });

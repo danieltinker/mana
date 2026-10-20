@@ -148,21 +148,22 @@ function Shown({ shown, busy, pending, published }: { shown: Shown; busy: boolea
 function Diff({ diff, base, baseIsPublished }: { diff: MenuDiff; base: number; baseIsPublished: boolean }) {
   const which = `revision ${base}${baseIsPublished ? ' (the published one)' : ''}`;
   if (diffSize(diff) === 0) return <p class="small" data-diff="none">The same dishes, sections and prices as {which}.</p>;
-  const list = (xs: readonly { name: Text }[]) => xs.map((x) => names(x.name).main).join(', ');
+  // each owner name in its own <bdi> (SEC-N13)
+  const list = (xs: readonly { name: Text }[]) => xs.map((x, i) => <span key={i}>{i ? ', ' : ''}<T>{names(x.name).main}</T></span>);
   const n = (k: number, one: string, many: string) => `${k} ${k === 1 ? one : many}`;
   return (
     <ul class="diff small" data-diff={diffSize(diff)} aria-label={`What changed since ${which}`}>
       <li class="muted">Since {which}:</li>
-      {diff.dishesAdded.length > 0 && <li><strong>{n(diff.dishesAdded.length, 'dish added', 'dishes added')}</strong>: <T>{list(diff.dishesAdded)}</T></li>}
-      {diff.dishesRemoved.length > 0 && <li><strong>{n(diff.dishesRemoved.length, 'dish removed', 'dishes removed')}</strong>: <T>{list(diff.dishesRemoved)}</T></li>}
+      {diff.dishesAdded.length > 0 && <li><strong>{n(diff.dishesAdded.length, 'dish added', 'dishes added')}</strong>: {list(diff.dishesAdded)}</li>}
+      {diff.dishesRemoved.length > 0 && <li><strong>{n(diff.dishesRemoved.length, 'dish removed', 'dishes removed')}</strong>: {list(diff.dishesRemoved)}</li>}
       {diff.prices.length > 0 && (
         <li><strong>{n(diff.prices.length, 'price changed', 'prices changed')}</strong>:{' '}
           {diff.prices.map((p, i) => <span key={p.id}>{i ? ', ' : ''}<T>{names(p.name).main}</T> {p.from === null ? 'no price' : fmtMoney(p.from)} → {p.to === null ? 'no price' : fmtMoney(p.to)}</span>)}
         </li>
       )}
       {diff.renamed.length > 0 && <li><strong>{n(diff.renamed.length, 'dish renamed', 'dishes renamed')}</strong>: {diff.renamed.map((r, i) => <span key={r.id}>{i ? ', ' : ''}<T>{names(r.from).main}</T> → <T>{names(r.to).main}</T></span>)}</li>}
-      {diff.sectionsAdded.length > 0 && <li><strong>{n(diff.sectionsAdded.length, 'section added', 'sections added')}</strong>: <T>{list(diff.sectionsAdded)}</T></li>}
-      {diff.sectionsRemoved.length > 0 && <li><strong>{n(diff.sectionsRemoved.length, 'section removed', 'sections removed')}</strong>: <T>{list(diff.sectionsRemoved)}</T></li>}
+      {diff.sectionsAdded.length > 0 && <li><strong>{n(diff.sectionsAdded.length, 'section added', 'sections added')}</strong>: {list(diff.sectionsAdded)}</li>}
+      {diff.sectionsRemoved.length > 0 && <li><strong>{n(diff.sectionsRemoved.length, 'section removed', 'sections removed')}</strong>: {list(diff.sectionsRemoved)}</li>}
     </ul>
   );
 }

@@ -308,7 +308,8 @@ test('site-env: a local build\'s pages, the back office\'s included, may connect
   assert.equal(siteEnv(dir, 'demo').status, 1, 'a local config is not the demo\'s');
 });
 
-test('site-env: the back office of a demo or local build shows pictures from the environment\'s own storage only; production\'s page is unchanged', () => {
+test('site-env: the back office of a demo or local build shows pictures from the environment\'s own menu storage only; production\'s page is unchanged', () => {
+  const BUCKET = '/storage/v1/object/public/menu-public/';
   const real = policyOf(OPS_CSP);
   assert.deepEqual(real['img-src'], ["'self'", 'data:'], 'the policy the page ships with (apps/ops/src/index.html)');
   const prod = path.join(tmp, 'img-prod'); writeSite(prod, fs.readFileSync(path.join(ROOT, 'config.js')));
@@ -323,15 +324,15 @@ test('site-env: the back office of a demo or local build shows pictures from the
     const dir = path.join(tmp, `img-${env}`); writeSite(dir, config);
     const r = siteEnv(dir, env);
     assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, new RegExp(`the back office shows pictures from ${own.replace(/[.]/g, '\\.')}`), env);
+    assert.ok(r.stdout.includes(`the back office shows pictures from ${own}${BUCKET}`), r.stdout);
     const got = policyOf(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8'));
-    assert.deepEqual(got['img-src'], ["'self'", 'data:', own], `${env}: exactly the environment's own storage host`);
+    assert.deepEqual(got['img-src'], ["'self'", 'data:', own + BUCKET], `${env}: exactly the environment's own menu bucket (SEC-N14), not its whole host`);
     for (const [name, sources] of Object.entries(real)) if (name !== 'img-src' && name !== 'connect-src') assert.deepEqual(got[name], sources, `${env}: ${name} unchanged`);
     assert.deepEqual(Object.keys(got), Object.keys(real), `${env}: no directive added or dropped`);
     for (const f of ['index.html', 'guide/index.html']) assert.equal(policyOf(fs.readFileSync(path.join(dir, f), 'utf8'))['img-src'], undefined, `${env}: ${f}'s img-src not touched`);
     // run again (a rebuild's settings step on the same files): nothing is added twice
     assert.equal(siteEnv(dir, env).status, 0);
-    assert.deepEqual(policyOf(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8'))['img-src'], ["'self'", 'data:', own], `${env}: idempotent`);
+    assert.deepEqual(policyOf(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8'))['img-src'], ["'self'", 'data:', own + BUCKET], `${env}: idempotent`);
   }
   // a back office page without img-src is not quietly opened to pictures: the step stops
   const bare = path.join(tmp, 'img-bare'); writeSite(bare, fs.readFileSync(path.join(ROOT, 'config/demo.js')));

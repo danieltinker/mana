@@ -14,13 +14,14 @@ import {
 } from '@mana/contracts';
 import type { Result } from './api.ts';
 import {
-  FORM_ACTIONS, actPlan, alreadySo, automaticOnly, holds, staleNow, targetsOf, type Fields, type Preset,
+  FORM_ACTIONS, actPlan, alreadySo, automaticOnly, staleNow, targetsOf, type Fields, type Preset,
 } from './act-model.ts';
+import { actWant, checkLog, logMark } from './landed.ts';
 import {
   ACT_LABEL, CASE_STATUS_LABEL, STATE_LABEL, STEP_LABEL, TARGET_LABEL, UNTIL_CHOICES, fmtMoney, fmtTime, isAct, names, snapshotNames,
 } from './model.ts';
 import { useCtx } from './ui.tsx';
-import { Write, type Landed } from './write.tsx';
+import { Write, type Landed, type LandedAt } from './write.tsx';
 
 export type { Preset } from './act-model.ts';
 
@@ -45,38 +46,9 @@ export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
   }, [dishIds.join(',')]);
   const set = (p: Partial<Fields>) => setF((x) => ({ ...x, ...p }));
 
-  /** After a lost answer: is this change there now? Read fresh, recognised by its value. */
-  const landed = async (input: ActForOwnerInput): Promise<Landed> => {
-    const p = input.payload as Readonly<Record<string, unknown>>;
-    switch (input.action) {
-      case 'dish.update': {
-        const r = await api.dish(String(p.dishId));
-        if (!r.ok || !r.data) return 'unknown';
-        if (holds(r.data, p.patch)) return 'yes';
-        return r.data.updated_at === p.expectedUpdatedAt ? 'no' : 'unknown';
-      }
-      case 'availability.set': case 'availability.restore': {
-        const m = await api.publicMenu(v.slug);
-        if (!m.ok || m.data.state !== 'ok') return 'unknown';
-        const at = Date.parse(m.data.live.at);
-        const off = m.data.live.off.some((o) => o.kind === p.targetKind && o.id === p.targetId && Date.parse(o.from) <= at && (o.until === null || Date.parse(o.until) > at));
-        return (input.action === 'availability.set') === off ? 'yes' : 'no';
-      }
-      case 'onboarding.set': {
-        const d = await api.venue(v.id);
-        if (!d.ok) return 'unknown';
-        const s = d.data.onboarding.steps.find((x) => x.step === p.step);
-        if (s && s.state === p.state) return 'yes';
-        return (s?.updatedAt ?? null) === p.expectedUpdatedAt ? 'no' : 'unknown';
-      }
-      case 'support_case.update': {
-        const d = await api.venue(v.id);
-        const c = d.ok ? d.data.cases.find((x) => x.id === p.caseId) : undefined;
-        return !c ? 'unknown' : c.status === p.status ? 'yes' : 'no';
-      }
-      default: return 'unknown';
-    }
-  };
+  /** After a lost answer: is this page's own act there? By its log entry (the action, its target, its "until", the
+   * reason as sent), never by a value alone: an item taken off may have been off already. */
+  const landed = (input: ActForOwnerInput, at: LandedAt): Promise<Landed> => checkLog(api, v.id, at, actWant(input));
   const nameOf = snapshotNames(snapshot);
   const targets = targetsOf(snapshot);
   const offTargets = off.map((o) => ({ value: `${o.kind}:${o.id}`, label: `${nameOf(o.id) ?? TARGET_LABEL[o.kind]}${o.until ? ` (off until ${fmtTime(o.until)})` : ' (off until brought back)'}` }));
@@ -97,7 +69,7 @@ export function ActForOwner({ detail, snapshot, menu, preset, onDone }: {
       run={(input, reason) => api.actForOwner({ ...input, reason })}
       done={(d) => `Done${isAct(d.action) ? `: ${ACT_LABEL[d.action].toLowerCase()}` : ''}. It is in the timeline, with your reason.`}
       onFail={(r) => { if (r.kind === 'refused') void onDone(); return staleNow(r); }}
-      landed={landed} already={alreadySo}
+      landed={landed} mark={() => logMark(detail.activity)} already={alreadySo}
       onDone={() => { set({ target: '' }); return onDone(); }}>
       <label class="field"><span>Action</span>
         <select value={f.action} onChange={(e) => set({ action: e.currentTarget.value as ActForOwnerAction })} data-act-action>

@@ -130,12 +130,16 @@ function Lead({ l, card = false, onDone }: { l: OpsLead; card?: boolean; onDone:
               : { ok: false, why: 'Nothing would change.' };
           }}
           run={(input) => api.updateLead(input)}
+          // leads keep no log of their own: every field the save sets holds its new value (yes), or every one still
+          // holds the value reviewed (not yet); anything else (another person's change) cannot be told apart: unknown
           landed={async (input) => {
-            const r = await api.leads({ status: 'all' });
+            const r = await api.leads({ status: 'all', limit: LEADS_READ });
             const now = r.ok ? r.data.leads.find((x) => x.id === input.id) : undefined;
             if (!now) return 'unknown';
-            return (input.status === undefined || now.status === input.status) && (input.owner === undefined || (now.owner ?? '') === input.owner)
-              && (input.notes === undefined || (now.notes ?? '') === input.notes) ? 'yes' : 'no';
+            const fields = [['status', now.status, l.status], ['owner', now.owner ?? '', l.owner ?? ''], ['notes', now.notes ?? '', l.notes ?? '']] as const;
+            const asked = fields.filter(([k]) => input[k] !== undefined);
+            if (asked.every(([k, cur]) => cur === input[k])) return 'yes';
+            return asked.every(([, cur, was]) => cur === was) ? 'no' : 'unknown';
           }}
           done={() => 'Saved.'} onDone={onDone}>
           <label class="field"><span>Status</span>

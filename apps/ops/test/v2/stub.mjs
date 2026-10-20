@@ -12,6 +12,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const DIST = path.join(root, 'dist');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+/** The menu pictures' bucket in a Supabase project (the database's public_base). */
+const BUCKET = '/storage/v1/object/public/menu-public/';
 const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 
 /** Test accounts of this stub only (localhost). */
@@ -103,15 +105,15 @@ export function createStub() {
         const r = await fakeBackend(S.w, a?.id ?? null).rpc(name, args);
         if (r.error?.name === 'TimeoutError') return undefined;                          // never answers
         if (r.error) return json(res, r.error.status || 500, { code: r.error.code, details: null, hint: null, message: r.error.message });
-        // the fake's pictures, served from this stub's own origin
-        return json(res, 200, JSON.parse(JSON.stringify(r.data ?? null).replaceAll(MEDIA_BASE, `http://${req.headers.host}/mana/media/`)));
+        // the fake's pictures, in this stub's own project storage (its origin is the config's supabaseUrl)
+        return json(res, 200, JSON.parse(JSON.stringify(r.data ?? null).replaceAll(MEDIA_BASE, `http://${req.headers.host}${BUCKET}`)));
       }
       if (p === '/mana/config.js') {
         res.writeHead(200, { 'content-type': MIME['.js'], 'cache-control': 'no-store' });
         return res.end(`window.HALOM_MENUS_CONFIG = ${JSON.stringify({ supabaseUrl: `http://${req.headers.host}`, supabaseKey: 'sb_publishable_stub', env: 'local', schema: 2, realtime: false,
           shortBase: `http://${req.headers.host}/m/`, viewPath: '../view/' })};`);
       }
-      if (p === '/mana/media/cafe/burger_t.png') {                         // a 1×1 picture; every other media path is missing
+      if (p === `${BUCKET}cafe/burger_t.png` || p === `${BUCKET}cafe/logo_t.png`) {   // 1×1 pictures; every other one is missing
         res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' });
         return res.end(PIXEL);
       }

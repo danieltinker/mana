@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ID, cafeDemo } from '@mana/contracts/fixtures';
 import { type ActForOwnerInput, type SnapshotV2 } from '@mana/contracts';
-import { assetUrl, bucketLabel, countWord, daysWords, limitWords, pictureOf, readMenu, secondOccurrence } from '../../src/v2/model.ts';
+import { STORAGE_PATH, assetUrl, bucketLabel, countWord, daysWords, limitWords, pictureOf, readMenu, secondOccurrence, storageOf, wordsText } from '../../src/v2/model.ts';
 import { alreadySo, parsePrice, staleNow } from '../../src/v2/act-model.ts';
 import type { Fail } from '../../src/v2/api.ts';
 
@@ -20,9 +20,10 @@ test('the menu to approve, read in full (QA-M4): both languages, notes, tags, al
   Object.assign(burger, { desc: { he: 'בקר', en: 'Beef' }, allergens: { he: 'גלוטן', en: 'gluten' }, details: { grape: 'Merlot', year: 2021, nested: { a: 1 } },
     asset: { state: 'photo', color: 'c/b.png', thumb: 'c/b_t.png' } });
   (burger.price as { note: { he: string; en: string } }).note = { he: 'עם תוספת', en: 'with a side' };
-  const m = readMenu(s as unknown as SnapshotV2);
+  const m = readMenu(s as unknown as SnapshotV2, 'https://example.invalid/storage/v1/object/public/menu-public/');
   assert.deepEqual(m.sections.map((x) => x.name.en), ['Breakfast', 'Mains', 'Drinks', 'Pastries']);
-  assert.equal(m.sections[0]!.when, 'Breakfast (every day 07:00–12:00)', 'a section shown only in some hours says so');
+  assert.equal(wordsText(m.sections[0]!.when!), 'Breakfast (every day 07:00–12:00)', 'a section shown only in some hours says so');
+  assert.deepEqual(m.sections[0]!.when, [{ name: 'Breakfast' }, ' (every day 07:00–12:00)'], 'the schedule\'s name is its own piece (SEC-N13)');
   const b = m.sections[1]!.dishes[0]!;
   assert.deepEqual([b.name, b.desc, b.priceNote, b.allergens, b.price], [{ he: 'המבורגר', en: 'Burger' }, { he: 'בקר', en: 'Beef' }, { he: 'עם תוספת', en: 'with a side' },
     { he: 'גלוטן', en: 'gluten' }, 6800]);
@@ -44,27 +45,57 @@ test('the menu to approve, read in full (QA-M4): both languages, notes, tags, al
   const croissant = m.sections[3]!.dishes[0]!;
   assert.deepEqual(croissant.tags, ['vegetarian']);
   assert.deepEqual(croissant.picture, { kind: 'stock', label: 'an illustration from Mana’s library, labelled as one for guests', src: '../stock/img/croissant_t.jpg' });
-  assert.equal(m.sections[3]!.dishes[1]!.when, 'Friday (Fri 07:00–15:00)');
-  // the rules, in words
-  assert.deepEqual(m.rules.map((r) => r.words), [
+  assert.equal(wordsText(m.sections[3]!.dishes[1]!.when!), 'Friday (Fri 07:00–15:00)');
+  // the rules, in words; every owner name its own piece (each in its own <bdi> on screen: SEC-N13)
+  assert.deepEqual(m.rules.map((r) => wordsText(r.words)), [
     'When a guest adds “Espresso”, every day 07:00–11:00, unless their table has anything from Pastries: suggest “Croissant”. Priority 50, at most once a visit.',
     'When a guest opens the sheet of “Burger”, any time: suggest the add-on “Cheese” (Extras). Priority 40, at most 2 times a visit.',
     'When a guest opens “my table” with a dish from “Mains”, any time, unless their table has anything from Drinks: suggest “Lemonade”. Priority 30, at most once a visit.',
   ]);
   assert.deepEqual(m.rules[0]!.line, { he: 'קרואסון חם ליד הקפה?', en: 'A warm croissant with your coffee?' });
+  assert.deepEqual(m.rules[1]!.words.filter((w) => typeof w !== 'string'), [{ name: 'Burger' }, { name: 'Cheese' }, { name: 'Extras' }]);
+  // the block at the top (QA-L3)
+  assert.deepEqual([m.venue.name.en, m.venue.cuisine.en, m.venue.logo, m.venue.orderUrl, m.venue.phone, m.venue.table.look, m.venue.soldOut],
+    ['Café Demo', 'Café', null, null, null, 'the “oak” table', 'bottom']);
+});
+
+test('the block guests see at the top (QA-L3): logo, links, phone and the owner\'s table photo, pictures from the own storage only (SEC-N14)', () => {
+  const base = 'https://p.supabase.co/storage/v1/object/public/menu-public/';
+  const s = cafeDemo() as unknown as { assetBase: string; venue: Record<string, unknown>; theme: Record<string, unknown> };
+  s.assetBase = base;
+  Object.assign(s.venue, { logo: 'v/logo.png', orderUrl: 'https://order.example.invalid/x', bookUrl: 'https://book.example.invalid/x', phone: '+972-3-000-0000' });
+  Object.assign(s.theme, { surface: 'custom', tableImg: 'v/table.jpg' });
+  const v = readMenu(s as unknown as SnapshotV2, base).venue;
+  assert.deepEqual(v.logo, { kind: 'logo', label: 'the logo', src: `${base}v/logo.png` });
+  assert.deepEqual(v.table, { look: 'the owner’s own table photo', photo: { kind: 'table', label: 'the owner’s table photo', src: `${base}v/table.jpg` } });
+  assert.deepEqual([v.orderUrl, v.bookUrl, v.phone], ['https://order.example.invalid/x', 'https://book.example.invalid/x', '+972-3-000-0000']);
+  // another project's storage, or another bucket of this one: never loaded
+  for (const other of ['https://other.supabase.co/storage/v1/object/public/menu-public/', 'https://p.supabase.co/storage/v1/object/public/elsewhere/']) {
+    s.assetBase = other;
+    const w = readMenu(s as unknown as SnapshotV2, base);
+    assert.equal(w.venue.logo?.src, null, other);
+    assert.equal(w.venue.table.photo?.src, null, other);
+  }
+  assert.equal(storageOf('https://p.supabase.co'), base);
+  assert.equal(storageOf('http://127.0.0.1:54321/'), 'http://127.0.0.1:54321/storage/v1/object/public/menu-public/');
+  assert.equal(storageOf('javascript:alert(1)'), null);
+  assert.equal(storageOf(undefined), null);
 });
 
 test('pictures: only the revision\'s own storage, plain relative paths; a relief is "a relief from one photo"', () => {
   const base = 'https://p.supabase.co/storage/v1/object/public/menu-public/';
-  assert.equal(assetUrl(base, 'v/a_t.png'), `${base}v/a_t.png`);
-  for (const bad of ['../x.png', '/x.png', 'https://evil.example/x.png', 'a/../../x.png', 'a b.png', 'javascript:alert(1)', '', 'a//b.png']) assert.equal(assetUrl(base, bad), null, bad);
-  assert.equal(assetUrl('javascript:alert(1)/', 'x.png'), null);
-  assert.equal(assetUrl('https://p.example/no-slash', 'x.png'), null);
-  assert.equal(assetUrl(null, 'x.png'), null);
-  assert.deepEqual(pictureOf({ state: 'relief', color: 'c.png', aux: 'a.png', thumb: 't.png', kind: 'flat', e: 1, h: 1, o: null, s: null }, base),
+  assert.equal(assetUrl(base, 'v/a_t.png', base), `${base}v/a_t.png`);
+  for (const bad of ['../x.png', '/x.png', 'https://evil.example/x.png', 'a/../../x.png', 'a b.png', 'javascript:alert(1)', '', 'a//b.png']) assert.equal(assetUrl(base, bad, base), null, bad);
+  assert.equal(assetUrl('javascript:alert(1)/', 'x.png', base), null);
+  assert.equal(assetUrl('https://p.example/no-slash', 'x.png', base), null);
+  assert.equal(assetUrl(null, 'x.png', base), null);
+  // SEC-N14: a snapshot's assetBase that is not this environment's own storage is refused, whatever it looks like
+  assert.equal(assetUrl('https://evil.example/storage/v1/object/public/menu-public/', 'x.png', base), null);
+  assert.equal(assetUrl(base, 'x.png', null), null, 'no configured storage: nothing is loaded');
+  assert.deepEqual(pictureOf({ state: 'relief', color: 'c.png', aux: 'a.png', thumb: 't.png', kind: 'flat', e: 1, h: 1, o: null, s: null }, base, base),
     { kind: 'relief', label: 'a relief from one photo', src: `${base}t.png` });
-  assert.equal(pictureOf({ state: 'stock', id: '../../x' }, base)?.src, null);
-  assert.equal(pictureOf(null, base), null);
+  assert.equal(pictureOf({ state: 'stock', id: '../../x' }, base, base)?.src, null);
+  assert.equal(pictureOf(null, base, base), null);
   assert.equal(daysWords([0, 1, 2, 3, 4]), 'Sun–Thu');
   assert.equal(daysWords([5, 6]), 'Fri, Sat');
   assert.equal(daysWords([]), 'every day');
@@ -125,15 +156,18 @@ test('the production entry (app.js) holds config.ts and no other contract module
   assert.ok(told > 50, `enough strings to tell (${told})`);
 });
 
-test('img-src for a demo or local build: the environment\'s own origin added, nothing else; production\'s page untouched', async () => {
-  const { withStorageImages } = await import(path.join(ROOT, 'tools/csp.mjs')) as { withStorageImages: (h: string, o: string) => string };
+test('img-src for a demo or local build: the environment\'s own menu bucket added, nothing else; production\'s page untouched', async () => {
+  const csp = await import(path.join(ROOT, 'tools/csp.mjs')) as { withStorageImages: (h: string, o: string) => string; STORAGE_PATH: string };
+  const { withStorageImages } = csp;
+  assert.equal(csp.STORAGE_PATH, STORAGE_PATH, 'the build tool and the page name the same bucket');
   const prod = readFileSync(path.join(ROOT, 'src/index.html'), 'utf8');
   assert.match(prod, /img-src 'self' data:;/, 'production: its own origin and data: only');
   const demo = withStorageImages(prod, 'https://project.supabase.co');
-  assert.match(demo, /img-src 'self' data: https:\/\/project\.supabase\.co;/);
-  assert.equal(demo.replace(" https://project.supabase.co;", ';'), prod, 'only img-src changed');
-  assert.equal(withStorageImages(demo, 'https://project.supabase.co/storage/v1/'), demo, 'an origin once, a path ignored');
-  assert.match(withStorageImages(prod, 'http://127.0.0.1:54321'), /img-src 'self' data: http:\/\/127\.0\.0\.1:54321;/);
+  const bucket = 'https://project.supabase.co/storage/v1/object/public/menu-public/';
+  assert.ok(demo.includes(`img-src 'self' data: ${bucket};`), 'the bucket, not the whole host (SEC-N14)');
+  assert.equal(demo.replace(` ${bucket};`, ';'), prod, 'only img-src changed');
+  assert.equal(withStorageImages(demo, 'https://project.supabase.co/storage/v1/'), demo, 'once; a path given is ignored');
+  assert.ok(withStorageImages(prod, 'http://127.0.0.1:54321').includes("img-src 'self' data: http://127.0.0.1:54321/storage/v1/object/public/menu-public/;"));
   assert.throws(() => withStorageImages(prod, 'javascript:alert(1)'));
   assert.throws(() => withStorageImages('<p>no policy</p>', 'https://p.example'));
 });

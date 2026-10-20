@@ -6,15 +6,16 @@
  */
 import { useEffect, useState } from 'preact/hooks';
 import {
-  CASE_STATUSES, CASE_TOPICS, ENTITLEMENT_STATUSES, PLANS, isLocalDate, isObject, zonedTime, type CaseStatus, type CaseTopic, type ClientDashboard,
+  CASE_STATUSES, CASE_TOPICS, ENTITLEMENT_STATUSES, PLANS, isLocalDate, isObject, zonedTime, type ActivityEntry, type CaseStatus, type CaseTopic, type ClientDashboard,
   type EntitlementStatus, type MenuExport, type OpsVenueDetail, type Plan, type PublicMenuResponse, type SupportCase,
 } from '@mana/contracts';
 import { codeText, type Fail, type Result } from './api.ts';
 import {
   CASE_STATUS_LABEL, CASE_TOPIC_LABEL, NUDGE_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, TARGET_LABEL, ago, fmtClock, fmtDate, fmtDateTime, fmtInt, fmtMoney,
-  fmtTime, menuView, names, type MenuRow, TZ,
+  fmtTime, menuView, names, planEnd, type MenuRow, TZ,
 } from './model.ts';
 import type { Preset } from './act-model.ts';
+import { checkLog, logMark, sameInstant } from './landed.ts';
 import { Badge, Clamp, Icon, Notice, T, useCtx } from './ui.tsx';
 import { Write } from './write.tsx';
 
@@ -183,7 +184,7 @@ export function Cases({ detail, onDone }: { detail: OpsVenueDetail; onDone: () =
     <section class="panel p-cases" aria-labelledby="cases-h" data-panel="cases">
       <div class="panel-head"><h2 id="cases-h">Support cases</h2>
         <p class="muted small">{detail.cases.length === 0 ? 'None.' : `${open} open · the owner’s words, as they wrote them.`}</p></div>
-      {detail.cases.length > 0 && <ul class="cases">{detail.cases.map((c) => <Case key={c.id} c={c} venueId={detail.venue.id} onDone={onDone} />)}</ul>}
+      {detail.cases.length > 0 && <ul class="cases">{detail.cases.map((c) => <Case key={c.id} c={c} venueId={detail.venue.id} mark={() => logMark(detail.activity)} onDone={onDone} />)}</ul>}
     </section>
   );
 }
@@ -194,7 +195,7 @@ export function Cases({ detail, onDone }: { detail: OpsVenueDetail; onDone: () =
  * owner), the database refuses (`stale`) and the form says what it is now; when it already is what was asked, that is
  * shown as done. The form starts again from the case whenever the case changes.
  */
-function Case({ c, venueId, onDone }: { c: SupportCase; venueId: string; onDone: () => Promise<boolean> }) {
+function Case({ c, venueId, mark, onDone }: { c: SupportCase; venueId: string; mark: () => number; onDone: () => Promise<boolean> }) {
   const { api } = useCtx();
   const next = (s: CaseStatus): CaseStatus => (s === 'resolved' ? 'open' : s === 'waiting_halom' || s === 'open' ? 'waiting_owner' : 'resolved');
   const [status, setStatus] = useState<CaseStatus>(next(c.status));
@@ -202,10 +203,6 @@ function Case({ c, venueId, onDone }: { c: SupportCase; venueId: string; onDone:
   // the case changed (a write here, another staff member, the owner): the form starts again from it as it is
   useEffect(() => { setStatus(next(c.status)); setTopic(c.topic); }, [c.updatedAt, c.status, c.topic]);
   const tone = c.status === 'resolved' ? 'good' : c.status === 'waiting_halom' ? 'bad' : c.status === 'open' ? 'warn' : 'plain';
-  const now = async (): Promise<SupportCase | null | Fail> => {
-    const d = await api.venue(venueId);
-    return d.ok ? d.data.cases.find((x) => x.id === c.id) ?? null : d;
-  };
   return (
     <li class="case" data-case={c.id} data-status={c.status}>
       <div class="row-between wrap"><T class="case-subject">{c.subject}</T><Badge tone={tone}>{CASE_STATUS_LABEL[c.status]}</Badge></div>
@@ -229,11 +226,9 @@ function Case({ c, venueId, onDone }: { c: SupportCase; venueId: string; onDone:
               ? `Already so: the case is ${CASE_STATUS_LABEL[cur.status as CaseStatus]?.toLowerCase() ?? 'as asked'} (another Halom staff member, or a send whose answer was lost); nothing more was sent.` : null;
           }}
           done={(d) => `Updated: the case is ${CASE_STATUS_LABEL[d.case.status].toLowerCase()}.`}
-          landed={async (input) => {
-            const cur = await now();
-            if (!cur || 'ok' in cur) return 'unknown';
-            return (input.status === undefined || cur.status === input.status) && (input.topic === undefined || cur.topic === input.topic) ? 'yes' : 'no';
-          }}
+          landed={(input, at) => checkLog(api, venueId, at, { action: 'support_cases.update',
+            match: (e) => e.targetIds.includes(c.id) && setTo(e, 'status', input.status) && setTo(e, 'topic', input.topic) })}
+          mark={mark}
           onDone={onDone}>
           <div class="two-fields">
             <label class="field"><span>Status</span>
@@ -253,6 +248,12 @@ function Case({ c, venueId, onDone }: { c: SupportCase; venueId: string; onDone:
   );
 }
 
+/** An update's log entry set `col` to `want` (or does not say: the target and the reason identify it), when it was asked. */
+function setTo(e: ActivityEntry, col: string, want: unknown): boolean {
+  const pair = isObject(e.detail.changes) ? e.detail.changes[col] : undefined;
+  return want === undefined || !Array.isArray(pair) || pair[1] === want;
+}
+
 /** A `stale` refusal of a case carries the case as it is now: that, in words (never who changed it). */
 function caseNow(f: Fail): string | null {
   const cur = f.code === 'stale' && f.reply && isObject(f.reply.current) ? f.reply.current : null;
@@ -266,7 +267,6 @@ function caseNow(f: Fail): string | null {
 
 /** The last second of an Israel date, as an instant: what "until 5 Nov" means for a plan. */
 export const endOfDay = (date: string): string | null => (isLocalDate(date) ? new Date(zonedTime(date, '23:59', TZ) + 59_000).toISOString() : null);
-
 export function Admin({ detail, onDone }: { detail: OpsVenueDetail; onDone: () => Promise<boolean> }) {
   const { api, role } = useCtx();
   const v = detail.venue;
@@ -302,7 +302,8 @@ export function Admin({ detail, onDone }: { detail: OpsVenueDetail; onDone: () =
           plan={() => ({ ok: true, what: v.isDemo ? `Mark ${name} as a real venue: its next guests count in real totals.` : `Mark ${name} as a demo venue: its next guests count as demo traffic, left out of real totals.`,
             note: 'Events already counted keep the label they were counted with.', input: { venueId: v.id, demo: !v.isDemo } })}
           run={(input, reason) => api.setDemo({ ...input, reason })}
-          landed={async (input) => { const f = await fresh(); return !f ? 'unknown' : f.isDemo === input.demo ? 'yes' : 'no'; }}
+          landed={(input, at) => checkLog(api, v.id, at, { action: 'venue.set_demo', match: (e) => e.detail.demo === input.demo })}
+          mark={() => logMark(detail.activity)}
           done={(d) => (d.demo ? 'Marked as a demo venue.' : 'Marked as a real venue.')} onDone={onDone} />
         <h3 class="sub-h">Plan</h3>
         <p class="small">Now: <strong>{PLAN_LABEL[v.plan.plan]} · {PLAN_STATE_LABEL[v.plan.state]}</strong>{v.plan.trialEndsAt ? ` · trial until ${fmtDate(v.plan.trialEndsAt)}` : ''}</p>
@@ -314,9 +315,11 @@ export function Admin({ detail, onDone }: { detail: OpsVenueDetail; onDone: () =
           changed={{ key: planKey, note: `The plan changed while you were reviewing: it is ${PLAN_LABEL[v.plan.plan]}, ${PLAN_STATE_LABEL[v.plan.state]} now. Nothing was sent: review again.` }}
           plan={async () => {
             const end = until ? endOfDay(until) : null;
+            const running = state === 'trialing' || state === 'active';
             if (until && !end) return { ok: false, why: 'Choose a valid date.' };
-            if (v.review === 'pending' && (state === 'trialing' || state === 'active')) return { ok: false, why: codeText('approval_first') };
-            if (end && Date.parse(end) <= Date.now() && (state === 'trialing' || state === 'active')) return { ok: false, why: 'That date is already in the past.' };
+            if (end && !running) return { ok: false, why: `A date applies only to a running trial or an active plan; ${PLAN_STATE_LABEL[state].toLowerCase()} keeps no date. Clear the date, or choose one of those.` };
+            if (v.review === 'pending' && running) return { ok: false, why: codeText('approval_first') };
+            if (end && Date.parse(end) <= Date.now() && running) return { ok: false, why: 'That date is already in the past.' };
             // the plan as it is now, not as this page loaded it
             const f = await fresh();
             if (!f) return { ok: false, why: 'Could not read the plan again before changing it. Try again.' };
@@ -324,12 +327,15 @@ export function Admin({ detail, onDone }: { detail: OpsVenueDetail; onDone: () =
               void onDone();
               return { ok: false, why: `The plan changed since this page loaded: it is ${PLAN_LABEL[f.plan.plan]}, ${PLAN_STATE_LABEL[f.plan.state]} now. Nothing was sent: review again.` };
             }
-            return { ok: true, what: `Set ${name}’s plan from ${PLAN_LABEL[v.plan.plan]}, ${PLAN_STATE_LABEL[v.plan.state]} to ${PLAN_LABEL[plan]}, ${PLAN_STATE_LABEL[state]}${end ? `, until ${fmtDate(end)}` : ''}.`,
+            return { ok: true, what: `Set ${name}’s plan from ${PLAN_LABEL[v.plan.plan]}, ${PLAN_STATE_LABEL[v.plan.state]} to ${PLAN_LABEL[plan]}, ${PLAN_STATE_LABEL[state]}${planEnd(state, end, Date.now())}.`,
               ...(state === 'suspended' ? { note: 'Suspended: guests see “menu not available” and the owner cannot publish.' } : {}),
               input: { venueId: v.id, state, plan, until: end } };
           }}
           run={(input, reason) => api.setPlan({ ...input, reason })}
-          landed={async (input) => { const f = await fresh(); return !f ? 'unknown' : f.plan.state === input.state && (input.plan == null || f.plan.plan === input.plan) ? 'yes' : 'no'; }}
+          // its own log entry: the state, the plan and the date it set (an active plan's end never comes back to the page)
+          landed={(input, at) => checkLog(api, v.id, at, { action: 'plan.set',
+            match: (e) => e.detail.state === input.state && (e.detail.plan ?? null) === (input.plan ?? null) && sameInstant(e.detail.until, input.until) })}
+          mark={() => logMark(detail.activity)}
           done={(d) => `The plan is ${PLAN_STATE_LABEL[d.state]} now.`} onDone={onDone}>
           <div class="two-fields">
             <label class="field"><span>Plan</span>
