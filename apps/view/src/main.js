@@ -94,6 +94,8 @@ async function boot() {
     const early = c.supabaseUrl && c.supabaseKey ? fetch(String(c.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/rpc/public_menu', { method: 'POST',
       headers: { apikey: c.supabaseKey, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ p_slug: source.slug }) }).catch(() => null) : null;
     const mod = await env.importModule(new URL(V2_FILE, document.baseURI).href).catch(() => null);
+    if (!mod && await reloadOnce()) return;                             // an app.js from before a deploy: the page loads again, once
+    if (Q.has('_r')) { const u = new URL(location.href); u.searchParams.delete('_r'); try { history.replaceState(history.state, '', u.href); } catch (e) { /* the address is only tidier */ } }
     if (!mod) res = { state: 'error', message: 'the menu did not load' };
     else if (mod.isV2(c)) {
       res = await mod.loadMenu(source.slug, env, kit, early);
@@ -108,6 +110,20 @@ async function boot() {
   if (res.state === 'unavailable') { const l = lang0 || 'he'; return showStatus('unavailable', { lang: l, name: tx(res.business.name, l) }); }
   if (res.state === 'not_found') return showStatus('not_found', { lang: lang0 || 'he' });
   showStatus('error', { lang: lang0 || 'he', retry: () => boot() });
+}
+
+/* After a deploy, an app.js still in this phone's cache can name a v2 module that is no longer there. Once a minute at
+   most, the newest app.js is fetched past the cache and the page loads again under a fresh address; only when that fails
+   too does the guest see "the menu did not load". → true when the page is going. */
+async function reloadOnce() {
+  const KEY = 'mana-v2-reload', now = Date.now();
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(KEY)) || 0; sessionStorage.setItem(KEY, String(now)); } catch (e) { return false; }      // no session storage: no way to know it was tried, so never
+  if (now - last < 60000) return false;
+  await fetch(new URL('app.js', document.baseURI).href, { cache: 'reload' }).catch(() => null);
+  const u = new URL(location.href); u.searchParams.set('_r', String(now));
+  location.replace(u.href);
+  return true;
 }
 
 async function start(snapshot) {

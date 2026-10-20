@@ -16,10 +16,10 @@
 
    Every price, limit, default, availability and suggestion is @mana/contracts' (through menu.js, choices.js,
    basket.js); nothing here depends on WebGL, so the list view gets exactly the same choices. */
-import { TAGS, configFlags, passesTagFilter, priceDish } from '@mana/contracts';
+import { LIMITS, TAGS, configFlags, passesTagFilter, priceDish } from '@mana/contracts';
 import { closedText, filtered, loadMenu, poll, refresh, rpc, setLive, toModel } from './menu.js';
 import { chosenList, groupIn, issues, qtyOf, runningPrice, selectionKey, setOption, startOf, unitsOf } from './choices.js';
-import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, splitOne, storedLines } from './basket.js';
+import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, room, setQuantity, splitOne, storedLines } from './basket.js';
 import { createEvents } from './events.js';
 import { createVisit } from './visit.js';
 import { word } from './i18n.js';
@@ -71,19 +71,27 @@ export function createGuest(model, { env, mem, src, kit }) {
   const say = (text) => { if (els.live) { els.live.textContent = ''; els.live.textContent = text; } };
 
   /* ---------- the basket, kept on this phone ---------- */
-  function save() { mem.set(basketKey, JSON.stringify(storedLines(lines))); }
+  let storedRaw = mem.get(basketKey);                         // the basket as this tab last wrote or read it
+  function save() { storedRaw = JSON.stringify(storedLines(lines)); mem.set(basketKey, storedRaw); }
   function changed() { save(); sync(); recheck(); }
   const basketNow = () => lines.map((l) => ({ dishId: l.dishId, selection: l.selection }));
-  /* Two tabs of one menu share one basket: a change made in the other tab arrives as a `storage` event and is taken as
-     it is (the tab that changed it last wins; both then show the same table). */
-  function fromOtherTab(e) {
-    if (e.key !== basketKey) return;
+  /* Two tabs of one menu share one basket, and storage is the one truth:
+     - before any change, the basket is read again from storage (fresh): another tab may have changed it a moment ago,
+       and a tab in the background hears of it late (its `storage` event can come a second after the value is there);
+     - on a `storage` event, and when the tab comes back into view, the basket is taken from storage as it is NOW (not
+       from the event: when both tabs write at once, the events cross, and the stored value is the one both end on).
+     Two writes in the same instant: the last one wins, and both tabs show it. → fresh() is true when it changed. */
+  function fresh() {
+    const raw = mem.get(basketKey);
+    if (raw == null || raw === storedRaw) return false;
     let next;
-    try { next = readLines(JSON.parse(e.newValue || 'null')); } catch (err) { return; }
-    lines = next; sync(); recheck();
+    try { next = readLines(JSON.parse(raw)); } catch (err) { return false; }
+    storedRaw = raw; lines = next;
     if (session && session.editKey && !lines.some((l) => l.key === session.editKey)) session.editKey = null;      // the line being changed went in the other tab: saving adds it again
-    redrawAll();
+    return true;
   }
+  function fromStorage() { if (fresh()) { sync(); recheck(); redrawAll(); } }
+  function fromOtherTab(e) { if (e.key === basketKey) fromStorage(); }
   /* the store's per-dish counts follow the basket (never from inside another notification: a microtask later) */
   function sync() { if (store) queueMicrotask(() => store.dispatch({ type: 'traySync', tray: counts(lines) })); }
 
@@ -114,8 +122,35 @@ export function createGuest(model, { env, mem, src, kit }) {
     }
     return !visit.still({ selection, basket: basketNow(), unavailable: g().unavailable, tags });
   }
-  function accept() {
+  /* A line holds at most LIMITS.lineQuantity of one dish with the same choices: an add that would go past it is refused
+     and said, beside the add button when the sheet is open (never a dish silently dropped). */
+  function lineFull(d) {
+    const text = word(lang(), 'lineFull', { n: LIMITS.lineQuantity, name: name(d.name) });
+    if (session && session.dishId === d.id) { session.full = text; updateSheet(); }
+    say(text);
+  }
+  /* Accept and dismiss remove the suggestion, and with it the button that had the focus: the focus goes to a place of its
+     own (the add button of the sheet, else the dish's name; "my table"'s close button; the card's add button). */
+  function keepFocus(fn) {
+    const a = document.activeElement, was = !!(a && a.closest && a.closest('.v2-sug'));
+    fn();
+    if (!was) return;
+    const now = document.activeElement;
+    if (now && now !== document.body && now.isConnected && !now.closest('[hidden], [inert]')) return;      // already somewhere (a sheet that opened)
+    const s = store.getState(), add2 = $('addBtn2');
+    const to = s.open === 'dish' ? (add2 && !add2.disabled ? add2 : $('dName')) : s.open === 'tray' ? $('trayClose') : $('addBtn');
+    if (to) to.focus({ preventScroll: true });
+  }
+  function accept() { keepFocus(acceptNow); }
+  function acceptNow() {
+    fresh();
     if (recheck()) { redrawAll(); return; }                     // it no longer applies: nothing is added
+    const q = visit.pending;
+    if (q && q.suggest.kind === 'option' && q.trigger !== 'sheet') {      // after an add: is there room on the line it would join?
+      const l = lines.find((x) => x.key === q.lineKey), d = l && dish(l.dishId);
+      if (d) { const next = setOption(l.selection, ctx(), { groupId: q.suggest.groupId, optionId: q.suggest.optionId, qty: qtyOf(l.selection, q.suggest.groupId, q.suggest.optionId) + 1 });
+        if (selectionKey(next) !== selectionKey(l.selection) && room(lines, d.id, next) < 1) { visit.drop(); lineFull(d); redrawAll(); return; } }
+    }
     const p = visit.accept(); if (!p) return;
     ev.emit('suggestion_accepted', { ruleId: p.ruleId, trigger: p.trigger, dishId: p.dishId });
     const sg = p.suggest;
@@ -146,19 +181,24 @@ export function createGuest(model, { env, mem, src, kit }) {
     redrawAll();
   }
   function dismiss() {
-    const p = visit.dismiss(); if (!p) return;
-    ev.emit('suggestion_dismissed', { ruleId: p.ruleId, trigger: p.trigger, dishId: p.dishId });
-    redrawAll();
+    keepFocus(() => {
+      const p = visit.dismiss(); if (!p) return;
+      ev.emit('suggestion_dismissed', { ruleId: p.ruleId, trigger: p.trigger, dishId: p.dishId });
+      redrawAll();
+    });
   }
 
   /* ---------- adding ---------- */
   function addToBasket(d, sel, { fromSuggestion, where }) {
+    fresh();
+    if (room(lines, d.id, sel) < 1) { lineFull(d); return false; }
     lines = addLine(lines, d.id, sel, 1, items.get(d.id).name);
     const line = lineOf(lines, d.id, sel);
     changed();
     ev.emit('basket_added', { dishId: d.id, qty: 1, fromSuggestion });
     say(word(lang(), 'added') + ': ' + name(d.name));
     offer('add', d.id, sel, { fromSuggestion, where, lineKey: line ? line.key : null });
+    return true;
   }
   /** "Add to my table", from the card or from the sheet. A dish with choices opens its sheet first. */
   function add(id) {
@@ -170,14 +210,17 @@ export function createGuest(model, { env, mem, src, kit }) {
     redrawAll();
   }
   function addFromSheet() {
+    fresh();
     const d = dish(session.dishId), r = priceDish(d, session.selection, ctx());
     if (!r.ok) { tried = true; updateSheet(); focusMissing(); return; }      // what is missing is said beside the button, and the focus goes there
     if (session.editKey) {
+      const was = lines.find((l) => l.key === session.editKey);
+      if (was && room(lines, d.id, session.selection, was.key) < was.quantity) { lineFull(d); return; }      // it would join a line with no room for it
       lines = replaceSelection(lines, session.editKey, session.selection); changed();
       session = null; store.dispatch({ type: 'open', what: 'tray' }, { via: 'button' });
       return;
     }
-    addToBasket(d, session.selection, { fromSuggestion: session.fromSuggestion, where: 'sheet' });
+    if (!addToBasket(d, session.selection, { fromSuggestion: session.fromSuggestion, where: 'sheet' })) return;
     session.fromSuggestion = false; tried = false;
     flashUntil = Date.now() + 1600; clearTimeout(flashTimer); flashTimer = setTimeout(() => { flashUntil = 0; redrawSheet(); }, 1650);
     redrawAll();
@@ -202,6 +245,7 @@ export function createGuest(model, { env, mem, src, kit }) {
     if (!session) return;
     const before = qtyOf(session.selection, groupId, optionId, parentOptionId);
     session.selection = setOption(session.selection, ctx(), { groupId, optionId, parentOptionId, qty });
+    session.full = null;
     if (before === 0 && qty > 0) ev.emit('addon_chosen', { dishId: session.dishId, groupId, optionId, parentOptionId });
     recheck();                                                  // chosen by the guest themselves, or no room left for it: the suggestion goes
     redrawSheet();
@@ -306,7 +350,8 @@ export function createGuest(model, { env, mem, src, kit }) {
     const needNames = iss.missing.map((m) => name(groupOf(m.groupId).name));
     const dead = chosenList(sel).find((c) => c.parentOptionId === null && g().dead.has(c.optionId)), deadOpt = dead ? optionOf(dead.groupId, dead.optionId) : null;
     els.need.classList.toggle('off', offNames.length > 0 || !!deadOpt);
-    els.need.textContent = deadOpt ? word(L, 'openerNeed', { name: name(deadOpt.name), group: groupName(deadOpt.opensGroupId) })      // "Fries can't be ordered now (Sauce: none left)"
+    els.need.textContent = session.full ? session.full
+      : deadOpt ? word(L, 'openerNeed', { name: name(deadOpt.name), group: groupName(deadOpt.opensGroupId) })      // "Fries can't be ordered now (Sauce: none left)"
       : offNames.length ? word(L, 'lineOptionOff', { name: offNames.join(', ') }) : needNames.length ? word(L, 'stillNeeded', { groups: needNames.join(', ') }) : '';
     els.need.hidden = !els.need.textContent;
     if (els.need.hidden) btn.removeAttribute('aria-describedby'); else btn.setAttribute('aria-describedby', 'v2Need');
@@ -364,13 +409,18 @@ export function createGuest(model, { env, mem, src, kit }) {
       else if (x.why === 'option') why = word(L, 'lineOptionOff', { name: optionName(x.optionId) });
       else why = word(L, 'lineChoose');
     }
-    const step = (txt, label2, dq, act) => { const b = h('button', { type: 'button', text: txt, 'aria-label': label2 + ': ' + label, 'data-line': l.key, 'data-act': act }); b.addEventListener('click', () => { if (dq > 0 && !x.ok) return; lines = setQuantity(lines, l.key, l.quantity + dq); changed(); ui.renderTray(); }); return b; };
+    const step = (txt, label2, dq, act) => { const b = h('button', { type: 'button', text: txt, 'aria-label': label2 + ': ' + label, 'data-line': l.key, 'data-act': act }); b.addEventListener('click', () => {
+      fresh();
+      const now = lines.find((y) => y.key === l.key);             // the line as stored now (another tab may have changed it)
+      if (now && !(dq > 0 && (!x.ok || now.quantity >= LIMITS.lineQuantity))) { lines = setQuantity(lines, l.key, now.quantity + dq); changed(); }
+      ui.renderTray();
+    }); return b; };
     const more = step('+', ui.t('more'), 1, 'more');
-    more.disabled = !x.ok;                                      // a line that cannot be ordered now is not added to (one less, or remove, still work)
+    more.disabled = !x.ok || l.quantity >= LIMITS.lineQuantity;      // a line that cannot be ordered now, or is full, is not added to (one less, or remove, still work)
     const acts = [h('span', { class: 'stepper' }, [step('−', ui.t('remove'), -1, 'less'), h('span', { text: String(l.quantity) }), more])];
     if (d && d.addons.length && x.why !== 'off' && x.why !== 'gone') { const b = h('button', { class: 'link', type: 'button', text: word(L, 'edit'), 'aria-label': word(L, 'edit') + ': ' + label, 'data-line': l.key, 'data-act': 'edit' }); b.addEventListener('click', () => edit(l.key)); acts.push(b); }
     const rm = h('button', { class: 'link', type: 'button', text: word(L, 'removeLine'), 'aria-label': word(L, 'removeLine') + ': ' + label, 'data-line': l.key, 'data-act': 'remove' });
-    rm.addEventListener('click', () => { lines = removeLine(lines, l.key); changed(); ui.renderTray(); });
+    rm.addEventListener('click', () => { fresh(); lines = removeLine(lines, l.key); changed(); ui.renderTray(); });
     acts.push(rm);
     return h('li', { class: 'v2-line' + (x.ok ? '' : ' off'), 'data-line': l.key }, [
       h('div', { class: 'l-main' }, [h('span', { class: 'l-name', text: label }), choices ? h('span', { class: 'l-choices', text: choices }) : null, why ? h('span', { class: 'l-why' + (later ? ' later' : ''), text: why }) : null]),
@@ -390,6 +440,7 @@ export function createGuest(model, { env, mem, src, kit }) {
     renderSuggestions(s);
   }
   function edit(key) {
+    fresh();
     const l = lines.find((x) => x.key === key);
     if (!l) return;
     if (!shownNow(l.dishId)) setTags([]);                    // the filter hides it: show everything again, to change it
@@ -512,9 +563,9 @@ export function createGuest(model, { env, mem, src, kit }) {
   function startLive() {
     const every = Number(env.config && env.config.liveEveryMs) > 0 ? Number(env.config.liveEveryMs) : 30000, doc = document;
     setInterval(() => { if (doc.visibilityState !== 'hidden') tick(); }, every);
-    doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') tick(); else ev.flush({ keepalive: true }); });
+    doc.addEventListener('visibilitychange', () => { if (doc.visibilityState === 'visible') { fromStorage(); tick(); } else ev.flush({ keepalive: true }); });
     window.addEventListener('pagehide', () => ev.flush({ keepalive: true }));
-    window.addEventListener('online', () => tick());
+    window.addEventListener('online', () => { tick(); ev.flush(); });      // back online: the menu again, and what waited to be sent
     window.addEventListener('storage', fromOtherTab);
   }
 

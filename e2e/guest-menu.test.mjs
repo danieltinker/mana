@@ -52,6 +52,17 @@ const K = () => check.ids.dishes, KO = () => check.ids.options;
 const v2 = (page) => page.evaluate(() => window.__mana.v2());
 const trayLines = (page) => page.$$eval('#trayList li.v2-line', (ls) => ls.map((l) => [l.querySelector('.l-name').innerText, (l.querySelector('.l-choices') || {}).innerText || '', l.querySelector('.l-price').innerText]));
 const openTray = async (page) => { await page.click('#trayBtn'); await page.locator('#traySheet.open').waitFor(); };
+const activeId = (page) => page.evaluate(() => document.activeElement && document.activeElement.id);
+/** Safari and iOS before 16.4 (and 15.4): a lookbehind is refused, Object.hasOwn and crypto.randomUUID do not exist. */
+const OLD_SAFARI = `(() => {
+  const R = RegExp;
+  const W = function (p, f) { const s = p instanceof R ? p.source : String(p); if (/\\(\\?<[=!]/.test(s)) throw new SyntaxError('Invalid regular expression: invalid group specifier name'); return new.target ? new R(p, f) : R(p, f); };
+  W.prototype = R.prototype; Object.setPrototypeOf(W, R); globalThis.RegExp = W;
+  delete Object.hasOwn;
+  try { Object.defineProperty(Object.getPrototypeOf(globalThis.crypto), 'randomUUID', { value: undefined, configurable: true }); } catch (e) {}
+})();`;
+/** A script that holds a lookbehind as a literal does not even parse there. */
+const LOOKBEHIND = /\/[^/\n]*\(\?<[=!][^/\n]*\/[dgimsuyv]*/;
 const opt = (page, optionId, opener = null) => page.locator((opener ? `.v2-nested[data-for="${opener}"] ` : '#v2Groups > .v2-group > ') + `[data-o="${optionId}"]`);
 const sheetSug = (page) => page.locator('#v2SheetSug .v2-sug');
 const openDish = async (page, id) => { await page.click(`.row[data-id="${id}"]`); await page.locator('#addBtn2').waitFor(); };
@@ -327,6 +338,10 @@ test('keyboard only, in the list: Tab to a dish, Enter opens it with the focus i
     return ['.g-name', '.g-hint', '.o-name', '.o-price', '#addBtn2', '.s-line', '.s-kicker', '.r-price'].map((q) => { const el = document.querySelector(q); return [q, el ? +ratio(getComputedStyle(el).color, q === '#addBtn2' ? getComputedStyle(el).backgroundColor : bg).toFixed(2) : null]; });
   });
   for (const [q, r] of contrast) assert.ok(r === null || r >= 4.5, q + ' contrast ' + r);
+  await tabTo((a) => a.name === 'No thanks: Cheese', 'the suggestion\'s "No thanks"');
+  await page.keyboard.press('Enter');
+  assert.equal(await page.locator('#v2SheetSug').isVisible(), false);
+  assert.equal((await at()).id, 'addBtn2', 'the button that had the focus is gone: the focus is on the add button, not lost');
   await tabTo((a) => a.id === 'addBtn2', 'the add button');
   await page.keyboard.press('Enter');
   assert.equal(await text(page, '#addBtn2'), 'Added to my table');
@@ -390,7 +405,9 @@ test('an add-on suggested right after an add goes on one burger, never on the wh
   const egg = (l) => (l.selection.groups.find((g) => g.options.some((o) => o.optionId === KO().egg)) ? 1 : 0);
   assert.deepEqual((await v2(page)).lines.map((l) => [l.quantity, egg(l)]), [[3, 0]], 'three of the same burger: one line');
   await shot(page, '15-add-rule-three-burgers');
-  await sheetSug(page).locator('.primary').click();
+  await sheetSug(page).locator('.primary').focus();
+  await page.keyboard.press('Enter');                                                       // "Add Egg" by keys
+  assert.equal(await activeId(page), 'addBtn2', 'the focus goes to the add button, not to the page');
   const d = await v2(page);
   assert.deepEqual(d.lines.map((l) => [l.quantity, egg(l)]), [[2, 0], [1, 1]], 'one burger has the egg, two do not');
   assert.equal(d.total, 3 * 6800 + 500, 'one egg is charged, not three');
@@ -403,9 +420,18 @@ test('an add-on suggested right after an add goes on one burger, never on the wh
   assert.equal(await text(page, '#trayTotal'), '₪209');
   assert.equal(await text(page, '#trayCount'), '3');
   await shot(page, '16-add-rule-one-burger-changed');
+  await page.click('#trayList li.v2-line:nth-child(2) [data-act="edit"]');                  // "Change" on the line split off
+  await page.locator('#addBtn2:has-text("Save changes")').waitFor();
+  assert.equal(await opt(page, KO().egg).locator('input').isChecked(), true, 'the Change sheet holds that line\'s choices');
+  await page.locator(`[data-o="${KO().cheese}"] .stepper button`).last().click();
+  assert.equal(await text(page, '#addBtn2'), 'Save changes · ₪77');
+  await page.click('#addBtn2');
+  await page.locator('#traySheet.open').waitFor();
+  assert.deepEqual(await trayLines(page), [['Burger', 'Fries · Aioli', '₪136'], ['Burger', 'Fries · Aioli · Egg · Cheese', '₪77']], 'only that line changed');
+  assert.equal(await text(page, '#trayTotal'), '₪213');
   await page.keyboard.press('Escape');
   await flushed(page);
-  assert.deepEqual(page.events.filter((x) => x.name === 'addon_chosen').map((x) => x.props.optionId), [KO().egg]);
+  assert.deepEqual(page.events.filter((x) => x.name === 'addon_chosen').map((x) => x.props.optionId), [KO().egg, KO().cheese]);
   assert.deepEqual(names(page.events.filter((x) => x.name.startsWith('suggestion_') || x.name === 'basket_added')), { suggestion_shown: 5, basket_added: 3, suggestion_accepted: 1 });
   const C = check.ids.rules;
   assert.deepEqual(page.events.filter((x) => x.name === 'suggestion_shown').map((x) => x.props.ruleId), [C['burger-cheese'], C['burger-egg'], C['burger-egg'], C['burger-egg'], C['main-basket']], 'the egg three times (its cap), then "my table" opening');
@@ -500,7 +526,22 @@ test('every sauce sold out: fries and sweet potato say why and cannot be chosen,
     assert.equal(await text(page, '#v2Need'), 'Still to choose: Side of choice');
     assert.equal((await v2(page)).lines.length, 1);
     await closeSheet(page);
-  } finally { for (const o of sauces) await check.owner.restore('option', o); }
+
+    await check.owner.restore('option', KO().ketchup);                                       // one sauce back, mid-visit
+    await page.evaluate(() => window.__mana.refresh());
+    assert.deepEqual((await v2(page)).deadOpeners, [], 'fries and sweet potato can be chosen again');
+    assert.equal(await text(page, `.row[data-id="${K().burger}"] .row-price`), 'from\n₪68', 'a paid side is possible again: "from"');
+    await openDish(page, K().burger);
+    assert.equal(await opt(page, KO().fries).locator('input').isChecked(), true, 'the owner\'s default side again');
+    assert.equal(await opt(page, KO().fries).locator('input').isDisabled(), false);
+    assert.doesNotMatch(await opt(page, KO().fries).innerText(), /none left/);
+    assert.equal(await opt(page, KO().aioli, KO().fries).locator('input').isChecked(), false, 'its default sauce is still off: nothing pre-selected');
+    await opt(page, KO().ketchup, KO().fries).click();
+    assert.equal(await text(page, '#addBtn2'), 'Add to my table · ₪68');
+    await page.click('#addBtn2');
+    assert.equal((await v2(page)).lines.length, 2);
+    await closeSheet(page);
+  } finally { for (const o of sauces) await check.owner.restore('option', o).catch(() => {}); }
   await flushed(page);
   assert.deepEqual(page.problems, []);
 });
@@ -578,6 +619,146 @@ test('at 200% zoom (195 CSS px wide) nothing overlaps or is cut, in English and 
     assert.deepEqual(page.problems, []);
     await page.context().close();
   }
+});
+
+test('two tabs adding at the same moment end on the same basket, the one stored', { timeout: 120000 }, async () => {
+  const a = await phone('m=bistro-check&lang=en&gl=off&test=1');
+  const b = await a.context().newPage();
+  await b.goto(e.webUrl + 'view/?m=bistro-check&lang=en&gl=off&test=1');
+  await b.waitForFunction(() => window.__mana && window.__mana.v2());
+  const seen = (page) => page.evaluate(() => {
+    const stored = JSON.parse(localStorage.getItem('mana-basket:bistro-check') || '{"lines":[]}').lines.map((l) => ['l' + l.n, l.dishId, l.quantity]);
+    return { mine: window.__mana.v2().lines.map((l) => [l.key, l.dishId, l.quantity]), stored, count: document.getElementById('trayCount').textContent };
+  });
+  await openDish(a, K().lemonade); await openDish(b, K().cookie);
+  for (let round = 1; round <= 6; round++) {
+    await Promise.all([a.click('#addBtn2'), b.click('#addBtn2')]);                          // both write at once
+    await a.waitForTimeout(250);
+    const [x, y] = [await seen(a), await seen(b)];
+    assert.deepEqual(x.mine, x.stored, `round ${round}: the first tab shows what is stored`);
+    assert.deepEqual(y.mine, y.stored, `round ${round}: the second tab too`);
+    assert.deepEqual(x.mine, y.mine, `round ${round}: the two tabs agree`);
+  }
+  // one after the other, with no pause: each write starts from what is stored, so no dish is lost even when the other
+  // tab's event has not come yet (a tab in the background hears late)
+  const total = async (page) => (await seen(page)).stored.reduce((n, l) => n + l[2], 0);
+  const start = await total(a);
+  for (let i = 0; i < 4; i++) { await a.click('#addBtn2'); await b.click('#addBtn2'); }
+  await a.waitForTimeout(300);
+  assert.equal(await total(a), start + 8, 'eight adds, eight more dishes');
+  assert.deepEqual((await seen(a)).mine, (await seen(b)).mine);
+  await closeSheet(a); await closeSheet(b);
+  await b.evaluate(() => window.__mana.flush());
+  await b.close();
+  await flushed(a);
+  assert.deepEqual(a.problems, []);
+});
+
+test('offline, the events wait; online again, they are sent, each once', { timeout: 120000 }, async () => {
+  const page = await phone('m=bistro-check&lang=en&gl=off&test=1');
+  await flushed(page);
+  const stored = [];
+  page.on('response', (r) => { if (r.url().endsWith('/rpc/track_events') && r.status() === 200) stored.push(...JSON.parse(r.request().postData()).p_events.map((x) => x.id)); });
+  await page.context().setOffline(true);
+  await openDish(page, K().lemonade); await page.click('#addBtn2'); await closeSheet(page);
+  await page.waitForFunction(() => window.__mana.v2().events.failures >= 1, null, { timeout: 20000 });
+  const waiting = await page.evaluate(() => window.__mana.v2().events);
+  assert.equal(waiting.queued, 2, 'the dish viewed and the add, kept: ' + JSON.stringify(waiting));
+  await page.context().setOffline(false);
+  await page.waitForFunction(() => { const q = window.__mana.v2().events; return q.queued === 0 && !q.sending; }, null, { timeout: 30000 });
+  const late = page.events.filter((x) => x.name === 'dish_viewed' || x.name === 'basket_added');
+  const ids = [...new Set(late.map((x) => x.id))];
+  assert.equal(ids.length, 2);
+  assert.deepEqual(ids.map((id) => stored.filter((x) => x === id).length), [1, 1], 'each stored once, with the id it was first given');
+  page.problems = page.problems.filter((p) => !/Failed to load resource|ERR_INTERNET_DISCONNECTED|track_events|public_menu/.test(p));
+  assert.deepEqual(page.problems, []);
+});
+
+test('a line holds at most 50: an add or a change that would go past it is refused and said, never a dish silently dropped', { timeout: 120000 }, async () => {
+  const page = await phone('m=bistro-check&lang=en&gl=off&test=1');
+  const G2 = check.ids.groups;
+  const plain = { quantity: 1, groups: [{ groupId: G2.side, options: [{ optionId: KO().fries, nested: [{ groupId: G2.sauce, options: [{ optionId: KO().aioli }] }] }] }, { groupId: G2.extras, options: [] }] };
+  const egg = JSON.parse(JSON.stringify(plain)); egg.groups[1].options = [{ optionId: KO().egg }];
+  const basket = { v: 1, lines: [
+    { n: 1, dishId: K().lemonade, name: { he: 'לימונדה', en: 'Lemonade' }, selection: { quantity: 1, groups: [] }, quantity: 50 },
+    { n: 2, dishId: K().burger, name: { he: 'המבורגר', en: 'Burger' }, selection: plain, quantity: 50 },
+    { n: 3, dishId: K().burger, name: { he: 'המבורגר', en: 'Burger' }, selection: egg, quantity: 2 },
+  ] };
+  await page.evaluate((b) => localStorage.setItem('mana-basket:bistro-check', JSON.stringify(b)), basket);
+  await page.reload(); await page.waitForFunction(() => window.__mana && window.__mana.v2());
+  const quantities = async () => (await v2(page)).lines.map((l) => l.quantity);
+  assert.deepEqual(await quantities(), [50, 50, 2]);
+  assert.equal(await text(page, '#trayCount'), '102');
+
+  await openDish(page, K().lemonade);
+  await page.click('#addBtn2');
+  assert.equal(await text(page, '#v2Need'), 'My table already has 50 of this Lemonade with these choices, the most one line holds.');
+  assert.deepEqual(await quantities(), [50, 50, 2], 'nothing added, nothing dropped');
+  await shot(page, '22-line-full');
+  await closeSheet(page);
+
+  await openTray(page);
+  assert.equal(await page.locator('#trayList li.v2-line:nth-child(1) [data-act="more"]').isDisabled(), true, '"+" on a full line');
+  await page.click('#trayList li.v2-line:nth-child(3) [data-act="edit"]');                  // the egg line changed to plain would join the full line
+  await page.locator('#addBtn2:has-text("Save changes")').waitFor();
+  await opt(page, KO().egg).click();
+  await page.click('#addBtn2');
+  assert.match(await text(page, '#v2Need'), /already has 50 of this Burger/);
+  assert.deepEqual(await quantities(), [50, 50, 2], '52 burgers stay 52');
+  await closeSheet(page);
+  await flushed(page);
+  assert.deepEqual(names(page.events.filter((x) => x.name === 'basket_added')), {}, 'no add was counted');
+  assert.deepEqual(page.problems, []);
+});
+
+test('after a deploy, an app.js that names a v2 module no longer there: the page loads again once, then the menu; still failing, it says so', { timeout: 120000 }, async () => {
+  for (const failures of [1, Infinity]) {
+    const page = await e.page();
+    let left = failures, loads = 0;
+    await page.route(/\/v2-[A-Z0-9]+\.js$/, (route) => (left-- > 0 ? route.fulfill({ status: 404, body: 'gone' }) : route.continue()));
+    page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame() && /\/view\//.test(r.url())) loads += 1; });      // documents loaded (not the address tidied, nor the hash)
+    await page.goto(e.webUrl + 'view/?m=bistro-check&lang=en&gl=off&test=1');
+    if (failures === 1) {
+      await page.waitForFunction(() => window.__mana && window.__mana.v2 && window.__mana.v2(), null, { timeout: 30000 });
+      assert.equal(loads, 2, 'one reload');
+      assert.equal(new URL(page.url()).searchParams.has('_r'), false, 'the address is tidied again');
+      assert.ok((await page.locator('#list .row').count()) > 0);
+    } else {
+      await page.locator('#statusTitle', { hasText: 'The menu did not load' }).waitFor({ timeout: 30000 });
+      await page.waitForTimeout(1500);
+      assert.equal(loads, 2, 'one reload, then the message (never a loop)');
+    }
+    await page.context().close();
+  }
+});
+
+test('Safari and iOS before 16.4 (no lookbehind, no Object.hasOwn, no randomUUID): the v2 menu boots, adds and sends its events', { timeout: 120000 }, async () => {
+  const page = await e.page();
+  const ctx = page.context(), parsedBad = [];
+  await ctx.addInitScript(OLD_SAFARI);
+  await ctx.route(/\.js(\?|$)/, async (route) => {                                           // a script holding a lookbehind literal would not parse there
+    const r = await route.fetch(), body = await r.text();
+    if (LOOKBEHIND.test(body)) { parsedBad.push(route.request().url()); return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'throw new SyntaxError("lookbehind")' }); }
+    return route.fulfill({ response: r, body });
+  });
+  page.events = [];
+  page.on('request', (r) => { if (r.method() === 'POST' && r.url().endsWith('/rpc/track_events')) page.events.push(...JSON.parse(r.postData()).p_events); });
+  await page.goto(e.webUrl + 'view/?m=bistro-check&lang=he&gl=off&test=1');
+  await page.waitForFunction(() => window.__mana && window.__mana.v2 && window.__mana.v2(), null, { timeout: 30000 });
+  assert.deepEqual(await page.evaluate(() => [typeof Object.hasOwn, !!(crypto && crypto.randomUUID), (() => { try { new RegExp('(?<=a)b'); return 'lookbehind'; } catch (err) { return 'refused'; } })()]), ['undefined', false, 'refused'], 'the old browser is what it says');
+  assert.deepEqual(parsedBad, [], 'no script holds a lookbehind literal');
+  assert.ok((await page.locator('#list .row').count()) > 0);
+  await openDish(page, K().burger);
+  await page.click('#addBtn2');
+  await sheetSug(page).locator('.primary').click();
+  assert.equal((await v2(page)).total, 6800 + 500);
+  await closeSheet(page);
+  await page.evaluate(() => Promise.race([window.__mana.flush(), new Promise((r) => setTimeout(r, 20000))]));
+  assert.equal((await v2(page)).events.queued, 0);
+  assert.ok(page.events.length >= 4 && page.events.every((x) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(x.id)), 'every event has a v4 id made without randomUUID');
+  await shot(page, '23-old-safari-v2');
+  assert.deepEqual(page.problems, []);
+  await ctx.close();
 });
 
 test('events reach the rollups: after the job, the owner\'s dashboard shows exactly what the browsers sent, once each, also after a retried batch', { timeout: 120000 }, async () => {

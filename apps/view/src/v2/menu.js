@@ -71,7 +71,7 @@ function labelOf(a, now, tz) {
   const out = {};
   for (const lang of ['he', 'en']) {
     const w = a.back ? whenOf(a.back, now, tz, lang) : null;
-    out[lang] = a.reason === 'schedule'
+    out[lang] = a.reason === 'schedule' || a.reason === 'closed'      // outside its hours, or the venue's: "Served from 07:00"
       ? (w ? word(lang, w.today ? 'laterToday' : 'laterDay', w) : word(lang, 'laterNone'))
       : a.reason === 'off' && w ? word(lang, w.today ? 'offToday' : 'offDay', w) : word(lang, 'offNow');
   }
@@ -79,21 +79,28 @@ function labelOf(a, now, tz) {
 }
 
 /**
+ * What a guest cannot choose now, as the contracts and the owner app's preview decide it: a view-only menu stays readable
+ * while the venue is closed; a menu that takes orders (standalone, companion) does not take them then.
+ * (One rule for both sides: the contracts could export it; until then it is this one line.)
+ */
+export const unavailableFor = (snap, av) => unavailableOf(av, snap.venue.mode !== 'view_only');
+
+/**
  * Availability and prices now (menuAvailability, fromPrice): each item's `available`, its "from" price and the label of
- * why it cannot be chosen. A view-only menu stays readable when the venue is closed (unavailableOf's default).
+ * why it cannot be chosen (unavailableFor).
  * Returns a key that changes exactly when something a guest sees changed, so a caller redraws only then.
  */
 export function refresh(model, now = Date.now()) {
   const g = model.v2, tz = g.snap.venue.timeZone;
   g.av = menuAvailability(g.snap, g.live, now);
-  g.unavailable = unavailableOf(g.av);
+  g.unavailable = unavailableFor(g.snap, g.av);
   g.ctx = pricingContext(g.snap, g.unavailable);
   g.dead = deadOpeners(g.ctx);                                // openers whose own required group has run out
   const keys = [];
   for (const c of model.categories) for (const it of c.items) {
     const dish = g.menu.dishes.get(it.id), a = g.av.dishes.get(it.id), off = g.unavailable.dishes.has(it.id);
     it.available = !off;
-    it.availKind = off ? (a.reason === 'schedule' ? 'later' : 'off') : null;
+    it.availKind = off ? (a.reason === 'schedule' || a.reason === 'closed' ? 'later' : 'off') : null;
     it.availLabel = off ? labelOf(a, now, tz) : null;
     const fp = fromPrice(dish, g.ctx);
     if (dish.price) { it.price.amount = fp ? fp.amount : dish.price.amount; it.price.from = !!(fp && fp.from); }

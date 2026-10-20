@@ -5,16 +5,10 @@
    Batched (at most MAX_BATCH, sent a moment after the first one queued, at once when the page is hidden) and retried
    with the SAME ids when the network or the server fails, so a retry that the server did receive counts once (the
    database keeps the ids). An answer that refuses the batch is not retried. Never two sends at a time. */
-import { EVENT_PROPS, MAX_BATCH, offsetAt } from '@mana/contracts';
+import { EVENT_PROPS, MAX_BATCH, newEventId, offsetAt } from '@mana/contracts';
 
-/** A random dedupe id (uuid v4): crypto.randomUUID where the phone has it, else the same from getRandomValues. */
-export function newId(c = globalThis.crypto) {
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  const b = new Uint8Array(16); c.getRandomValues(b);
-  b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128;
-  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
-}
+/** A random dedupe id (uuid v4): the contracts' own (crypto.randomUUID where the phone has it, else getRandomValues). */
+export const newId = () => newEventId();
 
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 /** An instant in the venue's local time with its offset, as the contracts require: 2026-10-15T23:04:05.123+03:00. */
