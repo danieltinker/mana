@@ -46,6 +46,13 @@ const rowsOf = (owner, table, venueId, extra = {}) => owner.api.select(table, { 
 async function signInPage(email, { lang = 'he', ctx = null } = {}) {
   const page = ctx ? await ctx.newPage() : await e.page(e.webUrl + 'studio/');
   if (ctx) { page.problems = []; await page.goto(e.webUrl + 'studio/'); }
+  // a server error names its request (the browser's own console line does not)
+  page.on('response', async (r) => {
+    if (r.status() < 500) return;
+    const what = `http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`;
+    page.problems.push(what);
+    console.log('# ' + what, (r.request().postData() ?? '').slice(0, 200), (await r.text().catch(() => '')).slice(0, 300));
+  });
   await page.locator('[data-screen="start"]').waitFor();
   // the start screen's language switch names the other language (lang="en" while the page is Hebrew)
   if (lang === 'en' && (await page.evaluate(() => document.documentElement.lang)) !== 'en') await page.locator('[data-screen="start"] button[lang="en"]').click();
