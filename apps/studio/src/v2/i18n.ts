@@ -897,6 +897,8 @@ const S: Record<string, [string, string]> = {
   'ob.src.e.text_missing': ['הדביקו כאן את הטקסט.', 'Paste the text here.'],
   'ob.src.e.text_too_long': ['הטקסט ארוך מדי ליבוא אחד. חלקו אותו לשניים.', 'The text is too long for one import. Split it in two.'],
   'ob.src.e.rate_limited': ['היום כבר נפתחו כאן הרבה יבואים. נסו שוב מחר, או כתבו לנו.', 'Many imports were started here today. Try again tomorrow, or message us.'],
+  'ob.src.e.too_large': ['מה שנקרא גדול מדי ליבוא אחד. חלקו את הטקסט לשניים ויבאו כל חלק בנפרד.', 'What was read is too large for one import. Split the text in two and import each part.'],
+  'ob.src.e.invalid_draft': ['לא הצלחנו להפוך את הטקסט לתפריט. בדקו שהעתקתם את הדף כולו, או בקשו עזרה.', 'We could not turn this text into a menu. Check that you copied the whole page, or get help.'],
   'ob.scan.e.rate_limited': ['היום כבר נקראו הרבה תמונות. נסו שוב מחר, או הדביקו את הטקסט מדף הוולט שלכם.', 'Many pictures were read today. Try again tomorrow, or paste the text of your Wolt page.'],
   'ob.scan.e.draft_invalid': ['לא הצלחנו להפוך את מה שנקרא לתפריט. נסו שוב, או הדביקו טקסט.', 'We could not turn what was read into a menu. Try again, or paste the text.'],
   'ob.scan.e.import_busy': ['התמונות האלה כבר נקראות עכשיו. חכו רגע ובדקו שוב.', 'These pictures are being read right now. Wait a moment and check again.'],

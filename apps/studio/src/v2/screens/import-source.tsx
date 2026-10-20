@@ -178,6 +178,7 @@ function Pictures({ source }: { source: ImageSource }) {
   async function read() {
     if (busy || !chosen.length) return;
     setError(''); setApplied(null);
+    let stage: 'preparing' | 'uploading' | 'reading' = 'preparing';
     try {
       setBusy('preparing');
       const ready: Prepared[] = [];
@@ -185,12 +186,12 @@ function Pictures({ source }: { source: ImageSource }) {
         try { ready.push(await prepareImage(c.file)); }
         catch (e) { throw new V2Error(toV2Error(e).code, { picture: i + 1 }); }
       }
-      setBusy('uploading');
+      setBusy((stage = 'uploading'));
       const made = await createImageImport(source, importId.current, ready);
       const where = reusedTarget(made);
       if (where === 'applied') { setApplied(made.importId); return; }
       if (where === 'review') { await loadImports().catch(() => {}); go('onboarding/review/' + made.importId); return; }
-      setBusy('reading');
+      setBusy((stage = 'reading'));
       const r = await runScan(source, made.importId);
       await loadImports().catch(() => {});
       if (!r.ok) throw new V2Error(r.code);
@@ -199,7 +200,8 @@ function Pictures({ source }: { source: ImageSource }) {
     } catch (e) {
       const err = toV2Error(e);
       const at = (err.detail as { picture?: number } | null)?.picture;
-      const words = scanWords(err.code);
+      // the day's cap on imports (create_import) is not the day's cap on pictures read (the scanner's claim)
+      const words = err.code === 'rate_limited' && stage === 'uploading' ? t('ob.src.e.rate_limited') : scanWords(err.code);
       setError(at ? t('ob.src.e.picture', { n: at }) + ' ' + words : words);
     } finally { setBusy(''); }
   }
