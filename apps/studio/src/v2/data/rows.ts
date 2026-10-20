@@ -1,17 +1,32 @@
 // Small helpers over stored rows, shared by the data layer and the screens. Pure.
+import { newUuid } from '@mana/contracts';
 
 /**
  * A new row's id, made here rather than by the database: the same try sent again (after a lost answer) names the same
- * row, so it is never stored twice.
+ * row, so it is never stored twice. The contracts' uuid (with its fallback where Safari and iOS before 15.4 have no
+ * `crypto.randomUUID`).
  */
-export function newId(): string {
-  const c = (globalThis as { crypto?: Crypto }).crypto;
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  const b = new Uint8Array(16);
-  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
-  b[6] = (b[6]! & 0x0f) | 0x40; b[8] = (b[8]! & 0x3f) | 0x80;                       // version 4, RFC 4122 variant
-  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+export const newId: () => string = newUuid;
+
+/**
+ * A value this screen sent and the value the database stored are the same: times come back with seconds ('07:00' is
+ * '07:00:00'), text without blank ends, and a jsonb object with its keys in another order (Postgres orders them its own
+ * way), at any depth.
+ */
+export function sameStored(sent: unknown, stored: unknown): boolean {
+  if (typeof sent === 'string' && typeof stored === 'string') {
+    if (/^\d\d:\d\d$/.test(sent) && /^\d\d:\d\d:\d\d$/.test(stored)) return stored.startsWith(sent + ':');
+    return sent.trim() === stored.trim();
+  }
+  if (Array.isArray(sent) || Array.isArray(stored)) {
+    return Array.isArray(sent) && Array.isArray(stored) && sent.length === stored.length && sent.every((x, i) => sameStored(x, stored[i]));
+  }
+  if (sent && stored && typeof sent === 'object' && typeof stored === 'object') {
+    const a = sent as Record<string, unknown>, b = stored as Record<string, unknown>;
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].every((k) => sameStored(a[k] ?? null, b[k] ?? null));
+  }
+  return (sent ?? null) === (stored ?? null);
 }
 
 type Ordered = { readonly position: number; readonly created_at: string; readonly id: string };

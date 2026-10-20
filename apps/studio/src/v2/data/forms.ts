@@ -195,6 +195,46 @@ export function groupFromForm(f: GroupForm, groupId: string): Mapped<GroupWrite>
   return done(errors, { group, options });
 }
 
+/**
+ * "Save my changes over it": the group as stored now (`stored`), with only what the owner changed in this form since it
+ * was read (`opened` → `mine`) put over it, field by field and choice by choice, the way the dish dialog keeps only the
+ * owner's columns. A choice deleted here goes; one added here comes; a choice changed elsewhere keeps those changes
+ * unless the owner changed the same field; a choice deleted elsewhere stays deleted unless the owner changed it here; a
+ * choice added elsewhere stays. The owner's order wins only when they changed the order.
+ */
+export function mergeGroupForms(opened: GroupForm, mine: GroupForm, stored: GroupForm): GroupForm {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const pick = <K extends 'label' | 'nameHe' | 'nameEn' | 'selection' | 'min' | 'max'>(k: K): GroupForm[K] => (same(mine[k], opened[k]) ? stored[k] : mine[k]);
+  const idOf = (o: OptionForm) => o.id ?? o.key;
+  const openedBy = new Map(opened.options.map((o) => [idOf(o), o] as const));
+  const storedBy = new Map(stored.options.map((o) => [idOf(o), o] as const));
+  const mineBy = new Map(mine.options.map((o) => [idOf(o), o] as const));
+  const FIELDS = ['nameHe', 'nameEn', 'price', 'maxQty', 'isDefault', 'opensGroupId'] as const;
+  const merge = (m: OptionForm, o: OptionForm | undefined, s: OptionForm | undefined): OptionForm | null => {
+    if (!o) return m;                                                          // added here
+    const here = FIELDS.filter((f) => !same(m[f], o[f]));
+    if (!s) return here.length ? m : null;                                     // deleted elsewhere: back only if changed here
+    const out: OptionForm = { ...s };
+    for (const f of here) (out as Record<string, unknown>)[f] = m[f];
+    return out;
+  };
+  const options: OptionForm[] = [];
+  const reordered = !same(opened.options.map(idOf).filter((id) => mineBy.has(id)), mine.options.map(idOf).filter((id) => openedBy.has(id)));
+  if (reordered) {
+    for (const m of mine.options) { const r = merge(m, openedBy.get(idOf(m)), storedBy.get(idOf(m))); if (r) options.push(r); }
+    for (const s of stored.options) if (!openedBy.has(idOf(s)) && !mineBy.has(idOf(s))) options.push(s);        // added elsewhere
+  } else {
+    for (const s of stored.options) {
+      const id = idOf(s);
+      if (openedBy.has(id) && !mineBy.has(id)) continue;                                                       // deleted here
+      const m = mineBy.get(id);
+      options.push(m ? merge(m, openedBy.get(id), s)! : s);
+    }
+    for (const m of mine.options) if (!storedBy.has(idOf(m))) { const r = merge(m, openedBy.get(idOf(m)), undefined); if (r) options.push(r); }
+  }
+  return { label: pick('label'), nameHe: pick('nameHe'), nameEn: pick('nameEn'), selection: pick('selection'), min: pick('min'), max: pick('max'), options };
+}
+
 /** A contracts issue about a group (path `group.min_units`, `options[2].price` …) at the form's field. */
 export function groupFieldError(e: Issue, f?: GroupForm): FieldError {
   const opt = /^options\[(\d+)\](?:\.(\w+))?$/.exec(e.path);

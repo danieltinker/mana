@@ -8,6 +8,7 @@ import type {
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
+import { sameStored } from './rows.ts';
 
 export type Membership = { readonly venue: VenueRow; readonly role: MemberRole };
 export type RevisionInfo = Pick<MenuRevisionRow, 'id' | 'number' | 'note' | 'created_at'>;
@@ -81,26 +82,32 @@ export function insertRows<T>(table: MenuTable, rows: object[]): Promise<T[]> {
  * same id answers with that row instead of adding a second one.
  */
 export async function insertOnce<T extends { id: string }>(table: MenuTable, row: { id: string; [column: string]: unknown }): Promise<T> {
+  return (await insertOnceInfo<T>(table, row)).row;
+}
+/**
+ * The same, saying whether the row was there already (an earlier try reached the database). `uniqueBy` names the
+ * columns of another unique key (a dish's link to a group): a row already stored under them is that row.
+ */
+export async function insertOnceInfo<T extends { id: string }>(table: MenuTable, row: { id: string; [column: string]: unknown }, uniqueBy: readonly string[] = []): Promise<{ row: T; existed: boolean }> {
   try {
-    return (await insertRows<T>(table, [row]))[0]!;
+    return { row: (await insertRows<T>(table, [row]))[0]!, existed: false };
   } catch (e) {
     const err = toV2Error(e);
-    if (err.code === 'duplicate') { const [had] = await rowsById<T>(table, [row.id]); if (had) return had; }
+    if (err.code !== 'duplicate') throw err;
+    const [had] = await rowsById<T>(table, [row.id]);
+    if (had) return { row: had, existed: true };
+    if (uniqueBy.length) {
+      let query = sb.from(table).select('*');
+      for (const c of uniqueBy) query = query.eq(c, row[c] as string);
+      const [same] = await q<T[]>(query.limit(1));
+      if (same) return { row: same, existed: true };
+    }
     throw err;
   }
 }
 
 /** One table's rows for a venue, as stored now. */
 export const venueRows = <T>(table: MenuTable, venueId: string, columns = '*') => q<T[]>(sb.from(table).select(columns).eq('venue_id', venueId));
-
-/** A value sent and the value stored are the same (times come back with seconds, text stripped of blank ends). */
-function sameValue(sent: unknown, stored: unknown): boolean {
-  if (typeof sent === 'string' && typeof stored === 'string') {
-    if (/^\d\d:\d\d$/.test(sent) && /^\d\d:\d\d:\d\d$/.test(stored)) return stored.startsWith(sent + ':');
-    return sent.trim() === stored.trim();
-  }
-  return JSON.stringify(sent ?? null) === JSON.stringify(stored ?? null);
-}
 
 /**
  * New rows with the client's own ids, in one statement. When an earlier try's answer was lost and they are all stored
@@ -115,7 +122,7 @@ export async function insertAllOnce<T extends { id: string }>(table: MenuTable, 
     if (err.code === 'duplicate') {
       const had = await rowsById<T>(table, rows.map((r) => r.id));
       if (had.length === rows.length) {
-        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameValue(v, h[k])); });
+        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameStored(v, h[k])); });
         if (same) return had;
         throw new V2Error('stored_earlier', had);
       }

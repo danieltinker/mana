@@ -17,6 +17,7 @@ import { addDish, addSection, canEdit, canOperate, menu, moveRow, patchRow, remo
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
+import { SaveFailedLine } from '../saving.tsx';
 import { DishSheet } from './dish.tsx';
 import { OffBadge, OffSheet, offText, stateOf } from './off.tsx';
 
@@ -47,7 +48,8 @@ export function MenuScreen({ rest }: { rest: string[] }) {
   const sheetSection = rest[0] === 's' && rest[1] && editable ? rest[1] : null;
   useEditOnly(rest[0] === 's', editable, 'menu');
   // the availability sheet is for everyone who operates the place (a counter too)
-  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2] } : null;
+  // an add-on choice or group opened from a dish's sheet carries the dish (rest[3]): closing returns to the dish's button
+  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2], from: rest[3] } : null;
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {
@@ -109,7 +111,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
 
       {sheetDish && <DishSheet id={sheetDish} tab={rest[2]} onClose={() => go('menu')} />}
       {sheetSection && <SectionSheet id={sheetSection === 'new' ? null : sheetSection} onClose={() => go('menu')} />}
-      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.id); }} />}
+      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.from || sheetOff.id); }} />}
     </div>
   );
 }
@@ -245,6 +247,7 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
     <Sheet open onClose={onClose} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
       foot={<>{row && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-section">{t('app.delete')}</Btn>}
         <Btn kind="primary" busy={busy} onClick={save} data-action="save-section">{row ? t('app.save') : t('menu.cat.add')}</Btn></>}>
+      <SaveFailedLine />
       <Field label={t('menu.cat.name') + ' · ' + t('app.' + L)} error={nameErr}>{(p) => (
         <input {...p} type="text" dir="auto" lang={L} maxLength={60} value={form[nameField]} data-field={'section-name-' + L}
           onInput={(e) => set({ [nameField]: (e.target as HTMLInputElement).value } as Partial<SectionForm>)} />

@@ -9,7 +9,10 @@
  * Until the cutover production runs schema 1 only: production with `schema: 2` is reported (`schema_env_mismatch`)
  * and read as 1, so a wrong config file cannot point production's pages at v2 code.
  */
-import { isObject, type Issue } from './common.ts';
+// No runtime import: the v1 owner app's entry loads this file, and it must pull in no other contract module.
+import type { Issue } from './common.ts';
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export const APP_ENVS = ['production', 'demo', 'local'] as const;
 export type AppEnv = (typeof APP_ENVS)[number];

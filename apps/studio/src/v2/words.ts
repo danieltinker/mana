@@ -64,13 +64,20 @@ export function ruleSummary(r: RuleWords, name: NameOf): string {
   if (r.basket_lacks_dishes.length + r.basket_lacks_sections.length) parts.push(t('rs.lacks', { x: list(r.basket_lacks_dishes, r.basket_lacks_sections) }));
   if (r.suggest_kind === 'dish') parts.push(t('rs.suggest', { x: (r.suggest_dish_id && name('dish', r.suggest_dish_id)) || t('rs.gone') }));
   else parts.push(t('rs.suggestOption', { x: (r.suggest_option_id && name('option', r.suggest_option_id)) || t('rs.gone') }));
-  const some = r.days.length > 0 && r.days.length < WEEK.length;
-  const from = r.from_time?.slice(0, 5), to = r.to_time?.slice(0, 5);
-  // a window past midnight on chosen days runs into the day after: "Fri 22–02 (into Sat)"
-  const into = some && from && to && to <= from ? (r.days.length === 1 ? t('rs.into', { day: dayName(((r.days[0]! + 1) % 7) as Weekday, true) }) : t('rs.intoNext')) : '';
-  const when = [some ? daysText(r.days) : '', from && to ? timeRange(from, to, true) : '', into].filter(Boolean).join(' ');
+  const when = whenText(r.days, r.from_time, r.to_time);
   if (when) parts.push(when);
   return parts.join(', ');
+}
+
+/**
+ * A rule's days and hours in words: "Sun–Thu", "7–11", "Fri 22–2 (into Saturday)" (a window past midnight on chosen days
+ * runs into the day after), '' for always. The summary line and the preview's "not at this time" say the same.
+ */
+export function whenText(days: readonly Weekday[], fromTime: string | null, toTime: string | null): string {
+  const some = days.length > 0 && days.length < WEEK.length;
+  const from = fromTime?.slice(0, 5), to = toTime?.slice(0, 5);
+  const into = some && from && to && to <= from ? (days.length === 1 ? t('rs.into', { day: dayName(((days[0]! + 1) % 7) as Weekday, true) }) : t('rs.intoNext')) : '';
+  return [some ? daysText(days) : '', from && to ? timeRange(from, to, true) : '', into].filter(Boolean).join(' ');
 }
 
 // ---------------------------------------------------------------- moments on the venue's clock
