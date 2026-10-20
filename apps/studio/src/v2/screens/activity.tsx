@@ -1,11 +1,12 @@
 // The activity log (#/activity; F08, F11, D25): every change to the place, newest first, a page at a time
-// (venue_activity), grouped by day on the venue's clock. Who did it in plain words (you, someone on your team, Halom,
-// automatically), what, when; Halom's actions carry a mark and the reason Halom gave, reads of the menu and exports
-// included. Filters: who, and how. Owners and managers (the counter has no records).
+// (venue_activity), grouped by day on the venue's clock. Who did it in plain words (you, an owner, a manager, the
+// counter, Halom, automatically), what (with the name of the dish, section or special it was about), when; Halom's
+// actions carry a mark and the reason Halom gave, reads of the menu and exports included; one line per approval.
+// Filters: who, and how. Owners and managers (the counter has no records, and no tab for them).
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { ACTIVITY_VIAS, ACTOR_KINDS, type ActivityEntry, type ActivityVia, type ActorKind } from '@mana/contracts';
 import { Btn, Field, Icon, Note, PageHead } from '../../ui.tsx';
-import { activityWords, dayTitle, type ActivityWords } from '../data/activity.ts';
+import { activityWords, dayTitle, menuNames, oneLinePerApproval, type ActivityWords } from '../data/activity.ts';
 import { toV2Error } from '../data/errors.ts';
 import { clock } from '../data/live.ts';
 import { venueActivity } from '../data/records.ts';
@@ -16,12 +17,16 @@ import { ErrorLine } from '../ui.tsx';
 /** Entries per page (the RPC allows up to 100). */
 export const ACTIVITY_PAGE = 30;
 
-/** Entries grouped by the venue's day, each said in words (shared with Home's "recent changes"). */
+/**
+ * Entries grouped by the venue's day, each said in words, one line per approval (shared with Home's "recent changes").
+ * Names the RPC does not send come from the menu on this phone.
+ */
 export function ActivityItems({ entries, timeZone }: { entries: readonly ActivityEntry[]; timeZone: string }) {
   const now = clock.value;
+  const find = menuNames(menu.value);
   const days: { day: string; items: { e: ActivityEntry; w: ActivityWords }[] }[] = [];
-  for (const e of entries) {
-    const w = activityWords(e, timeZone);
+  for (const e of oneLinePerApproval(entries)) {
+    const w = activityWords(e, timeZone, find);
     const last = days[days.length - 1];
     if (last && last.day === w.day) last.items.push({ e, w }); else days.push({ day: w.day, items: [{ e, w }] });
   }

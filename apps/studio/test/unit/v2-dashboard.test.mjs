@@ -1,17 +1,20 @@
 // The owner app v2's dashboard lane, through its public functions: the dashboard's bars, axis and labels from
 // my_dashboard's reply (no number invented: a minute the reply does not name is zero), where each nudge leads, the CSV
-// export (Hebrew and English side by side, commas, quotes and line breaks, agorot as shekels, formulas kept as text),
-// the activity log in plain words (you, a teammate, Halom with its reason, the system; every action the log may hold
-// has words in both languages), and the live timer (polling only while visible, pollDelay's backoff, a burst of
-// Realtime messages as one fetch, the safety poll beside a subscription). Invented data only.
+// export (Hebrew and English side by side, every text quoted, commas, semicolons, tabs, quotes and line breaks, agorot as
+// shekels, formulas kept as text, the file named by the place's own day), the activity log in plain words (you, an
+// owner, a manager, the counter, Halom with its reason, the system; the target named, by the RPC or from the loaded
+// menu; one line per approval; every action the log may hold has words in both languages), and the live timer (polling
+// only while visible, pollDelay's backoff, a burst of Realtime messages as one fetch, the safety poll beside a
+// subscription). Invented data only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIVITY_ACTIONS, LIVE_REFRESH, NUDGE_CODES, zonedTime } from '@mana/contracts';
 import { lang } from '../../src/lib/i18n.ts';
-import { activityWords, dayTitle, whoOf } from '../../src/v2/data/activity.ts';
+import { activityWords, dayTitle, menuNames, oneLinePerApproval, whoOf } from '../../src/v2/data/activity.ts';
 import { axisTop, dayBars, hasVisits, labelledBars, minuteBars, nudgeHref, share } from '../../src/v2/data/dashboard.ts';
 import { csvCell, exportFileName, menuCsv, menuJson, shekelCell } from '../../src/v2/data/export.ts';
 import { refresher } from '../../src/v2/data/refresher.ts';
+import { requestIds } from '../../src/v2/data/request-id.ts';
 import { newSpecialForm, specialFromForm } from '../../src/v2/data/special.ts';
 import { ruleLine } from '../../src/v2/format.ts';
 
@@ -131,17 +134,52 @@ function parseCsv(text) {
   return rows;
 }
 
-test('a CSV cell: quoted for commas, quotes and line breaks; a formula stays text; agorot as shekels', () => {
-  assert.equal(csvCell('Fries'), 'Fries');
+test('a CSV cell: text always quoted (a quote doubled); a formula stays text; a number as it is; agorot as shekels', () => {
+  assert.equal(csvCell('Fries'), '"Fries"');
+  assert.equal(csvCell(''), '""');
   assert.equal(csvCell('Fish, chips'), '"Fish, chips"');
   assert.equal(csvCell('the "best"'), '"the ""best"""');
   assert.equal(csvCell('two\nlines'), '"two\nlines"');
-  assert.equal(csvCell('=SUM(A1)'), "'=SUM(A1)");
-  assert.equal(csvCell('+972'), "'+972");
-  assert.equal(csvCell('@here'), "'@here");
-  assert.equal(csvCell('-5'), "'-5");
+  assert.equal(csvCell('=SUM(A1)'), `"'=SUM(A1)"`);
+  assert.equal(csvCell('+972'), `"'+972"`);
+  assert.equal(csvCell('@here'), `"'@here"`);
+  assert.equal(csvCell('-5'), `"'-5"`);
+  assert.equal(csvCell('x;=HYPERLINK(D5)'), '"x;=HYPERLINK(D5)"', 'a semicolon inside the quotes: one cell, starting with x, in a locale that splits on ;');
+  assert.equal(csvCell('x\t=1+1'), '"x\t=1+1"', 'a tab inside the quotes: one cell');
+  assert.equal(csvCell(' =1+1'), `"' =1+1"`, 'after a space');
+  assert.equal(csvCell('\u200f=1+1'), `"'\u200f=1+1"`, 'after a direction mark');
+  assert.equal(csvCell('\uff1d1+1'), `"'\uff1d1+1"`, 'the full-width equals sign');
   assert.equal(csvCell('-5', { text: false }), '-5', 'a number this app wrote is not touched');
+  assert.equal(csvCell('62.50', { text: false }), '62.50');
   assert.deepEqual([shekelCell(6250), shekelCell(6800), shekelCell(0), shekelCell(150), shekelCell(null)], ['62.50', '68.00', '0.00', '1.50', '']);
+});
+
+/** A line split as a spreadsheet in another locale splits it: on `sep`, never inside quotes. */
+function splitOutsideQuotes(line, sep) {
+  const cells = []; let cell = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { q = !q; cell += c; } else if (c === sep && !q) { cells.push(cell); cell = ''; } else cell += c;
+  }
+  cells.push(cell);
+  return cells;
+}
+
+test('the CSV opened with a semicolon or a tab as the separator: no cell starts a formula (SEC-L3)', () => {
+  const x = exported();
+  const evil = ['x;=HYPERLINK(D5)', 'Soup;-2+3', 'a\t=1+1', 'b,=1+1;@SUM(A1)', '=cmd|\' /C calc\'!A0'];
+  x.tables.dishes = [...x.tables.dishes, ...evil.map((name, i) => ({ ...x.tables.dishes[0], id: uid(), position: 10 + i, name_he: name, name_en: name }))];
+  const text = menuCsv(x).slice(1);
+  for (const sep of [',', ';', '\t']) {
+    for (const line of text.split('\r\n').filter(Boolean)) {
+      for (const cell of splitOutsideQuotes(line, sep)) {
+        const shown = cell.startsWith('"') ? cell.slice(1) : cell;
+        assert.ok(!/^[=+\-@]/.test(shown), `separator ${JSON.stringify(sep)}: ${JSON.stringify(cell)}`);
+      }
+    }
+  }
+  const rows = parseCsv(text);
+  for (const name of evil) assert.ok(rows.some((r) => r[2] === (/^[=+\-@]/.test(name) ? "'" + name : name) && r[3] === r[2]), `${name}: one cell, as typed`);
 });
 
 test('the menu as CSV: one row a dish, its add-on choices under it (the nested sauce under its opener), both languages, in menu order', () => {
@@ -179,11 +217,13 @@ test('the menu as CSV: one row a dish, its add-on choices under it (the nested s
   });
 });
 
-test('the JSON file is the reply itself; the files are named by the place and the day of the export', () => {
+test('the JSON file is the reply itself; the files are named by the place and the day of the export on its own clock', () => {
   const x = exported();
   assert.deepEqual(JSON.parse(menuJson(x)), x);
   assert.equal(exportFileName(x, 'json'), 'bistro-sim-menu-2026-10-16.json');
   assert.equal(exportFileName(x, 'csv'), 'bistro-sim-menu-2026-10-16.csv');
+  const late = { ...x, exportedAt: '2026-10-16T22:30:00.000Z' };                  // 01:30 on the 17th in Jerusalem
+  assert.equal(exportFileName(late, 'csv'), 'bistro-sim-menu-2026-10-17.csv', 'the place\'s day, not UTC\'s');
 });
 
 // ---------------------------------------------------------------- the activity log in words
@@ -191,18 +231,19 @@ const entry = (o) => ({ id: ++n, at: '2026-10-16T09:12:00.000Z', actorKind: 'own
   targetName: null, reason: null, detail: {}, ...o });
 const words = (e, L) => inLang(L, () => { const w = activityWords(e, TZ); return { ...w, what: plain(w.what), details: plain(w.details) }; });
 
-test('who: you, someone on your team, Halom (never a staff member\'s name), or the system', () => {
+test('who: you, an owner, a manager, the counter (by the actor\'s role), Halom (never a staff member\'s name), or the system', () => {
   assert.equal(whoOf({ actorKind: 'owner', you: true }), 'you');
-  assert.equal(whoOf({ actorKind: 'owner', you: false }), 'team');
-  assert.equal(whoOf({ actorKind: 'manager', you: false }), 'team');
-  assert.equal(whoOf({ actorKind: 'counter', you: false }), 'team');
+  assert.equal(whoOf({ actorKind: 'manager', you: true }), 'you');
+  assert.equal(whoOf({ actorKind: 'owner', you: false }), 'owner');
+  assert.equal(whoOf({ actorKind: 'manager', you: false }), 'manager');
+  assert.equal(whoOf({ actorKind: 'counter', you: false }), 'counter');
   assert.equal(whoOf({ actorKind: 'staff', you: false }), 'halom');
   assert.equal(whoOf({ actorKind: 'staff', you: true }), 'halom', 'staff is Halom whoever reads it');
   assert.equal(whoOf({ actorKind: 'system', you: false }), 'system');
-  assert.deepEqual(['you', 'team', 'halom', 'system'].map((w) => words(entry({ actorKind: { you: 'owner', team: 'manager', halom: 'staff', system: 'system' }[w], you: w === 'you' }), 'en').whoText),
-    ['You', 'Someone on your team', 'Halom', 'Automatically']);
-  assert.deepEqual(['you', 'team', 'halom', 'system'].map((w) => words(entry({ actorKind: { you: 'owner', team: 'manager', halom: 'staff', system: 'system' }[w], you: w === 'you' }), 'he').whoText),
-    ['אתם', 'מישהו מהצוות', 'חלום', 'אוטומטית']);
+  const as = [['owner', true], ['owner', false], ['manager', false], ['counter', false], ['staff', false], ['system', false]];
+  const whoText = (L) => as.map(([actorKind, you]) => words(entry({ actorKind, you }), L).whoText);
+  assert.deepEqual(whoText('en'), ['You', 'An owner', 'A manager', 'Someone at the counter', 'Halom', 'Automatically']);
+  assert.deepEqual(whoText('he'), ['אתם', 'בעלי המקום', 'מישהו מהניהול', 'מישהו מהדלפק', 'חלום', 'אוטומטית']);
 });
 
 test('what: a price change from its numbers, the name the RPC sent, bulk writes counted, the venue\'s clock', () => {
@@ -244,6 +285,76 @@ test('Halom\'s actions read "Halom", with the reason; reads of the menu and expo
   assert.deepEqual([words(demo, 'en').what, words(demo, 'en').reason], ['Marked as a demo place', 'Synthetic demo venue']);
 });
 
+// a phone's loaded menu, for the names the RPC does not send (QA-M3)
+function loaded() {
+  const row = (o) => ({ id: uid(), name_he: '', name_en: '', ...o });
+  const fish = row({ name_he: 'דג', name_en: 'Fish' }), mains = row({ name_he: 'עיקריות', name_en: 'Mains' }), side = row({ name_he: 'תוספת', name_en: 'Side' });
+  const fries = row({ name_he: 'צ׳יפס', name_en: 'Fries' }), special = row({ name_he: 'ספיישל רביעי', name_en: 'Wednesday special' });
+  const rule = { id: uid(), label: 'Coffee after cake' }, unnamed = { id: uid(), label: '' };
+  return { fish, mains, side, fries, special, rule, unnamed, m: { dishes: [fish], sections: [mains], groups: [side], options: [fries], schedules: [special], rules: [rule, unnamed] } };
+}
+
+test('the loaded menu names a row by its id, in its table or (null) in any: dishes, sections, groups, choices, specials, rules', () => {
+  const { fish, mains, side, fries, special, rule, unnamed, m } = loaded();
+  const find = menuNames(m);
+  assert.deepEqual(find(fish.id, 'dishes'), { he: 'דג', en: 'Fish' });
+  assert.deepEqual(find(mains.id, 'sections'), { he: 'עיקריות', en: 'Mains' });
+  assert.deepEqual(find(side.id, 'addon_groups'), { he: 'תוספת', en: 'Side' });
+  assert.deepEqual(find(fries.id, 'addon_options'), { he: 'צ׳יפס', en: 'Fries' });
+  assert.deepEqual(find(special.id, 'schedules'), { he: 'ספיישל רביעי', en: 'Wednesday special' });
+  assert.deepEqual(find(rule.id, 'upsell_rules'), { he: 'Coffee after cake', en: 'Coffee after cake' });
+  assert.equal(find(unnamed.id, 'upsell_rules'), null, 'a rule without a label has no name to give');
+  assert.equal(find(fish.id, 'sections'), null, 'only in the table asked');
+  assert.deepEqual(find(fries.id, null), { he: 'צ׳יפס', en: 'Fries' }, 'null: in any table');
+  assert.equal(find(uid(), null), null, 'not loaded: no name');
+  assert.equal(find(fish.id, 'venues'), null);
+  assert.equal(menuNames(null)(fish.id, null), null);
+});
+
+test('every availability and schedule entry names its target; Halom\'s entries say which dish (QA-M3)', () => {
+  const { fish, fries, special, m } = loaded();
+  const find = menuNames(m);
+  const say = (e, L) => inLang(L, () => plain(activityWords(e, TZ, find).what));
+  // a dish taken off by Halom: the override's kept target, named from the menu (the RPC sent no name)
+  const off = entry({ actorKind: 'staff', you: false, via: 'act_for_owner', action: 'availability_overrides.insert', targetTable: 'availability_overrides', reason: 'The owner phoned',
+    detail: { target_kind: 'dish', target_id: fish.id, until_kind: 'duration', until_at: '2026-10-16T12:30:00.000Z' } });
+  assert.deepEqual([say(off, 'en'), say(off, 'he')], ['Taken off: Fish', 'הורדה מהתפריט: דג']);
+  const choice = entry({ ...off, id: ++n, detail: { ...off.detail, target_kind: 'option', target_id: fries.id } });
+  assert.equal(say(choice, 'en'), 'Taken off: Fries');
+  // Halom's act itself: its first id is what it acted on
+  const afo = entry({ actorKind: 'staff', you: false, via: 'act_for_owner', action: 'support.act_for_owner', targetTable: null, targetIds: [fish.id, uid()], reason: 'Asked on the phone',
+    detail: { action: 'availability.set', until: 'duration' } });
+  assert.deepEqual([say(afo, 'en'), say(afo, 'he')], ['Acted for you (availability): Fish', 'פעולה בשבילכם (זמינות): דג']);
+  // brought back: the RPC's name (read from the override's target now)
+  const back = entry({ action: 'availability_overrides.update', targetTable: 'availability_overrides', via: 'rpc', targetName: { he: 'דג', en: 'Fish' }, detail: { columns: ['restored_at', 'restored_by'] } });
+  assert.deepEqual([say(back, 'en'), say(back, 'he')], ['Brought back: Fish', 'החזרה לתפריט: דג']);
+  // a special added, changed, deleted (schedules): named from the menu while it is loaded
+  const added = entry({ action: 'schedules.insert', targetTable: 'schedules', targetIds: [special.id], detail: { kind: 'special' } });
+  assert.deepEqual([say(added, 'en'), say(added, 'he')], ['Day part or special added: Wednesday special', 'הוספת חלק יום או ספיישל: ספיישל רביעי']);
+  const changed = entry({ action: 'schedules.update', targetTable: 'schedules', targetIds: [special.id], detail: { columns: ['name_en'] } });
+  assert.equal(say(changed, 'en'), 'Day part or special changed: Wednesday special');
+  // the RPC's name comes first; what nobody knows stays unnamed (never invented)
+  const renamed = entry({ action: 'dishes.update', targetTable: 'dishes', targetIds: [fish.id], targetName: { he: 'דג ים', en: 'Sea fish' }, detail: { columns: ['name_en'] } });
+  assert.equal(say(renamed, 'en'), 'Dish changed: Sea fish');
+  const unknown = entry({ ...off, id: ++n, detail: { ...off.detail, target_id: uid() } });
+  assert.equal(say(unknown, 'en'), 'Taken off: a dish');
+  const several = entry({ action: 'schedules.delete', targetTable: 'schedules', targetIds: [special.id, uid()], n: 2, detail: {} });
+  assert.equal(say(several, 'en'), '2 day parts and specials deleted');
+});
+
+test('one line per approval: the venue update of only approved_at beside venue.approve leaves the view; anything else stays', () => {
+  const at = (s) => '2026-10-16T09:' + s + '.000Z';
+  const approve = entry({ actorKind: 'staff', you: false, via: 'rpc', action: 'venue.approve', targetTable: 'venues', at: at('12:05') });
+  const plan = entry({ actorKind: 'staff', you: false, via: 'rpc', action: 'entitlements.update', targetTable: 'entitlements', at: at('12:04'), detail: { columns: ['plan'] } });
+  const stamp = entry({ actorKind: 'staff', you: false, via: 'rpc', action: 'venues.update', targetTable: 'venues', at: at('12:04'), detail: { columns: ['approved_at', 'approved_by'] } });
+  const other = entry({ action: 'venues.update', targetTable: 'venues', at: at('12:04'), detail: { columns: ['approved_at', 'sold_out_display'] } });
+  const lone = entry({ actorKind: 'staff', you: false, via: 'rpc', action: 'venues.update', targetTable: 'venues', at: '2026-10-15T09:00:00.000Z', detail: { columns: ['approved_at'] } });
+  assert.deepEqual(oneLinePerApproval([approve, plan, stamp, other, lone]).map((e) => e.id), [approve.id, plan.id, other.id, lone.id]);
+  assert.deepEqual(oneLinePerApproval([stamp, lone]).map((e) => e.id), [stamp.id, lone.id], 'no venue.approve: nothing left out');
+  const shown = oneLinePerApproval([approve, plan, stamp]).map((e) => words(e, 'en').what);
+  assert.equal(shown.filter((w) => w === 'Menu approved').length, 1);
+});
+
 test('every action the log may hold has its own words in both languages (no key, no placeholder, no fallback)', () => {
   const leftover = /\{|\b(acto|actn|actv|acta|actk|actc|actd|afo|step|stepstate|case|importstate|who)\./;
   for (const action of ACTIVITY_ACTIONS) {
@@ -283,6 +394,28 @@ test('a special from one form: a schedule of kind special named after the dish, 
   assert.deepEqual(codes({ from: '25:00' }), ['time:time_invalid']);
   assert.deepEqual(codes({ nameHe: '', nameEn: '', price: '', days: [] }), ['name:name_missing', 'price:price_missing', 'days:days_empty'], 'every mistake at once');
   assert.deepEqual(newSpecialForm(sec, 5).days, [5], 'today\'s weekday first');
+});
+
+// ---------------------------------------------------------------- a help request's own id (SEC-N6, SEC-L3)
+test('a help request keeps its id only for the same words: an edit after a failure is a new request, a stored one too', () => {
+  let made = 0;
+  const ids = requestIds(() => 'id-' + ++made);
+  const a = { topic: 'menu', subject: 'How do I add a photo?', body: '' };
+  const first = ids.forContent(a);
+  assert.equal(ids.forContent({ ...a }), first, 'a resend of the same words (a lost answer): the same request');
+  assert.equal(ids.forContent(a), first, 'and again');
+  const edited = ids.forContent({ ...a, subject: 'How do I add a photo to a dish?' });
+  assert.notEqual(edited, first, 'the line changed: a new request, so Halom sees the new words');
+  assert.equal(ids.forContent({ ...a, subject: 'How do I add a photo to a dish?' }), edited, 'its own resend keeps it');
+  assert.notEqual(ids.forContent({ ...a, subject: 'How do I add a photo to a dish?', body: 'More' }), edited, 'the details changed');
+  const t2 = ids.forContent({ ...a, topic: 'photos', subject: 'x', body: '' });
+  assert.notEqual(ids.forContent({ ...a, topic: 'account', subject: 'x', body: '' }), t2, 'the topic changed');
+  const s = ids.forContent({ topic: 'other', subject: 'y', body: '', allowAct: true });
+  assert.notEqual(ids.forContent({ topic: 'other', subject: 'y', body: '', allowAct: false }), s, 'the switch sent with it changed');
+  const before = ids.forContent(a);
+  ids.sent();
+  assert.notEqual(ids.forContent(a), before, 'once stored, the same words again are a new request');
+  assert.equal(new Set([first, edited, t2, s, before]).size, 5);
 });
 
 // ---------------------------------------------------------------- the live timer

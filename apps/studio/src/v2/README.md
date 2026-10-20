@@ -25,28 +25,28 @@ makes this the app.
 | `data/nesting.ts` | The one nesting level as the editor applies it: what an option may open, never a second level |
 | `data/guest.ts` | A dish as the guest gets it (as `app.build_snapshot_full` builds it) and the guest's choices, priced with `priceDish` |
 | `data/draft.ts`, `data/changes.ts` | `preview_menu` beside the published revision: what stops a publish, what warns (with `lintSnapshotV2`), what would change; where the menu stands (never, pending approval, live, offline) |
-| `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, and the first reason when nothing would be suggested (`whyNot`, found by asking `matchSuggestion` one condition at a time) |
+| `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, day, hour and the guest's tags (`passesTagFilter`), and the first reason when nothing would be suggested (the contracts' `whyNoSuggestion`, on which `matchSuggestion` is built) |
 | `data/hours.ts` | Opening hours (several windows a day, no overlap, across midnight too), closed dates and schedules (day parts, specials): rows ↔ forms with the schema's checks; `venueHoursOf` builds the hours exactly as `public_menu`'s live overlay does |
 | `data/availability.ts` | The quick actions (F05): the "until" choices and their `resolveUntil` moments, what is off now (`offState`, with the contracts' `isAvailable`), "taken off today", and `availabilityApi(rpc)`: `set_availability` and `restore_today` with the contracts' validators first (pure: the tests pass a fake RPC) |
-| `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, else polling (`LIVE_REFRESH`, `pollDelay`, visible pages only); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
-| `data/rule-numbers.ts` | The slot for each rule's numbers (shown, accepted, dismissed) on the rules list; filled by `data/dashboard-live.ts` from `my_dashboard`'s `rules` |
+| `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, with the slow safety poll beside it (`LIVE_REFRESH.safetyMs`), else polling (`LIVE_REFRESH.pollMs`); visible pages only, `pollDelay`'s backoff; a channel removed with an earlier place changes nothing (`channelMode`, `liveDelay` in `data/availability.ts`, unit-tested); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
+| `data/rule-numbers.ts` | The slot for each rule's numbers (shown, accepted, dismissed) on the rules list, with the period they count (`ruleNumbersRange`, which the list says); filled by `data/dashboard-live.ts` from `my_dashboard`'s `rules` and `range` |
 | `data/refresher.ts` | How a live screen stays current (ADR-007), as one pure timer: a Realtime message is a signal (one fetch per `LIVE_REFRESH.debounceMs`), beside a subscription a safety poll every `LIVE_REFRESH.safetyMs`, without one (or when it fails) a poll every `pollMs`, always with `pollDelay`'s backoff and only while the page is visible; the timers are passed in, so the tests drive it with a fake clock |
 | `data/records.ts` | The records' RPCs, stateless, each input checked with the contracts' validator: `my_dashboard` (v2), `venue_activity`, `export_menu`, `open_case`, and the open help requests (the `support_cases` table under its RLS; no RPC lists them for the owner) |
 | `data/dashboard.ts` | The dashboard as the phone shows it (pure): "no visits yet", the chart's bars (every day of the range; the last hour's sixty minutes, the ones the reply leaves out at zero), a clean axis top, which bars carry their number, shares, and where each nudge leads (`nudgeHref`) |
-| `data/dashboard-live.ts` | `my_dashboard` for the open place and the chosen range, live while Home or the rules list is open (a channel per venue on the three Realtime tables, or polling), after the owner's own writes, on return to the foreground; fills `setRuleNumbers` |
-| `data/approval.ts` | Backlog B4: while a first publish waits for Halom, the place learns of the approval by itself (a channel on its `venues` row, or polling), so the publish screen and Home flip to live without "check again" |
-| `data/activity.ts` | The activity log in plain words (pure): who (you, someone on your team, Halom, automatically), what (from the action, the name the RPC sent and the numbers the log kept), when on the venue's clock, Halom's reason; no verb agrees with the actor, so Hebrew needs no person or gender |
+| `data/dashboard-live.ts` | `my_dashboard` for the open place and the chosen range, live while Home or the rules list is open (a channel per venue on the three Realtime tables, each subscription on its own topic, or polling), after the owner's own writes, on return to the foreground; fills `setRuleNumbers` |
+| `data/approval.ts` | Backlog B4: while a first publish waits for Halom, the place learns of the approval by itself (its `venues` row read every `LIVE_REFRESH.pollMs.owner` while visible; `venues` is not in the phase-1 Realtime publication), so the publish screen and Home flip to live without "check again" |
+| `data/activity.ts` | The activity log in plain words (pure): who (you, an owner, a manager, the counter, Halom, automatically), what (from the action, the name the RPC sent or, where it sends none, the loaded menu's name for the row, and the numbers the log kept), when on the venue's clock, Halom's reason; one line per approval; no verb agrees with the actor, so Hebrew needs no person or gender |
 | `data/special.ts` | A special in one sheet (Hopa H53, pure): the dish's names and price, its section, the days and hours → a schedule of kind special named after the dish and the dish linked to it, each mistake at its field |
-| `data/export.ts` | `export_menu`'s reply as the JSON file it is, and as a readable CSV (pure): a row per dish and per add-on choice (a nested group's choices under their opener), both languages, prices in shekels, RFC 4180 quoting, formulas kept as text, a byte order mark for Excel |
+| `data/export.ts` | `export_menu`'s reply as the JSON file it is, and as a readable CSV (pure): a row per dish and per add-on choice (a nested group's choices under their opener), both languages, prices in shekels, every text quoted (RFC 4180; a comma, semicolon or tab inside never splits a cell), formulas kept as text, a byte order mark for Excel, the file named by the place's own day |
 | `data/flow.ts` | The setup flow (F03), pure: the steps in journey order, where a place opens and comes back to on any device (`openStep`: the first step neither done nor skipped; an import waiting for its check first), what holds a step back (`blockersOf`, machine words), how each step ends (`stepEnd`, `endWrite`: never an automatic step done by hand; a menu built by hand skips its review; photos and style only "later") |
 | `data/onboarding.ts` | The flow's state: the place's progress (`onboarding_progress` under its RLS, `set_onboarding_step`), its imports (the client columns, never the raw text; only the open place's: `loadImport` reads by id and place, and `importPlace` says which of the account's places another one belongs to), the scanner's availability (`features.scan` and the function's `status`), the pictures prepared (always drawn again and encoded anew, so no EXIF leaves the phone) and uploaded to the import's private folder, the scan call, the reader's notes kept for the session, the owner's answers bound to the signed-in account (another account's, or all once signed out, removed), and where "back to setup" leads (`returnTo`); `onReset` drops it with the place |
-| `data/answers.ts` | The owner's answers to an import's questions as the device keeps them, pure: per account and import (`mana-import-answers:<user>:<import>`), read back only through `validateDecisions` and never with a `skip`; `forgetAnswersBut` |
+| `data/answers.ts` | The owner's answers to an import's questions as the device keeps them, pure: per account and import (`mana-import-answers:<user>:<import>`), the choices and the keys left out (ADR-006 `skip`), read back only through `validateDecisions`; `forgetAnswersBut` |
 | `data/imports.ts` | The import's calls, stateless (`importsApi(rpc)`: `create_import`, `save_import_draft`, `apply_import`, `discard_import`, each input checked with the contracts' validator first), the text readers on the phone (`readText`: @mana/import's paste and Wolt-text readers; D33, nothing fetched), the pictures' paths and input hash, the place's menu as the plan reads it (`existingMenu`) |
 | `data/review.ts` | The import preview, pure: every exception (the draft's own, then the plan's) with what it is about, its answers, the owner's or the default; the plan while questions are open (`preview`: open ones take their first answer, said so); what still stops applying (`gate`: a fix unanswered, the prices not confirmed, the plan's own refusals); a price typed in place (`withDishPrice`, `withOptionPrice`); what the owner leaves out (`leaveOut`, ADR-006 `skip`; `fitAnswers` drops keys the draft no longer has); the prices that differ from the venue's (`priceDiffs`); the plan in words (`planLines`, with each left-out line's reason; `changesNothing`); `review` runs the preview and the gate on one plan whenever it can (a large menu takes a while to plan) |
 | `data/demo-mark.ts` | Backlog B5, pure: outside production every QR code and print carries a "demo" mark (`withDemoBand`: a band under the code, which still scans) |
 | `chart.tsx` | A column chart by hand in SVG: one series, a clean axis top, the highest and the latest value written on it, each value a tap or hover away; the table under it lists them all |
 | `words.ts` | A rule in one plain line ("After Coffee, suggest Croissant, 7–11"), days, times, dates and "until" moments in the venue's time zone; ranges are isolated left to right inside Hebrew |
-| `screens/` | home (nudges, quick actions, what is off now, at a glance, recent changes, the export), special (the one-sheet special: schedule, dish and publish through the store, client ids, the approval said before the tap), activity (the log, filters, pages), help ("get help", the open requests; the shell's help button), start, new place, menu (with each row's availability one tap away, the red marker, "bring back everything taken off today"), dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, availability sheet (`off.tsx`), hours (week, closed dates, what guests see of something unavailable, day parts and specials), suggestion rules (list and editor with its live preview), publish (with the QR code and the table card once published: `qr.tsx`, marked "demo" outside production), the setup flow (`onboarding.tsx`: the steps, their progress, help on each step's topic, "back to setup" in the shell; `import-source.tsx`: bringing the menu four ways; `import-review.tsx`: the import preview) |
+| `screens/` | home (nudges, quick actions, what is off now, at a glance, recent changes, the export), special (the one-sheet special: schedule, dish and publish through the store, client ids, the approval said before the tap), activity (the log, filters, pages), help ("get help", the open requests, the owner's standing switch for Halom acting; the shell's help button), start, new place, menu (with each row's availability one tap away, the red marker, "bring back everything taken off today"), dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, availability sheet (`off.tsx`), hours (week, closed dates, what guests see of something unavailable, day parts and specials), suggestion rules (list and editor with its live preview), the setup flow (`onboarding.tsx`: the steps, their progress, help on each step's topic, "back to setup" in the shell; `import-source.tsx`: bringing the menu four ways; `import-review.tsx`: the import preview), publish with the QR code and the table card once published (`qr.tsx`, marked "demo" outside production) |
 
 **Shared with v1 and kept at the cutover** (not schema-specific): `lib/api.ts` (the client, `cfg`, `sibling`),
 `lib/i18n.ts` (language, dates, the base dictionary), `lib/money.ts`, `lib/slug.ts`, `lib/email.ts`, `lib/links.ts`,
@@ -117,25 +117,39 @@ makes this the app.
   row-level security refuses anyway (a role changed meanwhile) is "not allowed", and the role is read again.
   Sold-out actions are a counter's own (F05): `canOperate()` (owner, manager, counter) shows them, and `data/live.ts`
   calls the RPCs directly, not through `write`.
-- **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, which is
-  `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`. Reordering rules
-  is guarded by the priority each had (`setPriorities`, as `moveRow` guards positions). **Opening hours and closed dates
-  have no `updated_at`**: a window's new times are written only while it still has the times the screen read
-  (`saveHours`, `stale` otherwise, and the stored times come back); a closed date is only added or deleted.
+- **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, the save
+  queue's `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`; when the
+  menu was read again while the editor was open and a column the owner changed moved elsewhere too, the editor shows the
+  stored rule and says so instead of saving. Reordering rules goes one move at a time (`setPriorities`): a move waits for
+  this tab's earlier moves, then checks the whole order as stored against what this tab expects, so this tab's own quick
+  moves are never refused and another tab's reorder comes back with a notice; each rule is written only while it still
+  has the priority this tab gave it. **Opening hours** carry `updated_at` (phase-1 schema): they are read again when the
+  hours screen opens or comes back into view (`refreshHours`) and before hours are added (the overlap check runs on what
+  is stored now; the database's `venue_hours_overlap` trigger raises `hours_overlap` for what slips through); an open
+  window editor keeps the version it read, says when the window changed meanwhile, and its save is guarded on that
+  `updated_at` (`saveHours`): never written over a change made elsewhere. **Closed dates** have no `updated_at`: only
+  added or deleted.
+- **A lost answer is not "changed elsewhere"**: a guarded write that finds its own values already stored (its earlier
+  answer was lost) counts as saved. New rows keep their ids across tries; a try after a lost answer with other values
+  than the stored ones is not stored over them silently (`insertAllOnce` answers `stored_earlier` with the stored rows):
+  a new rule stores the change on the stored rule (guarded), new hours say what was stored.
 - **One place at a time**: switching place or account drops everything (what failed to save included, after the owner
   confirms it); late answers for the old one are ignored. A store of a later lane registers `onReset(fn)` to drop its own
   state with it.
 - **Availability is written by the RPCs only**: `set_availability` and `restore_today` (ADR-008), never table inserts
   (those stay granted for the simulator). A whole add-on group is each of its choices, one call each. Overrides are
-  read, never patched on screen: every action fetches them again.
+  read, never patched on screen: every action fetches them again. The availability sheet reads the clock every second
+  while it is open, so the "back at" shown before the tap is the minute stored. "Taken off today" is the venue's
+  calendar day, as `restore_today` has it: at 00:30, what was taken off at 23:50 is yesterday's (a question for Rami
+  whether a service day should run past midnight; the contracts and the database would change together).
 - **Everything about time is the contracts'**: `resolveUntil`, `isOpenAt`, `nextOpening`, `isAvailable`,
   `matchSuggestion`, in the venue's `time_zone`; the screens only say the moments in words (`words.ts`).
 
 ## How the next lanes plug in
 
 **Routes and navigation.** Add an entry to `SCREENS` in `routes.tsx`: `{ path, render(rest), nav? }`. A `nav`
-(`{ key, icon, label, order, dot? }`) puts it in the bottom bar in `order` (home 10, menu 20, add-ons 30, hours 40, rules 50,
-activity 80, publish 90); past five
+(`{ key, icon, label, order, dot?, shown? }`) puts it in the bottom bar in `order` (home 10, menu 20, add-ons 30, hours 40,
+rules 50, activity 80, publish 90), for every account unless `shown()` says otherwise (activity: not for a counter); past five
 tabs the fifth becomes "More" with the rest in a sheet, so no lane has to fight for room. `landing(venue?)` is where a place
 opens and where an address that leads nowhere goes: Home once the place has published, else the setup flow
 (`onboarding`, which opens at the step its owner left off; an account that does not edit is taken on to the menu). It is
@@ -148,9 +162,9 @@ The "today" column says what exists on this branch; the "to do" column is the la
 | Lane | Screens (to do) | Data (to do) | Today |
 |---|---|---|---|
 | **F03 onboarding and import** (built) | `onboarding` (no nav; `onboarding/<step>`, `onboarding/menu/<source>`, `onboarding/review/<import>`, `onboarding/done`); `landing()` returns it until the first publish; `help/<topic>` opens help on a topic | `onboarding_progress`, `menu_imports` in `data/onboarding.ts` (with `onReset`); the import applied by the database in one transaction (`apply_import`, ADR-006), never table by table; an imported group's guessed limits confirmed through `saveGroupForm(…, { confirmLimits })` | the flow reuses the app's screens (menu, group editor, hours, help, publish, the dish's guest preview) and the shell offers the way back (`BackToSetup`, through the leave guard); Home's nudges open `onboarding/<step>` and `onboarding/review` |
-| **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
+| **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` (an add-on choice or group opened from a dish's sheet: `.../<id>/<dish id>`, so the focus returns to the dish's button) | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
 | **F06 upsell rules** (built) | `rules` (nav, order 50; `rules/<id>`, `rules/new`) | `upsell_rules` in `MenuTable` | publishing lists the builder's `rule_left_out` warnings and `lintSnapshotV2`'s, in words (`issue.*` in `i18n.ts`); the group editor asks before deleting a choice a rule suggests, and the rule leaves the list with it |
-| **F08 dashboard, activity, export; F03's "get help"** (built) | `home` (nav, order 10; `landing()` returns it once the place has published), `activity` (nav, order 80), `help` (no nav; the shell's help button) | `my_dashboard` in `data/dashboard-live.ts`, `venue_activity`, `export_menu`, `open_case` in `data/records.ts` | `nudgeHref` opens `onboarding/<step>` as soon as that screen exists, and the screens that exist until then; the dashboard's `nudges` already carry `import_waiting` for the import preview |
+| **F08 dashboard, activity, export; F03's "get help"** (built) | `home` (nav, order 10; `landing()` returns it once the place has published), `activity` (nav, order 80; not for a counter: `NavItem.shown`), `help` (no nav; the shell's help button) | `my_dashboard` in `data/dashboard-live.ts`, `venue_activity`, `export_menu`, `open_case` in `data/records.ts` | `nudgeHref` opens `onboarding/<step>` as soon as that screen exists, and the screens that exist until then; the dashboard's `nudges` already carry `import_waiting` for the import preview |
 
 **Words.** New keys go in `i18n.ts` (a key lives in one dictionary; `node test/check-i18n.mjs` checks both). New Hebrew
 needs a native read before it reaches anyone.
@@ -159,12 +173,13 @@ needs a native read before it reaches anyone.
 they are. Browser tests live in `e2e/` (`startE2E()` serves the built `_site` with a local config: schema 2 on the
 simulator's stack): `e2e/studio-v2.test.mjs` is the whole scenario (the pattern), `e2e/studio-v2-edges.test.mjs` the
 edges (production boot, price parity with `public_menu`, two tabs, lost answers, offline, a counter, sign-up, RTL,
-keyboard, names, text never HTML), `e2e/studio-v2-operate.test.mjs` the operating screens (suggestion rules, hours and day
-parts, the availability quick actions, and a counter: operates, edits nothing), `e2e/studio-v2-saving.test.mjs` saving on
-a slow, failing or forgetful network (two edits in flight, retries, roles that change, the ways out),
-`e2e/studio-v2-onboarding.test.mjs` the setup flow (the whole path in Hebrew and English, timed; resuming on another device;
-re-importing without duplicates; help; the scanner through `e2e/scan-stub.mjs`, the real handler with a recorded reply
-and nothing paid; a counter).
+keyboard, names, text never HTML), `e2e/studio-v2-saving.test.mjs` saving on a slow, failing or forgetful network
+(two edits in flight, retries, roles that change, the ways out), `e2e/studio-v2-operate.test.mjs` the operating screens
+(suggestion rules, hours and day parts, the availability quick actions, and a counter: operates, edits nothing), and
+`e2e/studio-v2-dashboard.test.mjs` Home, the activity log, getting help, the export and approval, and `e2e/studio-v2-onboarding.test.mjs` the setup flow (the whole path in Hebrew and
+English, timed; resuming on another device; re-importing without duplicates; leaving things out; an apply read again;
+help; another place's import; the scanner through `e2e/scan-stub.mjs`, the real handler with a recorded reply and
+nothing paid; a counter).
 
 ## Not here yet
 

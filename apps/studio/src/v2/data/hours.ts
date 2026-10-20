@@ -43,10 +43,15 @@ const meets = (x: [number, number], y: [number, number]) => [-WEEK_MIN, 0, WEEK_
 
 export type HoursWrite = { weekday: Weekday; opens: HHMM; closes: HHMM };
 
+/** The same opening and closing time: open the whole 24 hours (not a slip the owner should be left to guess at). */
+export const isAllDay = (from: string, to: string): boolean => isHHMM(from) && from === to;
+
 /**
  * Opening hours from..to on some days, checked against the windows already stored (less the one being changed). Two
  * windows may not overlap, also across midnight (Friday 22:00–02:00 and Saturday 01:00–…). Codes: days_empty,
- * time_invalid, hours_overlap.
+ * time_invalid, hours_overlap (another window that day), hours_overlap_night (the night before's window runs past
+ * midnight into these hours), hours_overlap_next (these hours run past midnight into the next day's). The same time
+ * twice (08:00–08:00) is a full 24 hours, as the contracts read it (`isAllDay` says so on screen).
  */
 export function hoursFromForm(days: readonly Weekday[], from: string, to: string, stored: readonly VenueHoursRow[], exceptId: string | null = null): Mapped<HoursWrite[]> {
   const errors: FieldError[] = [];
@@ -54,9 +59,10 @@ export function hoursFromForm(days: readonly Weekday[], from: string, to: string
   if (picked.length === 0 || !days.every(isWeekday)) errors.push({ field: 'days', code: 'days_empty' });
   if (!isHHMM(from) || !isHHMM(to)) errors.push({ field: 'time', code: 'time_invalid' });
   if (errors.length) return { ok: false, errors };
-  const others = stored.filter((r) => r.id !== exceptId).map((r) => weekSpan(r.weekday, hhmm(r.opens), hhmm(r.closes)));
+  const others = stored.filter((r) => r.id !== exceptId).map((r) => ({ day: r.weekday, span: weekSpan(r.weekday, hhmm(r.opens), hhmm(r.closes)) }));
   // the same window on different days never meets itself (it lasts 24 hours at most)
-  if (picked.some((d) => others.some((o) => meets(weekSpan(d, from, to), o)))) errors.push({ field: 'time', code: 'hours_overlap' });
+  const hit = picked.flatMap((d) => others.filter((o) => meets(weekSpan(d, from, to), o.span)).map((o) => (o.day === d ? 0 : o.day === (d + 6) % 7 ? -1 : 1)));
+  if (hit.length) errors.push({ field: 'time', code: hit.includes(0) ? 'hours_overlap' : hit.includes(-1) ? 'hours_overlap_night' : 'hours_overlap_next' });
   return done(errors, picked.map((weekday) => ({ weekday, opens: from, closes: to })));
 }
 

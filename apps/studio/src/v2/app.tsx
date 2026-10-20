@@ -18,7 +18,7 @@ import { HelpButton } from './screens/help.tsx';
 import { BackToSetup } from './screens/onboarding.tsx';
 import { StartScreen } from './screens/start.tsx';
 import { VenueNewScreen } from './screens/venue-new.tsx';
-import { ErrorLine, Icon2 } from './ui.tsx';
+import { ErrorLine, Icon2, takeFocusOnReturn } from './ui.tsx';
 // while a first publish waits for Halom, the open place learns of the approval by itself (backlog B4)
 import './data/approval.ts';
 
@@ -55,8 +55,11 @@ function useFocusOnNewScreen() {
   const first = useRef(true);
   useEffect(() => {
     document.documentElement.dataset.route = route.value[0] || 'home';
+    const back = takeFocusOnReturn();                  // a sheet just closed: the focus goes back to what opened it
     if (first.current) { first.current = false; return; }
     if (document.querySelector('dialog[open]')) return;
+    const opener = back ? (document.querySelector(back) as HTMLElement | null) : null;
+    if (opener) { opener.focus({ preventScroll: true }); return; }
     const h = document.querySelector('main h1') as HTMLElement | null;
     if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
   }, [route.value.slice(0, 2).join('/')]);
@@ -82,7 +85,7 @@ function Shell() {
             ? <button type="button" class="top-biz top-switch" aria-haspopup="dialog" onClick={() => setAccount(true)} data-action="switch-venue"><span>{name}</span><Icon name="chevdown" size={16} /></button>
             : <span class="top-biz" title={name}>{name}</span>}
           <SaveBadge />
-          <HelpButton />
+          <HelpButton onClick={(e) => guardedLink(e, 'help')} />
           <button type="button" class="acctbtn" aria-haspopup="dialog" aria-label={t('app.account')} onClick={() => setAccount(true)} data-action="account"><Icon name="user" /></button>
         </div>
       </header>
@@ -119,8 +122,9 @@ function guardedLink(e: MouseEvent, path: string) {
 
 function BottomNav({ here }: { here: string }) {
   const [more, setMore] = useState(false);
-  const fits = NAV.length <= PHONE_TABS;
-  const shown = fits ? NAV : NAV.slice(0, PHONE_TABS - 1), rest = fits ? [] : NAV.slice(PHONE_TABS - 1);
+  const tabs = NAV.filter((n) => n.shown?.() ?? true);
+  const fits = tabs.length <= PHONE_TABS;
+  const shown = fits ? tabs : tabs.slice(0, PHONE_TABS - 1), rest = fits ? [] : tabs.slice(PHONE_TABS - 1);
   const item = (n: (typeof NAV)[number]) => (
     <a key={n.key} href={'#/' + n.path} class="nav-item" aria-current={n.path === here ? 'page' : undefined} data-tab={n.key} onClick={(e) => guardedLink(e as unknown as MouseEvent, n.path)}>
       <span class="nav-ico"><Icon2 name={n.icon} size={22} />{n.dot?.() && <span class="nav-dot" aria-hidden="true" />}</span>

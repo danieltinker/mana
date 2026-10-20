@@ -153,13 +153,28 @@ export function Empty({ title, body, children, icon = 'list' }: { title: string;
 }
 export const Loading = ({ label }: { label?: string }) => <div class="loading" role="status"><span class="spin" aria-hidden="true" /><span>{label || t('app.loading')}</span></div>;
 
-export function Dialog({ open, onClose, title, children, actions, wide }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; actions?: ComponentChildren; wide?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
+/**
+ * A modal <dialog> shown while `open`. A closed one leaves the page (Esc, the close button, a tap outside), so the
+ * browser has nowhere to put the focus back: it goes back to the element that opened it, unless something else took
+ * the focus meanwhile (a new screen's heading, a field the closing action chose).
+ */
+function useModal(ref: { readonly current: HTMLDialogElement | null }, open: boolean) {
   useEffect(() => {
     const d = ref.current; if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (!open) { if (d.open) d.close(); return; }
+    const was = document.activeElement;
+    const opener = was instanceof HTMLElement && was !== document.body ? was : null;
+    if (!d.open) d.showModal();
+    return () => {
+      const now = document.activeElement;
+      if (opener && opener.isConnected && (!now || now === document.body || !now.isConnected)) opener.focus({ preventScroll: true });
+    };
   }, [open]);
+}
+
+export function Dialog({ open, onClose, title, children, actions, wide }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; actions?: ComponentChildren; wide?: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useModal(ref, open);
   if (!open) return null;
   return (
     <dialog ref={ref} class={'dialog' + (wide ? ' dialog-wide' : '')} aria-label={title} onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === ref.current) onClose(); }}>
@@ -226,11 +241,7 @@ export function PageHead({ title, lead, children }: { title: string; lead?: stri
     `full` fills the screen (the live preview). Esc, the close button and a tap outside all close it. */
 export function Sheet({ open, onClose, title, children, foot, side, full, tall, head, name }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; foot?: ComponentChildren; side?: boolean; full?: boolean; tall?: boolean; head?: ComponentChildren; name?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current; if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+  useModal(ref, open);
   if (!open) return null;
   return (
     <dialog ref={ref} class={'sheet' + (side ? ' sheet-side' : '') + (full ? ' sheet-full' : '') + (tall ? ' sheet-tall' : '')} aria-label={title} data-sheet={name} onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === ref.current) onClose(); }}>

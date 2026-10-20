@@ -1,14 +1,14 @@
 // Upsell rules (F06) as the owner edits them: stored rows ↔ the rule form with the checks the database makes, the rule
 // as the guest's phone will get it (app.build_snapshot_full's rules, mirrored for the draft being edited), priority by
 // order, and the live preview: the contracts' matchSuggestion on the draft menu (preview_menu's snapshot) with a sample
-// basket, and when nothing would be suggested, the first reason why. The verdict is always matchSuggestion's; the reason
-// is found by asking matchSuggestion again with one condition at a time. Pure.
+// basket, and when nothing would be suggested, the first reason why: the contracts' whyNoSuggestion, on which
+// matchSuggestion is built, so the verdict and the reason always agree. Pure.
 import {
-  LIMITS, SCOPE_KINDS, TRIGGERS, addDays, defaultSelection, indexMenu, isHHMM, isWeekday, localParts, matchSuggestion, menuAvailability,
-  oneOf, rankRules, stripBlank, textLength, unavailableOf, zonedTime,
+  LIMITS, SCOPE_KINDS, TAGS, TRIGGERS, addDays, defaultSelection, indexMenu, isHHMM, isWeekday, localParts, matchSuggestion, menuAvailability,
+  oneOf, rankRules, stripBlank, textLength, unavailableOf, whyNoSuggestion, zonedTime,
 } from '@mana/contracts';
 import type {
-  DishV2, HHMM, IdMatch, LiveOverlay, MenuAvailability, MenuIndex, ScopeKind, SnapshotV2, Suggestion, SuggestionContext, Tag, Trigger,
+  HHMM, LiveOverlay, MenuAvailability, NoSuggestion, ScopeKind, SnapshotV2, Suggestion, SuggestionContext, Tag, Trigger,
   UnavailableReason, UpsellRuleRow, UpsellRuleV2, Weekday,
 } from '@mana/contracts';
 import type { FieldError, Mapped } from './forms.ts';
@@ -208,8 +208,8 @@ export type Sample = {
   basket: string[];
   weekday: Weekday;
   time: HHMM;
-  /** The guest's tag filter: dishes without the tag are hidden from them. */
-  filter: Tag | null;
+  /** The guest's tag filter (the contracts' passesTagFilter: every tag asked for; a vegan dish counts as vegetarian). */
+  tags: Tag[];
   /** The dish was added from a suggestion (add only): nothing follows it, never a chain. */
   fromSuggestion: boolean;
 };
@@ -220,15 +220,16 @@ export function sampleAt(now: number, weekday: Weekday, time: HHMM, tz: string):
   return zonedTime(addDays(today.date, (weekday - today.weekday + 7) % 7), time, tz);
 }
 
+/**
+ * Why the rule suggests nothing here: publishing leaves it out (`left_out`), or the contracts' whyNoSuggestion, with
+ * the reason and the moment something unavailable comes back added from the availability the preview used.
+ */
 export type Why =
   | { code: 'left_out'; reason: LeftOut }
-  | { code: 'chained' | 'no_dish' | 'basket_empty' | 'scope' | 'when' | 'has' }
-  | { code: 'lacks'; found: string[] }
-  | { code: 'hidden' | 'no_price' | 'same_dish' | 'in_basket' | 'filtered' }
   | { code: 'unavailable'; reason: UnavailableReason; back: Date | null }
-  | { code: 'option_not_on_dish' | 'option_chosen' | 'option_would_replace' | 'option_full' }
   | { code: 'option_unavailable'; back: Date | null }
-  | { code: 'other' };
+  | { code: 'lacks'; found: string[] }
+  | { code: Exclude<NoSuggestion['code'], 'unavailable' | 'option_unavailable' | 'lacks'> };
 
 export type Preview = {
   /** The sample's instant. */
@@ -255,17 +256,8 @@ export type PreviewInput = {
   readonly now: number;
 };
 
-/** A dish no menu has, priced and free, for asking matchSuggestion about one condition at a time. */
-const PROBE = '00000000-0000-4000-8000-00000000f06f';
-const PROBE_DISH: DishV2 = {
-  id: PROBE, name: { he: '', en: '' }, desc: { he: '', en: '' }, price: { amount: 1, note: { he: '', en: '' } }, tags: [], allergens: { he: '', en: '' },
-  details: {}, asset: null, scheduleId: null, addons: [], related: [],
-};
-
-/** Dishes the guest's filter hides: those without the tag. */
-export function filteredOutOf(s: SnapshotV2, tag: Tag | null): Set<string> {
-  return new Set(tag ? s.sections.flatMap((x) => x.dishes).filter((d) => !d.tags.includes(tag)).map((d) => d.id) : []);
-}
+/** The tags a sample may ask for, in the contracts' order. */
+export const sampleTags = (tags: readonly Tag[]): Tag[] => TAGS.filter((x) => tags.includes(x));
 
 export function previewRule(p: PreviewInput): Preview {
   const s = p.snapshot;
@@ -281,7 +273,7 @@ export function previewRule(p: PreviewInput): Preview {
   const dish = dishId ? menu.dishes.get(dishId) : undefined;
   const ctx: SuggestionContext = {
     trigger, menu, dishId, selection: dish ? defaultSelection(dish, { groups: menu.groups, unavailable }) : null,
-    basket: basket.map((d) => ({ dishId: d })), now: at, unavailable, filteredOut: filteredOutOf(s, p.sample.filter),
+    basket: basket.map((d) => ({ dishId: d })), now: at, unavailable, tags: sampleTags(p.sample.tags),
     fromSuggestion: trigger === 'add' && p.sample.fromSuggestion,
   };
   const off = !p.write.active;
@@ -289,55 +281,21 @@ export function previewRule(p: PreviewInput): Preview {
   const v2 = ruleV2(p.id, p.write, shownOf(s), p.optionGroup);
   if (!v2.ok) return { at, mine: null, why: { code: 'left_out', reason: v2.reason }, shown: matchSuggestion(others, ctx), off };
   const mine = matchSuggestion([v2.rule], ctx);
-  return { at, mine, why: mine ? null : whyNot(v2.rule, ctx, av), shown: matchSuggestion(off ? others : [...others, v2.rule], ctx), off };
+  const no = mine ? null : whyNoSuggestion(v2.rule, ctx);
+  return { at, mine, why: no ? whyOf(no, v2.rule, av) : null, shown: matchSuggestion(off ? others : [...others, v2.rule], ctx), off };
 }
 
-const matching = (m: IdMatch | null, ctx: SuggestionContext): string[] =>
-  m ? ctx.basket.map((l) => l.dishId).filter((id) => m.dishes.includes(id) || m.sections.includes(ctx.menu.sectionOf.get(id) ?? '')) : [];
-
-/** The first reason a rule suggests nothing here, in the order matchSuggestion checks. */
-export function whyNot(rule: UpsellRuleV2, ctx: SuggestionContext, av: MenuAvailability): Why {
-  if (ctx.fromSuggestion) return { code: 'chained' };
-  if (ctx.trigger !== 'checkout' && ctx.dishId == null) return { code: 'no_dish' };
-  if (ctx.trigger === 'checkout' && ctx.basket.length === 0) return { code: 'basket_empty' };
-  // each condition alone: the others lifted, and a suggestion that always fits (a dish only this question has)
-  const menu: MenuIndex = { ...ctx.menu, dishes: new Map([...ctx.menu.dishes, [PROBE, PROBE_DISH]]) };
-  const open: UpsellRuleV2 = { ...rule, active: true, scope: { kind: 'all' }, when: null, basketHas: null, basketLacks: null, suggest: { kind: 'dish', dishId: PROBE } };
-  const passes = (r: UpsellRuleV2) => matchSuggestion([r], { ...ctx, menu, shown: undefined, dismissed: undefined }) !== null;
-  if (!passes({ ...open, scope: rule.scope })) return { code: 'scope' };
-  if (!passes({ ...open, when: rule.when })) return { code: 'when' };
-  if (!passes({ ...open, basketHas: rule.basketHas })) return { code: 'has' };
-  if (!passes({ ...open, basketLacks: rule.basketLacks })) return { code: 'lacks', found: matching(rule.basketLacks, ctx) };
-  return whySuggestion(rule, ctx, av);
-}
-
-/** The conditions hold: what about the suggestion itself keeps it from the guest. */
-function whySuggestion(rule: UpsellRuleV2, ctx: SuggestionContext, av: MenuAvailability): Why {
+/** The contracts' reason, with why and until when something unavailable is (from the availability the preview used). */
+function whyOf(no: NoSuggestion, rule: UpsellRuleV2, av: MenuAvailability): Why {
   const sg = rule.suggest;
-  const back = (a: ReturnType<MenuAvailability['dishes']['get']>) => (a && !a.available ? a.back : null);
-  if (sg.kind === 'dish') {
-    const d = ctx.menu.dishes.get(sg.dishId);
-    if (!d) return { code: 'hidden' };
-    if (d.price === null) return { code: 'no_price' };
-    if (sg.dishId === ctx.dishId) return { code: 'same_dish' };
-    if (ctx.basket.some((l) => l.dishId === sg.dishId)) return { code: 'in_basket' };
-    if (ctx.unavailable.dishes.has(sg.dishId)) {
-      const a = av.dishes.get(sg.dishId);
-      return { code: 'unavailable', reason: a && !a.available ? a.reason : 'off', back: back(a) };
-    }
-    if (ctx.filteredOut?.has(sg.dishId)) return { code: 'filtered' };
-    return { code: 'other' };
+  if (no.code === 'unavailable' && sg.kind === 'dish') {
+    const a = av.dishes.get(sg.dishId);
+    return { code: 'unavailable', reason: a && !a.available ? a.reason : 'off', back: a && !a.available ? a.back : null };
   }
-  const dish = ctx.dishId ? ctx.menu.dishes.get(ctx.dishId) : undefined;
-  const attached = dish?.addons.find((a) => a.groupId === sg.groupId);
-  const group = ctx.menu.groups.get(sg.groupId);
-  if (!dish || !attached || !group) return { code: 'option_not_on_dish' };
-  if (!group.options.some((o) => o.id === sg.optionId)) return { code: 'hidden' };
-  if (ctx.unavailable.options.has(sg.optionId)) return { code: 'option_unavailable', back: back(av.options.get(sg.optionId)) };
-  const chosen = ctx.selection?.groups.find((g) => g.groupId === sg.groupId)?.options ?? [];
-  const units = chosen.reduce((n, o) => n + (o.qty ?? 1), 0);
-  if (chosen.some((o) => o.optionId === sg.optionId)) return { code: 'option_chosen' };
-  if (group.selection === 'single' && units > 0) return { code: 'option_would_replace' };
-  if (units + 1 > attached.max) return { code: 'option_full' };
-  return { code: 'other' };
+  if (no.code === 'option_unavailable' && sg.kind === 'option') {
+    const a = av.options.get(sg.optionId);
+    return { code: 'option_unavailable', back: a && !a.available ? a.back : null };
+  }
+  if (no.code === 'lacks') return { code: 'lacks', found: [...(no.found ?? [])] };
+  return { code: no.code } as Why;
 }

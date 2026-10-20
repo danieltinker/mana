@@ -14,12 +14,12 @@ import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
 import { changed, type FieldError } from '../data/forms.ts';
 import {
-  WEEK, closureFromForm, dayHours, hhmm, hoursFromForm, newClosureForm, newScheduleForm, newWindowForm, scheduleFromForm, scheduleToForm, upcomingClosures,
+  WEEK, closureFromForm, dayHours, hhmm, hoursFromForm, isAllDay, newClosureForm, newScheduleForm, newWindowForm, scheduleFromForm, scheduleToForm, upcomingClosures,
   venueHoursOf, type ClosureForm, type ScheduleForm, type WindowForm,
 } from '../data/hours.ts';
 import { clock } from '../data/live.ts';
 import { byCreated, named, newId } from '../data/rows.ts';
-import { ANY_ROW, addRows, canEdit, menu, removeRows, resync, saveHours, saveNow, saveVenue } from '../data/store.ts';
+import { ANY_ROW, addRows, canEdit, menu, refreshHours, removeRows, resync, saveHours, saveNow, saveVenue } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { LangSeg, ReadOnly, TabPanel, Tabs, useEditOnly, useEntryLang } from '../ui.tsx';
@@ -31,6 +31,15 @@ export function HoursScreen({ rest }: { rest: string[] }) {
   const editable = canEdit();
   // a new day part or special only edits: an account that may not edit is taken back to the list
   useEditOnly(tab === 'parts' && !!rest[1]?.startsWith('new'), editable, 'hours/parts');
+  // hours and closed dates have no version to guard with: read them again when the screen opens and when it comes back
+  // into view, so another device's change shows (and "open now" with it)
+  useEffect(() => {
+    const again = () => { if (document.visibilityState === 'visible') refreshHours().catch(() => {}); };
+    again();
+    window.addEventListener('focus', again);
+    document.addEventListener('visibilitychange', again);
+    return () => { window.removeEventListener('focus', again); document.removeEventListener('visibilitychange', again); };
+  }, []);
   return (
     <div class="page page-hours" data-screen="hours">
       <PageHead title={t('hours.title')} />
@@ -58,11 +67,19 @@ export function DayChips({ days, onChange, label, id, disabled }: { days: readon
 }
 
 /** From and to, as the phone's time pickers. */
-export function TimePair({ from, to, onFrom, onTo, id, disabled }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void; id: string; disabled?: boolean }) {
+export function TimePair({ from, to, onFrom, onTo, id, disabled, of, allDay }: {
+  from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void; id: string; disabled?: boolean;
+  /** Which one this is, when there are several (said after the field's name: "From · Time 2"). */
+  of?: string;
+  /** Opening hours: the same time twice says it is the full 24 hours (a rule refuses it instead). */
+  allDay?: boolean;
+}) {
+  const sfx = of ? ' · ' + of : '';
   return (
     <div class="timepair" data-times={id}>
-      <Field label={t('hours.from')}>{(p) => <input {...p} type="time" dir="ltr" value={from} disabled={disabled} data-field={id + '-from'} onInput={(e) => onFrom((e.target as HTMLInputElement).value)} />}</Field>
-      <Field label={t('hours.to')}>{(p) => <input {...p} type="time" dir="ltr" value={to} disabled={disabled} data-field={id + '-to'} onInput={(e) => onTo((e.target as HTMLInputElement).value)} />}</Field>
+      <Field label={t('hours.from') + sfx}>{(p) => <input {...p} type="time" dir="ltr" value={from} disabled={disabled} data-field={id + '-from'} onInput={(e) => onFrom((e.target as HTMLInputElement).value)} />}</Field>
+      <Field label={t('hours.to') + sfx}>{(p) => <input {...p} type="time" dir="ltr" value={to} disabled={disabled} data-field={id + '-to'} onInput={(e) => onTo((e.target as HTMLInputElement).value)} />}</Field>
+      {allDay && isAllDay(from, to) && <p class="hint timepair-hint" data-all-day>{t('hours.allDay')}</p>}
     </div>
   );
 }
@@ -79,6 +96,7 @@ function Week() {
       <section class="card" aria-labelledby="week-h" data-week>
         <h2 id="week-h">{t('hours.week')}</h2>
         <p class="hint">{t('hours.weekHint')}</p>
+        <p class="fine" data-live-note>{t('hours.live')}</p>
         <ul class="weekdays">{WEEK.map((day) => <DayRow key={day} day={day} rows={dayHours(d.hours, day)} editable={editable} />)}</ul>
         {editable && <AddHours />}
       </section>
@@ -103,8 +121,8 @@ export function NowCard() {
       <h2 id="now-h" class="status"><span class={'dot ' + (open ? 'dot-on' : 'dot-off')} aria-hidden="true" />{none ? t('hours.none') : open ? t('hours.openNow') : t('hours.closedNow')}</h2>
       {none && <p>{t('hours.noneBody')}</p>}
       {!none && !open && <p data-next-opening>{next ? t('hours.opensAt', { when: momentText(next, now, tz, true) }) : t('hours.noOpening')}</p>}
-      {closure && <p class="fine">{note ? t('hours.closedTodayFor', { note }) : t('hours.closedToday')}</p>}
-      <p class="fine">{t('hours.live')}</p>
+      {/* open now from last night's hours, on a closed date: it closes when they end (never "open" beside "closed today") */}
+      {closure && <p class="fine" data-closed-today>{open ? (note ? t('hours.closesTodayFor', { note }) : t('hours.closesToday')) : note ? t('hours.closedTodayFor', { note }) : t('hours.closedToday')}</p>}
     </section>
   );
 }
@@ -135,18 +153,23 @@ export function DayRow({ day, rows, editable }: { day: Weekday; rows: VenueHours
 /** One opening window: change its times or remove it. */
 function WindowEditor({ row, onDone }: { row: VenueHoursRow; onDone: () => void }) {
   const d = menu.value!;
+  // the window as this editor read it: the save is guarded on its updated_at, so a change made on another device while
+  // the editor is open is never written over without the owner's say
+  const [opened, setOpened] = useState(row);
   const [from, setFrom] = useState(hhmm(row.opens)), [to, setTo] = useState(hhmm(row.closes));
   const [error, setError] = useState(''), [busy, setBusy] = useState('');
+  // read again meanwhile (the screen came back into view, another tab): the editor says so at once
+  const movedElsewhere = row.updated_at !== opened.updated_at;
   async function save() {
     const m = hoursFromForm([row.weekday], from, to, d.hours, row.id);
     if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy('save');
-    try { await saveHours(row.id, { opens: from, closes: to }); onDone(); }
+    try { await saveHours(row.id, { opens: from, closes: to }, opened.updated_at); onDone(); }
     catch (e) {
       const code = toV2Error(e).code;
-      // changed on another screen meanwhile: the times as stored now, to change again
+      // changed on another device meanwhile: nothing was written; the times as stored now, to change again
       const now = code === 'stale' ? menu.value?.hours.find((h) => h.id === row.id) : null;
-      if (now) { setFrom(hhmm(now.opens)); setTo(hhmm(now.closes)); }
+      if (now) { setOpened(now); setFrom(hhmm(now.opens)); setTo(hhmm(now.closes)); }
       setError(errText(code));
     }
     finally { setBusy(''); }
@@ -158,7 +181,9 @@ function WindowEditor({ row, onDone }: { row: VenueHoursRow; onDone: () => void 
   }
   return (
     <div class="hoursedit" data-hours-edit={row.id}>
-      <TimePair id="edit" from={from} to={to} onFrom={(v) => { setFrom(v); setError(''); }} onTo={(v) => { setTo(v); setError(''); }} />
+      {movedElsewhere && <p class="line line-warn" role="status" data-hours-changed>
+        <Icon name="alert" /><span>{t('hours.changedElsewhere', { range: timeRange(hhmm(row.opens), hhmm(row.closes)) })}</span></p>}
+      <TimePair id="edit" allDay from={from} to={to} onFrom={(v) => { setFrom(v); setError(''); }} onTo={(v) => { setTo(v); setError(''); }} />
       {error && <p class="ferr" role="alert">{error}</p>}
       <div class="btnrow">
         <Btn small kind="primary" busy={busy === 'save'} onClick={save} data-action="save-hours">{t('app.save')}</Btn>
@@ -178,23 +203,40 @@ function AddHours() {
   const ids = useRef(new Map<Weekday, string>());
   if (!open) return <Btn icon="plus" onClick={() => setOpen(true)} data-action="add-hours">{t('hours.add')}</Btn>;
   async function add() {
-    const m = hoursFromForm(days, from, to, d.hours);
-    if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy(true);
+    // against the hours as stored now (another device may have added some)
+    await refreshHours().catch(() => {});
+    // an earlier try whose answer was lost is stored: the same hours are done; other hours are not stored over it, but said
+    const landed = [...ids.current.values()].map((id) => menu.value!.hours.find((h) => h.id === id)).filter((h) => !!h);
+    if (landed.length) {
+      ids.current.clear();
+      const same = landed.length === days.length && landed.every((h) => days.includes(h!.weekday) && hhmm(h!.opens) === from && hhmm(h!.closes) === to);
+      if (same) { toast(t('hours.added', { days: daysText(days), range: timeRange(from, to) })); setDays([]); setOpen(false); }
+      else setError(errText('stored_earlier'));
+      setBusy(false);
+      return;
+    }
+    const m = hoursFromForm(days, from, to, menu.value!.hours);
+    if (!m.ok) { setError(firstError(m.errors)); setBusy(false); return; }
     try {
       const idOf = (w: Weekday) => { if (!ids.current.has(w)) ids.current.set(w, newId()); return ids.current.get(w)!; };
       await addRows('venue_hours', m.value.map((r) => ({ id: idOf(r.weekday), ...r })));
       ids.current.clear();
       toast(t('hours.added', { days: daysText(days), range: timeRange(from, to) }));
       setDays([]); setOpen(false);
-    } catch (e) { setError(errText(toV2Error(e).code)); }
+    } catch (e) {
+      const code = toV2Error(e).code;
+      // the earlier try is stored (on screen now, in the week); a next try is a new window
+      if (code === 'stored_earlier') ids.current.clear();
+      setError(errText(code));
+    }
     finally { setBusy(false); }
   }
   return (
     <div class="card-in hoursadd" data-hours-add>
       <h3>{t('hours.add')}</h3>
       <DayChips id="add" days={days} label={t('hours.days')} onChange={(x) => { setDays(x); setError(''); }} />
-      <TimePair id="add" from={from} to={to} onFrom={(v) => { setFrom(v); setError(''); }} onTo={(v) => { setTo(v); setError(''); }} />
+      <TimePair id="add" allDay from={from} to={to} onFrom={(v) => { setFrom(v); setError(''); }} onTo={(v) => { setTo(v); setError(''); }} />
       <p class="hint">{t('hours.overnight')}</p>
       {error && <p class="ferr" role="alert">{error}</p>}
       <div class="btnrow">
@@ -212,7 +254,7 @@ function Closures() {
   const today = localParts(clock.value, d.venue.time_zone).date;
   const rows = upcomingClosures(d.closures, today);
   const [adding, setAdding] = useState(false), [form, setForm] = useState<ClosureForm>(() => newClosureForm(today));
-  const [error, setError] = useState(''), [busy, setBusy] = useState('');
+  const [error, setError] = useState(''), [busy, setBusy] = useState(''), [del, setDel] = useState<{ id: string; when: string } | null>(null);
   // the new closed date's id: kept until it is stored (a retry after a lost answer adds it once)
   const [nextId, setNextId] = useState(newId);
   const L = lang.value;
@@ -229,7 +271,7 @@ function Closures() {
     setBusy(id);
     try { await removeRows('venue_closures', [id]); }
     catch (e) { toast(errText(toV2Error(e).code), 'error'); }
-    finally { setBusy(''); }
+    finally { setBusy(''); setDel(null); }
   }
   const span = (from: string, to: string) => (from === to ? dateText(from) : t('closures.range', { from: dateText(from), to: dateText(to) }));
   return (
@@ -243,7 +285,7 @@ function Closures() {
           <li key={c.id} class="row" data-closure={c.id}>
             <div class="attached-main">
               <span class="row-text"><span class="row-name">{when}</span>{note && <span class="row-sub fine">{note}</span>}</span>
-              {editable && <IconBtn icon="trash" label={t('closures.remove', { when })} disabled={busy === c.id} onClick={() => remove(c.id)} />}
+              {editable && <IconBtn icon="trash" label={t('closures.remove', { when })} disabled={busy === c.id} onClick={() => setDel({ id: c.id, when })} data-remove-closure={c.id} />}
             </div>
           </li>
         );
@@ -265,6 +307,8 @@ function Closures() {
           </div>
         </div>
       )}
+      <Confirm open={!!del} title={t('closures.removeTitle')} body={t('closures.removeConfirm', { when: del?.when ?? '' })} confirmLabel={t('closures.removeGo')} danger
+        busy={!!del && busy === del.id} onConfirm={() => del && remove(del.id)} onClose={() => setDel(null)} />
     </section>
   );
 }
@@ -311,6 +355,7 @@ function Parts({ open }: { open: string | null }) {
   return (
     <>
       <p class="lead">{t('parts.lead')}</p>
+      <p class="fine" data-publish-note>{t('parts.publish')}</p>
       {list.length === 0 && <Empty title={t('parts.empty.title')} body={t('parts.empty.body')} icon="clock">{buttons}</Empty>}
       {list.length > 0 && <>
         <ul class="rows">{list.map((s) => (
@@ -367,9 +412,24 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
     try {
       if (row) {
         const was = scheduleFromForm(opened);
+        const patch = was.ok ? changed(was.value, m.value) : m.value;
+        // read again while open, and a column the owner changed moved elsewhere too: shown as stored, nothing written
+        const stored = scheduleFromForm(scheduleToForm(row));
+        if (was.ok && stored.ok && Object.keys(patch).some((k) => JSON.stringify(stored.value[k as keyof typeof patch]) !== JSON.stringify(was.value[k as keyof typeof patch]))) {
+          const f = scheduleToForm(row); setForm(f); setOpened(f); setError(errText('stale')); return;
+        }
         // 'conflict': changed somewhere else; the dialog asks, the sheet stays and follows the owner's choice (resync)
-        if (await saveNow('schedules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'conflict') return;
-      } else await addRows('schedules', [{ id: newScheduleId, ...m.value }]);
+        if (await saveNow('schedules', row.id, patch) === 'conflict') return;
+      } else {
+        try { await addRows('schedules', [{ id: newScheduleId, ...m.value }]); }
+        catch (e) {
+          // an earlier try was stored (its answer was lost): the sheet's values go over it (guarded), then it closes
+          if (toV2Error(e).code !== 'stored_earlier') throw e;
+          const had = menu.value?.schedules.find((x) => x.id === newScheduleId);
+          const then = had ? scheduleFromForm(scheduleToForm(had)) : null;
+          if (had && then?.ok && await saveNow('schedules', newScheduleId, changed(then.value, m.value)) === 'conflict') return;
+        }
+      }
       toast(t('parts.saved')); onClose();
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
@@ -399,10 +459,10 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
         <legend>{t('parts.when')}</legend>
         {form.windows.map((w, i) => (
           <div key={w.key} class="windowcard" data-window={i}>
-            <DayChips id={'w' + i} days={w.days} label={t('hours.days')} disabled={!editable} onChange={(days) => setWin(i, { days })} />
-            <TimePair id={'w' + i} from={w.from} to={w.to} disabled={!editable} onFrom={(v) => setWin(i, { from: v })} onTo={(v) => setWin(i, { to: v })} />
+            <DayChips id={'w' + i} days={w.days} label={t('hours.days') + ' · ' + t('parts.windowN', { n: i + 1 })} disabled={!editable} onChange={(days) => setWin(i, { days })} />
+            <TimePair id={'w' + i} from={w.from} to={w.to} disabled={!editable} of={form.windows.length > 1 ? t('parts.windowN', { n: i + 1 }) : undefined} onFrom={(v) => setWin(i, { from: v })} onTo={(v) => setWin(i, { to: v })} />
             {(errAt(`windows.${i}`)) && <p class="ferr" role="alert">{errAt(`windows.${i}`)}</p>}
-            {editable && form.windows.length > 1 && <Btn small kind="ghost" icon="trash" onClick={() => set({ ...form, windows: form.windows.filter((_, j) => j !== i) })}>{t('parts.removeTime')}</Btn>}
+            {editable && form.windows.length > 1 && <Btn small kind="ghost" icon="trash" aria-label={t('parts.removeTime') + ' · ' + t('parts.windowN', { n: i + 1 })} onClick={() => set({ ...form, windows: form.windows.filter((_, j) => j !== i) })}>{t('parts.removeTime')}</Btn>}
           </div>
         ))}
         {errAt('windows') && !form.windows.length && <p class="ferr" role="alert">{errAt('windows')}</p>}

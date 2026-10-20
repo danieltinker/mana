@@ -15,7 +15,7 @@ import { toV2Error } from '../data/errors.ts';
 import { changed, type FieldError } from '../data/forms.ts';
 import { WEEK, venueHoursOf } from '../data/hours.ts';
 import { clock, overrides } from '../data/live.ts';
-import { ruleNumbers } from '../data/rule-numbers.ts';
+import { ruleNumbers, ruleNumbersRange } from '../data/rule-numbers.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
 import {
   newRuleForm, nextPriority, previewRule, ranked, reprioritize, ruleFromForm, ruleToForm, type IdLists, type RuleForm, type RuleWrite, type Sample, type Why,
@@ -25,7 +25,7 @@ import type { MenuData } from '../data/menu.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { LangSeg, ReadOnly, ReorderList, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
-import { dayName, daysText, momentText, orList, ruleSummary, timeRange, type NameOf } from '../words.ts';
+import { dayName, momentText, orList, ruleSummary, whenText, type NameOf } from '../words.ts';
 import { DayChips, TimePair } from './hours.tsx';
 
 export function RulesScreen({ rest }: { rest: string[] }) {
@@ -59,6 +59,9 @@ function RulesList() {
     <div class="page" data-screen="rules">
       <PageHead title={t('rules.title')} lead={t('rules.lead')}>{editable && rules.length > 0 && newBtn}</PageHead>
       {!editable && <Note>{t('ro.settings')}</Note>}
+      {rules.length > 0 && <p class="fine" data-publish-note>{t('rules.publish')}</p>}
+      {/* the period the dashboard lane's numbers count (data/rule-numbers.ts) */}
+      {rules.length > 0 && ruleNumbers.value && ruleNumbersRange.value && <p class="fine" data-rule-period={ruleNumbersRange.value}>{t('rules.period.' + ruleNumbersRange.value)}</p>}
       {rules.length === 0 && <Empty title={t('rules.empty.title')} body={t('rules.empty.body')} icon="sparkle">{editable && newBtn}</Empty>}
       {rules.length > 1 && editable && <div class="row-between"><p class="hint">{t('rules.orderHint')}</p>
         <button type="button" class={'toolbtn' + (arranging ? ' on' : '')} aria-pressed={arranging ? 'true' : 'false'} onClick={() => setArranging(!arranging)} data-tool="arrange-rules">
@@ -135,16 +138,30 @@ function RuleEditor({ id }: { id: string | null }) {
     try {
       if (row) {
         const was = ruleFromForm(opened);
+        const patch = was.ok ? changed(was.value, m.value) : m.value;
+        // the menu was read again while the editor was open and a column the owner changed moved elsewhere too: the rule
+        // as stored now is shown, and nothing is written over it without the owner's say (they save again)
+        const stored = ruleFromForm(ruleToForm(row));
+        if (was.ok && stored.ok && Object.keys(patch).some((k) => JSON.stringify(stored.value[k as keyof RuleWrite]) !== JSON.stringify(was.value[k as keyof RuleWrite]))) {
+          const f = ruleToForm(row); setForm(f); setOpened(f); setError(errText('stale')); return;
+        }
         // 'conflict': the rule changed somewhere else; the dialog asks, and the form follows the owner's choice (resync)
-        if (await saveNow('upsell_rules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'saved') {
+        if (await saveNow('upsell_rules', row.id, patch) === 'saved') {
           const now = menu.value?.rules.find((r) => r.id === row.id);
           const f = now ? ruleToForm(now) : form; setForm(f); setOpened(f);
           toast(t('rules.saved'));
         }
       } else {
-        const saved = (await addRows('upsell_rules', [{ id: newRuleId, ...m.value }]))[0]!;
+        try { await addRows('upsell_rules', [{ id: newRuleId, ...m.value }]); }
+        catch (e) {
+          // an earlier try was stored (its answer was lost) and the owner changed the rule since: store the change on it
+          if (toV2Error(e).code !== 'stored_earlier') throw e;
+          const had = menu.value?.rules.find((r) => r.id === newRuleId);
+          const was = had ? ruleFromForm(ruleToForm(had)) : null;
+          if (!had || !was?.ok || await saveNow('upsell_rules', newRuleId, changed(was.value, m.value)) === 'conflict') { go('rules/' + newRuleId, true); return; }
+        }
         toast(t('rules.saved'));
-        go('rules/' + saved.id, true);
+        go('rules/' + newRuleId, true);
       }
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
@@ -165,6 +182,7 @@ function RuleEditor({ id }: { id: string | null }) {
       {row?.inactive_reason && <Note kind="warn" title={t('rules.emptied')}>{t('rules.emptiedBody')}</Note>}
       {mapped.ok && <p class="rule-summary-now" data-summary-now>{ruleSummary(mapped.value, names)}</p>}
       {!editable && <Note>{t('ro.settings')}</Note>}
+      {editable && <p class="fine" data-publish-note>{t('rules.publish')}</p>}
 
       <ReadOnly when={!editable} class="rule-form">
       <section class="card" aria-labelledby="r-when-h">
@@ -324,7 +342,7 @@ function defaultDish(form: RuleForm, s: NonNullable<typeof draft.value.snapshot>
 function RulePreview({ form, id }: { form: RuleForm; id: string | null }) {
   const d = menu.value!, dr = draft.value, L = lang.value;
   const tz = d.venue.time_zone, now = clock.value;
-  const [sample, setSample] = useState<Sample>(() => { const p = localParts(now, tz); return { dishId: null, basket: [], weekday: p.weekday, time: hm(p.minutes), filter: null, fromSuggestion: false }; });
+  const [sample, setSample] = useState<Sample>(() => { const p = localParts(now, tz); return { dishId: null, basket: [], weekday: p.weekday, time: hm(p.minutes), tags: [], fromSuggestion: false }; });
   const s = dr.snapshot;
   const m = ruleFromForm(form);
   const head = <header class="gp-head"><h2 id="r-try-h">{t('rules.try')}</h2><p class="fine">{t('rules.trySub')}</p></header>;
@@ -385,11 +403,15 @@ function RulePreview({ form, id }: { form: RuleForm; id: string | null }) {
           )}</Field>
           <Field label={t('rules.try.time')}>{(p) => <input {...p} type="time" dir="ltr" value={sample.time} data-field="sample-time" onInput={(e) => { const v = (e.target as HTMLInputElement).value; if (v) set({ time: v }); }} />}</Field>
         </div>
-        <Field label={t('rules.try.filter')}>{(p) => (
-          <select {...p} value={sample.filter ?? ''} data-field="sample-filter" onChange={(e) => set({ filter: ((e.target as HTMLSelectElement).value || null) as Tag | null })}>
-            <option value="">{t('rules.try.noFilter')}</option>{TAGS.map((x) => <option key={x} value={x}>{t('tag.' + x)}</option>)}
-          </select>
-        )}</Field>
+        <fieldset class="tags" data-sample-tags>
+          <legend>{t('rules.try.filter')}</legend>
+          {TAGS.map((tag) => {
+            const on = sample.tags.includes(tag);
+            return <label key={tag} class={'tagchip' + (on ? ' on' : '')}><input type="checkbox" checked={on} data-sample-tag={tag}
+              onChange={() => set({ tags: on ? sample.tags.filter((x) => x !== tag) : [...sample.tags, tag] })} /><Icon name={tag} size={18} />{t('tag.' + tag)}</label>;
+          })}
+          <p class="hint">{t('rules.try.filterHint')}</p>
+        </fieldset>
         {trigger === 'add' && <label class="line line-check"><input type="checkbox" checked={sample.fromSuggestion} data-field="sample-chained" onChange={(e) => set({ fromSuggestion: (e.target as HTMLInputElement).checked })} /><span>{t('rules.try.fromSuggestion')}</span></label>}
       </div>
     </section>
@@ -408,7 +430,7 @@ function whyText(w: Why, c: WhyCtx): string {
   switch (w.code) {
     case 'left_out': return t('issue.rule_left_out.' + w.reason);
     case 'scope': return c.trigger === 'checkout' ? t('why.scopeCheckout') : t('why.scope', { x: c.dish });
-    case 'when': return t('why.when', { window: [c.write.days.length ? daysText(c.write.days) : '', c.write.from_time ? timeRange(c.write.from_time, c.write.to_time!, true) : ''].filter(Boolean).join(' ') });
+    case 'when': return t('why.when', { window: whenText(c.write.days, c.write.from_time, c.write.to_time) });
     case 'lacks': return t('why.lacks', { x: orList(w.found.map(c.names)) });
     case 'unavailable': return t('why.unavailable.' + w.reason, { x: c.suggestion }) + until(w.back);
     case 'option_unavailable': return t('why.option_unavailable', { x: c.suggestion }) + until(w.back);

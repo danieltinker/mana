@@ -22,6 +22,7 @@ import { sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import type { DishLimits, GroupForm } from './forms.ts';
 import { groupFieldError, groupFromForm } from './forms.ts';
+import { hhmm } from './hours.ts';
 import * as api from './menu.ts';
 import type { GroupRows, MenuData, MenuTable, Membership } from './menu.ts';
 import { byPosition, newId, nextPosition, reorder } from './rows.ts';
@@ -148,13 +149,13 @@ async function refreshRole(): Promise<MemberRole | null | undefined> {
   } catch { return undefined; /* the next load reads it */ }
 }
 
-/** Owners and managers edit the menu; a counter sees it read-only (and only marks things sold out, in a later lane). */
+/** Owners and managers edit the menu; a counter sees it read-only and takes things off and back (`canOperate`). */
 export const canEdit = () => menu.value?.role === 'owner' || menu.value?.role === 'manager';
 /** A store's write of the menu starts with this: an account that may not edit is refused before the network is asked. */
 export const mayWrite = () => { if (!canEdit()) throw new V2Error('forbidden'); };
-const editorRole = (r: MemberRole | null | undefined) => r === 'owner' || r === 'manager';
 /** Take things off and bring them back (the phone's quick actions, data/live.ts): a counter too. */
 export const canOperate = () => canEdit() || menu.value?.role === 'counter';
+const editorRole = (r: MemberRole | null | undefined) => r === 'owner' || r === 'manager';
 
 // ---------------------------------------------------------------- the rows in memory
 export type Rows = {
@@ -203,9 +204,8 @@ function withTyped(data: MenuData): MenuData {
 // ---------------------------------------------------------------- saving
 /**
  * The tables a screen may edit field by field (`patchRow`, `saveNow`): every menu table that carries `updated_at`, which
- * guards each write. A later lane's table joins by being added to `MenuTable` (and `KEY`). Opening hours and closed dates
- * are not edited field by field: a window's times are guarded by the times as read (`saveHours`), and a closed date is
- * only added or deleted.
+ * guards each write. A later lane's table joins by being added to `MenuTable` (and `KEY`). An opening window has its own
+ * save (`saveHours`, guarded on the `updated_at` its editor read); a closed date is only added or deleted.
  */
 export type AutoTable = Exclude<MenuTable, 'dish_addon_groups' | 'dish_relations' | 'venue_hours' | 'venue_closures'>;
 
@@ -395,28 +395,54 @@ export async function removeRows(table: MenuTable, ids: string[]): Promise<void>
 
 /**
  * New rows of one table for the open place, in one statement (several opening windows at once: all of them or none),
- * each with an id made here unless the screen gave one: a try sent again after a lost answer finds them stored.
+ * each with an id made here unless the screen gave one: a try sent again after a lost answer finds them stored. When it
+ * finds them stored with other values than this try's, nothing is written: `stored_earlier`, and the stored rows are on
+ * screen (the screen says so, or stores the change over them).
  */
-export function addRows<T extends MenuTable>(table: T, rows: Partial<Rows[T]>[]): Promise<Rows[T][]> {
-  const venue_id = vid();
+export async function addRows<T extends MenuTable>(table: T, rows: Partial<Rows[T]>[]): Promise<Rows[T][]> {
+  const venue_id = vid(), gen = generation;
   const list = rows.map((r) => ({ id: newId(), venue_id, ...r }) as { id: string; [column: string]: unknown });
-  return write(() => api.insertAllOnce<Rows[T]>(table, list), (out) => put(table, out));
+  try {
+    return await write(() => api.insertAllOnce<Rows[T]>(table, list), (out) => put(table, out));
+  } catch (e) {
+    const err = toV2Error(e);
+    if (err.code === 'stored_earlier' && gen === generation && Array.isArray(err.detail)) { put(table, err.detail as Rows[T][]); edits.value++; }
+    throw err;
+  }
 }
 
-/** An opening window's times: stored only while it still has the times this screen read. */
-export function saveHours(id: string, times: Pick<VenueHoursRow, 'opens' | 'closes'>): Promise<VenueHoursRow> {
-  const was = rowIn('venue_hours', id) as VenueHoursRow | undefined;
-  if (!was) return Promise.reject(new V2Error('not_found'));
+/**
+ * The opening hours and closed dates as stored now (another device may have changed them): read when the hours screen
+ * opens, comes back into view, and before hours are added. An open window editor keeps the version it read, so its
+ * save is never written over a change made meanwhile (`saveHours`).
+ */
+export async function refreshHours(): Promise<void> {
+  const d = menu.value; if (!d) return;
+  const gen = generation;
+  const [hours, closures] = await Promise.all([api.venueRows<VenueHoursRow>('venue_hours', d.venue.id), api.venueRows<VenueClosureRow>('venue_closures', d.venue.id)]);
+  if (gen !== generation || !menu.value) return;
+  menu.value = { ...menu.value, hours, closures };
+}
+
+/**
+ * An opening window's new times, stored only while the window is still the version its editor read (`expected`, its
+ * `updated_at` then): a change made on another device meanwhile is never written over. Then nothing is written, the
+ * window as stored is on screen, and `stale` is thrown. Times already stored as asked (this screen's own earlier try,
+ * whose answer was lost) are saved.
+ */
+export function saveHours(id: string, times: Pick<VenueHoursRow, 'opens' | 'closes'>, expected: string): Promise<VenueHoursRow> {
+  if (!rowIn('venue_hours', id)) return Promise.reject(new V2Error('not_found'));
   return onRow(keyOf('venue_hours', id), () => write(async () => {
-    const r = await api.updateIf<VenueHoursRow>('venue_hours', id, { opens: was.opens, closes: was.closes }, times);
+    const r = await api.updateIf<VenueHoursRow>('venue_hours', id, { updated_at: expected }, times);
     if (r.ok) return r.row;
+    if (r.why === 'stale' && hhmm(r.row.opens) === hhmm(times.opens) && hhmm(r.row.closes) === hhmm(times.closes)) return r.row;
     if (r.why === 'stale') put('venue_hours', [r.row]); else if (r.why === 'gone') drop('venue_hours', [id]);
-    throw new V2Error(r.why === 'stale' ? 'stale' : r.why === 'gone' ? 'not_found' : 'forbidden');
+    throw new V2Error(r.why === 'stale' ? 'stale' : r.why === 'gone' ? 'not_found' : 'forbidden', r.why === 'stale' ? r.row : null);
   }, (r) => put('venue_hours', [r])));
 }
 
 /** The place's own settings (what guests see of something unavailable). */
-export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display'>>): Promise<VenueRow> {
+export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display' | 'support_can_act'>>): Promise<VenueRow> {
   return write(() => api.updateVenue(vid(), patch), (venue) => {
     menu.value = { ...menu.value!, venue };
     if (memberships.value) memberships.value = memberships.value.map((x) => (x.venue.id === venue.id ? { ...x, venue } : x));
@@ -424,26 +450,62 @@ export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display'>>): P
 }
 
 /**
- * Rules in a new order: the priorities rules.ts `reprioritize` chose, on screen at once, then stored, each only while
- * the rule still has the priority this screen saw (as `moveRow` guards positions). When the order changed elsewhere,
- * the rules as stored come back and the promise says `stale`.
+ * The owner's standing switch (D25): may Halom make changes for them (`act_for_owner`, each one logged with its reason)?
+ * It takes effect at once and on its own, and the database logs every change of it. Only an owner: anyone else is
+ * refused here (`owner_only`) before the database would refuse it.
+ */
+export function setSupportCanAct(on: boolean): Promise<VenueRow> {
+  if (menu.value?.role !== 'owner') return Promise.reject(new V2Error('owner_only'));
+  return saveVenue({ support_can_act: on });
+}
+
+// The rules' order, one move after another: a move waits for this tab's earlier moves to be answered, then checks the
+// whole order as stored against what this tab expects (its earlier moves included). Another tab's reorder means nothing
+// is written, the order as stored comes back and the move says `stale`; this tab's moves queued after a refused one are
+// dropped (the order on screen is the stored one by then).
+let orderChain: Promise<unknown> = Promise.resolve();
+let orderEpoch = 0;
+
+/**
+ * Rules in a new order: the priorities rules.ts `reprioritize` chose, on screen at once, then stored in turn (above),
+ * each only while the rule still has the priority this tab gave it last (as `moveRow` guards positions).
  */
 export function setPriorities(priorities: ReadonlyMap<string, number>): Promise<void> | null {
   if (!canEdit() || !priorities.size) return null;
-  const d = menu.value!, gen = generation;
+  const d = menu.value!, gen = generation, ep = orderEpoch;
+  // the priorities as this tab will have stored them once its earlier moves are answered
   const was = new Map(d.rules.map((r) => [r.id, r.priority] as const));
   menu.value = { ...d, rules: d.rules.map((r) => (priorities.has(r.id) ? { ...r, priority: priorities.get(r.id)! } : r)) };
-  const moves = [...priorities].map(([id, priority]) => onRow(keyOf('upsell_rules', id), async () => {
-    const r = await api.updateIf<UpsellRuleRow>('upsell_rules', id, { priority: was.get(id)! }, { priority });
-    if (r.ok && gen === generation) { put('upsell_rules', [r.row]); saves.settled('upsell_rules', id, ['priority']); }
-    return r;
-  }));
-  return Promise.all(moves).then(async (results) => {
+  const refuse = async (code: string) => { orderEpoch++; await reloadMenuQuietly(); throw new V2Error(code); };
+  const run = async (): Promise<void> => {
+    if (gen !== generation || ep !== orderEpoch) return;
+    const stored = await api.venueRows<{ id: string; priority: number }>('upsell_rules', d.venue.id, 'id,priority');
+    if (gen !== generation) return;
+    if (stored.length !== was.size || !stored.every((r) => was.get(r.id) === r.priority)) return refuse('stale');
+    const results = await Promise.all([...priorities].map(([id, priority]) => onRow(keyOf('upsell_rules', id), async () => {
+      const r = await api.updateIf<UpsellRuleRow>('upsell_rules', id, { priority: was.get(id)! }, { priority });
+      // already at the new priority: this tab's own earlier try, whose answer was lost
+      if (!r.ok && r.why === 'stale' && r.row.priority === priority) return { ok: true as const, row: r.row };
+      if (r.ok && gen === generation) put('upsell_rules', [r.row]);
+      return r;
+    })));
     if (gen !== generation) return;
     edits.value++;
     const bad = results.find((r) => !r.ok);
-    if (bad && !bad.ok) { await reloadMenuQuietly(); throw new V2Error(bad.why === 'stale' ? 'stale' : bad.why === 'gone' ? 'not_found' : 'forbidden'); }
-  }, async (e) => { await reloadMenuQuietly(); throw toV2Error(e); });
+    if (bad && !bad.ok) {
+      if (bad.why !== 'stale') await refreshRole();
+      return refuse(bad.why === 'stale' ? 'stale' : bad.why === 'gone' ? 'not_found' : 'forbidden');
+    }
+  };
+  const p = orderChain.then(run, run).catch(async (e) => {
+    const err = toV2Error(e);
+    if (err.code !== 'stale' && err.code !== 'not_found' && err.code !== 'forbidden' && ep === orderEpoch) { orderEpoch++; await reloadMenuQuietly(); }
+    throw err;
+  });
+  orderChain = p.catch(() => {});
+  inflight++; settle();
+  p.finally(() => { inflight--; if (gen === generation) settle(); }).catch(() => {});
+  return p;
 }
 
 /** The open place's whole menu again (another device, or Halom, changed it); on failure the rows on screen stay. */
