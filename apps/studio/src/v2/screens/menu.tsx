@@ -9,7 +9,7 @@ import { toV2Error } from '../data/errors.ts';
 import { agorotOf, changed, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
 import { menuPrice } from '../data/guest.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
-import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows, saveNow } from '../data/store.ts';
+import { addDish, addSection, canEdit, formHolds, menu, moveRow, patchRow, removeRows, saveNow } from '../data/store.ts';
 import { leave, pass, useLeaveGuard } from '../leave.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
@@ -166,7 +166,15 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
   const [asking, setAsking] = useState(false);
   const leaveTo = useRef<(() => void) | null>(null);
   // a changed name (or kind, room, switch) is not dropped by Escape, the close button, Back or another tab: asked first
-  useLeaveGuard(canEdit() && JSON.stringify(form) !== JSON.stringify(opened), (proceed) => { leaveTo.current = proceed; setAsking(true); });
+  const holds = canEdit() && JSON.stringify(form) !== JSON.stringify(opened);
+  useLeaveGuard(holds, (proceed) => { leaveTo.current = proceed; setAsking(true); });
+  // named on the start screen if the session ends before it is saved
+  useEffect(() => {
+    if (!holds) return;
+    const key = 'sections:' + (row?.id ?? newSectionId);
+    formHolds(key, { he: form.nameHe || row?.name_he || '', en: form.nameEn || row?.name_en || '' });
+    return () => formHolds(key, null);
+  }, [holds, form.nameHe, form.nameEn]);
   if (id && !row) return <Sheet open onClose={onClose} title={t('menu.cat.edit')} name="section"><p class="muted">{t('item.notFound')}</p></Sheet>;
   const dishes = row ? d.dishes.filter((x) => x.section_id === row.id).length : 0;
   const set = (patch: Partial<SectionForm>) => { setForm({ ...form, ...patch }); setError(''); setNameErr(''); };

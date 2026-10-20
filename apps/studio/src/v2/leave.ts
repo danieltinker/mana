@@ -5,6 +5,7 @@
 import { signal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import { route } from '../ui.tsx';
+import { session } from './data/store.ts';
 
 type Ask = (proceed: () => void) => void;
 type Guard = { readonly holds: () => boolean; readonly ask: Ask };
@@ -50,7 +51,7 @@ export function pass(proceed: () => void) {
 const hashOf = (r: readonly string[]) => '#/' + r.map(encodeURIComponent).join('/');
 window.addEventListener('popstate', () => {
   const ask = holding(), g = guard.value;
-  if (!ask) return;
+  if (!ask || !session.value) return;                   // signed out (the session ended): nothing is left to guard
   history.pushState(null, '', hashOf(route.value));     // Back once more asks again
   ask(() => { released = g; history.back(); });        // leaving: back to the address the owner went to
 });

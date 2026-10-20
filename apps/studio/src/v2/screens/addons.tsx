@@ -3,7 +3,7 @@
 // a most-per-dish, an order, Hebrew and English, and one nesting level: a choice may open one group of its own. The
 // editor never offers a second level; should the database refuse one anyway (another device changed the library), its
 // answer is said in plain words and the library is shown as it now is.
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { LIMITS, type AddonGroupRow } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Ltr, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
@@ -13,7 +13,7 @@ import { leave as leaveScreen, useLeaveGuard } from '../leave.ts';
 import type { GroupRows } from '../data/menu.ts';
 import { canHoldOpeners, openTargets } from '../data/nesting.ts';
 import { byCreated, byPosition, named, newId } from '../data/rows.ts';
-import { canEdit, menu, removeRows, saveGroupForm } from '../data/store.ts';
+import { canEdit, formHolds, menu, removeRows, saveGroupForm } from '../data/store.ts';
 import { langsOf, ruleLine, shekels } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { Icon2, LangSeg, MoneyInput, ReadOnly, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
@@ -96,6 +96,14 @@ function GroupEditor({ id }: { id: string | null }) {
   const dirty = shape(form) !== base;
   // a group form with changes is not left without asking (the back link, the bottom bar, another place)
   useLeaveGuard(editable && dirty, (proceed) => { leaveTo.current = proceed; setLeave(true); });
+  // named on the start screen if the session ends before it is saved
+  const holds = editable && dirty;
+  useEffect(() => {
+    if (!holds) return;
+    const key = 'addon_groups:' + gid;
+    formHolds(key, { he: form.nameHe || row?.name_he || '', en: form.nameEn || row?.name_en || '' });
+    return () => formHolds(key, null);
+  }, [holds, form.nameHe, form.nameEn]);
   if (id && !row) return <div class="page"><a class="backlink" href="#/addons"><Icon name="chev" size={16} back />{t('lib.title')}</a><p class="muted">{t('lib.notFound')}</p></div>;
 
   const nested = !canHoldOpeners(id, d.options);

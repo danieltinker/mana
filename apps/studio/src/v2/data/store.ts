@@ -90,14 +90,23 @@ function endSession() {
   if (!sessionEnded.value) sessionEnded.value = { unsaved: unsavedNames() };
   signOut();
 }
-/** The rows with a change not stored (typed, failed, or waiting for a decision), by name. */
-function unsavedNames(): { he: string; en: string }[] {
-  const out: { he: string; en: string }[] = [];
+type Names = { readonly he: string; readonly en: string };
+/** Forms that hold changes not sent yet (a group form, a section sheet), by key: their names are said when the session ends. */
+const heldForms = new Map<string, Names>();
+/** A form says it holds changes not sent yet (`name`), or no longer does (null). */
+export function formHolds(key: string, name: Names | null) {
+  if (name) heldForms.set(key, name); else heldForms.delete(key);
+}
+/** The rows with a change not stored (typed, failed, waiting for a decision, or held in a form), by name. */
+function unsavedNames(): Names[] {
+  const out: Names[] = [];
+  const add = (n: Names) => { if ((n.he || n.en) && !out.some((x) => x.he === n.he && x.en === n.en)) out.push(n); };
   for (const key of saves.typedKeys()) {
     const [table, id] = key.split(':') as [MenuTable, string];
     const r = rowIn(table, id) as { name_he?: string; name_en?: string } | undefined;
-    if (r && (r.name_he || r.name_en)) out.push({ he: r.name_he ?? '', en: r.name_en ?? '' });
+    if (r) add({ he: r.name_he ?? '', en: r.name_en ?? '' });
   }
+  for (const n of heldForms.values()) add(n);
   return out;
 }
 
@@ -290,7 +299,7 @@ function settle() {
 function clearSaves() {
   saves.clear();
   conflicts.value = [];
-  storedAt.clear(); droppedAt.clear(); lostGroupSaves.clear();
+  storedAt.clear(); droppedAt.clear(); lostGroupSaves.clear(); heldForms.clear();
 }
 
 /**
