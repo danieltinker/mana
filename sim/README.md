@@ -161,6 +161,9 @@ in memory, and the model call answers a recorded reply (nothing paid, nothing le
 `e2e/studio-v2-saving.test.mjs`: saving on a slow, failing or forgetful network (two edits in flight, a stale or lost
 answer, retries inside an open sheet and when the connection returns), two tabs on a section and a group, links and
 quick adds tried again, a manager made counter or removed, a counter on eleven addresses, and the ways out that ask.
+`e2e/walkthrough.test.mjs` is the client walkthrough (D38, `e2e/walkthrough/`, `docs/demo-walkthrough.md`): all three
+sides in one run on the invented café of `e2e/fixtures/walkthrough-cafe.mjs`, the owner signing up in the browser
+(`signup: 'open'`), each step within its budget, twice on one stack; its pages are in `e2e/.out/walkthrough/`.
 `node tools/test-all.mjs e2e` builds the site first; `cd e2e && npm test` uses the last build; screenshots in `e2e/.out/`.
 
 ## Not yet

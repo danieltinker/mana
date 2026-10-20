@@ -100,7 +100,9 @@ screens as they land.
 looked for as `tools/demo-scenarios/<name>.mjs` (synthetic data only) and then `private/demo-scenarios/<name>.mjs`
 (git-ignored: a client's walkthrough never enters the repository). The module exports
 `async run({ config, origin, root, outDir, log })` and may return `{ links: [[label, '/m/<slug>'], …] }`, which are
-printed with the others.
+printed with the others. `npm run dev:local -- --scenario <name> [--exit]` runs the same modules on the simulator's
+stack (Linux), with `stack` in their context and the stack's sign-up open; `--exit` stops once the scenario has run.
+The client walkthrough is one (`client-walkthrough`, synthetic; a client's own is private): `docs/demo-walkthrough.md`.
 
 - A private scenario's name and path are never listed or printed: an unknown name lists only `tools/demo-scenarios/`'s,
   says "or a private one", and stops before anything is built, with exit code 2; a private one is announced as "the
