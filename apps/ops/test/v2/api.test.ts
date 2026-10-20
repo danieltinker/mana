@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { ID } from '@mana/contracts/fixtures';
 import { validateActForOwner, type ActForOwnerInput } from '@mana/contracts';
 import { failOf, opsApi, type Backend } from '../../src/v2/api.ts';
-import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, ownerEdit, padLog, publish, world } from './fake.ts';
+import { HOSTILE, USERS, VENUE, addTraffic, fakeBackend, ownerEdit, padLog, publish, restore, world } from './fake.ts';
 
 const NOW = Date.parse('2026-10-16T09:30:00Z');
 const at = () => NOW;
@@ -94,12 +94,25 @@ test('approve (H2): the database approves only the revision reviewed; a newer pu
   const r = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 });
   assert.ok(!r.ok && r.kind === 'refused' && r.code === 'revision_changed');
   if (!r.ok) {
-    assert.match(r.message, /newer revision since your review\. Nothing was approved/);
-    assert.equal(r.reply?.revision, 3, 'the reply names the newest');
+    assert.match(r.message, /published revision changed since your review\. Nothing was approved/);
+    assert.equal(r.reply?.revision, 3, 'the reply names the published one');
   }
   const d = await api.venue(VENUE.demo);
   assert.ok(d.ok && d.data.venue.review === 'pending' && d.data.venue.menu.revision === 3);
   assert.ok((await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 3 })).ok);
+});
+
+test('approve: the revision named is the published one (what guests will see), not the newest after a restore', async () => {
+  const { w, api } = setup();
+  publish(w, VENUE.demo);                                       // revision 3 ...
+  restore(w, VENUE.demo, 2);                                    // ... then the owner goes back to revision 2
+  const d = await api.venue(VENUE.demo);
+  assert.ok(d.ok && d.data.venue.menu.revision === 2, 'published: 2');
+  const newest = await api.revision({ venueId: VENUE.demo });
+  assert.ok(newest.ok && newest.data.latest === 3 && newest.data.revision.number === 3 && !newest.data.revision.live, 'the newest stored is 3, not published');
+  const wrong = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 3 });
+  assert.ok(!wrong.ok && wrong.code === 'revision_changed' && wrong.reply?.revision === 2);
+  assert.ok((await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 })).ok);
 });
 
 test('plan (M1): a plan never lets guests in before the first publish is approved', async () => {

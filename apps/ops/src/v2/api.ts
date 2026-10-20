@@ -80,7 +80,7 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   empty_menu: 'The menu has no dish guests can see, so there is nothing to publish.',
   invalid_menu: 'The menu has a problem that stops a publish; the owner app lists it.',
   revision_unknown: 'That revision does not exist.',
-  revision_changed: 'The owner published a newer revision since your review. Nothing was approved: read it and review again.',
+  revision_changed: 'The owner’s published revision changed since your review. Nothing was approved: read it and review again.',
   approval_first: 'A plan does not approve a venue: approve its first publish first, after reading its menu.',
   stale: 'The owner changed this since your review. Nothing was changed: review it again.',
   revision_invalid: 'That is not a revision number.',

@@ -6,7 +6,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { USERS, addTraffic, fakeBackend, ownerEdit, ownerStep, padLog, publish, world } from './fake.ts';
+import { USERS, addTraffic, fakeBackend, ownerEdit, ownerStep, padLog, publish, restore, world } from './fake.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DIST = path.join(root, 'dist');
@@ -51,6 +51,7 @@ export function createStub() {
         if (c.faults) S.w.faults = c.faults;
         if (c.delays) S.w.delays = c.delays;                                  // { fn: ms }: a slow database
         if (c.publish) publish(S.w, c.publish);                               // the owner publishes again
+        if (c.restore) restore(S.w, c.restore.venueId, c.restore.revision);   // the owner goes back to an earlier revision
         if (c.ownerEdit) ownerEdit(S.w, c.ownerEdit.dishId, c.ownerEdit.patch); // the owner changes a dish in the owner app
         if (c.padLog) padLog(S.w, c.padLog.venueId, c.padLog.n);              // a long history
         if (c.ownerStep) ownerStep(S.w, c.ownerStep.venueId, c.ownerStep.step, c.ownerStep.state); // the owner marks a step

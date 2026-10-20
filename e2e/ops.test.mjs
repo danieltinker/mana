@@ -279,7 +279,7 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     const approve = p.locator('[data-write=approve]');
     await approve.locator('[data-reason]').fill('Synthetic menu checked, e2e');
     await approve.locator('[data-review]').click();
-    assert.match(await approve.locator('[data-what]').innerText(), /\(revision 1\)/);
+    assert.match(await approve.locator('[data-what]').innerText(), /\(revision 1, the published one\)/);
     await approve.locator('[data-go]').click();
     await p.locator('[data-badge=review-approved]').waitFor({ timeout: 10_000 }).catch(async (err) => {
       const said = await approve.locator('[data-write-error]').innerText().catch(() => '');

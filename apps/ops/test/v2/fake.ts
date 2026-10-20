@@ -382,6 +382,17 @@ export function publish(w: World, venueId: string, o: Partial<ActivityEntry> = {
   return number;
 }
 
+/** The owner goes back to an earlier stored revision (`restore_revision`): it is published again; the newest stays stored. */
+export function restore(w: World, venueId: string, number: number): boolean {
+  const v = find(w, venueId);
+  const r = v?.revisions.find((x) => x.number === number);
+  if (!v || !r) return false;
+  v.snapshot = structuredClone(r.snapshot);
+  v.row.menu = { ...v.row.menu, revision: number, lastPublishedAt: iso(w.now()) };
+  log(w, v, 'menu.restore', { actorKind: 'owner', via: 'rpc', detail: { revision: number } });
+  return true;
+}
+
 /** The owner changes a dish in the owner app (a new `updated_at`, as the database's touch trigger gives it). */
 export function ownerEdit(w: World, dishId: string, patch: { price?: number | null; hidden?: boolean }): void {
   for (const v of w.venues) {
@@ -589,8 +600,9 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       if (!v) return { ok: false, code: 'venue_unknown' };
       if (v.row.approvedAt) return { ok: false, code: 'already_approved' };
       if (!v.row.menu.firstPublishedAt) return { ok: false, code: 'not_published' };
-      // the round-3 signature: approves the revision the review named, only while it is still the newest
-      const latest = v.revisions.at(-1)?.number ?? v.row.menu.revision;
+      // round 3: approves the revision the review named, only while it is still the published one (what guests will see;
+      // after a restore it is not the newest)
+      const latest = v.row.menu.revision;
       if (a.p_expected_revision !== latest) return { ok: false, code: 'revision_changed', revision: latest };
       v.row.approvedAt = iso(w.now()); v.row.review = 'approved';
       v.row.warnings = v.row.warnings.filter((x) => x !== 'awaiting_review');

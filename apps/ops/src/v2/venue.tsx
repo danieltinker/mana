@@ -157,8 +157,10 @@ const approvedText = (d: Ok<ApproveVenueReply>): string =>
   `Approved. Guests can open the menu now${d.trialEndsAt ? `; the trial runs until ${fmtDate(d.trialEndsAt)}` : ''}.`;
 
 /**
- * Approves the revision the review named, and only that one (`p_expected_revision`): if the owner publishes again while
- * the review is open, the review is dropped; if they published just before the call, the database refuses.
+ * Approves the revision the review named, and only that one (`p_expected_revision`): the venue's published revision
+ * (`menu.revision`), the one guests will see, which after a restore is not the newest stored one. If the published
+ * revision changes while the review is open, the review is dropped; if it changed just before the call, the database
+ * refuses (`revision_changed`, with the published number).
  */
 function Approve({ detail, refresh, onApproved }: { detail: OpsVenueDetail; refresh: () => Promise<boolean>; onApproved: (text: string) => Promise<boolean> }) {
   const { api } = useCtx();
@@ -168,19 +170,19 @@ function Approve({ detail, refresh, onApproved }: { detail: OpsVenueDetail; refr
   return (
     <section class="panel p-approve is-attention" aria-labelledby="approve-h" data-panel="approve">
       <div class="panel-head"><h2 id="approve-h">First publish waits for your approval</h2>
-        <p class="muted small">Published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
-          Read the menu below first.</p></div>
+        <p class="muted small">First published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
+          Read the menu below first: approving lets guests see revision {rev ?? '—'}, the published one.</p></div>
       <div class="panel-body">
         <Write<ApproveVenueInput, Ok<ApproveVenueReply>> id="approve" submit="Approve"
-          changed={{ key: rev, note: `The owner published revision ${rev ?? '—'} while you were reviewing. Nothing was approved: read it below, then review again.` }}
+          changed={{ key: rev, note: `The owner’s published menu is now revision ${rev ?? '—'}: it changed while you were reviewing. Nothing was approved: read it below, then review again.` }}
           plan={() => (rev === null ? { ok: false, why: 'Nothing is published to approve yet.' }
-            : { ok: true, what: `Approve ${name}’s first publish (revision ${rev}): guests can open the menu at once, and the trial starts.`,
+            : { ok: true, what: `Approve ${name}’s first publish (revision ${rev}, the published one): guests see that revision at once, and the trial starts.`,
               input: { venueId: v.id, reason: '', expectedRevision: rev } })}
           run={(input, reason) => api.approve({ ...input, reason })}
           done={approvedText}
           onFail={(f) => {
             if (f.kind === 'refused') void refresh();
-            return f.code === 'revision_changed' && typeof f.reply?.revision === 'number' ? `The newest is revision ${f.reply.revision}.` : null;
+            return f.code === 'revision_changed' && typeof f.reply?.revision === 'number' ? `The published one is revision ${f.reply.revision} now.` : null;
           }}
           onDone={(d) => onApproved(approvedText(d))} />
       </div>

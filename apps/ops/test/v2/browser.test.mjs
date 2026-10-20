@@ -184,7 +184,9 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     // the menu to approve: the newest stored revision, compared with the one before; each read is in the timeline
     const rev = page.locator('[data-panel=revision] [data-revision="2"]');
     await rev.waitFor();
-    assert.deepEqual(calls('ops_revision').map((c) => c.args), [{ p_venue: VENUE.demo, p_revision: null }, { p_venue: VENUE.demo, p_revision: 1 }]);
+    assert.deepEqual(calls('ops_revision').map((c) => c.args), [{ p_venue: VENUE.demo, p_revision: 2 }, { p_venue: VENUE.demo, p_revision: 1 }],
+      'the published revision (the one approved), then the one before');
+    assert.match(await rev.locator('[data-badge=guests-see]').innerText(), /published: guests see this once you approve/);
     const diff = await page.locator('[data-panel=revision] [data-diff]').innerText();
     assert.match(diff, /Since revision 1/);
     assert.match(diff, /1 dish added: Lemonade/);
@@ -201,7 +203,7 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     assert.equal(calls('ops_approve_venue').length, 0);
     await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
     await approve.locator('[data-review]').click();
-    assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish \(revision 2\)/);
+    assert.match(await approve.locator('[data-what]').innerText(), /Approve Café Demo’s first publish \(revision 2, the published one\): guests see that revision at once/);
     assert.equal(await focused(page), 'review', 'the review gets the focus');
     await approve.locator('[data-go]').click();
     await page.locator('[data-badge=review-approved]').waitFor();
@@ -308,30 +310,58 @@ test('approve (H2): only the revision reviewed; a newer publish is refused by th
   const approve = page.locator('[data-write=approve]');
   await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
   await approve.locator('[data-review]').click();
-  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 2\)/);
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 2, the published one\)/);
   await control({ publish: VENUE.demo });                        // the owner publishes revision 3 before Halom clicks Approve
   await approve.locator('[data-go]').click();
   await approve.locator('[data-write-error]').waitFor();
-  assert.match(await approve.locator('[data-write-error]').innerText(), /Not done: The owner published a newer revision since your review\. Nothing was approved/);
+  assert.match(await approve.locator('[data-write-error]').innerText(),
+    /Not done: The owner’s published revision changed since your review\. Nothing was approved: read it and review again\. The published one is revision 3 now\./);
   assert.deepEqual(calls('ops_approve_venue').map((c) => c.args.p_expected_revision), [2]);
   assert.equal(await approve.locator('[data-review]').count(), 1, 'back to the fields');
   await page.locator('[data-panel=revision] [data-revision="3"]').waitFor();   // the page refreshed and read the new menu
   assert.equal(await page.locator('[data-badge=review-pending]').count(), 1, 'still waiting');
   await approve.locator('[data-review]').click();
-  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 3\)/);
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 3, the published one\)/);
   await control({ publish: VENUE.demo });                        // and again, while this review is open
   await page.locator('[data-refresh]').click();
   await approve.locator('[data-write-dropped]').waitFor();
-  assert.match(await approve.locator('[data-write-dropped]').innerText(), /The owner published revision 4 while you were reviewing\. Nothing was approved/);
+  assert.match(await approve.locator('[data-write-dropped]').innerText(), /The owner’s published menu is now revision 4: it changed while you were reviewing\. Nothing was approved/);
   assert.equal(calls('ops_approve_venue').length, 1, 'nothing sent');
   await page.locator('[data-panel=revision] [data-revision="4"]').waitFor();
   await approve.locator('[data-review]').click();
-  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 4\)/);
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 4, the published one\)/);
   await approve.locator('[data-go]').click();
   // the approval panel gives way to its result once the venue is approved
   await page.locator('[data-panel=approved] [data-write-result]').waitFor();
   assert.deepEqual(calls('ops_approve_venue').map((c) => c.args.p_expected_revision), [2, 4]);
   await page.locator('[data-badge=review-approved]').waitFor();
+  clean(problems);
+});
+
+test('approve: after a restore, the menu to approve and the approval are the published revision, not the newest; the panel says which guests will see', async () => {
+  await control({ publish: VENUE.demo });                         // revision 3 ...
+  await control({ restore: { venueId: VENUE.demo, revision: 2 } }); // ... then the owner goes back to revision 2
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const panel = page.locator('[data-panel=revision]');
+  await panel.locator('[data-revision="2"]').waitFor();
+  assert.equal(calls('ops_revision')[0].args.p_revision, 2, 'the published one by default');
+  assert.match(await panel.locator('.panel-head').innerText(), /Revision 2, the published one.*what guests will see once you approve, and the revision the approval names/s);
+  assert.match(await panel.locator('[data-badge=guests-see]').innerText(), /published: guests see this once you approve/);
+  // the newest stored revision is there to read, labelled as not what guests will see
+  await panel.locator('[data-revision-pick]').selectOption('newest');
+  await panel.locator('[data-revision="3"]').waitFor();
+  assert.match(await panel.locator('[data-not-published]').innerText(), /Guests will see revision 2 once you approve, not this one/);
+  assert.equal(await panel.locator('[data-badge=guests-see]').count(), 0);
+  await panel.locator('[data-revision-compare]').selectOption('2');
+  await until(() => panel.locator('[data-diff]').evaluate((el) => el.textContent.includes('(the published one)')), true, 'the comparison names the published revision');
+  const approve = page.locator('[data-write=approve]');
+  await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
+  await approve.locator('[data-review]').click();
+  assert.match(await approve.locator('[data-what]').innerText(), /\(revision 2, the published one\): guests see that revision at once/);
+  await approve.locator('[data-go]').click();
+  await page.locator('[data-panel=approved] [data-write-result]').waitFor();
+  assert.deepEqual(calls('ops_approve_venue').map((c) => c.args.p_expected_revision), [2]);
   clean(problems);
 });
 
