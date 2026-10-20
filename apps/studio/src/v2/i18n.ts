@@ -306,6 +306,7 @@ const S: Record<string, [string, string]> = {
   'hours.addGo': ['הוספה', 'Add'],
   'hours.days': ['ימים', 'Days'],
   'hours.overnight': ['שעת סיום מוקדמת משעת ההתחלה ממשיכה אל אחרי חצות.', 'An end before the start runs past midnight.'],
+  'hours.changedElsewhere': ['השעות האלה השתנו במכשיר אחר בזמן שהעורך פתוח: עכשיו {range}. שמירה לא תדרוס את השינוי בלי לשאול.', 'These hours were changed on another device while this was open: now {range}. Saving will not write over it without asking.'],
   'hours.allDay': ['אותה שעה בפתיחה ובסגירה: פתוח 24 שעות.', 'The same time to open and to close: open the full 24 hours.'],
   'hours.added': ['נוספו שעות: {days} {range}', 'Hours added: {days} {range}'],
   'closures.title': ['ימים סגורים', 'Closed dates'],
@@ -497,7 +498,6 @@ const S: Record<string, [string, string]> = {
   'why.option_chosen': ['התוספת {x} כבר נבחרה (היא מסומנת מראש).', 'The add-on {x} is already chosen (it is pre-selected).'],
   'why.option_would_replace': ['האורח כבר בחר בקבוצה הזאת, והצעה אף פעם לא מחליפה את הבחירה שלו.', 'The guest already chose in this group, and a suggestion never replaces their choice.'],
   'why.option_full': ['במנה הזאת כבר נבחר המקסימום מהקבוצה.', 'The most this dish allows from the group is already chosen.'],
-  'why.other': ['לא תוצג הצעה.', 'Nothing would be suggested.'],
 
   // ---- Home: where the menu stands, nudges, quick actions, what is off, at a glance (F08)
   'nav2.activity': ['פעילות', 'Activity'],

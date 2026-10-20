@@ -10,11 +10,14 @@ import {
 } from '@mana/contracts';
 import { DISHES, ID, cafeDemo, liveOf } from '@mana/contracts/fixtures';
 import { lang } from '../../src/lib/i18n.ts';
-import { UNTIL_CHOICES, availabilityApi, backAt, liveOverlayOf, offEntries, offState, offToday, targetsOf, untilSpecOf } from '../../src/v2/data/availability.ts';
+import {
+  UNTIL_CHOICES, availabilityApi, backAt, channelMode, liveDelay, liveOverlayOf, offEntries, offState, offToday, targetsOf, untilSpecOf,
+} from '../../src/v2/data/availability.ts';
+import { sameStored } from '../../src/v2/data/rows.ts';
 import { V2Error } from '../../src/v2/data/errors.ts';
 import { closureFromForm, hoursFromForm, isAllDay, newScheduleForm, scheduleFromForm, scheduleToForm, venueHoursOf } from '../../src/v2/data/hours.ts';
 import { newRuleForm, nextPriority, previewRule, ranked, reprioritize, ruleFromForm, ruleToForm, ruleV2, sampleAt, shownOf } from '../../src/v2/data/rules.ts';
-import { daysText, momentText, orList, ruleSummary } from '../../src/v2/words.ts';
+import { daysText, momentText, orList, ruleSummary, whenText } from '../../src/v2/words.ts';
 
 const TZ = 'Asia/Jerusalem';
 const V = ID.venue;
@@ -533,4 +536,49 @@ test('the contracts decide: a stored rule written back as rows and previewed ans
     });
     assert.deepEqual(p.shown, want, `${time} ${basket}`);
   }
+});
+
+test('"off now" kept current: a removed channel\'s CLOSED changes nothing; the safety poll beside Realtime (ADR-007)', () => {
+  // this place's channel
+  assert.equal(channelMode('SUBSCRIBED', true), 'realtime');
+  for (const st of ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED']) assert.equal(channelMode(st, true), 'polling', st);
+  // a channel removed with an earlier place or account: its CLOSED (and anything else) starts nothing
+  for (const st of ['CLOSED', 'CHANNEL_ERROR', 'SUBSCRIBED']) assert.equal(channelMode(st, false), null, st);
+  assert.equal(channelMode('JOINING', true), null);
+  // beside a subscription the slow safety poll (60 s), alone every 15 s; doubled per failure, never above two minutes
+  const mid = () => 0.5;
+  assert.equal(liveDelay('realtime', 0, mid), 60_000);
+  assert.equal(liveDelay('polling', 0, mid), 15_000);
+  assert.equal(liveDelay('polling', 2, mid), 60_000);
+  assert.equal(liveDelay('realtime', 3, mid), 120_000);
+});
+
+test('a retried insert compares what was sent with what is stored: times with seconds, blank ends, jsonb keys in any order', () => {
+  assert.equal(sameStored('07:00', '07:00:00'), true);
+  assert.equal(sameStored('07:00', '07:30:00'), false);
+  assert.equal(sameStored(' בוקר ', 'בוקר'), true);
+  // Postgres gives a jsonb object's keys back in its own order
+  const sent = [{ days: [0, 2, 3], from: '07:00', to: '11:00' }];
+  const stored = [{ to: '11:00', days: [0, 2, 3], from: '07:00' }];
+  assert.equal(JSON.stringify(sent) === JSON.stringify(stored), false, 'what the old comparison saw');
+  assert.equal(sameStored(sent, stored), true);
+  assert.equal(sameStored(sent, [{ to: '12:00', days: [0, 2, 3], from: '07:00' }]), false);
+  assert.equal(sameStored(sent, [{ to: '11:00', days: [0, 3, 2], from: '07:00' }]), false, 'an array keeps its order');
+  assert.equal(sameStored(null, undefined), true);
+  assert.equal(sameStored([1], [1, 2]), false);
+});
+
+test('a rule\'s days and hours, in the summary and in the preview\'s "not at this time": past midnight it says the day it runs into', () => {
+  inLang('en', () => {
+    assert.equal(plain(whenText([5], '22:00:00', '02:00:00')), 'Fri 22–2 (into Saturday)');
+    assert.equal(plain(whenText([4, 5], '22:00', '02:00')), 'Thu, Fri 22–2 (into the next day)');
+    assert.equal(plain(whenText([], '07:00', '11:00')), '7–11');
+    assert.equal(plain(whenText([0, 1, 2, 3, 4], null, null)), 'Sun–Thu');
+    assert.equal(whenText([], null, null), '');
+  });
+  inLang('he', () => assert.equal(plain(whenText([5], '22:00', '02:00')), 'ו׳ 22–2 (ממשיך לשבת)'));
+  // the preview's reason reads the same words (rules.tsx whyText: why.when with whenText)
+  const r = row({ trigger: 'sheet', days: [5], from_time: '22:00:00', to_time: '02:00:00', suggest_dish_id: ID.lemonade });
+  const p = preview(r, { weekday: 3, time: '12:00', dishId: ID.espresso });
+  assert.deepEqual(p.why, { code: 'when' });
 });

@@ -153,18 +153,23 @@ export function DayRow({ day, rows, editable }: { day: Weekday; rows: VenueHours
 /** One opening window: change its times or remove it. */
 function WindowEditor({ row, onDone }: { row: VenueHoursRow; onDone: () => void }) {
   const d = menu.value!;
+  // the window as this editor read it: the save is guarded on its updated_at, so a change made on another device while
+  // the editor is open is never written over without the owner's say
+  const [opened, setOpened] = useState(row);
   const [from, setFrom] = useState(hhmm(row.opens)), [to, setTo] = useState(hhmm(row.closes));
   const [error, setError] = useState(''), [busy, setBusy] = useState('');
+  // read again meanwhile (the screen came back into view, another tab): the editor says so at once
+  const movedElsewhere = row.updated_at !== opened.updated_at;
   async function save() {
     const m = hoursFromForm([row.weekday], from, to, d.hours, row.id);
     if (!m.ok) { setError(firstError(m.errors)); return; }
     setBusy('save');
-    try { await saveHours(row.id, { opens: from, closes: to }); onDone(); }
+    try { await saveHours(row.id, { opens: from, closes: to }, opened.updated_at); onDone(); }
     catch (e) {
       const code = toV2Error(e).code;
-      // changed on another screen meanwhile: the times as stored now, to change again
+      // changed on another device meanwhile: nothing was written; the times as stored now, to change again
       const now = code === 'stale' ? menu.value?.hours.find((h) => h.id === row.id) : null;
-      if (now) { setFrom(hhmm(now.opens)); setTo(hhmm(now.closes)); }
+      if (now) { setOpened(now); setFrom(hhmm(now.opens)); setTo(hhmm(now.closes)); }
       setError(errText(code));
     }
     finally { setBusy(''); }
@@ -176,6 +181,8 @@ function WindowEditor({ row, onDone }: { row: VenueHoursRow; onDone: () => void 
   }
   return (
     <div class="hoursedit" data-hours-edit={row.id}>
+      {movedElsewhere && <p class="line line-warn" role="status" data-hours-changed>
+        <Icon name="alert" /><span>{t('hours.changedElsewhere', { range: timeRange(hhmm(row.opens), hhmm(row.closes)) })}</span></p>}
       <TimePair id="edit" allDay from={from} to={to} onFrom={(v) => { setFrom(v); setError(''); }} onTo={(v) => { setTo(v); setError(''); }} />
       {error && <p class="ferr" role="alert">{error}</p>}
       <div class="btnrow">
@@ -405,9 +412,24 @@ function ScheduleSheet({ id, kind, onClose }: { id: string | null; kind: Schedul
     try {
       if (row) {
         const was = scheduleFromForm(opened);
+        const patch = was.ok ? changed(was.value, m.value) : m.value;
+        // read again while open, and a column the owner changed moved elsewhere too: shown as stored, nothing written
+        const stored = scheduleFromForm(scheduleToForm(row));
+        if (was.ok && stored.ok && Object.keys(patch).some((k) => JSON.stringify(stored.value[k as keyof typeof patch]) !== JSON.stringify(was.value[k as keyof typeof patch]))) {
+          const f = scheduleToForm(row); setForm(f); setOpened(f); setError(errText('stale')); return;
+        }
         // 'conflict': changed somewhere else; the dialog asks, the sheet stays and follows the owner's choice (resync)
-        if (await saveNow('schedules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'conflict') return;
-      } else await addRows('schedules', [{ id: newScheduleId, ...m.value }]);
+        if (await saveNow('schedules', row.id, patch) === 'conflict') return;
+      } else {
+        try { await addRows('schedules', [{ id: newScheduleId, ...m.value }]); }
+        catch (e) {
+          // an earlier try was stored (its answer was lost): the sheet's values go over it (guarded), then it closes
+          if (toV2Error(e).code !== 'stored_earlier') throw e;
+          const had = menu.value?.schedules.find((x) => x.id === newScheduleId);
+          const then = had ? scheduleFromForm(scheduleToForm(had)) : null;
+          if (had && then?.ok && await saveNow('schedules', newScheduleId, changed(then.value, m.value)) === 'conflict') return;
+        }
+      }
       toast(t('parts.saved')); onClose();
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }

@@ -56,11 +56,14 @@ function nameOf(kind: Kind, id: string): string | null {
 }
 
 /** Now, read again every second while a sheet that shows moments is open. */
-function useSecondClock(): number {
+function useSecondClock(): [number, () => void] {
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  return now;
+  return [now, () => setNow(Date.now())];
 }
+
+/** The next frame: what the sheet shows is on screen before the call goes. */
+const painted = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
 
 /** A dish's section, when it is off now. */
 function sectionOff(kind: Kind, id: string): boolean {
@@ -71,7 +74,7 @@ function sectionOff(kind: Kind, id: string): boolean {
 
 export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onClose: () => void }) {
   const d = menu.value!;
-  const now = useSecondClock(), tz = d.venue.time_zone;
+  const [now, readClock] = useSecondClock(), tz = d.venue.time_zone;
   const k = KINDS.includes(kind as Kind) ? (kind as Kind) : null;
   const name = k ? nameOf(k, id) : null;
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [open, setOpen] = useState<'time' | 'date' | null>(null);
@@ -92,6 +95,9 @@ export function OffSheet({ kind, id, onClose }: { kind: string; id: string; onCl
     if (busy) return;
     setBusy(choice); setError('');
     try {
+      // the clock read again just before the call, so the moment on screen is the one sent for (at :59.8 the minute
+      // can still turn on the way: the toast says the moment stored)
+      readClock(); await painted();
       const until = await takeOff(target, untilSpecOf(choice, value));
       toast(name + ': ' + (until ? t('off.state.until', { when: momentText(new Date(until), Date.now(), tz) }) : t('off.state.indefinite')));
       onClose();
@@ -182,12 +188,12 @@ function DishChoices({ dishId }: { dishId: string }) {
         const off = groupOff(g!.id);
         return (
           <ul key={g!.id} class="rows" aria-label={named(g!, L)}>
-            <li class="row"><a class="row-main offrow" href={'#/menu/a/group/' + g!.id} data-off-group={g!.id}>
+            <li class="row"><a class="row-main offrow" href={'#/menu/a/group/' + g!.id + '/' + dishId} data-off-group={g!.id}>
               <span class="row-text"><span class="row-name">{named(g!, L)}</span><span class="row-sub fine">{t('off.group')}</span></span>
               {off.n > 0 && <span class="badge badge-out">{t('off.groupState', { n: off.n, m: off.of })}</span>}
             </a></li>
             {byPosition(d.options.filter((o) => o.group_id === g!.id)).map((o) => (
-              <li key={o.id} class="row"><a class="row-main offrow" href={'#/menu/a/option/' + o.id} data-off-option={o.id}>
+              <li key={o.id} class="row"><a class="row-main offrow" href={'#/menu/a/option/' + o.id + '/' + dishId} data-off-option={o.id}>
                 <span class="row-text"><span class="row-name">{named(o, L) || t('menu2.unnamed')}</span></span>
                 <OffBadge kind="option" id={o.id} />
               </a></li>

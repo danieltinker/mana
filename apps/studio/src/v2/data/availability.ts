@@ -3,7 +3,7 @@
 // until when is the contracts' isAvailable; the moments are the contracts' resolveUntil, in the venue's time zone (the
 // database stores the same moment). The writes are set_availability and restore_today (ADR-008), each input checked
 // first with the contracts' validator. Pure: the RPC is passed in, so the tests run every call against a fake.
-import { isAvailable, isOpenAt, localParts, nextOpening, resolveUntil, validateRestoreToday, validateSetAvailability } from '@mana/contracts';
+import { LIVE_REFRESH, isAvailable, isOpenAt, localParts, nextOpening, pollDelay, resolveUntil, validateRestoreToday, validateSetAvailability } from '@mana/contracts';
 import type {
   AddonOptionRow, AvailabilityOverrideRow, LiveOverlay, OffEntry, RestoreTodayReply, SetAvailabilityInput, SetAvailabilityReply, TargetKind, UntilSpec,
   VenueHours,
@@ -66,6 +66,25 @@ export function offToday<T extends OverrideRow>(rows: readonly T[], now: number,
   return rows.filter((r) => r.restored_at === null && (r.until_at === null || Date.parse(r.until_at) > now)
     && Date.parse(r.starts_at) <= now && localParts(Date.parse(r.starts_at), timeZone).date === today);
 }
+
+// ---------------------------------------------------------------- keeping "off now" current (ADR-007)
+/** Realtime messages with the slow safety poll beside them, or polling alone (no Realtime here, or the channel failed). */
+export type LiveMode = 'realtime' | 'polling';
+
+/**
+ * What a Realtime channel's status means for "off now". `current` is false for a channel removed with an earlier place
+ * or account (its CLOSED comes after the switch): that one changes nothing.
+ */
+export function channelMode(status: string, current: boolean): LiveMode | null {
+  if (!current) return null;
+  if (status === 'SUBSCRIBED') return 'realtime';
+  if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') return 'polling';
+  return null;
+}
+
+/** The wait before the next fetch: `pollMs.owner` while polling, `safetyMs` beside a subscription, with the backoff. */
+export const liveDelay = (mode: LiveMode, failures: number, random?: () => number): number =>
+  pollDelay(mode === 'realtime' ? LIVE_REFRESH.safetyMs : LIVE_REFRESH.pollMs.owner, failures, random);
 
 /** The schema's targets behind what the owner picked: a group is each of its choices. */
 export function targetsOf(t: OffTarget, options: readonly Pick<AddonOptionRow, 'id' | 'group_id'>[]): { kind: TargetKind; id: string }[] {

@@ -17,7 +17,7 @@ import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
 import { HelpButton } from './screens/help.tsx';
 import { StartScreen } from './screens/start.tsx';
 import { VenueNewScreen } from './screens/venue-new.tsx';
-import { ErrorLine, Icon2 } from './ui.tsx';
+import { ErrorLine, Icon2, takeFocusOnReturn } from './ui.tsx';
 // while a first publish waits for Halom, the open place learns of the approval by itself (backlog B4)
 import './data/approval.ts';
 
@@ -54,8 +54,11 @@ function useFocusOnNewScreen() {
   const first = useRef(true);
   useEffect(() => {
     document.documentElement.dataset.route = route.value[0] || 'home';
+    const back = takeFocusOnReturn();                  // a sheet just closed: the focus goes back to what opened it
     if (first.current) { first.current = false; return; }
     if (document.querySelector('dialog[open]')) return;
+    const opener = back ? (document.querySelector(back) as HTMLElement | null) : null;
+    if (opener) { opener.focus({ preventScroll: true }); return; }
     const h = document.querySelector('main h1') as HTMLElement | null;
     if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
   }, [route.value.slice(0, 2).join('/')]);

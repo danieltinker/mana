@@ -28,7 +28,7 @@ makes this the app.
 | `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, day, hour and the guest's tags (`passesTagFilter`), and the first reason when nothing would be suggested (the contracts' `whyNoSuggestion`, on which `matchSuggestion` is built) |
 | `data/hours.ts` | Opening hours (several windows a day, no overlap, across midnight too), closed dates and schedules (day parts, specials): rows ↔ forms with the schema's checks; `venueHoursOf` builds the hours exactly as `public_menu`'s live overlay does |
 | `data/availability.ts` | The quick actions (F05): the "until" choices and their `resolveUntil` moments, what is off now (`offState`, with the contracts' `isAvailable`), "taken off today", and `availabilityApi(rpc)`: `set_availability` and `restore_today` with the contracts' validators first (pure: the tests pass a fake RPC) |
-| `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, else polling (`LIVE_REFRESH`, `pollDelay`, visible pages only); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
+| `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, with the slow safety poll beside it (`LIVE_REFRESH.safetyMs`), else polling (`LIVE_REFRESH.pollMs`); visible pages only, `pollDelay`'s backoff; a channel removed with an earlier place changes nothing (`channelMode`, `liveDelay` in `data/availability.ts`, unit-tested); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
 | `data/rule-numbers.ts` | The slot for each rule's numbers (shown, accepted, dismissed) on the rules list, with the period they count (`ruleNumbersRange`, which the list says); filled by `data/dashboard-live.ts` from `my_dashboard`'s `rules` and `range` |
 | `data/refresher.ts` | How a live screen stays current (ADR-007), as one pure timer: a Realtime message is a signal (one fetch per `LIVE_REFRESH.debounceMs`), beside a subscription a safety poll every `LIVE_REFRESH.safetyMs`, without one (or when it fails) a poll every `pollMs`, always with `pollDelay`'s backoff and only while the page is visible; the timers are passed in, so the tests drive it with a fake clock |
 | `data/records.ts` | The records' RPCs, stateless, each input checked with the contracts' validator: `my_dashboard` (v2), `venue_activity`, `export_menu`, `open_case`, and the open help requests (the `support_cases` table under its RLS; no RPC lists them for the owner) |
@@ -110,15 +110,18 @@ makes this the app.
   row-level security refuses anyway (a role changed meanwhile) is "not allowed", and the role is read again.
   Sold-out actions are a counter's own (F05): `canOperate()` (owner, manager, counter) shows them, and `data/live.ts`
   calls the RPCs directly, not through `write`.
-- **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, which is
-  `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`. Reordering rules
-  is guarded by the priority each had (`setPriorities`, as `moveRow` guards positions), after a fresh read of the whole
-  order: another tab's reorder is not written over, the order as stored comes back with a notice. **Opening hours and
-  closed dates have no `updated_at`**: they are read again when the hours screen opens or comes back into view
-  (`refreshHours`) and before hours are added (the overlap check runs on what is stored now); a window's new times are
-  written only while it still has the times the screen read (`saveHours`, `stale` otherwise, and the stored times come
-  back); a closed date is only added or deleted. When the backend adds `updated_at` and its own overlap check
-  (`hours_overlap`, already in `DB_CODES`) to `venue_hours`, `saveHours` can guard on it like the rest.
+- **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, the save
+  queue's `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`; when the
+  menu was read again while the editor was open and a column the owner changed moved elsewhere too, the editor shows the
+  stored rule and says so instead of saving. Reordering rules goes one move at a time (`setPriorities`): a move waits for
+  this tab's earlier moves, then checks the whole order as stored against what this tab expects, so this tab's own quick
+  moves are never refused and another tab's reorder comes back with a notice; each rule is written only while it still
+  has the priority this tab gave it. **Opening hours** carry `updated_at` (phase-1 schema): they are read again when the
+  hours screen opens or comes back into view (`refreshHours`) and before hours are added (the overlap check runs on what
+  is stored now; the database's `venue_hours_overlap` trigger raises `hours_overlap` for what slips through); an open
+  window editor keeps the version it read, says when the window changed meanwhile, and its save is guarded on that
+  `updated_at` (`saveHours`): never written over a change made elsewhere. **Closed dates** have no `updated_at`: only
+  added or deleted.
 - **A lost answer is not "changed elsewhere"**: a guarded write that finds its own values already stored (its earlier
   answer was lost) counts as saved. New rows keep their ids across tries; a try after a lost answer with other values
   than the stored ones is not stored over them silently (`insertAllOnce` answers `stored_earlier` with the stored rows):
@@ -151,7 +154,7 @@ The "today" column says what exists on this branch; the "to do" column is the la
 | Lane | Screens (to do) | Data (to do) | Today |
 |---|---|---|---|
 | **F03 onboarding and import** | `onboarding/<step>` (no nav); the import preview with its exceptions; make `landing()` return `onboarding` while steps are open | `onboarding_progress`, `menu_imports` in a new `data/onboarding.ts` (with `onReset`); imported dishes through `addDish(section, cols, id)`, imported option groups through `saveGroupForm(id, form, null)` (so the form rules, the nesting guard and the one-transaction save apply) | the empty menu's `Empty` in `screens/menu.tsx` is where "bring your menu" goes; `venue-new.tsx` goes to `landing()` after `create_venue` |
-| **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
+| **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` (an add-on choice or group opened from a dish's sheet: `.../<id>/<dish id>`, so the focus returns to the dish's button) | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
 | **F06 upsell rules** (built) | `rules` (nav, order 50; `rules/<id>`, `rules/new`) | `upsell_rules` in `MenuTable` | publishing lists the builder's `rule_left_out` warnings and `lintSnapshotV2`'s, in words (`issue.*` in `i18n.ts`); the group editor asks before deleting a choice a rule suggests, and the rule leaves the list with it |
 | **F08 dashboard, activity, export; F03's "get help"** (built) | `home` (nav, order 10; `landing()` returns it once the place has published), `activity` (nav, order 80; not for a counter: `NavItem.shown`), `help` (no nav; the shell's help button) | `my_dashboard` in `data/dashboard-live.ts`, `venue_activity`, `export_menu`, `open_case` in `data/records.ts` | `nudgeHref` opens `onboarding/<step>` as soon as that screen exists, and the screens that exist until then; the dashboard's `nudges` already carry `import_waiting` for the import preview |
 

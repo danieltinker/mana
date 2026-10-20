@@ -8,6 +8,7 @@ import type {
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
+import { sameStored } from './rows.ts';
 
 export type Membership = { readonly venue: VenueRow; readonly role: MemberRole };
 export type RevisionInfo = Pick<MenuRevisionRow, 'id' | 'number' | 'note' | 'created_at'>;
@@ -111,15 +112,6 @@ export async function insertOnceInfo<T extends { id: string }>(table: MenuTable,
 /** One table's rows for a venue, as stored now. */
 export const venueRows = <T>(table: MenuTable, venueId: string, columns = '*') => q<T[]>(sb.from(table).select(columns).eq('venue_id', venueId));
 
-/** A value sent and the value stored are the same (times come back with seconds, text stripped of blank ends). */
-function sameValue(sent: unknown, stored: unknown): boolean {
-  if (typeof sent === 'string' && typeof stored === 'string') {
-    if (/^\d\d:\d\d$/.test(sent) && /^\d\d:\d\d:\d\d$/.test(stored)) return stored.startsWith(sent + ':');
-    return sent.trim() === stored.trim();
-  }
-  return JSON.stringify(sent ?? null) === JSON.stringify(stored ?? null);
-}
-
 /**
  * New rows with the client's own ids, in one statement. When an earlier try's answer was lost and they are all stored
  * already, they answer, as long as they hold what this try sends; when the owner changed something before trying again,
@@ -133,7 +125,7 @@ export async function insertAllOnce<T extends { id: string }>(table: MenuTable, 
     if (err.code === 'duplicate') {
       const had = await rowsById<T>(table, rows.map((r) => r.id));
       if (had.length === rows.length) {
-        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameValue(v, h[k])); });
+        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameStored(v, h[k])); });
         if (same) return had;
         throw new V2Error('stored_earlier', had);
       }

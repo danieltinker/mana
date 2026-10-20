@@ -16,7 +16,7 @@ import { byPosition, named, newId } from '../data/rows.ts';
 import { addDish, addSection, canEdit, canOperate, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
+import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, focusOnReturn, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
 import { SaveFailedLine } from '../saving.tsx';
 import { DishSheet } from './dish.tsx';
 import { OffBadge, OffSheet, offText, stateOf } from './off.tsx';
@@ -29,6 +29,7 @@ function offLabel(kind: 'section' | 'dish', id: string, name: string): string {
 
 /** After the availability sheet closes, the focus goes back to the button that opened it. */
 function refocusOff(id: string) {
+  focusOnReturn(`[data-off-open="${id}"]`);           // instead of the menu's heading when the address changes back
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const b = document.querySelector(`[data-off-open="${id}"]`) as HTMLElement | null;
     if (b && document.activeElement !== b) b.focus();
@@ -48,7 +49,8 @@ export function MenuScreen({ rest }: { rest: string[] }) {
   const sheetSection = rest[0] === 's' && rest[1] && editable ? rest[1] : null;
   useEditOnly(rest[0] === 's', editable, 'menu');
   // the availability sheet is for everyone who operates the place (a counter too)
-  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2] } : null;
+  // an add-on choice or group opened from a dish's sheet carries the dish (rest[3]): closing returns to the dish's button
+  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2], from: rest[3] } : null;
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {
@@ -110,7 +112,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
 
       {sheetDish && <DishSheet id={sheetDish} tab={rest[2]} onClose={() => go('menu')} />}
       {sheetSection && <SectionSheet id={sheetSection === 'new' ? null : sheetSection} onClose={() => go('menu')} />}
-      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.id); }} />}
+      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.from || sheetOff.id); }} />}
     </div>
   );
 }

@@ -25,7 +25,7 @@ import type { MenuData } from '../data/menu.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { LangSeg, ReadOnly, ReorderList, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
-import { dayName, daysText, momentText, orList, ruleSummary, timeRange, type NameOf } from '../words.ts';
+import { dayName, momentText, orList, ruleSummary, whenText, type NameOf } from '../words.ts';
 import { DayChips, TimePair } from './hours.tsx';
 
 export function RulesScreen({ rest }: { rest: string[] }) {
@@ -138,8 +138,15 @@ function RuleEditor({ id }: { id: string | null }) {
     try {
       if (row) {
         const was = ruleFromForm(opened);
+        const patch = was.ok ? changed(was.value, m.value) : m.value;
+        // the menu was read again while the editor was open and a column the owner changed moved elsewhere too: the rule
+        // as stored now is shown, and nothing is written over it without the owner's say (they save again)
+        const stored = ruleFromForm(ruleToForm(row));
+        if (was.ok && stored.ok && Object.keys(patch).some((k) => JSON.stringify(stored.value[k as keyof RuleWrite]) !== JSON.stringify(was.value[k as keyof RuleWrite]))) {
+          const f = ruleToForm(row); setForm(f); setOpened(f); setError(errText('stale')); return;
+        }
         // 'conflict': the rule changed somewhere else; the dialog asks, and the form follows the owner's choice (resync)
-        if (await saveNow('upsell_rules', row.id, was.ok ? changed(was.value, m.value) : m.value) === 'saved') {
+        if (await saveNow('upsell_rules', row.id, patch) === 'saved') {
           const now = menu.value?.rules.find((r) => r.id === row.id);
           const f = now ? ruleToForm(now) : form; setForm(f); setOpened(f);
           toast(t('rules.saved'));
@@ -423,7 +430,7 @@ function whyText(w: Why, c: WhyCtx): string {
   switch (w.code) {
     case 'left_out': return t('issue.rule_left_out.' + w.reason);
     case 'scope': return c.trigger === 'checkout' ? t('why.scopeCheckout') : t('why.scope', { x: c.dish });
-    case 'when': return t('why.when', { window: [c.write.days.length ? daysText(c.write.days) : '', c.write.from_time ? timeRange(c.write.from_time, c.write.to_time!, true) : ''].filter(Boolean).join(' ') });
+    case 'when': return t('why.when', { window: whenText(c.write.days, c.write.from_time, c.write.to_time) });
     case 'lacks': return t('why.lacks', { x: orList(w.found.map(c.names)) });
     case 'unavailable': return t('why.unavailable.' + w.reason, { x: c.suggestion }) + until(w.back);
     case 'option_unavailable': return t('why.option_unavailable', { x: c.suggestion }) + until(w.back);

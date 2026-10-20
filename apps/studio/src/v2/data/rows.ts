@@ -8,6 +8,27 @@ import { newUuid } from '@mana/contracts';
  */
 export const newId: () => string = newUuid;
 
+/**
+ * A value this screen sent and the value the database stored are the same: times come back with seconds ('07:00' is
+ * '07:00:00'), text without blank ends, and a jsonb object with its keys in another order (Postgres orders them its own
+ * way), at any depth.
+ */
+export function sameStored(sent: unknown, stored: unknown): boolean {
+  if (typeof sent === 'string' && typeof stored === 'string') {
+    if (/^\d\d:\d\d$/.test(sent) && /^\d\d:\d\d:\d\d$/.test(stored)) return stored.startsWith(sent + ':');
+    return sent.trim() === stored.trim();
+  }
+  if (Array.isArray(sent) || Array.isArray(stored)) {
+    return Array.isArray(sent) && Array.isArray(stored) && sent.length === stored.length && sent.every((x, i) => sameStored(x, stored[i]));
+  }
+  if (sent && stored && typeof sent === 'object' && typeof stored === 'object') {
+    const a = sent as Record<string, unknown>, b = stored as Record<string, unknown>;
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...keys].every((k) => sameStored(a[k] ?? null, b[k] ?? null));
+  }
+  return (sent ?? null) === (stored ?? null);
+}
+
 type Ordered = { readonly position: number; readonly created_at: string; readonly id: string };
 
 /** The order the snapshot builder uses (app.build_snapshot_full): position, then creation, then id. */
