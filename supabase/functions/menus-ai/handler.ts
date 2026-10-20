@@ -5,7 +5,7 @@
  *   { action: "status" }                                          → { ok, configured }
  *   { action: "scan_menu" | "wolt_screenshots", import_id, stock? } → { ok, importId, counts, exceptions, notes, dropped, calls, usage }
  *                                                                    | { ok: false, code }
- *   { action: "purge", import_id?, after? }  (service role only)   → { ok, purged, failed, next } | { ok: false, code }
+ *   { action: "purge", import_id? }  (service role only)            → { ok, purged, failed, kept, more } | { ok: false, code }
  *
  * The read modes run with the owner's own token (the claim checks it, and Storage's row-level security decides which
  * images it reads) and read images the owner already uploaded to `menu-private`; the request carries no image. No
@@ -28,15 +28,26 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 /** The request is a few ids and a stock list; anything bigger is not ours (read up to this, whatever the request says its length is). */
 export const MAX_BODY = 64_000;
 
-/** The owner app's stock list, cleaned as v1 does: ids as stock ids, labels as short plain words. */
+/**
+ * The most characters the stock list takes in the prompt ("id (label), …"): every call carries it, so it is bounded on
+ * its own, whatever the entries (README: what one scan costs). The entries after it are left out.
+ */
+export const STOCK_LIST_MAX = 6_000;
+
+/** The owner app's stock list, cleaned as v1 does: ids as stock ids, labels as short plain words; `STOCK_LIST_MAX` in all. */
 export function cleanStock(v: unknown): StockHint[] {
   if (!Array.isArray(v)) return [];
   const out: StockHint[] = [];
+  let size = 0;
   for (const s of v.slice(0, 160)) {
     const o = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
     const id = typeof o.id === 'string' ? o.id.trim() : '';
     const label = typeof o.label === 'string' ? o.label.slice(0, 200).replace(/[,;()\s]+/g, ' ').trim().slice(0, 60) : '';
-    if (/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) out.push({ id, label });
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) continue;
+    // as the prompt writes it: "id (label)", and ", " between entries
+    size += id.length + (label ? label.length + 3 : 0) + (out.length ? 2 : 0);
+    if (size > STOCK_LIST_MAX) break;
+    out.push({ id, label });
   }
   return out;
 }
@@ -70,9 +81,9 @@ async function route(req: Request, d: Deps): Promise<Response> {
 
   if (action === 'purge') {
     if (!isServiceCaller(authorization, d.env.serviceKey)) return json({ ok: false, code: 'not_allowed' }, 403);
-    const id = body.import_id ?? null, after = body.after ?? null;
-    if ((id !== null && !isUuid(id)) || (after !== null && !isUuid(after))) return json({ ok: false, code: 'bad_request' }, 400);
-    return json(await purge(d, id === null ? null : id.toLowerCase(), after === null ? null : after.toLowerCase()));
+    const id = body.import_id ?? null;
+    if (id !== null && !isUuid(id)) return json({ ok: false, code: 'bad_request' }, 400);
+    return json(await purge(d, id === null ? null : id.toLowerCase()));
   }
 
   if (!(SCAN_MODES as readonly string[]).includes(action)) return json({ ok: false, code: 'bad_request' }, 400);

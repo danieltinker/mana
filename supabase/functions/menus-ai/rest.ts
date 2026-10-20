@@ -97,7 +97,13 @@ export async function download(d: Deps, path: string, auth: Auth, maxBytes: numb
 
 // ---------------------------------------------------------------- purge
 
-export type PurgeRow = { readonly id: string; readonly venue_id: string; readonly raw_paths: readonly string[] };
+/** One import `list_purgeable_imports` names: an image import whose screenshots the database lets go now. */
+export type PurgeRow = { readonly importId: string; readonly venueId: string; readonly status: string; readonly paths: readonly string[] };
+
+const isPurgeRow = (x: unknown): x is PurgeRow => {
+  const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+  return typeof o.importId === 'string' && typeof o.venueId === 'string' && typeof o.status === 'string' && Array.isArray(o.paths);
+};
 
 /** `app_config.import_raw_retention_days` (ADR-008), 30 when it is not set. */
 export async function retentionDays(d: Deps): Promise<number> {
@@ -108,18 +114,40 @@ export async function retentionDays(d: Deps): Promise<number> {
 }
 
 /**
- * Imports whose images may go: applied, discarded or failed before `before`, images still there, not purged yet; in
- * id order after `after` (keyset paging: a row that keeps failing never holds back the ones after it).
+ * `list_purgeable_imports(p_limit)` as the service role: the image imports whose screenshots may be deleted now, with
+ * their venue and paths, oldest first (`app.import_purgeable`). null: the call failed.
  */
-export async function purgeable(d: Deps, before: string, importId: string | null, after: string | null, limit: number): Promise<PurgeRow[] | null> {
-  const q = [
-    'select=id,venue_id,raw_paths', 'status=in.(applied,discarded,failed)', 'raw_purged_at=is.null', `raw_paths=neq.${encodeURIComponent('{}')}`,
-    `updated_at=lt.${encodeURIComponent(before)}`, 'order=id.asc', `limit=${limit}`, ...(importId ? [`id=eq.${importId}`] : []), ...(after ? [`id=gt.${after}`] : []),
-  ].join('&');
-  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?${q}`, { headers: service(d) });
-  if (!r.ok) return null;
-  return await r.json().catch(() => null) as PurgeRow[] | null;
+export async function purgeable(d: Deps, limit: number): Promise<PurgeRow[] | null> {
+  const r = await d.fetch(`${d.env.url}/rest/v1/rpc/list_purgeable_imports`, { method: 'POST', headers: { ...service(d), ...json }, body: JSON.stringify({ p_limit: limit }) });
+  if (!r.ok) { await r.body?.cancel().catch(() => undefined); return null; }
+  const rows = await r.json().catch(() => null) as unknown;
+  return Array.isArray(rows) ? rows.filter(isPurgeRow) : null;
 }
+
+/** Ids per look-up of `finishedAt` (a URL of about 4 KB). */
+const IDS_PER_READ = 100;
+
+/**
+ * When each import finished, by id: `applied_at`, else `updated_at` (the daily job's measure for the pasted text).
+ * An id missing from the answer is not known to be old. null: a read failed.
+ */
+export async function finishedAt(d: Deps, ids: readonly string[]): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>();
+  for (let i = 0; i < ids.length; i += IDS_PER_READ) {
+    const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?select=id,updated_at,applied_at&id=in.(${ids.slice(i, i + IDS_PER_READ).join(',')})`, { headers: service(d) });
+    if (!r.ok) { await r.body?.cancel().catch(() => undefined); return null; }
+    const rows = await r.json().catch(() => null) as unknown;
+    if (!Array.isArray(rows)) return null;
+    for (const x of rows as Array<Record<string, unknown>>) {
+      const at = Date.parse(String(typeof x.applied_at === 'string' ? x.applied_at : x.updated_at));
+      if (typeof x.id === 'string' && Number.isFinite(at)) out.set(x.id, at);
+    }
+  }
+  return out;
+}
+
+/** The statuses `list_purgeable_imports` may name (never `parsing`, an import being read). */
+export const PURGEABLE = ['applied', 'discarded', 'failed', 'uploaded', 'parsed'] as const;
 
 /** Deletes files through the Storage API (deleting `storage.objects` rows would orphan the files). */
 export async function removeFiles(d: Deps, paths: readonly string[]): Promise<boolean> {
@@ -128,11 +156,12 @@ export async function removeFiles(d: Deps, paths: readonly string[]): Promise<bo
 }
 
 /**
- * Records the purge (no paths left, and when), only on a row still closed and not purged yet (ADR-008: the service
- * role may update `raw_paths` and `raw_purged_at`). true = exactly that row was updated.
+ * Records the purge (no paths left, and when), only on a row not purged yet and not being read (ADR-008: the service
+ * role may update `raw_paths` and `raw_purged_at`; the table's guard lets it through only for an import that may be
+ * purged). true = exactly that row was updated.
  */
 export async function markPurged(d: Deps, importId: string, at: string): Promise<boolean> {
-  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?id=eq.${importId}&raw_purged_at=is.null&status=in.(applied,discarded,failed)&select=id`, {
+  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?id=eq.${importId}&raw_purged_at=is.null&status=in.(${PURGEABLE.join(',')})&select=id`, {
     method: 'PATCH', headers: { ...service(d), ...json, Prefer: 'return=representation' }, body: JSON.stringify({ raw_paths: [], raw_purged_at: at }),
   });
   if (!r.ok) return false;

@@ -29,7 +29,8 @@ export type ReadReply =
     readonly ok: true; readonly importId: string; readonly counts: DraftCounts; readonly exceptions: readonly ImportException[];
     readonly notes: readonly ReaderNote[]; readonly dropped: number; readonly calls: number; readonly usage: { readonly in: number; readonly out: number };
   }
-  | { readonly ok: false; readonly code: string; readonly upstream?: number };
+  /** `cap`: with `rate_limited`, the claim's cap that was reached (`scan_images_per_venue_day`, …). */
+  | { readonly ok: false; readonly code: string; readonly upstream?: number; readonly cap?: string };
 
 /**
  * The calls one import needs, as lists of image indexes: one per printed page; screenshots in runs of `WOLT_BATCH`,
@@ -99,7 +100,10 @@ export async function readImport(d: Deps, asked: ScanMode, importId: string, aut
     const source = MODE_SOURCE[asked];
     // the claim is not cut by the deadline: it is quick, and its answer says whether the import is now this read's
     const c = await claim(d, importId, source, auth);
-    if (!c.ok) return done({ ok: false, code: c.code });
+    if (!c.ok) {
+      const cap = (c as { cap?: unknown }).cap;
+      return done({ ok: false, code: c.code, ...(c.code === 'rate_limited' && typeof cap === 'string' && /^[a-z_]{1,40}$/.test(cap) ? { cap } : {}) });
+    }
     claimed = true;
     // the claim is the authority on what the import is; the scanner still reads only what it asked for
     if (c.importId !== importId) return await fail('image_unreadable', 'paths_invalid');

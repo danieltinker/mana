@@ -7,8 +7,9 @@ import assert from 'node:assert/strict';
 import { draftCounts, draftExceptions, IMPORT_IMAGES_MAX, validateDraft, type ClaimScanReply, type ImportDraft } from '@mana/contracts';
 import { MAX_TOKENS, requestBody, sniffMedia, toBase64, upstreamError } from '../anthropic.ts';
 import type { Deps, Env } from '../deps.ts';
-import { cleanStock, handle, MAX_BODY } from '../handler.ts';
-import { isServiceCaller, PURGE_BATCH } from '../purge.ts';
+import { SCAN_MODES, scanPrompt, scanSystem } from '@mana/import';
+import { cleanStock, handle, MAX_BODY, STOCK_LIST_MAX } from '../handler.ts';
+import { isServiceCaller, PURGE_BATCH, PURGE_PAGES } from '../purge.ts';
 import { CONCURRENCY, MAX_IMAGE_BYTES, pathsOk, plan, WOLT_BATCH } from '../read.ts';
 
 const URL_ = 'https://project.test';
@@ -160,6 +161,19 @@ test('cleanStock and isServiceCaller', () => {
   assert.equal(isServiceCaller('Bearer ', ''), false);
 });
 
+test('QA-L1 (round 2): one call\'s instructions are at most the README\'s 10,314 characters, whatever the stock list', () => {
+  const worst = (letter: string) => cleanStock(Array.from({ length: 200 }, (_, i) => ({ id: `${'a'.repeat(37)}${String(i).padStart(3, '0')}`, label: letter.repeat(200) })));
+  const listed = (st: readonly { id: string; label: string }[]) => st.map((s) => (s.label ? `${s.id} (${s.label})` : s.id)).join(', ').length;
+  for (const st of [worst('x'), worst('ש')]) assert.ok(listed(st) <= STOCK_LIST_MAX && listed(st) > STOCK_LIST_MAX - 105, `${listed(st)}`);
+  // an ordinary list (160 pictures, short labels) is kept whole
+  assert.equal(cleanStock(Array.from({ length: 160 }, (_, i) => ({ id: `dish-${i}`, label: 'grilled chicken' }))).length, 160);
+  let most = 0;
+  for (const mode of SCAN_MODES) for (const langs of [['he'], ['en'], ['he', 'en']] as const) for (let n = 1; n <= WOLT_BATCH; n++) {
+    for (const st of [[], worst('x'), worst('ש')]) most = Math.max(most, scanSystem().length + scanPrompt(mode, langs, st, n).length);
+  }
+  assert.ok(most <= 10_314, `${most} characters: update the README's worst case`);
+});
+
 test('security M1 / QA M7: pathsOk accepts exactly the files of this venue\'s folder for this import', () => {
   const ok = `${VENUE}/imports/${IMPORT}/1.jpg`;
   assert.equal(pathsOk([ok, `${VENUE}/imports/${IMPORT}/page-2_a.b.png`], VENUE, IMPORT), true);
@@ -236,11 +250,18 @@ test('security L1: no service-role look-up before the claim; the mode goes to th
 });
 
 test('the claim gates every paid call: refused, nothing is downloaded or read', async () => {
-  for (const [reply, code] of [[jsonResponse({ ok: false, code: 'rate_limited' }), 'rate_limited'], [jsonResponse({ code: '42501', message: 'not_allowed' }, 403), 'not_allowed'],
-    [jsonResponse({ ok: false, code: 'import_busy' }), 'import_busy']] as const) {
+  // every refusal claim_import_scan answers (backend stage 2), and a caller without a session
+  const refusals: Array<[Response, Record<string, unknown>]> = [
+    [jsonResponse({ ok: false, code: 'rate_limited', cap: 'scan_images_per_venue_day' }), { code: 'rate_limited', cap: 'scan_images_per_venue_day' }],
+    [jsonResponse({ ok: false, code: 'rate_limited', cap: 'Not A Cap!' }), { code: 'rate_limited' }],
+    [jsonResponse({ code: '42501', message: 'not_allowed' }, 403), { code: 'not_allowed' }],
+    ...(['import_unknown', 'not_scannable', 'import_closed', 'import_busy'] as const).map((code): [Response, Record<string, unknown>] => [jsonResponse({ ok: false, code }), { code }]),
+  ];
+  for (const [reply, expected] of refusals) {
+    const code = String(expected.code);
     const p = project('wolt_screenshots', 3, { claim: () => reply.clone() });
     const f = fakeFetch(p.routes);
-    assert.deepEqual((await read('wolt_screenshots', deps(f.fetch))).body, { ok: false, code });
+    assert.deepEqual((await read('wolt_screenshots', deps(f.fetch))).body, { ok: false, ...expected });
     assert.ok(!f.calls.some((c) => c.url === API || c.path.startsWith('/storage/')), code);
     assert.deepEqual(patches(f.calls), [], `${code}: a refused claim marks nothing`);
   }
@@ -445,74 +466,134 @@ test('the log carries counts and codes, never a menu\'s text or a key', async ()
 
 // ---------------------------------------------------------------- purge
 
-const ROW = (n: number, paths?: string[]) => {
-  const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-  return { id, venue_id: VENUE, raw_paths: paths ?? [`${VENUE}/imports/${id}/1.jpg`, `${VENUE}/imports/${id}/2.jpg`] };
+const NOW = Date.parse('2026-10-16T12:00:00Z');
+const DAY = 86_400_000;
+/** A row as `list_purgeable_imports` names it, and when it finished (days before NOW) for the look-up. */
+const ROW = (n: number, o: { paths?: string[]; status?: string; days?: number } = {}) => {
+  const importId = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  return { importId, venueId: VENUE, status: o.status ?? 'applied', paths: o.paths ?? [`${VENUE}/imports/${importId}/1.jpg`, `${VENUE}/imports/${importId}/2.jpg`], days: o.days ?? 40 };
 };
+type Row = ReturnType<typeof ROW>;
+const listed = (rows: readonly Row[]) => rows.map(({ days: _, ...r }) => r);
+/** The finish times of the ids a look-up asks for, as PostgREST answers (`applied_at` null for an import never applied). */
+const finished = (rows: readonly Row[]): Route => (c) => {
+  const ids = /id=in\.\(([^)]*)\)/.exec(c.url)?.[1]?.split(',') ?? [];
+  return jsonResponse(rows.filter((r) => ids.includes(r.importId)).map((r) => ({
+    id: r.importId, updated_at: new Date(NOW - r.days * DAY).toISOString().replace('Z', '+00:00'), applied_at: r.status === 'applied' ? new Date(NOW - r.days * DAY).toISOString() : null,
+  })));
+};
+const SVC = { Authorization: `Bearer ${SERVICE}` };
+/** A purge of every import the list names (the `read` helper names one by default). */
+const ALL = { import_id: undefined };
 
-test('purge: only the service role; images deleted through Storage, then the import records it, only while it is closed', async () => {
-  const rows = [ROW(1), ROW(2), ROW(3)];
+test('purge: only the service role; list_purgeable_imports names the imports; Storage deletes, then the import records it', async () => {
+  const rows = [ROW(1), ROW(2), ROW(3), ROW(4, { status: 'uploaded', days: 31 })];
   let deletes = 0;
   const f = fakeFetch({
     'GET /rest/v1/app_config': () => jsonResponse([{ value: 30 }]),
-    'GET /rest/v1/menu_imports': () => jsonResponse(rows),
+    'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed(rows)),
+    'GET /rest/v1/menu_imports': finished(rows),
     'DELETE /storage/v1/object/menu-private': () => new Response('[]', { status: deletes++ === 1 ? 500 : 200 }),
-    // the third row was reopened meanwhile: the conditional update finds nothing
-    'PATCH /rest/v1/menu_imports': (c) => jsonResponse(c.url.includes(rows[2]!.id) ? [] : [{ id: 'x' }]),
+    // the third import was claimed meanwhile: the conditional update finds nothing
+    'PATCH /rest/v1/menu_imports': (c) => jsonResponse(c.url.includes(rows[2]!.importId) ? [] : [{ id: 'x' }]),
   });
-  const now = () => Date.parse('2026-10-16T12:00:00Z');
-  const asOwner = await read('purge', deps(f.fetch, {}, now), {});
+  const asOwner = await read('purge', deps(f.fetch, {}, () => NOW), {});
   assert.deepEqual([asOwner.status, asOwner.body], [403, { ok: false, code: 'not_allowed' }]);
   assert.equal(f.calls.length, 0);
-  const r = await read('purge', deps(f.fetch, {}, now), { import_id: undefined }, { Authorization: `Bearer ${SERVICE}` });
-  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [rows[1]!.id, rows[2]!.id], next: null });
-  const list = f.calls.find((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports')!;
-  assert.match(list.url, /status=in\.\(applied,discarded,failed\)/);
-  assert.match(list.url, /raw_purged_at=is\.null/);
-  assert.match(list.url, /order=id\.asc/);
-  assert.ok(list.url.includes(`updated_at=lt.${encodeURIComponent('2026-09-16T12:00:00.000Z')}`), 'retention: 30 days');
-  assert.deepEqual(f.calls.find((c) => c.method === 'DELETE')!.body, { prefixes: rows[0]!.raw_paths });
+  const r = await read('purge', deps(f.fetch, {}, () => NOW), { import_id: undefined }, SVC);
+  assert.deepEqual(r.body, { ok: true, purged: 2, failed: [rows[1]!.importId, rows[2]!.importId], kept: 0, more: false });
+  const list = f.calls.find((c) => c.path === '/rest/v1/rpc/list_purgeable_imports')!;
+  assert.deepEqual([list.method, list.body, list.headers.authorization], ['POST', { p_limit: PURGE_BATCH }, `Bearer ${SERVICE}`]);
+  assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), rows.map((x) => ({ prefixes: x.paths })));
   const marks = f.calls.filter((c) => c.method === 'PATCH');
-  assert.deepEqual(marks.map((c) => c.body), [{ raw_paths: [], raw_purged_at: '2026-10-16T12:00:00.000Z' }, { raw_paths: [], raw_purged_at: '2026-10-16T12:00:00.000Z' }]);
-  assert.ok(marks.every((c) => /raw_purged_at=is\.null/.test(c.url) && /status=in\.\(applied,discarded,failed\)/.test(c.url)), 'the mark is conditional');
-  assert.deepEqual((await read('purge', deps(f.fetch, {}, now), { import_id: 'nope' }, { Authorization: `Bearer ${SERVICE}` })).body, { ok: false, code: 'bad_request' });
+  assert.equal(marks.length, 3);
+  assert.ok(marks.every((c) => c.body.raw_purged_at === '2026-10-16T12:00:00.000Z' && c.body.raw_paths.length === 0));
+  assert.ok(marks.every((c) => /raw_purged_at=is\.null/.test(c.url) && /status=in\.\(applied,discarded,failed,uploaded,parsed\)/.test(c.url)), 'the mark is conditional, never on a read');
+  assert.deepEqual((await read('purge', deps(f.fetch, {}, () => NOW), { import_id: 'nope' }, SVC)).body, { ok: false, code: 'bad_request' });
+  // one import, by its id: only that one
+  const one = await read('purge', deps(f.fetch, {}, () => NOW), { import_id: rows[3]!.importId.toUpperCase() }, SVC);
+  assert.deepEqual(one.body, { ok: true, purged: 1, failed: [], kept: 0, more: false });
+});
+
+test('purge: the retention holds whatever the list says; a list or a look-up that fails purges nothing', async () => {
+  // finished 10 days ago (the list names it at once): kept; finished 31 days ago: purged; the look-up does not know it: kept
+  const rows = [ROW(1, { days: 10 }), ROW(2, { status: 'discarded', days: 31 }), ROW(3, { status: 'failed', days: 29 })];
+  const unknown = ROW(4);
+  const f = fakeFetch({
+    'GET /rest/v1/app_config': () => jsonResponse([{ value: 30 }]),
+    'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed([...rows, unknown])),
+    'GET /rest/v1/menu_imports': finished(rows),
+    'DELETE /storage/v1/object/menu-private': () => new Response('[]'),
+    'PATCH /rest/v1/menu_imports': () => jsonResponse([{ id: 'x' }]),
+  });
+  const d = deps(f.fetch, {}, () => NOW);
+  assert.deepEqual((await read('purge', d, ALL, SVC)).body, { ok: true, purged: 1, failed: [], kept: 3, more: false });
+  assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), [{ prefixes: rows[1]!.paths }]);
+  assert.ok(d.logs.some((l) => l.action === 'purge' && l.kept === 3 && l.retentionDays === 30));
+  // a retention of 7 days: all three go
+  const g = fakeFetch({
+    'GET /rest/v1/app_config': () => jsonResponse([{ value: 7 }]),
+    'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed(rows)),
+    'GET /rest/v1/menu_imports': finished(rows),
+    'DELETE /storage/v1/object/menu-private': () => new Response('[]'),
+    'PATCH /rest/v1/menu_imports': () => jsonResponse([{ id: 'x' }]),
+  });
+  assert.deepEqual((await read('purge', deps(g.fetch, {}, () => NOW), ALL, SVC)).body, { ok: true, purged: 3, failed: [], kept: 0, more: false });
+  const brokens: Array<Record<string, Route>> = [{ 'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse({ code: '42501', message: 'not_allowed' }, 403) },
+    { 'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed(rows)), 'GET /rest/v1/menu_imports': () => new Response('no', { status: 500 }) }];
+  for (const broken of brokens) {
+    const h = fakeFetch({ 'GET /rest/v1/app_config': () => jsonResponse([]), ...broken });
+    assert.deepEqual((await read('purge', deps(h.fetch, {}, () => NOW), ALL, SVC)).body, { ok: false, code: 'failed' });
+    assert.ok(!h.calls.some((c) => c.method === 'DELETE' || c.method === 'PATCH'));
+  }
 });
 
 test('security M1 (purge): only files of the import\'s own folder are deleted; any other path leaves the row alone', async () => {
   const good = ROW(1);
-  const evil = ROW(2, [`${VENUE}/imports/${ROW(2).id}/1.jpg`, `${OTHER_VENUE}/imports/x/1.jpg`]);
-  const traversal = ROW(3, [`${VENUE}/imports/${ROW(3).id}/../../../menu-public/${OTHER_VENUE}/logo.png`]);
+  const evil = ROW(2, { paths: [`${VENUE}/imports/${ROW(2).importId}/1.jpg`, `${OTHER_VENUE}/imports/x/1.jpg`] });
+  const traversal = ROW(3, { paths: [`${VENUE}/imports/${ROW(3).importId}/../../../menu-public/${OTHER_VENUE}/logo.png`] });
+  const all = [good, evil, traversal];
   const f = fakeFetch({
     'GET /rest/v1/app_config': () => jsonResponse([]),
-    'GET /rest/v1/menu_imports': () => jsonResponse([good, evil, traversal]),
+    'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed(all)),
+    'GET /rest/v1/menu_imports': finished(all),
     'DELETE /storage/v1/object/menu-private': () => new Response('[]'),
     'PATCH /rest/v1/menu_imports': () => jsonResponse([{ id: 'x' }]),
   });
-  const r = await read('purge', deps(f.fetch), {}, { Authorization: `Bearer ${SERVICE}` });
-  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [evil.id, traversal.id], next: null });
-  assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), [{ prefixes: good.raw_paths }]);
+  const r = await read('purge', deps(f.fetch, {}, () => NOW), ALL, SVC);
+  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [evil.importId, traversal.importId], kept: 0, more: false });
+  assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), [{ prefixes: good.paths }]);
 });
 
-test('security L6: rows that keep failing never stall the purge: keyset paging, and a cursor for the next call', async () => {
-  const all = Array.from({ length: 3 * PURGE_BATCH + 7 }, (_, i) => ROW(i + 1));
-  const f = fakeFetch({
+test('security L6: rows that keep failing never hold back the rows after them; one call ends, and says when there is more', async () => {
+  // the list as the database gives it: oldest first, at most p_limit, a purged import gone from it
+  const all = Array.from({ length: 2 * PURGE_BATCH + 7 }, (_, i) => ROW(i + 1));
+  const gone = new Set<string>();
+  const failing = new Set(all.slice(0, 3).map((r) => r.importId));
+  const routes = (fail: (id: string) => boolean): Record<string, Route> => ({
     'GET /rest/v1/app_config': () => jsonResponse([]),
-    'GET /rest/v1/menu_imports': (c) => {
-      const after = /id=gt\.([0-9a-f-]+)/.exec(c.url)?.[1] ?? '';
-      return jsonResponse(all.filter((r) => r.id > after).slice(0, PURGE_BATCH));
-    },
-    // every delete fails: the rows stay, and the purge still goes past them
-    'DELETE /storage/v1/object/menu-private': () => new Response('no', { status: 500 }),
+    'POST /rest/v1/rpc/list_purgeable_imports': (c) => jsonResponse(listed(all.filter((r) => !gone.has(r.importId)).slice(0, c.body.p_limit))),
+    'GET /rest/v1/menu_imports': finished(all),
+    'DELETE /storage/v1/object/menu-private': (c) => new Response('[]', { status: fail(c.body.prefixes[0].split('/')[2]) ? 500 : 200 }),
+    'PATCH /rest/v1/menu_imports': (c) => { gone.add(/id=eq\.([0-9a-f-]+)/.exec(c.url)![1]!); return jsonResponse([{ id: 'x' }]); },
   });
-  const r = await read('purge', deps(f.fetch), {}, { Authorization: `Bearer ${SERVICE}` });
-  assert.equal(r.body.ok, true);
-  assert.equal(r.body.failed.length, all.length, 'every row was tried once');
-  assert.equal(r.body.next, null);
-  const pages = f.calls.filter((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports');
-  assert.equal(pages.length, 4);
-  assert.ok(pages[1]!.url.includes(`id=gt.${all[PURGE_BATCH - 1]!.id}`));
-  // a call may resume where the last one stopped
-  const again = await read('purge', deps(f.fetch), { after: all[2 * PURGE_BATCH - 1]!.id }, { Authorization: `Bearer ${SERVICE}` });
-  assert.equal(again.body.failed.length, PURGE_BATCH + 7);
-  assert.deepEqual((await read('purge', deps(f.fetch), { after: 'x' }, { Authorization: `Bearer ${SERVICE}` })).body, { ok: false, code: 'bad_request' });
+  const f = fakeFetch(routes((id) => failing.has(id)));
+  const r = await read('purge', deps(f.fetch, {}, () => NOW), ALL, SVC);
+  assert.deepEqual(r.body, { ok: true, purged: all.length - 3, failed: [...failing], kept: 0, more: false });
+  assert.equal(f.calls.filter((c) => c.path === '/rest/v1/rpc/list_purgeable_imports').length, 3, 'read again while a full page purged something');
+  assert.equal(f.calls.filter((c) => c.method === 'DELETE').length, all.length, 'a failing row is tried once per call');
+  assert.ok(f.calls.filter((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports').every((c) => /id=in\.\(([^)]*)\)/.exec(c.url)![1]!.split(',').length <= 100), 'the look-up asks for 100 ids at most');
+  // more than PURGE_PAGES full pages: the call ends and says more
+  gone.clear();
+  const many = Array.from({ length: PURGE_PAGES * PURGE_BATCH + 1 }, (_, i) => ROW(i + 1));
+  all.splice(0, all.length, ...many);
+  const g = fakeFetch(routes(() => false));
+  const m = await read('purge', deps(g.fetch, {}, () => NOW), ALL, SVC);
+  assert.deepEqual([m.body.purged, m.body.more], [PURGE_PAGES * PURGE_BATCH, true]);
+  // a whole page that keeps failing: the call ends (what is behind it waits for the list to move: an open item)
+  gone.clear();
+  const h = fakeFetch(routes(() => true));
+  const stuck = await read('purge', deps(h.fetch, {}, () => NOW), ALL, SVC);
+  assert.deepEqual([stuck.body.purged, stuck.body.failed.length, stuck.body.more], [0, PURGE_BATCH, false]);
+  assert.equal(h.calls.filter((c) => c.path === '/rest/v1/rpc/list_purgeable_imports').length, 1);
 });
