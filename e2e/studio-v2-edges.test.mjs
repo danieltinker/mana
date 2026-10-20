@@ -54,9 +54,11 @@ before(async () => {
     ],
     rules: [{ key: 'bacon', label: 'בייקון ליד המבורגר', trigger: 'sheet', suggest: { option: 'bacon' }, line: n('אולי גם בייקון?', 'Bacon with that?') }],
   });
-  assert.equal((await owner.publish('edges')).ok, true);
+  const published = await owner.publish('edges');
+  assert.equal(published.ok, true);
   const halom = await HalomBot.firstAdmin(e.stack, e.stack, { email: 'edge-halom@sim.local' });
-  assert.equal((await halom.approve(venueId, 'e2e: the edge cases venue')).ok, true);
+  // Halom approves the revision it reviewed (ops_approve_venue's expected revision)
+  assert.equal((await halom.approve(venueId, 'e2e: the edge cases venue', published.revision)).ok, true);
 }, { timeout: 240000 });
 after(async () => { await e?.stop(); });
 
