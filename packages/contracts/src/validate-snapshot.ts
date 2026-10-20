@@ -15,7 +15,7 @@
  * `lintSnapshotV2` (below) finds what is valid but will not behave as the owner expects; publish returns those as
  * warnings, never as errors. The database's `app.lint_snapshot` gives the same warnings.
  */
-import { COLOR_RE, Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, textLength, type Issue, type Validation } from './common.ts';
+import { COLOR_RE, Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, SLUG_RE, STOCK_RE, textLength, type Issue, type Validation } from './common.ts';
 import {
   LIMITS, RELIEF_CLASSES, ROOMS, SCENES, SCHEDULE_KINDS, SECTION_KINDS, SELECTIONS, SOLD_OUT_DISPLAY, TAGS, TRIGGERS,
   VENUE_KINDS, VENUE_MODES,
@@ -25,7 +25,6 @@ import { isHHMM, isLocalDate, isTimeZone, isWeekday } from './time.ts';
 
 type Obj = Record<string, unknown>;
 const LANGS = ['he', 'en'] as const;
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const TEMPLATE_RE = /^[a-z0-9-]{1,40}$/;
 
 function text(x: Issues, v: unknown, path: string, max: number, needName = false): void {
