@@ -15,7 +15,7 @@ import { toV2Error } from '../data/errors.ts';
 import { changed, type FieldError } from '../data/forms.ts';
 import { WEEK, venueHoursOf } from '../data/hours.ts';
 import { clock, overrides } from '../data/live.ts';
-import { ruleNumbers } from '../data/rule-numbers.ts';
+import { ruleNumbers, ruleNumbersRange } from '../data/rule-numbers.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
 import {
   newRuleForm, nextPriority, previewRule, ranked, reprioritize, ruleFromForm, ruleToForm, type IdLists, type RuleForm, type RuleWrite, type Sample, type Why,
@@ -60,6 +60,8 @@ function RulesList() {
       <PageHead title={t('rules.title')} lead={t('rules.lead')}>{editable && rules.length > 0 && newBtn}</PageHead>
       {!editable && <Note>{t('ro.settings')}</Note>}
       {rules.length > 0 && <p class="fine" data-publish-note>{t('rules.publish')}</p>}
+      {/* the period the dashboard lane's numbers count (data/rule-numbers.ts) */}
+      {rules.length > 0 && ruleNumbers.value && ruleNumbersRange.value && <p class="fine" data-rule-period={ruleNumbersRange.value}>{t('rules.period.' + ruleNumbersRange.value)}</p>}
       {rules.length === 0 && <Empty title={t('rules.empty.title')} body={t('rules.empty.body')} icon="sparkle">{editable && newBtn}</Empty>}
       {rules.length > 1 && editable && <div class="row-between"><p class="hint">{t('rules.orderHint')}</p>
         <button type="button" class={'toolbtn' + (arranging ? ' on' : '')} aria-pressed={arranging ? 'true' : 'false'} onClick={() => setArranging(!arranging)} data-tool="arrange-rules">

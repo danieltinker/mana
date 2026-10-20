@@ -2,7 +2,7 @@
 // and as a readable CSV for a spreadsheet: one row per dish, then one row per add-on choice under it (a nested group's
 // choices under the choice that opens it), with both languages side by side and prices in shekels. Built in the
 // browser from the reply; no server file. Pure: the screens add the download.
-import type { AddonGroupRow, AddonOptionRow, MenuExport } from '@mana/contracts';
+import { localParts, type AddonGroupRow, type AddonOptionRow, type MenuExport } from '@mana/contracts';
 import { ruleLine } from '../format.ts';
 import { t } from '../i18n.ts';
 
@@ -10,12 +10,20 @@ import { t } from '../i18n.ts';
 export const shekelCell = (agorot: number | null): string => (agorot === null ? '' : (agorot / 100).toFixed(2));
 
 /**
- * One CSV field (RFC 4180): quoted when it holds a comma, a quote or a line break, a quote doubled. Text a spreadsheet
- * would run as a formula (starting with = + - @, a tab or a return) is kept as text with a leading apostrophe.
+ * What a spreadsheet would run as a formula: = + - @ (or their full-width forms), a tab or a return first, also after
+ * spaces and the invisible direction marks Hebrew text may start with.
+ */
+const FORMULA_START = /^[\s\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]*[=+\-@\t\r\uff1d\uff0b\uff0d\uff20]/;
+
+/**
+ * One CSV field (RFC 4180). Text is always quoted, a quote doubled: a separator inside it (a comma, or the semicolon
+ * and tab a spreadsheet in another locale splits on) never starts a new cell. Text a spreadsheet would run as a formula
+ * is kept as text with a leading apostrophe. A number this app wrote (`text: false`) goes as it is.
  */
 export function csvCell(v: string, { text = true } = {}): string {
-  const s = text && /^[=+\-@\t\r]/.test(v) ? "'" + v : v;
-  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  if (!text) return v;
+  const s = FORMULA_START.test(v) ? "'" + v : v;
+  return '"' + s.replace(/"/g, '""') + '"';
 }
 
 /** Lines end with CRLF (RFC 4180); the byte order mark lets Excel read Hebrew as UTF-8. */
@@ -59,9 +67,9 @@ export function menuCsv(x: MenuExport): string {
   return csvOf([head.map((h) => csvCell(h)), ...rows.map((r) => r.map((c) => csvCell(c.v, { text: c.text !== false })))]);
 }
 
-/** "bistro-sim-menu-2026-10-16.json": the place's address, then the export's own day (UTC, as it says). */
+/** "bistro-sim-menu-2026-10-16.json": the place's address, then the day of the export on the place's own clock. */
 export const exportFileName = (x: Pick<MenuExport, 'venue' | 'exportedAt'>, ext: 'json' | 'csv'): string =>
-  `${x.venue.slug}-menu-${x.exportedAt.slice(0, 10)}.${ext}`;
+  `${x.venue.slug}-menu-${localParts(Date.parse(x.exportedAt), x.venue.timeZone).date}.${ext}`;
 
 /** The JSON file: the reply exactly, indented for a person. */
 export const menuJson = (x: MenuExport): string => JSON.stringify(x, null, 2) + '\n';

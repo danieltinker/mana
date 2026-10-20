@@ -438,11 +438,21 @@ export function saveHours(id: string, times: Pick<VenueHoursRow, 'opens' | 'clos
 }
 
 /** The place's own settings (what guests see of something unavailable). */
-export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display'>>): Promise<VenueRow> {
+export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display' | 'support_can_act'>>): Promise<VenueRow> {
   return write(() => api.updateVenue(vid(), patch), (venue) => {
     menu.value = { ...menu.value!, venue };
     if (memberships.value) memberships.value = memberships.value.map((x) => (x.venue.id === venue.id ? { ...x, venue } : x));
   });
+}
+
+/**
+ * The owner's standing switch (D25): may Halom make changes for them (`act_for_owner`, each one logged with its reason)?
+ * It takes effect at once and on its own, and the database logs every change of it. Only an owner: anyone else is
+ * refused here (`owner_only`) before the database would refuse it.
+ */
+export function setSupportCanAct(on: boolean): Promise<VenueRow> {
+  if (menu.value?.role !== 'owner') return Promise.reject(new V2Error('owner_only'));
+  return saveVenue({ support_can_act: on });
 }
 
 /**
