@@ -36,8 +36,13 @@ export function HelpScreen({ rest = [] }: { rest?: string[] }) {
   const [sent, setSent] = useState<{ caseId: string; supportCanAct: boolean } | null>(null);
   const [cases, setCases] = useState<{ list: CaseLine[]; error: string; loading: boolean }>({ list: [], error: '', loading: true });
   const subjectRef = useRef<HTMLInputElement>(null);
-  /** This request's own id: the same on every retry (open_case opens no second case for it), a new one once sent. */
+  /**
+   * This request's own id: the same for a resend of exactly the same request (open_case opens no second case for it),
+   * a new one once sent, and a new one whenever the topic, the line, the details or the switch change (the database
+   * would answer `reused` with the case already opened, and the new words would be lost).
+   */
   const requestId = useRef(newUuid());
+  useEffect(() => { requestId.current = newUuid(); }, [topic, subject, body, allow]);
 
   async function loadCases() {
     setCases((c) => ({ ...c, loading: true }));

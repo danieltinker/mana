@@ -5,15 +5,19 @@
 // Reads: `onboarding_progress` and `menu_imports` (the client columns, never the raw text) under their row-level security
 // (owners, managers, Halom). Writes: only the RPCs (`set_onboarding_step`, the import RPCs in data/imports.ts), each input
 // checked with the contracts' validator first; an account that may not edit (a counter) is refused before the network.
-import { signal } from '@preact/signals';
-import { onboardingProgress, validateSetStep, type OnboardingProgress, type OnboardingState, type OnboardingStep, type ImportDraft } from '@mana/contracts';
+import { effect, signal } from '@preact/signals';
+import {
+  onboardingProgress, validateSetStep, type ImportDecisions, type ImportDraft, type OnboardingProgress, type OnboardingState, type OnboardingStep,
+} from '@mana/contracts';
 import { decode, resize, sniff } from '../../lib/images.ts';
 import { fnUrl } from '../../lib/api.ts';
+import { answersKey, forgetAnswersBut, readAnswers, writeAnswers } from './answers.ts';
 import { cfg, q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import { asImportLine, IMAGE_BYTES_MAX, imagePath, imagesHash, importsApi, IMPORT_SELECT, type ImageSource, type ImportLine, type ScanReply } from './imports.ts';
 import type { ReaderNote } from '@mana/import';
-import { mayWrite, menu, onReset } from './store.ts';
+import { NO_DECISIONS } from './review.ts';
+import { mayWrite, menu, onReset, session } from './store.ts';
 
 export const progress = signal<OnboardingProgress | null>(null);
 export const progressError = signal('');
@@ -72,18 +76,59 @@ export async function loadImports(): Promise<ImportLine[] | null> {
   const gen = generation;
   const rows = await q<Record<string, unknown>[]>(sb.from('menu_imports').select(IMPORT_SELECT).eq('venue_id', d.venue.id).order('created_at', { ascending: false }).limit(30));
   if (gen !== generation) return null;
-  const list = rows.map(asImportLine);
+  const list = rows.map(asImportLine).filter((x) => x.venue_id === d.venue.id);
   imports.value = list;
   return list;
 }
 
-/** One import, read again (after the scanner or another device changed it). */
+/**
+ * One import of the open place, read again (after the scanner or another device changed it). An import of another
+ * place is never read here, and never joins the open place's list: `null`, as for one that does not exist.
+ */
 export async function loadImport(id: string): Promise<ImportLine | null> {
-  const rows = await q<Record<string, unknown>[]>(sb.from('menu_imports').select(IMPORT_SELECT).eq('id', id));
+  const d = menu.value; if (!d) return null;
+  const gen = generation;
+  const rows = await q<Record<string, unknown>[]>(sb.from('menu_imports').select(IMPORT_SELECT).eq('id', id).eq('venue_id', d.venue.id));
+  if (gen !== generation) return null;
   const line = rows[0] ? asImportLine(rows[0]) : null;
-  if (line && imports.value) imports.value = [line, ...imports.value.filter((x) => x.id !== id)].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  if (!line || line.venue_id !== d.venue.id) return null;
+  if (imports.value) imports.value = [line, ...imports.value.filter((x) => x.id !== id)].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   return line;
 }
+
+/**
+ * Which of the account's places an import belongs to, when it is not the open one (an address kept from another place:
+ * Back after switching place, a link): its id, so the screen can offer to open that place. Only the id is read.
+ */
+export async function importPlace(id: string): Promise<string | null> {
+  const rows = await q<{ venue_id: string }[]>(sb.from('menu_imports').select('venue_id').eq('id', id));
+  return rows[0]?.venue_id ?? null;
+}
+
+// ---------------------------------------------------------------- the owner's answers, on this device
+/** The signed-in account's answers to an import's questions (data/answers.ts). */
+export function loadAnswers(importId: string): ImportDecisions {
+  const u = session.value?.user?.id;
+  if (!u) return NO_DECISIONS;
+  try { return readAnswers(localStorage.getItem(answersKey(u, importId))); } catch { return NO_DECISIONS; }
+}
+export function keepAnswers(importId: string, d: ImportDecisions) {
+  const u = session.value?.user?.id;
+  if (!u) return;
+  try { localStorage.setItem(answersKey(u, importId), writeAnswers(d)); } catch { /* storage is optional */ }
+}
+export function dropAnswers(importId: string) {
+  const u = session.value?.user?.id;
+  if (!u) return;
+  try { localStorage.removeItem(answersKey(u, importId)); } catch { /* storage is optional */ }
+}
+// signed out (null), or another account signed in: every answer that is not the account's own goes (undefined: still
+// finding out who is signed in)
+effect(() => {
+  const s = session.value;
+  if (s === undefined) return;
+  try { forgetAnswersBut(s?.user?.id ?? null, localStorage); } catch { /* storage is optional */ }
+});
 
 /** The pictures of the place's dishes and their states, as the plan reads them (an import never adds a second photo). */
 export const loadAssets = () => q<{ id: string; dish_id: string | null; status: string }[]>(sb.from('assets').select('id, dish_id, status').eq('venue_id', vid()));
@@ -105,27 +150,29 @@ export async function checkScanner(): Promise<'on' | 'off'> {
   return scanner.value;
 }
 
-/** A picture ready to upload: the file as it is when the scanner can read it, else a JPEG at most 2400 px long. */
-export type Prepared = { readonly bytes: Uint8Array<ArrayBuffer>; readonly type: 'image/jpeg' | 'image/png' | 'image/webp'; readonly ext: 'jpg' | 'png' | 'webp' };
+/** A picture ready to upload: drawn again and encoded anew (PNG or JPEG), at most 2400 px long. */
+export type Prepared = { readonly bytes: Uint8Array<ArrayBuffer>; readonly type: 'image/jpeg' | 'image/png'; readonly ext: 'jpg' | 'png' };
 
 /** The longest side the scanner's model reads in full (supabase/functions/menus-ai/README.md). */
 const LONG_SIDE = 2400;
 
+/**
+ * Every picture is drawn again and encoded anew before it leaves the phone, whatever its size: what a camera writes
+ * beside the picture (EXIF: where it was taken, the device, the time) is never uploaded, kept or sent to the model. A
+ * screenshot (PNG) stays PNG when it fits, for its small text; anything else, or a PNG too large, becomes a JPEG.
+ */
 export async function prepareImage(file: Blob): Promise<Prepared> {
   const kind = await sniff(file);
   if (kind === 'heic' || kind === 'avif') throw new V2Error('heic');
   if (!kind) throw new V2Error('bad_image');
   const im = await decode(file).catch((e) => { throw new V2Error(toV2Error(e).code === 'heic' ? 'heic' : 'bad_image'); });
-  const long = Math.max(im.w, im.h);
   im.close();
-  const keep = (kind === 'jpeg' || kind === 'png' || kind === 'webp') && file.size <= IMAGE_BYTES_MAX && long <= LONG_SIDE;
-  if (keep) {
-    const type = kind === 'jpeg' ? 'image/jpeg' : kind === 'png' ? 'image/png' : 'image/webp';
-    return { bytes: new Uint8Array(await file.arrayBuffer()), type, ext: kind === 'jpeg' ? 'jpg' : kind };
-  }
-  for (const [side, quality] of [[LONG_SIDE, 0.86], [1800, 0.8]] as const) {
-    const out = await resize(file, side, 'image/jpeg', quality);
-    if (out.size <= IMAGE_BYTES_MAX) return { bytes: new Uint8Array(await out.arrayBuffer()), type: 'image/jpeg', ext: 'jpg' };
+  const tries: readonly (readonly [number, 'image/png' | 'image/jpeg', number])[] = kind === 'png'
+    ? [[LONG_SIDE, 'image/png', 1], [LONG_SIDE, 'image/jpeg', 0.9], [1800, 'image/jpeg', 0.8]]
+    : [[LONG_SIDE, 'image/jpeg', 0.9], [1800, 'image/jpeg', 0.8]];
+  for (const [side, type, quality] of tries) {
+    const out = await resize(file, side, type, quality);
+    if (out.size <= IMAGE_BYTES_MAX) return { bytes: new Uint8Array(await out.arrayBuffer()), type, ext: type === 'image/png' ? 'png' : 'jpg' };
   }
   throw new V2Error('too_big');
 }

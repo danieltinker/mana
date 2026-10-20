@@ -5,8 +5,10 @@
 // are shown and confirmed before they count; allergens are the source's own words, and labels only those the source
 // states. Source text is shown as text, never as HTML.
 //
-// The owner's answers stay on this device until applying (there is no column for them); a price typed in place changes
-// the draft, which is stored again at once (save_import_draft), so another device sees it.
+// The owner's answers stay on this device until applying (there is no column for them; per account, data/answers.ts);
+// a price typed in place changes the draft, which is stored again at once (save_import_draft), so another device sees
+// it. Only an import of the open place is checked and applied here: one of another place (an address kept from it) is
+// said plainly, with the way to that place, and never planned against this place's menu.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   draftCounts, isBlank, type ImportChoice, type ImportDecisions, type ImportDraft, type Text,
@@ -17,12 +19,16 @@ import { toV2Error } from '../data/errors.ts';
 import { nextOpenAfter } from '../data/flow.ts';
 import { agorotOf, shekelsOf } from '../data/forms.ts';
 import { existingMenu, isTextSource, type ImportLine } from '../data/imports.ts';
-import { importApi, imports, keepNotes, loadAssets, loadImport, loadImports, loadProgress, notesFor, progress, runScan } from '../data/onboarding.ts';
 import {
-  carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice, withOptionPrice,
+  dropAnswers, importApi, importPlace, imports, keepAnswers, keepNotes, loadAnswers, loadAssets, loadImport, loadImports, loadProgress, notesFor, progress, runScan,
+} from '../data/onboarding.ts';
+import {
+  carriesPrices, changesNothing, choose, confirmPrices, gate, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice, withOptionPrice,
   type ExceptionRow,
 } from '../data/review.ts';
-import { canEdit, menu, reloadMenuQuietly } from '../data/store.ts';
+import { named } from '../data/rows.ts';
+import { canEdit, flushSaves, hasUnsaved, memberships, menu, openVenue, reloadMenuQuietly } from '../data/store.ts';
+import { leave } from '../leave.ts';
 import { langsOf, shekels } from '../format.ts';
 import { errText, fmtDateTime, lang, t, tn } from '../i18n.ts';
 import { ErrorLine, MoneyInput } from '../ui.tsx';
@@ -38,6 +44,11 @@ const say = (x: Text | null | undefined): string => {
   const L = lang.value;
   return (L === 'he' ? x.he || x.en : x.en || x.he).trim();
 };
+/**
+ * A name set inside a sentence, isolated (U+2068 … U+2069): its own direction, and a direction control inside it (a
+ * U+202E read from a source) ends with it instead of turning the rest of the sentence round.
+ */
+const iso = (s: string): string => (s ? '⁨' + s + '⁩' : s);
 
 // ---------------------------------------------------------------- imports waiting, being read, or failed
 /** The place's imports that need the owner: a menu read and waiting for its check, one being read, one that failed. */
@@ -66,17 +77,53 @@ export function ImportsWaiting() {
 
 // ---------------------------------------------------------------- one import
 export function ImportReview({ id }: { id: string }) {
+  const open = menu.value!.venue.id;
   const line = (imports.value ?? []).find((i) => i.id === id) ?? null;
-  const [missing, setMissing] = useState(false), [error, setError] = useState('');
+  /** Not the open place's: null (not known yet), '' (no place of this account has it), or the place it belongs to. */
+  const [elsewhere, setElsewhere] = useState<string | null>(null), [error, setError] = useState('');
+  async function find() {
+    if (await loadImport(id)) return;
+    const p = await importPlace(id).catch(() => null);
+    setElsewhere(p && p !== menu.value?.venue.id ? p : '');
+  }
   useEffect(() => {
+    setElsewhere(null);
     if (line) return;
-    loadImport(id).then((x) => setMissing(!x)).catch((e) => setError(toV2Error(e).code));
-  }, [id, !!line]);
-  if (error) return <ErrorLine code={error} onRetry={() => { setError(''); loadImport(id).catch((e) => setError(toV2Error(e).code)); }} />;
-  if (missing) return <Note kind="warn" action={<Btn small onClick={() => go('onboarding/menu')}>{t('ob.review.bring')}</Btn>}>{t('imp.missing')}</Note>;
+    find().catch((e) => setError(toV2Error(e).code));
+  }, [id, open, !!line]);
+  if (error) return <ErrorLine code={error} onRetry={() => { setError(''); find().catch((e) => setError(toV2Error(e).code)); }} />;
+  if (line && line.venue_id !== open) return <OtherPlace venueId={line.venue_id} />;
+  if (elsewhere) return <OtherPlace venueId={elsewhere} />;
+  if (elsewhere === '') return <Note kind="warn" action={<Btn small onClick={() => go('onboarding/menu')}>{t('ob.review.bring')}</Btn>}>{t('imp.missing')}</Note>;
   if (!line) return <Loading />;
   if (line.status === 'parsed') return <Preview key={line.id + line.updated_at} line={line} />;
   return <NotReady line={line} />;
+}
+
+/**
+ * An import of another of the account's places, opened while this one is open (Back after switching place, a link): it
+ * is never checked against this place's menu nor added to it. Said plainly, with the way to its own place.
+ */
+function OtherPlace({ venueId }: { venueId: string }) {
+  const m = memberships.value?.find((x) => x.venue.id === venueId) ?? null;
+  const [unsaved, setUnsaved] = useState(false);
+  if (!m) return <Note kind="warn" action={<Btn small onClick={() => go('onboarding/menu')}>{t('ob.review.bring')}</Btn>}>{t('imp.missing')}</Note>;
+  const name = iso(named(m.venue, lang.value));
+  function openIt() {
+    leave(async () => {
+      await flushSaves().catch(() => {});
+      if (hasUnsaved()) { setUnsaved(true); return; }
+      void openVenue(venueId);
+    });
+  }
+  return (
+    <div data-import-elsewhere={venueId}>
+      <Note kind="warn" title={t('imp.other.title')} action={<Btn small kind="primary" onClick={openIt} data-action="open-import-place">{t('imp.other.open', { name })}</Btn>}>
+        <p>{t('imp.other.body', { name })}</p>
+        {unsaved && <p role="alert">{t('imp.other.unsaved')}</p>}
+      </Note>
+    </div>
+  );
 }
 
 /** An import that is not waiting for its check: being read, failed, applied or given up. */
@@ -117,21 +164,6 @@ function NotReady({ line }: { line: ImportLine }) {
 }
 
 // ---------------------------------------------------------------- the preview
-const ANSWERS_KEY = (id: string) => 'mana-import-answers:' + id;
-function loadAnswers(id: string): ImportDecisions {
-  try {
-    const raw = localStorage.getItem(ANSWERS_KEY(id));
-    if (!raw) return NO_DECISIONS;
-    const j = JSON.parse(raw) as { choices?: Record<string, ImportChoice>; skip?: string[] };
-    // the prices are confirmed again on every visit: never published unseen
-    return { v: 1, pricesConfirmed: false, choices: j.choices ?? {}, skip: j.skip ?? [] };
-  } catch { return NO_DECISIONS; }
-}
-function keepAnswers(id: string, d: ImportDecisions) {
-  try { localStorage.setItem(ANSWERS_KEY(id), JSON.stringify({ choices: d.choices, skip: d.skip ?? [] })); } catch { /* storage is optional */ }
-}
-const dropAnswers = (id: string) => { try { localStorage.removeItem(ANSWERS_KEY(id)); } catch { /* storage is optional */ } };
-
 function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
   const d = menu.value!;
   const editable = canEdit();
@@ -172,6 +204,7 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
   }
   async function apply() {
     if (busy || !gt.ok) return;
+    if (line.venue_id !== menu.value?.venue.id) return;     // planned against this place's menu: never applied to another
     setBusy('apply'); setError('');
     try {
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
@@ -281,7 +314,7 @@ function Exception({ r, draft, editable, diffs, onChoose, onEdit }: {
   r: ExceptionRow; draft: ImportDraft; editable: boolean; diffs: Map<string, { key: string; name: Text; yours: number; read: number }[]>;
   onChoose: (c: ImportChoice | null) => void; onEdit: (d: ImportDraft) => void;
 }) {
-  const what = t('imp.x.' + r.e.code, { name: say(r.about.name) || t('menu2.unnamed'), within: say(r.about.within), theirs: say(r.about.theirs), n: r.e.count });
+  const what = t('imp.x.' + r.e.code, { name: iso(say(r.about.name) || t('menu2.unnamed')), within: iso(say(r.about.within)), theirs: iso(say(r.about.theirs)), n: r.e.count });
   const listed = r.e.code === 'price_differs' ? diffs.get(r.e.key.split('@')[0]!) ?? [] : [];
   const label = (c: ImportChoice) => t('imp.c.' + c);
   return (

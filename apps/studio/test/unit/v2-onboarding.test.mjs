@@ -13,6 +13,7 @@ import {
 import { applyPlan, dish, draftOf, group, link, opt, section } from '../../../../packages/contracts/test/import-fixtures.ts';
 import { parsePaste, parseWoltText } from '@mana/import';
 import { DEMO_MARK, marksDemo, withDemoBand } from '../../src/v2/data/demo-mark.ts';
+import { answersKey, forgetAnswersBut, readAnswers, writeAnswers } from '../../src/v2/data/answers.ts';
 import { blockersOf, endWrite, nextOpenAfter, openStep, resumeStep, stepEnd, visitWrite } from '../../src/v2/data/flow.ts';
 import { imagePath, imagesHash, importsApi, isEmptyDraft, readText, storableNotes } from '../../src/v2/data/imports.ts';
 import {
@@ -322,6 +323,32 @@ test('an answer the plan refuses is said at its question, which stays on screen:
   const g = gate(draft, venue, moved, LANGS);
   assert.deepEqual([g.ok, g.errors.map((e) => e.code)], [false, ['opener_qty']]);
   assert.equal(preview(draft, venue, choose(moved, id, 'keep_mine'), LANGS).rows.find((x) => x.id === id).refused, null);
+});
+
+test('the answers kept on the device: per account and import, read back through the validator, never a skip; another account\'s go', () => {
+  const imp = '00000000-0000-4000-8000-0000000000e1', me = '00000000-0000-4000-8000-0000000000a1', other = '00000000-0000-4000-8000-0000000000a2';
+  assert.equal(answersKey(me, imp), `mana-import-answers:${me}:${imp}`);
+  const d = choose(NO_DECISIONS, 'dish_repeated@s0d1', 'keep_both');
+  const back = readAnswers(writeAnswers({ ...d, pricesConfirmed: true, skip: ['s0'] }));
+  assert.deepEqual(back, { v: 1, pricesConfirmed: false, choices: { 'dish_repeated@s0d1': 'keep_both' }, skip: [] }, 'the prices are confirmed again; nothing left out but by an answer');
+  assert.ok(!writeAnswers({ ...d, skip: ['s0'] }).includes('skip'), 'a skip is never stored');
+  // what was written by hand, or by an older version, is checked again: an answer outside the list drops them all
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: { 'dish_repeated@s0d1': 'delete_everything' } })), NO_DECISIONS);
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: { '__proto__': 'skip' } })), NO_DECISIONS);
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: ['s0', 's1'] })).skip, [], 'a stored skip is not read back');
+  assert.deepEqual(readAnswers('not json'), NO_DECISIONS);
+  assert.deepEqual(readAnswers('[1,2]'), NO_DECISIONS);
+  assert.deepEqual(readAnswers(null), NO_DECISIONS);
+  // a device's store: the signed-in account keeps its own; signed out, none is left
+  const store = (keys) => {
+    const m = new Map(keys.map((k) => [k, '{}']));
+    return { get length() { return m.size; }, key: (i) => [...m.keys()][i] ?? null, removeItem: (k) => { m.delete(k); }, keys: () => [...m.keys()].sort() };
+  };
+  const s = store([answersKey(me, imp), answersKey(other, imp), `mana-import-answers:${imp}`, 'mana-studio-v2-venue:' + me]);
+  forgetAnswersBut(me, s);
+  assert.deepEqual(s.keys(), [answersKey(me, imp), 'mana-studio-v2-venue:' + me].sort(), 'another account\'s, and the old unkeyed ones, are gone');
+  forgetAnswersBut(null, s);
+  assert.deepEqual(s.keys(), ['mana-studio-v2-venue:' + me], 'signed out: no answer is left');
 });
 
 test('every note, question, answer, reason and refusal the contracts can send has words in both languages', () => {

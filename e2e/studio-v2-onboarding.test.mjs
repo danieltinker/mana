@@ -6,13 +6,16 @@
 // its nested sauce, the typed price). The main path is timed. Then: leaving mid-flow and coming back on another device
 // (the same step, the typed price there); the same menu imported again adds nothing (Hopa test 1); "get help" opens a
 // case the back office's RPC reads, and sent again after a lost answer (the request's own id) opens no second one; the
-// scanner's path with a stub (the real handler, a recorded reply, no paid call), and plainly "not available here"
-// without one; a counter can run none of the flow's writes.
+// scanner's path with a stub (the real handler, a recorded reply, no paid call; every picture drawn again, so no EXIF
+// leaves the phone), and plainly "not available here" without one; a counter can run none of the flow's writes. The
+// security round: an import of another place is never checked or applied while this one is open; the answers kept on
+// the device are the account's own and gone at sign-out; a name with a direction control in it is isolated.
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-onboarding/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseWoltText } from '@mana/import';
 import { asAnon, asUser, createUser, HalomBot, OwnerBot, signIn } from '@mana/sim';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from './fixtures/wolt-text-cafe.mjs';
 import { OUT, startE2E } from './helpers.mjs';
@@ -55,6 +58,14 @@ async function stored(owner, venueId) {
 }
 
 const CAFE_DISHES = ['Cappuccino', 'Cheesecake', 'Espresso', 'Schnitzel plate', 'Seasonal cake', 'Shakshuka'];
+
+/** A JPEG with an EXIF segment carrying `marker` right after its start, the way a camera writes where a photo was taken. */
+function withExif(jpeg, marker) {
+  const tiff = Buffer.concat([Buffer.from('MM\0\x2a\0\0\0\x08', 'latin1'), Buffer.alloc(6), Buffer.from(marker, 'latin1')]);
+  const body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  const len = body.length + 2;
+  return Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff, 0xe1, len >> 8, len & 0xff]), body, jpeg.subarray(2)]);
+}
 
 /** Import the café's Wolt text from the menu step: paste, read; the preview opens. Returns the import's id. */
 async function importWoltText(page, text = WOLT_TEXT) {
@@ -368,7 +379,139 @@ test('"get help" from a step opens a case on the step\'s topic, and the back off
   const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${made.id}`, subject: `eq.${subject}` });
   assert.deepEqual(stored.map((x) => x.id), [ids[0]], 'one case');
   assert.equal(await sent.getAttribute('data-case-sent'), ids[0]);
+
+  // the same lost answer, but the owner changes the words before sending again: a new request with a new id, so the
+  // new words are stored (the database would answer `reused` for the old id, and the new words would be lost)
+  await page.locator('[data-back-to-setup="menu"]').click();
+  await step(page, 'menu');
+  await page.locator('[data-flow-help="import"]').click();
+  await page.locator('[data-help-form]').waitFor();
+  await page.locator(`[data-cases] [data-case="${caseId}"]`).waitFor();
+  ids.length = 0; replies.length = 0; lose = true;
+  await page.route(toCase, async (r) => {
+    ids.push(JSON.parse(r.request().postData()).p_id);
+    const res = await r.fetch();
+    replies.push(await res.json());
+    if (lose) { lose = false; return r.abort('internetdisconnected'); }
+    return r.fulfill({ response: res });
+  });
+  await page.locator('[data-field="help-subject"]').fill('The dessert prices are wrong');
+  await page.route(toList, (r) => r.abort('internetdisconnected'));
+  await page.locator('[data-action="send-help"]').click();
+  await page.locator('[data-help-form] .note-error').waitFor();
+  await page.unroute(toList);
+  await page.locator('[data-field="help-subject"]').fill('The dessert prices are wrong, all three');
+  await page.locator('[data-action="send-help"]').click();
+  await sent.waitFor();
+  await page.unroute(toCase);
+  assert.equal(ids.length, 2);
+  assert.ok(ids[0] && ids[1] && ids[0] !== ids[1], 'changed words: a new id');
+  assert.deepEqual(replies.map((x) => x.reused), [false, false]);
+  const now = await owner.api.select('support_cases', { select: 'id,subject', venue_id: `eq.${made.id}`, subject: 'like.The dessert*', order: 'created_at' });
+  assert.deepEqual(now.map((x) => [x.id, x.subject]), [[ids[0], 'The dessert prices are wrong'], [ids[1], 'The dessert prices are wrong, all three']],
+    'the first (its answer lost) and the corrected one, each with its own words');
   assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ the security round: one place's import, one person's answers
+/** An import of `venue` read by the phone's own reader and stored, waiting for its check (as the app would leave it). */
+async function parsedImport(owner, venue, text) {
+  owner.forVenue(venue);
+  const made = await owner.createImport({ source: 'wolt_text', text });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const { draft } = parseWoltText(text);
+  const saved = await owner.api.rpc('save_import_draft', { p_import: made.importId, p_draft: draft, p_notes: [] });
+  assert.equal(saved.ok, true, JSON.stringify(saved).slice(0, 300));
+  return { id: made.importId, draft };
+}
+const answerKeys = (page) => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('mana-import-answers:')).sort());
+
+test('an import of another place is never checked or applied here: said plainly, with the way to its place; answers are the account\'s own, gone at sign-out', { timeout: 600000 }, async () => {
+  const email = 'onboard-two-places@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const A = (await owner.createVenue({ slug: 'two-places-a', name: { he: '', en: 'Two Places A' }, kind: 'cafe' })).id;
+  const B = (await owner.createVenue({ slug: 'two-places-b', name: { he: '', en: 'Two Places B' }, kind: 'cafe' })).id;
+  // B has the café's menu already (imported through the database's own path); A has the same menu read, and no dish
+  const b1 = await parsedImport(owner, B, WOLT_TEXT);
+  const fixes = (await owner.api.select('menu_imports', { select: 'exceptions', id: `eq.${b1.id}` }))[0].exceptions.filter((x) => x.severity === 'fix');
+  const choices = Object.fromEntries(fixes.map((x) => [`${x.code}@${x.key}`, x.code === 'price_unreadable' || x.code === 'price_missing' ? 'no_price' : 'skip']));
+  assert.equal((await owner.api.rpc('apply_import', { p_import: b1.id, p_draft: b1.draft, p_decisions: { v: 1, pricesConfirmed: true, choices, skip: [] } })).ok, true);
+  const a1 = await parsedImport(owner, A, WOLT_TEXT_REORDERED);
+  const dishesOf = async (v) => (await owner.api.select('dishes', { select: 'name_en', venue_id: `eq.${v}` })).map((x) => x.name_en).sort();
+  const bBefore = await dishesOf(B);
+  assert.deepEqual(await dishesOf(A), []);
+
+  // B open (the account's last place), A's import by its address (Back after switching place, or a link)
+  const page = await signInPage(email, { lang: 'en' });
+  await page.locator('.shell').waitFor();
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), ['mana-studio-v2-venue:' + owner.userId, B]);
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + a1.id);
+  await page.reload();
+  await page.locator(`.shell[data-venue="${B}"]`).waitFor();
+  const elsewhere = page.locator(`[data-import-elsewhere="${A}"]`);
+  await elsewhere.waitFor();
+  assert.equal(await page.locator('[data-review]').count(), 0, 'no preview planned against B\'s menu');
+  assert.equal(await page.locator('[data-action="apply-import"]').count(), 0, 'nothing to apply here');
+  assert.match(await elsewhere.innerText(), /another place[\s\S]*Two Places A/);
+  await shot(page, 'sec-01-another-place');
+  assert.deepEqual(await dishesOf(A), []);
+  assert.deepEqual(await dishesOf(B), bBefore);
+
+  // the way to its place: A opens, and A's import is checked against A's own menu (every dish is new there)
+  await elsewhere.locator('[data-action="open-import-place"]').click();
+  await page.locator(`.shell[data-venue="${A}"]`).waitFor();
+  await page.locator(`[data-review="${a1.id}"]`).waitFor();
+  await page.locator('[data-plan-line="create:dish"]').first().waitFor();
+  assert.ok(Number(await page.locator('[data-plan-line="create:dish"]').getAttribute('data-n')) > 0);
+  assert.equal(await page.locator('[data-plan-nothing]').count(), 0);
+
+  // an answer is kept for this account and this import only
+  await page.locator('[data-exception^="price_unreadable@"] [data-choose="no_price"]').click();
+  await page.waitForFunction((k) => !!localStorage.getItem(k), `mana-import-answers:${owner.userId}:${a1.id}`);
+  assert.deepEqual(await answerKeys(page), [`mana-import-answers:${owner.userId}:${a1.id}`]);
+  // signing out leaves none on the device
+  await page.locator('[data-action="account"]').click();
+  await page.locator('[data-menu="sign-out"]').click();
+  await page.locator('[data-screen="start"]').waitFor();
+  assert.deepEqual(await answerKeys(page), [], 'gone at sign-out');
+  // answers left by another account, or by an older version of the app, are gone once this account signs in
+  await page.evaluate((keys) => { for (const k of keys) localStorage.setItem(k, JSON.stringify({ choices: {}, skip: ['s0'] })); },
+    [`mana-import-answers:00000000-0000-4000-8000-00000000beef:${a1.id}`, `mana-import-answers:${a1.id}`]);
+  await page.locator('input[type="email"]').fill(email);
+  await page.locator('input[name="password"]').fill(PASSWORD);
+  await page.locator('form.start-form button[type="submit"]').click();
+  await page.locator('.shell').waitFor();
+  await page.waitForFunction(() => !Object.keys(localStorage).some((k) => k.startsWith('mana-import-answers:')));
+  // back on A's import: the answer given before signing out is asked again, and applying writes to A, never to B
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + a1.id);
+  const cake = page.locator('[data-exception^="price_unreadable@"]');
+  if (!(await page.locator(`.shell[data-venue="${A}"]`).count())) await page.locator(`[data-import-elsewhere="${A}"] [data-action="open-import-place"]`).click();
+  await cake.waitFor();
+  assert.equal(await cake.getAttribute('data-open'), 'yes', 'not answered: the answer did not outlive the sign-out');
+  await cake.locator('[data-choose="no_price"]').click();
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await page.locator('[data-screen="onboarding"]:not([data-step="review"])').waitFor();
+  assert.ok((await dishesOf(A)).length > 0, 'A has its menu');
+  assert.deepEqual(await dishesOf(B), bBefore, 'B is as it was');
+  assert.deepEqual(await answerKeys(page), [], 'applied: the answers are dropped');
+  assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+test('a name read with a direction control in it never turns the sentence round: each name is isolated', { timeout: 300000 }, async () => {
+  const email = 'onboard-bidi@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'bidi-sim', name: { he: '', en: 'Bidi Sim' }, kind: 'cafe' });
+  const imp = await parsedImport(owner, made.id, WOLT_TEXT.replace('Seasonal cake', 'Seasonal‮ cake'));
+  const page = await signInPage(email, { lang: 'en' });
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + imp.id);
+  const what = page.locator('[data-exception^="price_unreadable@"] .exc-what span[dir="auto"]');
+  await what.waitFor();
+  const text = await what.textContent();
+  assert.match(text, /^We could not read the price of "⁨[^⁩]*⁩"\.$/, JSON.stringify(text));
+  assert.deepEqual(problems(page), []);
   await page.context().close();
 });
 
@@ -408,9 +551,19 @@ test('Wolt screenshots through the scanner (a stub: the real handler, a recorded
   await step(page, 'menu');
   await page.locator('[data-source="wolt_screenshots"][data-available="yes"]').click();
   await page.locator('[data-image-import="wolt_screenshots"] [data-no-wolt-photos]').waitFor();
+  // a screenshot, and a photo straight from a camera: a JPEG with EXIF saying where it was taken (an invented place)
+  const plain = Buffer.from(await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 16; c.height = 16;
+    const x = c.getContext('2d'); x.fillStyle = '#b4232a'; x.fillRect(0, 0, 16, 16);
+    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    return [...new Uint8Array(await b.arrayBuffer())];
+  }));
+  const WHERE = 'GPS 31.0000 N 34.0000 E invented';
+  const camera = withExif(plain, WHERE);
+  assert.ok(camera.includes('Exif') && camera.includes(WHERE));
   await page.locator('[data-field="import-files"]').setInputFiles([
     { name: 'shot-1.png', mimeType: 'image/png', buffer: TINY_PNG },
-    { name: 'shot-2.png', mimeType: 'image/png', buffer: TINY_PNG },
+    { name: 'photo-2.jpg', mimeType: 'image/jpeg', buffer: camera },
   ]);
   await page.locator('[data-chosen="2"]').waitFor();
   await shot(page, 'scan-01-chosen');
@@ -420,7 +573,13 @@ test('Wolt screenshots through the scanner (a stub: the real handler, a recorded
   const importId = await page.locator('[data-review]').getAttribute('data-review');
   const [imp] = await owner.api.select('menu_imports', { select: 'status,source,raw_paths', id: `eq.${importId}` });
   assert.equal(imp.status, 'parsed');
-  assert.deepEqual(imp.raw_paths, [`${made.id}/imports/${importId}/01.png`, `${made.id}/imports/${importId}/02.png`]);
+  assert.deepEqual(imp.raw_paths, [`${made.id}/imports/${importId}/01.png`, `${made.id}/imports/${importId}/02.jpg`]);
+  // every picture was drawn again before it left the phone: what the camera wrote beside the photo never arrives
+  for (const p of imp.raw_paths) {
+    const up = Buffer.from(stub.files.get(p).bytes);
+    assert.ok(!up.includes('Exif') && !up.includes(WHERE), p + ': no EXIF, no place');
+  }
+  assert.equal(stub.files.get(imp.raw_paths[1]).type, 'image/jpeg');
   await shot(page, 'scan-02-review');
   await page.locator('[data-prices-confirm] button[role="switch"]').click();
   await page.locator('[data-action="apply-import"]:not([disabled])').click();
