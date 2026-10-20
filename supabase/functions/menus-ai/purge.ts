@@ -4,65 +4,68 @@
  * not purged and not being read; the table's guard refuses anything else). The text sources' `raw_text` is the
  * database's daily job. Called by a schedule with the service role key, never by a client.
  *
- * The retention holds whatever the list says: an import goes only once it finished (`applied_at`, else `updated_at`)
- * more than `app_config.import_raw_retention_days` ago (30 by default), as the daily job measures the pasted text. An
- * import the list names sooner is kept for a later run (`kept`).
+ * The list is the database's rule, retention included (finished, or left waiting, longer ago than
+ * `import_raw_retention_days`), oldest first. Only files of the import's own folder are deleted
+ * (`<venue_id>/imports/<id>/<name>`), and only of an import in a status that may be purged (`PURGEABLE`, never
+ * `parsing`); any other row is left as it is and reported.
  *
- * Only files of the import's own folder are deleted (`<venue_id>/imports/<id>/<name>`), and only of an import in a
- * status that may be purged (`PURGEABLE`, never `parsing`); any other row is left as it is and reported. The list comes oldest first and has no cursor: one call reads it again while a full page
- * purged something (what was purged leaves the list), at most `PURGE_PAGES` times, and says `more` when a next call
- * would find more.
+ * The pages are walked with the list's cursor (the last row's `{finishedAt, importId}`, as it came), so rows that keep
+ * failing never hold back the rows after them. One call reads at most `PURGE_PAGES` pages and stops after
+ * `PURGE_TIME_MS`; it answers `next`, the cursor to pass back as `after`, while rows may remain.
  */
-import { isUuid } from '@mana/contracts';
+import { isUuid, validateListPurgeableQuery, type PurgeCursor } from '@mana/contracts';
 import type { Deps } from './deps.ts';
 import { pathsOk } from './read.ts';
-import { finishedAt, markPurged, purgeable, PURGEABLE, removeFiles, retentionDays } from './rest.ts';
+import { markPurged, purgeable, PURGEABLE, removeFiles } from './rest.ts';
 
-/** Imports read per page (the most `list_purgeable_imports` gives), and pages per call. */
-export const PURGE_BATCH = 500;
-export const PURGE_PAGES = 4;
-const DAY_MS = 86_400_000;
+/** Rows per page, pages per call, and the time one call works before it answers (the platform stops at 150 s). */
+export const PURGE_BATCH = 100;
+export const PURGE_PAGES = 20;
+export const PURGE_TIME_MS = 100_000;
 
 export type PurgeReply =
-  | { readonly ok: true; readonly purged: number; readonly failed: readonly string[]; readonly kept: number; readonly more: boolean }
+  | { readonly ok: true; readonly purged: number; readonly failed: readonly string[]; readonly next: PurgeCursor | null }
   | { readonly ok: false; readonly code: string };
 
-export async function purge(d: Deps, importId: string | null): Promise<PurgeReply> {
-  const days = await retentionDays(d);
-  const before = d.now() - days * DAY_MS;
-  const at = new Date(d.now()).toISOString();
-  let purged = 0, refused = 0, more = false;
-  const failed = new Set<string>(), kept = new Set<string>();
-  for (let page = 0; page < PURGE_PAGES; page++) {
-    const listed = await purgeable(d, PURGE_BATCH);
-    const rows = listed?.filter((r) => importId === null || r.importId === importId) ?? null;
-    const ages = rows === null ? null : await finishedAt(d, rows.map((r) => r.importId).filter((id) => isUuid(id)));
-    if (listed === null || rows === null || ages === null) {
-      if (page === 0) return { ok: false, code: 'failed' };
-      more = true;
+export async function purge(d: Deps, importId: string | null, after: PurgeCursor | null = null): Promise<PurgeReply> {
+  const t0 = d.now();
+  const at = new Date(t0).toISOString();
+  let purged = 0, refused = 0, pages = 0, handled = 0, stop: string | null = null;
+  const failed: string[] = [];
+  let cursor = after, next: PurgeCursor | null = null;
+  for (;;) {
+    const query = { limit: PURGE_BATCH, after: cursor };
+    // the cursor is the list's own last row: one the contracts refuse ends the walk (the log says so)
+    if (!validateListPurgeableQuery(query).ok) { stop = 'cursor_invalid'; break; }
+    const rows = await purgeable(d, query);
+    if (rows === null) {
+      if (pages === 0) return { ok: false, code: 'failed' };
+      next = cursor;
+      stop = 'list_failed';
       break;
     }
-    let progress = 0;
+    pages += 1;
+    let late = false;
     for (const row of rows) {
-      if (failed.has(row.importId)) continue;
+      if (handled > 0 && d.now() - t0 > PURGE_TIME_MS) { late = true; break; }
+      handled += 1;
+      cursor = { finishedAt: row.finishedAt, importId: row.importId };
+      if (importId !== null && row.importId !== importId) continue;
       // never an import being read (or any status the list should not name), never a path outside its own folder
       if (!(PURGEABLE as readonly string[]).includes(row.status) || !isUuid(row.importId) || !pathsOk(row.paths, row.venueId, row.importId)) {
         refused += 1;
-        failed.add(row.importId);
+        failed.push(row.importId);
         continue;
       }
-      // the retention, whatever the list says: finished long enough ago, or kept for a later run
-      const finished = ages.get(row.importId);
-      if (finished === undefined || !(finished < before)) { kept.add(row.importId); continue; }
-      if (await removeFiles(d, row.paths) && await markPurged(d, row.importId, at)) { purged += 1; progress += 1; }
-      else failed.add(row.importId);
+      if (await removeFiles(d, row.paths) && await markPurged(d, row.importId, at)) purged += 1;
+      else failed.push(row.importId);
     }
-    // what was purged left the list: a full page that purged something may have more behind it
-    more = listed.length === PURGE_BATCH && progress > 0;
-    if (!more || importId !== null) break;
+    if (late) { next = cursor; stop = 'time'; break; }
+    if (rows.length < PURGE_BATCH) break;
+    if (pages >= PURGE_PAGES) { next = cursor; stop = 'pages'; break; }
   }
-  d.log({ fn: 'menus-ai', action: 'purge', purged, failed: failed.size, refused, kept: kept.size, retentionDays: days, more });
-  return { ok: true, purged, failed: [...failed], kept: kept.size, more };
+  d.log({ fn: 'menus-ai', action: 'purge', purged, failed: failed.length, refused, pages, stop, more: next !== null });
+  return { ok: true, purged, failed, next };
 }
 
 /** Is this caller the service role? (Constant time, so the comparison says nothing about the key.) */
