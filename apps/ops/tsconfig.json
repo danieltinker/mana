@@ -1,0 +1,19 @@
+{
+  "//": "Type-checks the v2 back office (src/v2, schema 2) and its tests, strictly. v1 (src/*.jsx, *.js) stays JavaScript until it is deleted at the cutover (ADR-007).",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["src/v2", "test/v2"]
+}
