@@ -16,7 +16,7 @@ import { byPosition, named, newId } from '../data/rows.ts';
 import { addDish, addSection, canEdit, canOperate, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
+import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, focusOnReturn, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
 import { SaveFailedLine } from '../saving.tsx';
 import { DishSheet } from './dish.tsx';
 import { OffBadge, OffSheet, offText, stateOf } from './off.tsx';
@@ -29,6 +29,7 @@ function offLabel(kind: 'section' | 'dish', id: string, name: string): string {
 
 /** After the availability sheet closes, the focus goes back to the button that opened it. */
 function refocusOff(id: string) {
+  focusOnReturn(`[data-off-open="${id}"]`);           // instead of the menu's heading when the address changes back
   requestAnimationFrame(() => requestAnimationFrame(() => {
     const b = document.querySelector(`[data-off-open="${id}"]`) as HTMLElement | null;
     if (b && document.activeElement !== b) b.focus();

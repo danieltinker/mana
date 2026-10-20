@@ -283,7 +283,9 @@ test('a day part on a section, the week with a split Friday, a holiday closure, 
   await pub.locator('[data-action="publish"]').click();
   await page.locator('[data-standing-card="pending"]').waitFor();
   const halom = await HalomBot.firstAdmin(e.stack, e.stack, { email: 'halom-operate@sim.local' });
-  assert.equal((await halom.approve(owner.venueId, 'e2e: the v2 operating scenario')).ok, true);
+  // the reviewer names the revision they looked at (the one just published)
+  const [{ n: revision }] = await e.stack.sql('select max(number) as n from public.menu_revisions where venue_id = $1', [owner.venueId]);
+  assert.equal((await halom.approve(owner.venueId, 'e2e: the v2 operating scenario', revision)).ok, true);
   await pub.locator('[data-action="check-approval"]').click();
   await page.locator('[data-standing-card="live"]').waitFor();
 
@@ -527,6 +529,8 @@ test('every "until" from the phone: the moment shown before the tap is the momen
     const o = await newest();
     assert.equal(o.until_kind, { h1: 'duration', h2: 'duration', next_opening: 'next_opening', time: 'time', date: 'date', indefinite: 'indefinite' }[choice]);
     assert.equal(shownAt, o.until_at ? new Date(o.until_at).toISOString() : '', `${choice}: the moment shown is the moment stored`);
+    // after the tap the toast says the moment stored (at :59.8 the minute may turn on the way: this is what counts)
+    await page.getByText('תה: ' + (o.until_at ? 'לא זמין עד ' + plain(momentText(new Date(o.until_at), Date.now(), TZ)) : 'לא זמין עד שתחזירו')).first().waitFor();
     assert.equal(shownText, o.until_at ? 'חוזר: ' + plain(momentText(new Date(o.until_at), Date.now(), TZ)) : 'לא חוזר מעצמו', choice);
     if (choice === 'h2') await shot('20-until-h2');
     await owner.setAvailability('dish', tea, null);
@@ -663,5 +667,101 @@ test('open now on last night\'s hours, on a closed date: the card never says "op
   await sheet.locator('[data-field="off-date"]').waitFor();
   await shot('25-no-opening-within-two-weeks');
   await sheet.locator('.sheet-close, [data-action="close"]').first().click().catch(() => page.keyboard.press('Escape'));
+  assert.deepEqual(problems(), []);
+});
+
+test('an opening window edited here and changed on another device is never written over: with no read again, after focus, after the page comes back into view', { timeout: 300000 }, async () => {
+  await owner.api.remove('venue_hours', { venue_id: `eq.${owner.venueId}`, weekday: 'eq.1' });
+  const [w] = await owner.insert('venue_hours', [{ weekday: 1, opens: '08:00', closes: '17:00' }]);
+  const window_ = async () => { const [r] = await rows('venue_hours', { id: `eq.${w.id}` }); return [r.opens, r.closes]; };
+  for (const how of ['none', 'focus', 'visibilitychange']) {
+    await e.stack.sql('update public.venue_hours set opens = $2, closes = $3 where id = $1', [w.id, '08:00', '17:00']);
+    await go('menu');
+    await go('hours');
+    await stored(async () => plain(await page.locator(`button[data-hours="${w.id}"]`).innerText()), '08:00–17:00', 'the window as stored');
+    await page.locator(`button[data-hours="${w.id}"]`).click();
+    const ed = page.locator(`[data-hours-edit="${w.id}"]`);
+    await ed.locator('[data-field="edit-from"]').fill('09:00');
+    // another device: Monday now closes at 20:00
+    await owner.api.update('venue_hours', { id: `eq.${w.id}` }, { closes: '20:00' });
+    if (how !== 'none') {
+      await page.evaluate((h) => (h === 'focus' ? window.dispatchEvent(new Event('focus')) : document.dispatchEvent(new Event('visibilitychange'))), how);
+      // the open editor says so at once, and what the owner typed stays
+      await ed.locator('[data-hours-changed]').waitFor();
+      assert.match(plain(await ed.locator('[data-hours-changed]').innerText()), /עכשיו 08:00–20:00/);
+      assert.equal(await ed.locator('[data-field="edit-from"]').inputValue(), '09:00');
+      if (how === 'focus') await shot('26-window-changed-elsewhere');
+    }
+    await ed.locator('[data-action="save-hours"]').click();
+    await ed.getByText('זה השתנה במסך או במכשיר אחר, ולכן מוצג עכשיו כפי שהוא שמור. נסו שוב.').waitFor();
+    assert.deepEqual(await window_(), ['08:00:00', '20:00:00'], `${how}: the other device's change is not written over`);
+    assert.deepEqual([await ed.locator('[data-field="edit-from"]').inputValue(), await ed.locator('[data-field="edit-to"]').inputValue()], ['08:00', '20:00'], 'shown as stored');
+    // the owner's say: saved again, now over the version shown
+    await ed.locator('[data-field="edit-from"]').fill('09:00');
+    await ed.locator('[data-action="save-hours"]').click();
+    await ed.waitFor({ state: 'detached' });
+    await stored(window_, ['09:00:00', '20:00:00'], `${how}: saved over the version shown`);
+  }
+  await owner.api.remove('venue_hours', { id: `eq.${w.id}` });
+  assert.deepEqual(problems(), []);
+});
+
+test('two quick moves of one rule in this tab, with latency: both stored, never refused as "changed elsewhere"', { timeout: 300000 }, async () => {
+  const [third] = await owner.insert('upsell_rules', [{ trigger: 'sheet', scope_kind: 'all', scope_ids: [], suggest_kind: 'dish', suggest_dish_id: ids.dishes.muffin, priority: 5 }]);
+  const ids3 = (await rows('upsell_rules', { order: 'priority.desc,id.asc' })).map((r) => r.id);
+  assert.equal(ids3.length, 3);
+  const order = async () => (await rows('upsell_rules', { order: 'priority.desc,id.asc' })).map((r) => r.id);
+  const slow = (u) => u.pathname.endsWith('/rest/v1/upsell_rules');
+  await page.route(slow, async (r) => { await new Promise((x) => setTimeout(x, 300)); await r.continue(); });
+  for (const gap of [0, 150]) {
+    for (const [i, id] of ids3.entries()) await e.stack.sql('update public.upsell_rules set priority = $2 where id = $1', [id, [90, 60, 30][i]]);
+    await page.reload();
+    await go('rules');
+    await page.locator('[data-summary]').nth(2).waitFor();
+    await page.locator('[data-tool="arrange-rules"]').click();
+    await page.evaluate(() => { window.__seen = []; new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.textContent) window.__seen.push(n.textContent); }).observe(document.body, { childList: true, subtree: true }); });
+    const down = page.locator(`li[data-row="${ids3[0]}"] [data-move="down"]`);
+    await down.click();
+    if (gap) await page.waitForTimeout(gap);
+    await down.click();
+    await stored(order, [ids3[1], ids3[2], ids3[0]], `gap ${gap} ms: both moves stored`);
+    await page.waitForTimeout(1500);
+    const notices = await page.evaluate(() => window.__seen.filter((x) => x.includes('השתנה במסך או במכשיר אחר')).length);
+    assert.equal(notices, 0, `gap ${gap} ms: no "changed elsewhere" for this tab's own moves`);
+    const shown = await page.locator('a[data-rule]').evaluateAll((xs) => xs.map((x) => x.getAttribute('data-rule')));
+    assert.deepEqual(shown, [ids3[1], ids3[2], ids3[0]]);
+  }
+  await page.unroute(slow);
+  await page.locator('[data-tool="arrange-rules"]').click();
+  await owner.api.remove('upsell_rules', { id: `eq.${third.id}` });
+  assert.deepEqual(problems(), []);
+});
+
+test('an add-on choice or a whole group taken off from a dish\'s sheet: the focus returns to the dish\'s button', { timeout: 300000 }, async () => {
+  const more = await owner.buildMenu({
+    groups: [{ key: 'milk', name: { he: 'חלב', en: 'Milk' }, selection: 'single', min: 0, max: 1, options: [{ key: 'oat', name: { he: 'שיבולת שועל', en: 'Oat' }, price: 200 }] }],
+    sections: [{ key: 'more', name: { he: 'עוד שתייה', en: 'More drinks' }, kind: 'drinks', dishes: [{ key: 'latte', name: { he: 'לאטה', en: 'Latte' }, price: 1500, groups: ['milk'] }] }],
+  });
+  const latte = more.dishes.latte;
+  await page.reload();
+  await go('menu');
+  const sheet = page.locator('dialog[data-sheet="off"]');
+  for (const [what, sel] of [['option', `[data-off-option="${more.options.oat}"]`], ['group', `[data-off-group="${more.groups.milk}"]`]]) {
+    await page.locator(`[data-off-open="${latte}"]`).click();
+    await sheet.waitFor();
+    await sheet.locator(sel).click();
+    await page.waitForFunction((w) => location.hash.includes('/a/' + w + '/'), what);
+    await sheet.locator('[data-until="h1"]').click();
+    await sheet.waitFor({ state: 'detached' });
+    await stored(() => page.evaluate(() => document.activeElement?.getAttribute('data-off-open')), latte, `${what}: the focus is on the latte's button`);
+    await owner.setAvailability('option', more.options.oat, null);
+  }
+  // closed with Escape: the same (never the menu's heading)
+  await page.locator(`[data-off-open="${latte}"]`).click();
+  await sheet.waitFor();
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({ state: 'detached' });
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-off-open')), latte, 'Escape: the focus is on the latte\'s button');
   assert.deepEqual(problems(), []);
 });

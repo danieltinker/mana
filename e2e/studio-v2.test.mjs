@@ -295,7 +295,9 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   // ---- Halom approves; the owner sees it live, and public_menu is exactly what was built
   const halom = await HalomBot.firstAdmin(e.stack, e.stack, { email: 'halom-v2@sim.local' });
   const venueId = owner.venueId;
-  const ok = await halom.approve(venueId, 'e2e: the v2 editor scenario');
+  // the reviewer names the revision they looked at (the one the owner just published)
+  const [{ n: revision }] = await e.stack.sql('select max(number) as n from public.menu_revisions where venue_id = $1', [venueId]);
+  const ok = await halom.approve(venueId, 'e2e: the v2 editor scenario', revision);
   assert.equal(ok.ok, true, JSON.stringify(ok));
   await pub.locator('[data-action="check-approval"]').click();
   await page.locator('[data-standing-card="live"]').waitFor();
