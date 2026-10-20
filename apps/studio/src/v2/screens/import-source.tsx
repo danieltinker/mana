@@ -8,6 +8,7 @@
 // the earlier import (`reused`), so nothing is read or stored twice.
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { IMPORT_SOURCES, IMPORT_TEXT_MAX, newUuid, oneOf, textLength, type ImportSource } from '@mana/contracts';
+import { sniff } from '../../lib/images.ts';
 import { Btn, Field, Icon, Loading, Note, go } from '../../ui.tsx';
 import { toV2Error, V2Error } from '../data/errors.ts';
 import { imagesMax, isEmptyDraft, isTextSource, readText, type ImageSource, type TextSource } from '../data/imports.ts';
@@ -160,14 +161,25 @@ function Pictures({ source }: { source: ImageSource }) {
   const importId = useRef(newUuid());
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => { for (const c of chosen) URL.revokeObjectURL(c.url); }, []);
-  function add(files: FileList | null) {
-    if (!files) return;
+  /**
+   * Pictures chosen: a HEIC (or anything that is not a picture this browser can show and send) is refused at once, by
+   * its first bytes, never added as a broken thumbnail to fail only on "Read".
+   */
+  async function add(files: readonly File[]) {
+    if (!files.length) return;
     setError('');
-    const room = max - chosen.length;
     const list = [...files];
-    if (list.length > room) setError(t('ob.src.e.too_many', { n: max }));
-    const more = list.slice(0, Math.max(0, room)).map((file) => ({ key: newUuid(), file, url: URL.createObjectURL(file) }));
-    setChosen([...chosen, ...more]);
+    const kinds = await Promise.all(list.map((f) => sniff(f).catch(() => '')));
+    const ok = list.filter((_, i) => kinds[i] && kinds[i] !== 'heic' && kinds[i] !== 'avif');
+    const said: string[] = [];
+    if (kinds.some((k) => k === 'heic' || k === 'avif')) said.push(scanWords('heic'));
+    else if (ok.length < list.length) said.push(scanWords('bad_image'));
+    const room = max - chosen.length;
+    if (ok.length > room) said.push(t('ob.src.e.too_many', { n: max }));
+    if (said.length) setError(said.join(' '));
+    const more = ok.slice(0, Math.max(0, room)).map((file) => ({ key: newUuid(), file, url: URL.createObjectURL(file) }));
+    if (!more.length) return;
+    setChosen((now) => [...now, ...more]);
     importId.current = newUuid();                                    // other pictures: another input
   }
   function remove(key: string) {
@@ -215,7 +227,7 @@ function Pictures({ source }: { source: ImageSource }) {
         </>
         : <p>{t('ob.scan.how')}</p>}
       <input ref={input} id="import-files" class="sr" type="file" accept="image/*" multiple data-field="import-files"
-        onChange={(e) => { add((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = ''; }} />
+        onChange={(e) => { const el = e.target as HTMLInputElement; const files = el.files ? [...el.files] : []; el.value = ''; void add(files); }} />
       {chosen.length < max && <Btn icon={source === 'scan' ? 'camera' : 'image'} onClick={() => input.current?.click()} data-action="choose-pictures">{t('ob.src.choose')}</Btn>}
       <p class="fine" aria-live="polite" data-chosen={chosen.length}>{t('ob.src.chosen', { n: chosen.length, max })}</p>
       {chosen.length > 0 && (

@@ -238,7 +238,8 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .flow-bar{height:6px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden}
 .flow-bar span{display:block;height:100%;background:var(--black);border-radius:999px;transition:width .3s}
 .flow-steps summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;cursor:pointer;font-weight:600;color:var(--black)}
-.flow-steps ol{list-style:none;padding:0;display:grid}
+.flow-steps{display:block}
+.flow-steps ol{list-style:none;padding:0;margin:8px 0 0;display:grid}
 .flow-steps li a{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:48px;color:inherit;text-decoration:none}
 .flow-steps li+li a{border-top:1px solid var(--line)}
 .flow-steps li[aria-current=step] .flow-name{font-weight:600;color:var(--black)}
@@ -293,6 +294,13 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .draftdish-price{flex:none}
 .draftgroup{padding-inline-start:12px;border-inline-start:2px solid var(--line);display:grid;gap:2px}
 .draftgroup ul{list-style:none;padding:0}
+/* leaving something out of an import (ADR-006 skip): a small toggle beside it; what is left out is greyed and struck */
+.leaverow{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.leavebtn{min-height:40px;min-width:44px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--charcoal);font-size:.82rem;font-weight:600}
+.leavebtn[aria-pressed=true]{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.draftgroup-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.draftgroup li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:40px}
+.is-out>.draftdish-line .strong,.draftsec.is-out>summary .strong,.draftgroup.is-out>.draftgroup-head>span[dir],li.is-out>span[dir]{text-decoration:line-through;color:var(--muted)}
 
 /* trying it on a phone: the guest's view in a phone's frame */
 .phoneframe{justify-self:center;width:min(100%,340px);border-radius:34px;padding:10px;background:var(--table);box-shadow:var(--lift)}

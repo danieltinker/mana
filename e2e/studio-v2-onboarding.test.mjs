@@ -9,7 +9,10 @@
 // scanner's path with a stub (the real handler, a recorded reply, no paid call; every picture drawn again, so no EXIF
 // leaves the phone), and plainly "not available here" without one; a counter can run none of the flow's writes. The
 // security round: an import of another place is never checked or applied while this one is open; the answers kept on
-// the device are the account's own and gone at sign-out; a name with a direction control in it is isolated.
+// the device are the account's own and gone at sign-out; a name with a direction control in it is isolated. The QA
+// round: leaving out a section, a dish and a dish's 9th group (too many, its one answer a button); giving up asks
+// first; an apply whose import changed on another device, or whose answer is lost, is read again; imports that cannot
+// be read are said, with a retry; a HEIC is refused when chosen; sentences keep the screen's direction.
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-onboarding/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,6 +21,7 @@ import path from 'node:path';
 import { parseWoltText } from '@mana/import';
 import { asAnon, asUser, createUser, HalomBot, OwnerBot, signIn } from '@mana/sim';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from './fixtures/wolt-text-cafe.mjs';
+import { dish, draftOf, group, link, opt, section } from '../packages/contracts/test/import-fixtures.ts';
 import { OUT, startE2E } from './helpers.mjs';
 import { CAFE_SCREENSHOTS, scanStub, TINY_PNG } from './scan-stub.mjs';
 
@@ -133,6 +137,11 @@ for (const lang of ['he', 'en']) {
     assert.equal(await page.locator('[data-check] [data-code="allergens_check"]').count(), 1, 'allergens only in the source\'s own words');
     await page.locator('[data-plan-line="create:dish"][data-n="6"]').waitFor();
     await shot(page, `${lang}-02-review`);
+    // a sentence that begins with a Latin name keeps the screen's direction; the name inside it is isolated
+    const repeated = page.locator('[data-check] [data-code="dish_repeated"] .exc-text');
+    assert.equal(await repeated.getAttribute('dir'), null);
+    assert.equal(await repeated.evaluate((el) => getComputedStyle(el).direction), lang === 'he' ? 'rtl' : 'ltr');
+    assert.match(await repeated.textContent(), /\u2068Espresso\u2069/);
 
     // ---- 3. fix in place, confirm the prices, apply
     await fixAndApply(page);
@@ -507,11 +516,136 @@ test('a name read with a direction control in it never turns the sentence round:
   const imp = await parsedImport(owner, made.id, WOLT_TEXT.replace('Seasonal cake', 'Seasonal‮ cake'));
   const page = await signInPage(email, { lang: 'en' });
   await page.goto(e.webUrl + 'studio/#/onboarding/review/' + imp.id);
-  const what = page.locator('[data-exception^="price_unreadable@"] .exc-what span[dir="auto"]');
+  const what = page.locator('[data-exception^="price_unreadable@"] .exc-what .exc-text');
   await what.waitFor();
   const text = await what.textContent();
   assert.match(text, /^We could not read the price of "⁨[^⁩]*⁩"\.$/, JSON.stringify(text));
   assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ the QA round: leaving things out, a lost or stale apply, the imports unread
+/** An import whose stored draft is `draft` (made with the contracts' own builders), waiting for its check. */
+async function draftImport(owner, venue, draft) {
+  owner.forVenue(venue);
+  const made = await owner.createImport({ source: 'wolt_text', text: 'invented ' + draft.sections.map((x) => x.key).join(' ') + ' ' + Date.now() });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const saved = await owner.api.rpc('save_import_draft', { p_import: made.importId, p_draft: draft, p_notes: [] });
+  assert.equal(saved.ok, true, JSON.stringify(saved).slice(0, 300));
+  return made.importId;
+}
+
+test('the owner leaves things out: a dish\'s 9th add-on group (too many) with its one answer, a section and a dish by choice; giving up asks first', { timeout: 300000 }, async () => {
+  const email = 'onboard-leave@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'leave-sim', name: { he: '', en: 'Leave Sim' }, kind: 'cafe' });
+  const groups = Array.from({ length: 9 }, (_, i) => group('g' + i, 'קבוצה ' + i, 'Group ' + i, { options: [opt(`o${i}a`, `א${i}`, `A${i}`, 0), opt(`o${i}b`, `ב${i}`, `B${i}`, 0)] }));
+  const imp = await draftImport(owner, made.id, draftOf([
+    section('s1', 'עיקריות', 'Mains', [dish('d1', 'המבורגר', 'Burger', 6000, { groups: groups.map((g) => link(g.key)) }), dish('d2', 'סלט', 'Salad', 4200)]),
+    section('s2', 'קינוחים', 'Desserts', [dish('d3', 'עוגה', 'Cake', 3200), dish('d4', 'גלידה', 'Ice cream', 2400)]),
+  ], groups));
+  const page = await signInPage(email, { lang: 'en' });
+  await page.locator(`[data-review="${imp}"]`).waitFor({ timeout: 20000 });
+  // too many: one answer, still a button; with nothing on the menu yet, said without "with what you already have"
+  const many = page.locator('[data-exception="too_many@d1>g8"]');
+  assert.equal(await many.getAttribute('data-open'), 'yes');
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  assert.equal(await page.locator('[data-action="apply-import"]').isDisabled(), true);
+  assert.match(await page.locator('[data-apply-blocked] [data-blocked="too_many"]').innerText(), /^This is more than one menu holds/);
+  await shot(page, 'qa-01-too-many');
+  await many.locator('[data-choose="skip"]').click();
+  await page.locator('[data-exception="too_many@d1>g8"][data-open="no"]').waitFor();
+  // the desserts and the salad left out; the salad put back, then left out again
+  await page.locator('[data-leave="s2"]').click();
+  await page.locator('[data-draft-section="s2"][data-out="yes"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="yes"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="no"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="yes"]').waitFor();
+  assert.equal(await page.locator('[data-leave="d2"]').getAttribute('aria-pressed'), 'true');
+  assert.match(await page.locator('[data-plan-line="skip:section"][data-reason="choice"]').innerText(), /Left out: 1 section · as you chose/);
+  assert.match(await page.locator('[data-plan-line="skip:dish"][data-reason="choice"]').innerText(), /Left out: 1 dish · as you chose/);
+  assert.match(await page.locator('[data-plan-line="skip:dish"][data-reason="parent_skipped"]').innerText(), /Left out: 2 dishes · with what they belong to/);
+  const kept = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), `mana-import-answers:${owner.userId}:${imp}`);
+  assert.deepEqual(kept.skip, ['d2', 's2'], 'kept for this account and this import');
+  await shot(page, 'qa-02-left-out');
+  // giving up asks first: kept on "Cancel"
+  await page.locator('[data-action="discard-import"]').click();
+  const ask = page.locator('dialog[open]');
+  await ask.waitFor();
+  assert.match(await ask.innerText(), /Give up this import\?/);
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await ask.waitFor({ state: 'detached' });
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${imp}` }))[0].status, 'parsed');
+  // applied: the burger with eight groups, no salad, no desserts
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  const s = await stored(owner, made.id);
+  assert.deepEqual([s.names, s.sections.length], [['Burger'], 1]);
+  assert.equal((await rowsOf(owner, 'dish_addon_groups', made.id)).length, 8);
+  // one dish in one section: said in the singular
+  await page.goto(e.webUrl + 'studio/#/onboarding/menu');
+  assert.match(await page.locator('[data-menu-has]').innerText(), /Your menu has 1 dish in 1 section/);
+  assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+test('applying when the import changed on another device, or when the answer is lost: read again, then shown as stored, or on as applied', { timeout: 300000 }, async () => {
+  const email = 'onboard-lost@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'lost-sim', name: { he: '', en: 'Lost Sim' }, kind: 'cafe' });
+  owner.forVenue(made.id);
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const id = await importWoltText(page);
+  // another device types the cake's price and stores the draft while this one is still checking it
+  const [row] = await owner.api.select('menu_imports', { select: 'parsed', id: `eq.${id}` });
+  const other = JSON.parse(JSON.stringify(row.parsed));
+  for (const sec of other.sections) for (const d of sec.dishes) if (d.name.en === 'Seasonal cake') { d.price = 3100; d.priceText = null; }
+  assert.equal((await owner.api.rpc('save_import_draft', { p_import: id, p_draft: other, p_notes: [] })).ok, true);
+  await page.locator('[data-exception^="price_unreadable@"] [data-choose="no_price"]').click();
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await page.locator('[data-reread]').waitFor();
+  assert.equal(await page.locator('[data-exception^="price_unreadable@"]').count(), 0, 'the other device\'s price is there');
+  assert.ok((await page.locator('[data-draft-dish]', { hasText: 'Seasonal cake' }).innerText()).includes('31'));
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 0, 'nothing applied from the draft that was out of date');
+  await shot(page, 'qa-03-changed-elsewhere');
+  // the answer to "add to my menu" is lost after the database applied it: read again, and on as applied
+  let lose = true;
+  const toApply = (u) => u.pathname.endsWith('/rest/v1/rpc/apply_import');
+  await page.route(toApply, async (r) => { const res = await r.fetch(); if (lose) { lose = false; return r.abort('internetdisconnected'); } return r.fulfill({ response: res }); });
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  await page.unroute(toApply);
+  assert.equal(lose, false, 'the answer was lost');
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 6);
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${id}` }))[0].status, 'applied');
+  assert.equal(await page.locator('[data-ob-group]').count(), 3, 'the app reads the applied menu: its groups are on the add-ons step');
+  assert.equal(await page.locator('[data-ob-group][data-confirmed="no"]').count(), 2);
+  assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
+  await page.context().close();
+});
+
+test('when the imports cannot be read, the review step says so and tries again', { timeout: 300000 }, async () => {
+  const email = 'onboard-unread@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  await owner.createVenue({ slug: 'unread-sim', name: { he: '', en: 'Unread Sim' }, kind: 'cafe' });
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const toImports = (u) => u.pathname.endsWith('/rest/v1/menu_imports');
+  await page.route(toImports, (r) => r.abort('internetdisconnected'));
+  await page.goto(e.webUrl + 'studio/#/onboarding/review');
+  await page.reload();
+  const err = page.locator('[data-screen="onboarding"][data-step="review"] .note-error');
+  await err.waitFor();
+  await shot(page, 'qa-04-imports-unread');
+  await page.unroute(toImports);
+  await err.getByRole('button').click();
+  await page.locator('[data-review-none]').waitFor();
   await page.context().close();
 });
 
@@ -551,6 +685,12 @@ test('Wolt screenshots through the scanner (a stub: the real handler, a recorded
   await step(page, 'menu');
   await page.locator('[data-source="wolt_screenshots"][data-available="yes"]').click();
   await page.locator('[data-image-import="wolt_screenshots"] [data-no-wolt-photos]').waitFor();
+  // a HEIC is refused when it is chosen, never shown as a broken picture to fail only on "Read"
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0]), Buffer.from('mif1heic'), Buffer.alloc(200)]);
+  await page.locator('[data-field="import-files"]').setInputFiles([{ name: 'IMG_0001.HEIC', mimeType: 'image/heic', buffer: heic }]);
+  await page.locator('[data-image-import="wolt_screenshots"] .note-error').waitFor();
+  assert.match(await page.locator('[data-image-import="wolt_screenshots"] .note-error').innerText(), /HEIC/);
+  assert.deepEqual([await page.locator('[data-chosen]').getAttribute('data-chosen'), await page.locator('[data-image-import] .thumbs img').count()], ['0', 0]);
   // a screenshot, and a photo straight from a camera: a JPEG with EXIF saying where it was taken (an invented place)
   const plain = Buffer.from(await page.evaluate(async () => {
     const c = document.createElement('canvas'); c.width = 16; c.height = 16;

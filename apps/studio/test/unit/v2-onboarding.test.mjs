@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  BLOCKER_RE, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, READER_NOTE_CODES, SKIP_REASONS,
+  BLOCKER_RE, EMPTY_MENU, EXCEPTION_CHOICES, planApply, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, READER_NOTE_CODES, SKIP_REASONS,
   validateSetStep,
 } from '@mana/contracts';
 import { applyPlan, dish, draftOf, group, link, opt, section } from '../../../../packages/contracts/test/import-fixtures.ts';
@@ -17,7 +17,8 @@ import { answersKey, forgetAnswersBut, readAnswers, writeAnswers } from '../../s
 import { blockersOf, endWrite, nextOpenAfter, openStep, resumeStep, stepEnd, visitWrite } from '../../src/v2/data/flow.ts';
 import { imagePath, imagesHash, importsApi, isEmptyDraft, readText, storableNotes } from '../../src/v2/data/imports.ts';
 import {
-  aboutOf, carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice,
+  aboutOf, carriesPrices, changesNothing, choose, confirmPrices, fitAnswers, gate, isEmptyMenu, leaveOut, NO_DECISIONS, noteLines, planLines, preview, priceDiffs,
+  review, sameDraft, withDishPrice,
 } from '../../src/v2/data/review.ts';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from '../../../../e2e/fixtures/wolt-text-cafe.mjs';
 
@@ -325,17 +326,18 @@ test('an answer the plan refuses is said at its question, which stays on screen:
   assert.equal(preview(draft, venue, choose(moved, id, 'keep_mine'), LANGS).rows.find((x) => x.id === id).refused, null);
 });
 
-test('the answers kept on the device: per account and import, read back through the validator, never a skip; another account\'s go', () => {
+test('the answers kept on the device: per account and import, read back through the validator; another account\'s go', () => {
   const imp = '00000000-0000-4000-8000-0000000000e1', me = '00000000-0000-4000-8000-0000000000a1', other = '00000000-0000-4000-8000-0000000000a2';
   assert.equal(answersKey(me, imp), `mana-import-answers:${me}:${imp}`);
-  const d = choose(NO_DECISIONS, 'dish_repeated@s0d1', 'keep_both');
-  const back = readAnswers(writeAnswers({ ...d, pricesConfirmed: true, skip: ['s0'] }));
-  assert.deepEqual(back, { v: 1, pricesConfirmed: false, choices: { 'dish_repeated@s0d1': 'keep_both' }, skip: [] }, 'the prices are confirmed again; nothing left out but by an answer');
-  assert.ok(!writeAnswers({ ...d, skip: ['s0'] }).includes('skip'), 'a skip is never stored');
-  // what was written by hand, or by an older version, is checked again: an answer outside the list drops them all
+  const d = leaveOut(choose(NO_DECISIONS, 'dish_repeated@s0d1', 'keep_both'), 's0', true);
+  const back = readAnswers(writeAnswers({ ...d, pricesConfirmed: true }));
+  assert.deepEqual(back, { v: 1, pricesConfirmed: false, choices: { 'dish_repeated@s0d1': 'keep_both' }, skip: ['s0'] }, 'the prices are confirmed again on every visit');
+  assert.ok(!writeAnswers({ ...d, pricesConfirmed: true }).includes('pricesConfirmed'), 'the confirmation is never stored');
+  // what was written by hand, or by an older version, is checked again: anything the validator refuses drops them all
   assert.deepEqual(readAnswers(JSON.stringify({ choices: { 'dish_repeated@s0d1': 'delete_everything' } })), NO_DECISIONS);
   assert.deepEqual(readAnswers(JSON.stringify({ choices: { '__proto__': 'skip' } })), NO_DECISIONS);
-  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: ['s0', 's1'] })).skip, [], 'a stored skip is not read back');
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: ['s0', 'NOT A KEY; drop table'] })), NO_DECISIONS, 'a key left out is checked too');
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: 's0' })), NO_DECISIONS);
   assert.deepEqual(readAnswers('not json'), NO_DECISIONS);
   assert.deepEqual(readAnswers('[1,2]'), NO_DECISIONS);
   assert.deepEqual(readAnswers(null), NO_DECISIONS);
@@ -349,6 +351,58 @@ test('the answers kept on the device: per account and import, read back through 
   assert.deepEqual(s.keys(), [answersKey(me, imp), 'mana-studio-v2-venue:' + me].sort(), 'another account\'s, and the old unkeyed ones, are gone');
   forgetAnswersBut(null, s);
   assert.deepEqual(s.keys(), ['mana-studio-v2-venue:' + me], 'signed out: no answer is left');
+});
+
+test('leaving things out (ADR-006 skip): a section and a dish, with what is inside them; the plan says "as you chose"; put back', () => {
+  let draft = cafe();
+  draft = withDishPrice(draft, dishNamed(draft, 'Seasonal cake').key, 2800);
+  const drinks = draft.sections.find((x) => x.name.en === 'Coffee' || x.dishes.some((d) => d.name.en === 'Cappuccino'));
+  const shakshuka = dishNamed(draft, 'Shakshuka');
+  let d = confirmPrices(NO_DECISIONS, true);
+  d = leaveOut(leaveOut(d, drinks.key, true), shakshuka.key, true);
+  assert.deepEqual(d.skip, [drinks.key, shakshuka.key].sort());
+  const g = gate(draft, EMPTY_MENU, d, LANGS);
+  assert.equal(g.ok, true);
+  const created = g.plan.steps.filter((x) => x.kind === 'dish' && x.op === 'create').map((x) => x.key);
+  assert.ok(!created.includes(shakshuka.key) && !drinks.dishes.some((x) => created.includes(x.key)), 'neither the dish nor the section\'s dishes are created');
+  const out = planLines(g.plan).filter((x) => x.op === 'skip' && x.reason === 'choice').map((x) => x.kind);
+  assert.ok(out.includes('section') && out.includes('dish'), JSON.stringify(planLines(g.plan)));
+  assert.deepEqual(leaveOut(d, shakshuka.key, false).skip, [drinks.key], 'put back');
+  // keys the draft no longer has (it changed on another device) are dropped before they reach the plan
+  assert.deepEqual(fitAnswers(leaveOut(d, 'gone-key', true), draft).skip, d.skip);
+  assert.equal(fitAnswers(d, draft), d, 'unchanged when every key is there');
+});
+
+test('a fix with one answer: "too many" (a dish with 9 add-on groups) is answered by leaving the 9th out, then applying is allowed', () => {
+  const groups = Array.from({ length: 9 }, (_, i) => group('g' + i, 'קבוצה ' + i, 'Group ' + i, { options: [opt('o' + i + 'a', 'א' + i, 'A' + i, 0), opt('o' + i + 'b', 'ב' + i, 'B' + i, 0)] }));
+  const draft = draftOf([section('s1', 'עיקריות', 'Mains', [dish('d1', 'המבורגר', 'Burger', 6000, { groups: groups.map((x) => link(x.key)) })])], groups);
+  const ready = confirmPrices(NO_DECISIONS, true);
+  const row = preview(draft, EMPTY_MENU, ready, LANGS).rows.find((r) => r.e.code === 'too_many');
+  assert.deepEqual([row.id, row.e.severity, row.choices, row.open], ['too_many@d1>g8', 'fix', ['skip'], true], 'one answer, still the owner\'s to give');
+  const blocked = gate(draft, EMPTY_MENU, ready, LANGS);
+  assert.equal(blocked.ok, false);
+  assert.ok(isEmptyMenu(EMPTY_MENU), 'nothing yet: "too many" is said without "with what you already have"');
+  const answered = choose(ready, row.id, 'skip');
+  const g = gate(draft, EMPTY_MENU, answered, LANGS);
+  assert.equal(g.ok, true);
+  assert.equal(g.plan.steps.filter((x) => x.kind === 'dish_group' && x.op === 'create').length, 8);
+});
+
+test('the preview and the gate plan once when every answer is in (a large menu takes a while to plan), with the same result', () => {
+  let draft = cafe();
+  draft = withDishPrice(draft, dishNamed(draft, 'Seasonal cake').key, 2800);
+  let calls = 0;
+  const counted = (...a) => { calls++; return planApply(...a); };
+  const all = confirmPrices(NO_DECISIONS, true);
+  const r = review(draft, EMPTY_MENU, all, LANGS, counted);
+  assert.equal(calls, 1, 'every answer in: one plan');
+  assert.deepEqual(r, { pv: preview(draft, EMPTY_MENU, all, LANGS), gt: gate(draft, EMPTY_MENU, all, LANGS) });
+  calls = 0;
+  const unconfirmed = review(draft, EMPTY_MENU, NO_DECISIONS, LANGS, counted);
+  assert.equal(calls, 2, 'only the prices to confirm: the gate, then the preview once');
+  assert.deepEqual(unconfirmed, { pv: preview(draft, EMPTY_MENU, NO_DECISIONS, LANGS), gt: gate(draft, EMPTY_MENU, NO_DECISIONS, LANGS) });
+  const open = review(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS);
+  assert.deepEqual(open, { pv: preview(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS), gt: gate(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS) }, 'a fix open: as before');
 });
 
 test('every note, question, answer, reason and refusal the contracts can send has words in both languages', () => {

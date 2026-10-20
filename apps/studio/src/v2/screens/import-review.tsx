@@ -11,10 +11,10 @@
 // said plainly, with the way to that place, and never planned against this place's menu.
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
-  draftCounts, isBlank, type ImportChoice, type ImportDecisions, type ImportDraft, type Text,
+  draftCounts, isBlank, type ImportChoice, type ImportDecisions, type ImportDraft, type ImportPlan, type Text,
 } from '@mana/contracts';
 import { toast } from '../../lib/store.ts';
-import { Btn, Icon, Loading, Ltr, Note, Switch, go } from '../../ui.tsx';
+import { Btn, Confirm, Icon, Loading, Ltr, Note, Switch, go } from '../../ui.tsx';
 import { toV2Error } from '../data/errors.ts';
 import { nextOpenAfter } from '../data/flow.ts';
 import { agorotOf, shekelsOf } from '../data/forms.ts';
@@ -23,8 +23,8 @@ import {
   dropAnswers, importApi, importPlace, imports, keepAnswers, keepNotes, loadAnswers, loadAssets, loadImport, loadImports, loadProgress, notesFor, progress, runScan,
 } from '../data/onboarding.ts';
 import {
-  carriesPrices, changesNothing, choose, confirmPrices, gate, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice, withOptionPrice,
-  type ExceptionRow,
+  carriesPrices, changesNothing, choose, confirmPrices, fitAnswers, isEmptyMenu, leaveOut, leftOut, noteLines, planLines, priceDiffs, review, sameDraft,
+  withDishPrice, withOptionPrice, type ExceptionRow,
 } from '../data/review.ts';
 import { named } from '../data/rows.ts';
 import { canEdit, flushSaves, hasUnsaved, memberships, menu, openVenue, reloadMenuQuietly } from '../data/store.ts';
@@ -128,7 +128,7 @@ function OtherPlace({ venueId }: { venueId: string }) {
 
 /** An import that is not waiting for its check: being read, failed, applied or given up. */
 function NotReady({ line }: { line: ImportLine }) {
-  const [busy, setBusy] = useState(''), [error, setError] = useState('');
+  const [busy, setBusy] = useState(''), [error, setError] = useState(''), [askDiscard, setAskDiscard] = useState(false);
   const image = !isTextSource(line.source);
   async function again() {
     setBusy('again'); setError('');
@@ -142,13 +142,13 @@ function NotReady({ line }: { line: ImportLine }) {
     setBusy('discard'); setError('');
     try { await importApi.discard(line.id); await loadImports(); go('onboarding/menu'); }
     catch (e) { setError(errText(toV2Error(e).code, 'imp.e')); }
-    finally { setBusy(''); }
+    finally { setBusy(''); setAskDiscard(false); }
   }
   const counts = line.parsed ? draftCounts(line.parsed) : null;
   return (
     <section class="card" data-import-state={line.status}>
       <p class="status"><span class={'dot ' + (line.status === 'applied' ? 'dot-on' : 'dot-off')} aria-hidden="true" />{t('imp.status.' + line.status)}</p>
-      {line.status === 'applied' && counts && <p>{t('imp.appliedAt', { date: fmtDateTime(line.applied_at!) })} {t('imp.counts', { s: counts.sections, d: counts.dishes, g: counts.groups })}</p>}
+      {line.status === 'applied' && counts && <p>{t('imp.appliedAt', { date: fmtDateTime(line.applied_at!) })} {t('imp.counts', { s: tn('imp.n.sections', counts.sections), d: tn('imp.n.dishes', counts.dishes), g: tn('imp.n.groups', counts.groups) })}</p>}
       {line.status === 'failed' && <p>{scanWords(line.error_code ?? 'failed')}</p>}
       {(line.status === 'uploaded' || line.status === 'parsing') && <p>{t(image ? 'imp.reading' : 'imp.unsaved')}</p>}
       {error && <Note kind="error">{error}</Note>}
@@ -156,32 +156,42 @@ function NotReady({ line }: { line: ImportLine }) {
         {line.status === 'applied' && <Btn kind="primary" block icon="chev" onClick={() => go('onboarding/' + ((progress.value && nextOpenAfter(progress.value, 'review')) ?? 'done'))} data-action="flow-next">{t('app.next')}</Btn>}
         {image && (line.status === 'failed' || line.status === 'uploaded') && <Btn kind="primary" block busy={busy === 'again'} icon="refresh" onClick={again} data-action="read-again">{t('imp.readAgain')}</Btn>}
         {line.status === 'parsing' && <Btn block icon="refresh" onClick={() => loadImport(line.id)} data-action="check-again">{t('imp.checkAgain')}</Btn>}
-        {(line.status === 'failed' || line.status === 'uploaded') && <Btn kind="ghost" block busy={busy === 'discard'} onClick={discard} data-action="discard-import">{t('imp.discard')}</Btn>}
+        {(line.status === 'failed' || line.status === 'uploaded') && <Btn kind="ghost" block onClick={() => setAskDiscard(true)} data-action="discard-import">{t('imp.discard')}</Btn>}
         {line.status === 'discarded' && <Btn block onClick={() => go('onboarding/menu')}>{t('ob.review.bring')}</Btn>}
       </div>
+      <Confirm open={askDiscard} title={t('imp.discard.title')} body={t('imp.discard.body')} confirmLabel={t('imp.discard')} danger busy={busy === 'discard'}
+        onConfirm={discard} onClose={() => setAskDiscard(false)} />
     </section>
   );
 }
 
 // ---------------------------------------------------------------- the preview
+/** Imports read again because they changed elsewhere: the next preview of each says so once. */
+const reread = new Set<string>();
+
 function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
   const d = menu.value!;
   const editable = canEdit();
   const langs = langsOf(d.venue);
   const [stored, setStored] = useState<ImportDraft>(line.parsed);
   const [draft, setDraft] = useState<ImportDraft>(line.parsed);
-  const [decisions, setDecisions] = useState<ImportDecisions>(() => loadAnswers(line.id));
+  const [decisions, setDecisions] = useState<ImportDecisions>(() => fitAnswers(loadAnswers(line.id), line.parsed));
   const [assets, setAssets] = useState<{ id: string; dish_id: string | null; status: string }[]>([]);
   const [saving, setSaving] = useState<'' | 'saving' | 'failed'>(''), [busy, setBusy] = useState(''), [error, setError] = useState('');
+  const [changed] = useState(() => reread.delete(line.id));
+  const [askDiscard, setAskDiscard] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { loadAssets().then(setAssets).catch(() => {}); }, [line.id]);
   useEffect(() => { keepAnswers(line.id, decisions); }, [decisions]);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const existing = useMemo(() => existingMenu(d, assets as never), [d, assets]);
-  const pv = useMemo(() => preview(draft, existing, decisions, langs), [draft, existing, decisions]);
-  const gt = useMemo(() => gate(draft, existing, decisions, langs), [draft, existing, decisions]);
+  // one plan for the preview, the gate and the prices that differ whenever it can (a large menu takes a while to plan)
+  const { pv, gt } = useMemo(() => review(draft, existing, decisions, langs), [draft, existing, decisions]);
   const diffs = useMemo(() => (pv.plan ? priceDiffs(draft, existing, pv.plan) : new Map()), [pv.plan]);
+  const skip = leftOut(decisions);
+  /** A refusal in words; "too many" said without "with what you have" when the place has nothing yet. */
+  const words = (code: string) => (code === 'too_many' && isEmptyMenu(existing) ? t('imp.e.too_many.alone') : errText(code, 'imp.e'));
   const counts = draftCounts(draft);
   const notes = notesFor(line.id) ?? line.notes ?? [];
   const fix = pv.rows.filter((r) => r.e.severity === 'fix'), check = pv.rows.filter((r) => r.e.severity === 'check');
@@ -202,6 +212,14 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
       return true;
     } catch (e) { setSaving('failed'); setError(errText(toV2Error(e).code, 'imp.e')); return false; }
   }
+  /** Applied: the menu, the imports and the progress read again, then on to the next open step. */
+  async function applied(plan: ImportPlan | null) {
+    dropAnswers(line.id);
+    await Promise.all([reloadMenuQuietly(), loadImports().catch(() => {})]);
+    const p = await loadProgress();
+    toast(plan && changesNothing(plan) ? t('imp.appliedNothing') : t('imp.applied'));
+    go('onboarding/' + ((p && nextOpenAfter(p, 'review')) ?? 'done'));
+  }
   async function apply() {
     if (busy || !gt.ok) return;
     if (line.venue_id !== menu.value?.venue.id) return;     // planned against this place's menu: never applied to another
@@ -210,23 +228,29 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
       if (timer.current) { clearTimeout(timer.current); timer.current = null; }
       if (!sameDraft(draft, stored) && !(await store(draft))) return;
       const r = await importApi.apply(line.id, draft, decisions);
-      dropAnswers(line.id);
-      await Promise.all([reloadMenuQuietly(), loadImports().catch(() => {})]);
-      const p = await loadProgress();
-      toast(changesNothing(r.plan) ? t('imp.appliedNothing') : t('imp.applied'));
-      go('onboarding/' + ((p && nextOpenAfter(p, 'review')) ?? 'done'));
-    } catch (e) { setError(errText(toV2Error(e).code, 'imp.e')); }
-    finally { setBusy(''); }
+      await applied(r.plan);
+    } catch (e) {
+      const code = toV2Error(e).code;
+      // an answer lost after the database applied it, an import closed or changed on another device: read it again first
+      if (code === 'network' || code === 'import_closed' || code === 'draft_changed') {
+        const now = await loadImport(line.id).catch(() => null);
+        if (now?.status === 'applied') { await applied(null); return; }
+        if (now?.status === 'parsed' && now.updated_at !== line.updated_at) { reread.add(line.id); return; }   // shown again, as stored
+        if (now && now.status !== 'parsed') return;                                                                // given up elsewhere: said by the screen
+      }
+      setError(errText(code, 'imp.e'));
+    } finally { setBusy(''); }
   }
   async function discard() {
     setBusy('discard'); setError('');
     try { await importApi.discard(line.id); dropAnswers(line.id); await loadImports(); go('onboarding/menu'); }
     catch (e) { setError(errText(toV2Error(e).code, 'imp.e')); }
-    finally { setBusy(''); }
+    finally { setBusy(''); setAskDiscard(false); }
   }
 
   return (
     <div class="review" data-review={line.id}>
+      {changed && <Note kind="warn"><span data-reread>{t('imp.reread')}</span></Note>}
       <section class="card" aria-labelledby="read-h" data-read>
         <h2 id="read-h">{t('imp.read.title')}</h2>
         <ul class="chips" data-counts={`${counts.sections}/${counts.dishes}/${counts.groups}/${counts.options}`}>
@@ -267,7 +291,7 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
         </section>
       )}
 
-      <DraftList draft={draft} />
+      <DraftList draft={draft} skip={skip} editable={editable} onLeave={(key, out) => setDecisions(leaveOut(decisions, key, out))} />
 
       <section class="card" aria-labelledby="plan-h" data-plan>
         <h2 id="plan-h">{t('imp.plan.title')}</h2>
@@ -280,7 +304,7 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
           ))}</ul>)
           : <p class="muted">{t('imp.plan.none')}</p>}
         {pv.plan && openN > 0 && <p class="fine">{t('imp.plan.provisional')}</p>}
-        {pv.planErrors.map((e, i) => <p key={i} class="ferr" data-plan-error={e.code}>{errText(e.code, 'imp.e')}</p>)}
+        {pv.planErrors.map((e, i) => <p key={i} class="ferr" data-plan-error={e.code}>{words(e.code)}</p>)}
         <p class="fine">{t('imp.plan.never')}</p>
       </section>
 
@@ -296,13 +320,15 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
           {!gt.ok && <ul class="fine" data-apply-blocked>
             {gt.open > 0 && <li>{tn('imp.blocked.open', gt.open)}</li>}
             {gt.prices && <li>{t('imp.blocked.prices')}</li>}
-            {gt.errors.map((e, i) => <li key={i}>{errText(e.code, 'imp.e')}</li>)}
+            {gt.errors.map((e, i) => <li key={i} data-blocked={e.code}>{words(e.code)}</li>)}
           </ul>}
           {saving === 'saving' && <p class="fine" role="status">{t('save.saving')}</p>}
           {error && <Note kind="error">{error}</Note>}
           <Btn kind="primary" block busy={busy === 'apply'} disabled={!gt.ok || saving === 'saving'} icon="check" onClick={apply} data-action="apply-import">{t('imp.apply')}</Btn>
           <p class="fine center">{t('imp.apply.note')}</p>
-          <Btn kind="ghost" block busy={busy === 'discard'} onClick={discard} data-action="discard-import">{t('imp.discard')}</Btn>
+          <Btn kind="ghost" block onClick={() => setAskDiscard(true)} data-action="discard-import">{t('imp.discard')}</Btn>
+          <Confirm open={askDiscard} title={t('imp.discard.title')} body={t('imp.discard.body')} confirmLabel={t('imp.discard')} danger busy={busy === 'discard'}
+            onConfirm={discard} onClose={() => setAskDiscard(false)} />
         </section>
       )}
     </div>
@@ -319,10 +345,12 @@ function Exception({ r, draft, editable, diffs, onChoose, onEdit }: {
   const label = (c: ImportChoice) => t('imp.c.' + c);
   return (
     <li class={'exc' + (r.open ? ' is-open' : '')} data-exception={r.id} data-code={r.e.code} data-open={r.open ? 'yes' : 'no'} data-choice={r.effective ?? ''}>
-      <p class="exc-what"><span class={'badge ' + (r.e.severity === 'fix' ? 'badge-warn' : 'badge-todo')}>{t(r.e.severity === 'fix' ? 'imp.fix' : 'imp.check')}</span> <span dir="auto">{what}</span></p>
+      {/* the sentence keeps the screen's direction; each name inside it is isolated (iso) */}
+      <p class="exc-what"><span class={'badge ' + (r.e.severity === 'fix' ? 'badge-warn' : 'badge-todo')}>{t(r.e.severity === 'fix' ? 'imp.fix' : 'imp.check')}</span> <span class="exc-text">{what}</span></p>
       {listed.length > 0 && <ul class="fine pricediff">{listed.map((x) => <li key={x.key}><span dir="auto">{say(x.name)}</span>: {t('imp.diff', { yours: shekels(x.yours), read: shekels(x.read) })}</li>)}</ul>}
       {editable && r.edit && <PriceFix r={r} draft={draft} onEdit={onEdit} />}
-      {editable && r.choices.length > 1 && (
+      {/* a fix with one answer is still answered by the owner (too_many: "leave it out"), so it is a button too */}
+      {editable && (r.choices.length > 1 || r.e.severity === 'fix') && (
         <div class="kindchips" role="radiogroup" aria-label={what}>
           {r.choices.map((c) => (
             <button key={c} type="button" role="radio" class="kindchip" aria-checked={r.effective === c ? 'true' : 'false'} data-choose={c}
@@ -364,22 +392,37 @@ function PriceFix({ r, draft, onEdit }: { r: ExceptionRow; draft: ImportDraft; o
   );
 }
 
-/** Everything that was read, section by section, with its prices: what the owner confirms (open; each section folds). */
-function DraftList({ draft }: { draft: ImportDraft }) {
+/**
+ * Everything that was read, section by section, with its prices: what the owner confirms (open; each section folds).
+ * Anything can be left out here (a section, a dish, an add-on group, a choice; ADR-006 `skip`) and put back: the plan
+ * then says it is left out, as the owner chose, and what is inside it goes with it.
+ */
+function DraftList({ draft, skip, editable, onLeave }: { draft: ImportDraft; skip: ReadonlySet<string>; editable: boolean; onLeave: (key: string, out: boolean) => void }) {
   const groups = new Map(draft.groups.map((g) => [g.key, g] as const));
+  // plain calls, not components: a button keeps its place (and the focus) when the list draws again
+  const leaveBtn = (k: string, name: string) => (editable
+    ? <button type="button" class="leavebtn" aria-pressed={skip.has(k) ? 'true' : 'false'} data-leave={k}
+      aria-label={t(skip.has(k) ? 'imp.putBackOf' : 'imp.leaveOf', { name: iso(name || t('menu2.unnamed')) })} onClick={() => onLeave(k, !skip.has(k))}>
+      {t(skip.has(k) ? 'imp.putBack' : 'imp.leave')}
+    </button>
+    : null);
+  const out = () => <span class="badge badge-todo">{t('imp.leftOut')}</span>;
   return (
     <section class="card" aria-labelledby="draft-h" data-draft-list>
       <h2 id="draft-h">{t('imp.list.title')}</h2>
+      {editable && <p class="fine">{t('imp.leave.lead')}</p>}
       {draft.sections.map((s) => (
-        <details key={s.key} class="draftsec" data-draft-section={s.key} open>
-          <summary><span class="strong" dir="auto">{say(s.name)}</span> <span class="fine">{tn('imp.n.dishes', s.dishes.length)}</span></summary>
+        <details key={s.key} class={'draftsec' + (skip.has(s.key) ? ' is-out' : '')} data-draft-section={s.key} data-out={skip.has(s.key) ? 'yes' : 'no'} open>
+          <summary><span class="strong" dir="auto">{say(s.name)}</span> <span class="fine">{tn('imp.n.dishes', s.dishes.length)}</span>{skip.has(s.key) && <> {out()}</>}</summary>
+          <div class="leaverow">{leaveBtn(s.key, say(s.name))}</div>
           <ul class="draftdishes">
             {s.dishes.map((x) => (
-              <li key={x.key} data-draft-dish={x.key}>
+              <li key={x.key} data-draft-dish={x.key} data-out={skip.has(x.key) || skip.has(s.key) ? 'yes' : 'no'} class={skip.has(x.key) || skip.has(s.key) ? 'is-out' : undefined}>
                 <p class="draftdish-line">
                   <span dir="auto" class="strong">{say(x.name)}</span>
                   <span class="draftdish-price">{x.price !== null ? <Ltr class="price">{shekels(x.price)}</Ltr> : <span class="muted">{x.priceText ? t('imp.priceUnread') : t('menu.item.noPrice')}</span>}</span>
                 </p>
+                {!skip.has(s.key) && <div class="leaverow">{skip.has(x.key) && out()}{leaveBtn(x.key, say(x.name))}</div>}
                 {!isBlank(say(x.desc)) && <p class="fine" dir="auto">{say(x.desc)}</p>}
                 {!isBlank(say(x.priceNote)) && <p class="fine" dir="auto">{say(x.priceNote)}</p>}
                 {x.tags.length > 0 && <p class="fine">{x.tags.map((g) => t('tag.' + g)).join(' · ')}</p>}
@@ -389,14 +432,15 @@ function DraftList({ draft }: { draft: ImportDraft }) {
                   const g = groups.get(a.group);
                   if (!g) return null;
                   return (
-                    <div key={a.group} class="draftgroup" data-draft-group={g.key}>
-                      <p class="fine strong" dir="auto">{say(g.name)}</p>
+                    <div key={a.group} class={'draftgroup' + (skip.has(g.key) ? ' is-out' : '')} data-draft-group={g.key} data-out={skip.has(g.key) ? 'yes' : 'no'}>
+                      <p class="fine strong draftgroup-head"><span dir="auto">{say(g.name)}</span>{skip.has(g.key) && out()}{!skip.has(x.key) && !skip.has(s.key) && leaveBtn(g.key, say(g.name))}</p>
                       <ul class="fine">{g.options.map((o) => {
                         const nested = o.opens ? groups.get(o.opens) : null;
                         return (
-                          <li key={o.key} data-draft-option={o.key}>
+                          <li key={o.key} data-draft-option={o.key} data-out={skip.has(o.key) ? 'yes' : 'no'} class={skip.has(o.key) ? 'is-out' : undefined}>
                             <span dir="auto">{say(o.name)}</span>{o.price !== null && o.price > 0 && <> <Ltr>+{shekels(o.price)}</Ltr></>}{o.price === null && <> · {t('imp.priceUnread')}</>}
                             {nested && <span class="nested"> › <span dir="auto">{say(nested.name)}</span>: {nested.options.map((n) => say(n.name) + (n.price ? ' +' + shekels(n.price) : '')).join(', ')}</span>}
+                            {!skip.has(g.key) && !skip.has(x.key) && !skip.has(s.key) && <> {leaveBtn(o.key, say(o.name))}</>}
                           </li>
                         );
                       })}</ul>

@@ -23,6 +23,8 @@ export const progress = signal<OnboardingProgress | null>(null);
 export const progressError = signal('');
 /** The place's imports, newest first (null until read). */
 export const imports = signal<ImportLine[] | null>(null);
+/** Why the place's imports could not be read (the screens offer to try again), or ''. */
+export const importsError = signal('');
 /** The scanner here: `off` when the config does not offer it or the function says it is not configured. */
 export const scanner = signal<'unknown' | 'checking' | 'on' | 'off'>('unknown');
 /** The step that sent the owner to another screen of the app (hours, an add-on group, the menu): the shell offers the way back. */
@@ -36,7 +38,7 @@ export const notesFor = (importId: string): readonly ReaderNote[] | null => sess
 export const keepNotes = (importId: string, notes: readonly ReaderNote[]) => { sessionNotes.set(importId, notes); };
 
 let generation = 0;
-onReset(() => { generation++; progress.value = null; progressError.value = ''; imports.value = null; returnTo.value = null; sessionNotes.clear(); });
+onReset(() => { generation++; progress.value = null; progressError.value = ''; imports.value = null; importsError.value = ''; returnTo.value = null; sessionNotes.clear(); });
 
 export const importApi = importsApi(rpc);
 
@@ -74,11 +76,16 @@ export async function setStep(step: OnboardingStep, state: OnboardingState, bloc
 export async function loadImports(): Promise<ImportLine[] | null> {
   const d = menu.value; if (!d) return null;
   const gen = generation;
-  const rows = await q<Record<string, unknown>[]>(sb.from('menu_imports').select(IMPORT_SELECT).eq('venue_id', d.venue.id).order('created_at', { ascending: false }).limit(30));
-  if (gen !== generation) return null;
-  const list = rows.map(asImportLine).filter((x) => x.venue_id === d.venue.id);
-  imports.value = list;
-  return list;
+  try {
+    const rows = await q<Record<string, unknown>[]>(sb.from('menu_imports').select(IMPORT_SELECT).eq('venue_id', d.venue.id).order('created_at', { ascending: false }).limit(30));
+    if (gen !== generation) return null;
+    const list = rows.map(asImportLine).filter((x) => x.venue_id === d.venue.id);
+    imports.value = list; importsError.value = '';
+    return list;
+  } catch (e) {
+    if (gen === generation) importsError.value = toV2Error(e).code;
+    throw e;
+  }
 }
 
 /**
