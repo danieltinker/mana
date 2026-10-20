@@ -162,13 +162,14 @@ export const REVISION_MAX = 2_147_483_647;
  * read it from `OpsVenueRow.menu.revision` (the clients list, and `OpsVenueDetail.venue`), the same number as the
  * owner's `DashboardMenu.revision`, and review that revision with `ops_revision` (where it is `live`). When the
  * published revision is another, the database answers `revision_changed` with its number (and approves nothing), so
- * staff never approve a menu they did not read; with nothing published, `not_published`.
+ * staff never approve a menu they did not read; with nothing published, `not_published`. A staff member who belongs to
+ * the venue (any role) never approves it: `own_venue` (and so for `ops_set_plan` and `ops_set_demo`).
  */
 export type ApproveVenueInput = { readonly venueId: string; readonly reason: string; readonly expectedRevision: number };
 export type ApproveVenueReply =
   | RpcOk<{ readonly trialEndsAt: string | null }>
   | { readonly ok: false; readonly code: 'revision_changed'; readonly revision: number }
-  | RpcFail<'reason_required' | 'venue_unknown' | 'already_approved' | 'not_published'>;
+  | RpcFail<'reason_required' | 'revision_invalid' | 'venue_unknown' | 'own_venue' | 'already_approved' | 'not_published'>;
 
 /** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid (an integer from 1 to `REVISION_MAX`). */
 export function validateApproveVenue(raw: unknown): Validation<ApproveVenueInput> {
@@ -184,7 +185,7 @@ export function validateApproveVenue(raw: unknown): Validation<ApproveVenueInput
  * ends a trial (`trialing`; absent = the trial's length) or a paid period (`active`); `suspended` takes the venue
  * offline. It **never approves**: a live state (`trialing`, `active`) on a venue still waiting for its first approval
  * answers `approval_first` (approve it with `ops_approve_venue`, which starts the trial); `pending`, `expired` and
- * `suspended` may be set at any time.
+ * `suspended` may be set at any time. A staff member who belongs to the venue never sets its plan (`own_venue`).
  */
 export type SetPlanInput = {
   readonly venueId: string;
@@ -195,7 +196,7 @@ export type SetPlanInput = {
 };
 export type SetPlanReply =
   | RpcOk<{ readonly state: EntitlementStatus }>
-  | RpcFail<'reason_required' | 'state_invalid' | 'plan_invalid' | 'until_in_past' | 'venue_unknown' | 'approval_first'>;
+  | RpcFail<'reason_required' | 'state_invalid' | 'plan_invalid' | 'until_in_past' | 'venue_unknown' | 'own_venue' | 'approval_first'>;
 
 /** Codes: type, field_not_allowed, id_invalid, state_invalid, plan_invalid, time_invalid, until_in_past, reason_required. */
 export function validateSetPlan(raw: unknown, opts: { readonly now?: number } = {}): Validation<SetPlanInput> {

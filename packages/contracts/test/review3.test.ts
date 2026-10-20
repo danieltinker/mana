@@ -233,9 +233,12 @@ test('L6 (r3-probes R5), round 6 L3: a new dish never gets two groups of one nam
     assert.deepEqual(menuRuleBreaks(after), []);
     assert.equal(after.groups.length, 1, 'no group the dish lost its link to');
     assert.deepEqual([p.summary.dish_group.skipped.merged, p.summary.group.skipped.unused], [1, created === 'keep' ? 0 : 1], 'the summary says so');
-    // the same draft again: the dish's own Extras now; Mash is the group_changed question (keep_mine changes nothing)
+    // the same draft again: both links stay on the dish's own Extras row; the second is merged, asked nothing (round 7:
+    // a new_group there could not move the row the first keeps), as on the first import
     const again = plan(d, after);
     assert.deepEqual(again.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), []);
+    assert.deepEqual(asked(again).filter((e) => !e.startsWith('name_missing_lang')), []);
+    assert.equal(brief(step(again, 'dish_group', linkKey('d-new', 'g-x'))), 'dish_group:d-new>g-x:skip(merged)');
   }
 });
 
@@ -371,4 +374,27 @@ test('round 6 L3: the summary counts the skipped steps by reason', () => {
   assert.deepEqual(p.summary.dish.skipped, { ...SKIPPED_NONE, choice: 1 });
   assert.equal(p.summary.dish.skip, 1);
   assert.deepEqual(p.summary.section.skipped, SKIPPED_NONE);
+});
+
+test('QA-M2 (r6-hopa.ts, fuzz6 seed 615767102): the owner\'s skip of an unreachable group holds on the re-import that finds it', () => {
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6200, { groups: [link('g-a')] }),
+    dish('d-steak', 'סטייק', 'Steak', 9800, { groups: [link('g-b')] }),
+  ])], [
+    group('g-a', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
+    group('g-b', 'תוספות', 'Extras', { selection: 'multiple', min: 2, max: 2, options: [opt('b1', 'אורז', 'Rice', 0), opt('b2', 'סלט', 'Salad', 0)] }),
+  ]);
+  const answers = yes({ 'limits_unreachable@g-b': 'skip' }, ['b1']);
+  const first = plan(d, EMPTY_MENU, answers);
+  assert.deepEqual(asked(first), ['limits_unreachable@g-b=skip']);
+  const once = applyPlan(EMPTY_MENU, first);
+  const again = plan(d, once, answers);
+  assert.deepEqual(asked(again), ['limits_unreachable@g-b=skip'], 'asked and honoured though g-b now matches the venue\'s Extras');
+  assert.deepEqual(again.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), [], 'Hopa test 1');
+  assert.equal(brief(step(again, 'dish_group', linkKey('d-steak', 'g-b'))), 'dish_group:d-steak>g-b:skip(parent_skipped)');
+  // clamp instead: the venue's Extras is found the second time, and it is not asked again (its limits are the venue's)
+  const clamp = yes({ 'limits_unreachable@g-b': 'clamp' }, ['b1']);
+  const c1 = applyPlan(EMPTY_MENU, plan(d, EMPTY_MENU, clamp));
+  const c2 = plan(d, c1, clamp);
+  assert.deepEqual(c2.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), []);
 });
