@@ -56,8 +56,8 @@ export function recordContractCalls({ full = process.env.MANA_TWINS_FULL === '1'
       if (abs === path.join(CONTRACTS, 'src/import.ts')) return `from ${shim}`;
       return `from ${JSON.stringify(pathToFileURL(abs).href)}`;
     });
-    // each fuzz run marked: fuzz(seed, n, kind) → (__corpusMark(n), fuzz(seed, n, kind))
-    const marked = copy.replace(/\bfuzz\((\w+), (\w+), '(\w+)'\)/g, (_, seed, n, kind) => `(__corpusMark(${n}), fuzz(${seed}, ${n}, '${kind}'))`);
+    // each fuzz run marked: fuzz(seed, n, …) → (__corpusMark(n), fuzz(seed, n, …))
+    const marked = copy.replace(/\bfuzz\((\w+), (\w+), ([^()]*?)\)/g, (_, seed, n, rest) => `(__corpusMark(${n}), fuzz(${seed}, ${n}, ${rest}))`);
     if (marked !== copy) copy = `import { __corpusMark } from ${shim};\n` + marked;
     fs.writeFileSync(path.join(dir, file), copy);
     fs.rmSync(out, { force: true });
