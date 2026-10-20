@@ -6,12 +6,15 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { asAnon } from '@mana/sim';
 import { localConfigText, readConfigText } from '../tools/env.mjs';
 import { walkthrough } from '../tools/demo-scenarios/client-walkthrough.mjs';
-import { BUDGETS } from './walkthrough/scenario.mjs';
+import { demoAccounts } from './walkthrough/accounts.mjs';
+import { BUDGETS, runWalkthrough } from './walkthrough/scenario.mjs';
+import { PINA_SIM } from './fixtures/walkthrough-cafe.mjs';
 import { OUT, startE2E } from './helpers.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,4 +76,25 @@ test('a second run on the same stack makes a fresh venue and passes too', { time
   const venues = await e.stack.sql('select slug, is_demo from public.venues order by created_at');
   assert.equal(venues.length, first.length + 1);
   assert.ok(venues.every((x) => x.is_demo), 'every venue the walkthrough made is a demo venue');
+});
+
+test('demo without its accounts stops before anything is written, naming the step that needs each; production is refused', { timeout: 60_000 }, async () => {
+  const before = (await e.stack.sql('select count(*)::int as n from public.venues'))[0].n;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'walkthrough-no-env-'));          // no private/demo.env there
+  const outDir = path.join(root, 'out');
+  const demo = { ...config, env: 'demo' };
+  const accounts = demoAccounts({ root, env: 'demo', runId: 'x' });
+  await assert.rejects(runWalkthrough({ input: PINA_SIM, config: demo, origin, outDir, accounts, title: 't' }), (err) => {
+    assert.match(err.message, /step 1 \(the owner signs up\) needs a fresh demo address: set MANA_DEMO_OWNER_EMAIL in private\/demo\.env/);
+    assert.match(err.message, /steps 10, 15 and 16 .* need a Halom admin's sign-in: set MANA_DEMO_STAFF_EMAIL and MANA_DEMO_STAFF_PASSWORD/);
+    return true;
+  });
+  // an owner address without {run} would sign up the same account twice
+  fs.mkdirSync(path.join(root, 'private'));
+  fs.writeFileSync(path.join(root, 'private/demo.env'), 'MANA_DEMO_OWNER_EMAIL=owner@example.com\n');
+  assert.match(demoAccounts({ root, env: 'demo', runId: 'x' }).problems.join(' '), /needs \{run\}/);
+  assert.equal(fs.existsSync(outDir), false, 'no page, no folder');
+  assert.equal((await e.stack.sql('select count(*)::int as n from public.venues'))[0].n, before, 'no venue');
+  await assert.rejects(runWalkthrough({ input: PINA_SIM, config: { ...config, env: 'production' }, origin, outDir, title: 't' }), /never on production/);
+  fs.rmSync(root, { recursive: true, force: true });
 });
