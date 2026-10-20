@@ -32,7 +32,7 @@ export type SaveHost = {
   stored(table: string, row: Row): void;
   /** A change was stored (the draft preview follows). */
   wrote(): void;
-  /** The database would not take a change ('forbidden', 'gone', or a refusal's code): re-read, say why. Awaited. */
+  /** The database would not take a change ('forbidden', 'gone', or a refusal's code): re-read, say why. Awaited, up to `answerMs`. */
   refused(table: string, id: string, why: string): Promise<void>;
   /** A form over this row shows it again. */
   resync(table: string, id: string): void;
@@ -177,7 +177,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600, an
         host.changed();
         if (code === 'signed_out') host.signedOut();
       } else {
-        await host.refused(s.table, s.id, code);              // a value the database does not take; later typing still goes
+        await refusedBy(s, code);                              // a value the database does not take; later typing still goes
         host.changed();
       }
       return;
@@ -194,10 +194,13 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600, an
     else {
       // the account may not change it (or can no longer read it): nothing more goes for this row
       stopTimer(s); s.unsent = {}; s.failed = null; s.uncertain = {};
-      await host.refused(s.table, s.id, r.why);
+      await refusedBy(s, r.why);
     }
     host.changed();
   }
+
+  /** The host re-reads and says why: waited for, but never longer than `answerMs` (the row's lane must not hang). */
+  const refusedBy = (s: State, why: string) => within(host.refused(s.table, s.id, why), answerMs).catch(() => {});
 
   function stale(s: State, sent: Rec, stored: Row) {
     const mine = { ...sent, ...s.unsent };

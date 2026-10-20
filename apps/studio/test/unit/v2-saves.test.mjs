@@ -5,14 +5,19 @@ import assert from 'node:assert/strict';
 import { createSaves } from '../../src/v2/data/saves.ts';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** A promise the test resolves itself: a write held on it is answered exactly when the test says (no timing). */
+const gate = () => { let open; const p = new Promise((r) => { open = r; }); return Object.assign(p, { open }); };
+/** Wait until `fn()` holds, a few milliseconds at a time (for the queue's own debounce timers). */
+async function until(fn) { for (let i = 0; i < 400 && !fn(); i++) await sleep(5); assert.ok(fn()); }
 const T = 'dishes', ID = '00000000-0000-4000-8000-000000000001';
 
 /**
  * A database of one table, a screen over it, and the queue between them. `next(...)` says how the next writes behave:
- * `delay` ms, `fail` (never reaches the database), `lose` (stored, the answer lost), `loseStale` (refused as stale there,
- * the answer lost), `hang` (no answer, ever), `forbid`, `gone`, `refuse` (a code).
+ * `gate` (held until the test opens it), `delay` ms, `fail` (never reaches the database), `lose` (stored, the answer
+ * lost), `loseStale` (refused as stale there, the answer lost), `hang` (no answer, ever), `forbid`, `gone`, `refuse` (a
+ * code). `refusedHangs` makes the host's re-read after a refusal never answer.
  */
-function setup({ answerMs } = {}) {
+function setup({ answerMs, refusedHangs = false } = {}) {
   const db = new Map();
   let version = 0;
   const stamp = () => `2026-10-16T10:00:00.${String(++version).padStart(6, '0')}+00:00`;
@@ -26,6 +31,7 @@ function setup({ answerMs } = {}) {
       inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
       try {
         if (b.hang) await new Promise(() => {});
+        if (b.gate) await b.gate;
         if (b.delay) await sleep(b.delay);
         if (b.fail) throw new Error('Failed to fetch');
         if (b.refuse) throw Object.assign(new Error('value refused'), { code: b.refuse });
@@ -48,7 +54,11 @@ function setup({ answerMs } = {}) {
     row: (t, id) => screen.get(id),
     stored: (t, row) => { saves.read(t, row); screen.set(row.id, { ...row, ...(saves.typed(t + ':' + row.id) ?? {}) }); log.stored++; },
     wrote: () => { log.wrote++; },
-    refused: async (t, id, why) => { log.refused.push(why); const r = db.get(id); if (r) host.stored(t, { ...r }); },
+    refused: async (t, id, why) => {
+      log.refused.push(why);
+      if (refusedHangs) await new Promise(() => {});                // the re-read never answers
+      const r = db.get(id); if (r) host.stored(t, { ...r });
+    },
     resync: () => { log.resync++; },
     changed: () => {},
     codeOf: (e) => (e?.name === 'TimeoutError' ? 'timeout' : e?.code ? e.code : /fetch/i.test(e?.message ?? '') ? 'network' : 'unknown'),
@@ -64,14 +74,16 @@ function setup({ answerMs } = {}) {
 
 test('one write in flight per row; what is typed meanwhile goes next, as one patch with the latest values', async () => {
   const s = setup();
-  s.next({ delay: 150 });
+  const held = gate();
+  s.next({ gate: held });
   s.type({ price: 1000 });
-  await sleep(50);                                       // the first write is on its way (slow)
+  await until(() => s.calls.length === 1);               // the first write is on its way, and held there
   s.type({ price: 1100 });
-  await sleep(30);
   s.type({ desc_he: 'פריך' });
+  await sleep(60);                                       // past the queue's debounce: the next patch waits in the lane
+  assert.equal(s.calls.length, 1, 'nothing more is sent while the first is on its way');
   assert.equal(s.saves.status(), 'saving');
-  await sleep(200);
+  held.open();
   await s.saves.flush();
   assert.equal(s.maxInFlight(), 1);
   assert.deepEqual(s.calls.map((c) => c.patch), [{ price: 1000 }, { price: 1100, desc_he: 'פריך' }]);
@@ -224,11 +236,14 @@ test('a write that stored a column takes it out of the failed patch', async () =
 
 test('row-level security says no: the host re-reads and says why; what was typed meanwhile is not sent', async () => {
   const s = setup();
-  s.next({ delay: 80, forbid: true });
-  s.type({ price: 1300 });
-  await sleep(40);
-  s.type({ price: 1400 });
-  await sleep(150); await s.saves.flush();
+  const held = gate();
+  s.next({ gate: held, forbid: true });
+  s.type({ price: 1300 }, true);
+  await until(() => s.calls.length === 1);
+  s.type({ price: 1400 });                                // typed while the refused write is on its way
+  await sleep(60);
+  held.open();
+  await s.saves.flush();
   assert.deepEqual(s.log.refused, ['forbidden']);
   assert.equal(s.calls.length, 1);
   assert.equal(s.screen.get(ID).price, 900, 'the screen shows what is stored');
@@ -269,12 +284,14 @@ test('drain waits for one row; clear drops the answers on their way', async () =
   s.type({ price: 1300 }, true);
   await s.saves.drain(T, ID);
   assert.equal(s.db.get(ID).price, 1300);
-  s.next({ delay: 80 });
+  const held = gate();
+  s.next({ gate: held });
   s.type({ price: 1400 }, true);
-  await sleep(30);
+  await until(() => s.calls.length === 2);
   const stored = s.log.stored;
   s.saves.clear();
-  await sleep(120);
+  held.open();
+  await sleep(20);
   assert.equal(s.log.stored, stored, 'an answer for the place before is dropped');
   assert.equal(s.saves.hasUnsaved(), false);
 });
@@ -334,6 +351,18 @@ test('any other write of a row (a move, a group save) with no answer rejects aft
   await s.saves.flush();
   assert.equal(s.db.get(ID).price, 1300);
   assert.equal(s.saves.status(), 'saved');
+});
+
+test('a refusal whose re-read never answers: the row\'s line is free after the wait (a flush, signing out, is not held)', async () => {
+  const s = setup({ answerMs: 60, refusedHangs: true });
+  s.next({ forbid: true });
+  s.type({ price: 1300 }, true);
+  await until(() => s.calls.length === 1);
+  const t0 = Date.now();
+  await s.saves.flush();
+  assert.ok(Date.now() - t0 < 1000, 'the flush ends');
+  assert.deepEqual(s.log.refused, ['forbidden']);
+  assert.equal(s.saves.hasUnsaved(), false);
 });
 
 test('the owner\'s "save" (saveNow) on a row whose earlier change failed: both go now, as one write', async () => {

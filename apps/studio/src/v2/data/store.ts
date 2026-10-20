@@ -159,13 +159,14 @@ export async function refreshVenue() {
 
 /**
  * The account's role here, read again after the database refused a write (the role may have changed meanwhile). An
- * account no longer a member of the place keeps seeing what is on screen, read-only. Answers the role, or null.
+ * account no longer a member of the place keeps seeing what is on screen, read-only. Answers the role, or null
+ * (undefined when it could not be read within `ANSWER_MS`; so does every re-read here: none holds a save or sign-out).
  */
 async function refreshRole(): Promise<MemberRole | null | undefined> {
   const gen = generation, uid = session.value?.user?.id;
   if (!uid) return undefined;
   try {
-    const list = await api.myVenues(uid);
+    const list = await within(api.myVenues(uid), ANSWER_MS);
     if (gen !== generation) return undefined;
     const m = list.find((x) => x.venue.id === venueId.value);
     const role: MemberRole = m?.role ?? 'counter';                    // gone from the place: nothing is editable any more
@@ -383,7 +384,7 @@ export function resolveConflict(key: string, keep: 'mine' | 'stored') {
 /** One row read again (never dropped from the screen: a row this account cannot read any more stays as it was). */
 async function reloadOne(table: MenuTable, id: string, gen: number) {
   try {
-    const rows = await api.rowsById<Rows[typeof table]>(table, [id]);
+    const rows = await within(api.rowsById<Rows[typeof table]>(table, [id]), ANSWER_MS);
     if (gen !== generation) return;
     if (rows.length) put(table, rows);
   } catch { /* offline: the next load corrects it */ }
@@ -449,7 +450,7 @@ async function reloadMenuQuietly() {
   const d = menu.value; if (!d) return;
   const gen = generation, ticket = ++menuReads, since = clock;
   try {
-    const fresh = await api.loadMenu(d.venue.id, d.role);
+    const fresh = await within(api.loadMenu(d.venue.id, d.role), ANSWER_MS);
     if (gen !== generation || ticket < menuReadShown || !menu.value) return;
     menuReadShown = ticket;
     menu.value = afterRead({ ...fresh, role: menu.value.role }, since);
