@@ -122,7 +122,7 @@ export async function loadSeed(stack, seed, { slug = seed.venue.slug, ownerEmail
     published = await owner.publish(seed.publish?.note ?? 'simulator seed');
     if (!published.ok) throw new Error(`publish_menu ${slug}: ${JSON.stringify(published)}`);
     if (published.review === 'pending') {
-      approved = await (await team()).approve(owner.venueId, approveReason);
+      approved = await (await team()).approve(owner.venueId, approveReason, published.revision);
       if (!approved.ok) throw new Error(`ops_approve_venue ${slug}: ${JSON.stringify(approved)}`);
     }
   }

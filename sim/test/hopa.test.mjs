@@ -296,7 +296,7 @@ describe('Hopa test 11: roles and data', () => {
     assert.deepEqual(await sup.actForOwner(a.venueId, '', 'dish.update', { dishId: a.ids.dishes.burger, patch: { price: 7000 } }), { ok: false, code: 'reason_required' });
     assert.deepEqual(await sup.actForOwner(a.venueId, 'ok', 'dish.update', { dishId: a.ids.dishes.burger, patch: { price: 7000 } }), { ok: false, code: 'reason_required' });
     const reason = 'Owner asked by phone to change the burger price';
-    const r = await sup.actForOwner(a.venueId, reason, 'dish.update', { dishId: a.ids.dishes.burger, patch: { price: 7000 } });
+    const r = await sup.updateDish(a.venueId, reason, a.ids.dishes.burger, { price: 7000 });
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual((await a.owner.api.select('dishes', { select: 'price', id: `eq.${a.ids.dishes.burger}` }))[0], { price: 7000 });
     const log = (await a.owner.activity()).filter((x) => x.via === 'act_for_owner');
@@ -310,7 +310,7 @@ describe('Hopa test 11: roles and data', () => {
     await a.owner.updateVenue({ support_can_act: false });
     assert.deepEqual(await sup.actForOwner(a.venueId, reason, 'dish.update', { dishId: a.ids.dishes.burger, patch: { price: 6800 } }), { ok: false, code: 'owner_declined' });
     await a.owner.updateVenue({ support_can_act: true });
-    assert.equal((await sup.actForOwner(a.venueId, 'Back to the menu price, as the owner asked', 'dish.update', { dishId: a.ids.dishes.burger, patch: { price: 6800 } })).ok, true);
+    assert.equal((await sup.updateDish(a.venueId, 'Back to the menu price, as the owner asked', a.ids.dishes.burger, { price: 6800 })).ok, true);
   });
 
   test('staff functions stay with staff: an owner cannot use them, support cannot invite', async () => {

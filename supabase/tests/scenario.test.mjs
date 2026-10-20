@@ -68,7 +68,7 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
   assert.deepEqual(await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' }),
     { state: 'unavailable', venue: { name: { he: 'קפה הפינה', en: 'Corner Café' } } });
   assert.ok((await rpc(w.url, U.support, 'ops_overview')).venues.find((x) => x.id === V).warnings.includes('awaiting_review'));
-  assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: V, p_reason: 'First menu checked' })).ok, true);
+  assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: V, p_reason: 'First menu checked', p_expected_revision: pub.revision })).ok, true);
 
   // 5. a guest bot reads the menu, chooses, gets one suggestion, accepts one and dismisses another; events go in
   const menu = await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' });

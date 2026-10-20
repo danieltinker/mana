@@ -18,7 +18,7 @@ import { GROUP_UNITS_MAX } from './import.ts';
 import { onlyKeys, optionalText } from './rpc.ts';
 
 /** A group's label and names, an option's names: the schema's 60 code points. */
-export const ADDON_TEXT_MAX = 60;
+export const ADDON_TEXT_MAX = LIMITS.shortNameLength;
 /** The largest `position` the RPC accepts for an option. */
 export const ADDON_POSITION_MAX = 100_000;
 

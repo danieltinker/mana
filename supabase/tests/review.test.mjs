@@ -365,10 +365,10 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'needs-review' })).state, 'unavailable');
     assert.deepEqual((await w.admin.query(`select status from public.entitlements where venue_id = $1`, [v])).rows[0], { status: 'pending' }, 'no trial yet');
     assert.deepEqual((await track([{ ...view(), venueId: v, props: { dishId: '00000000-0000-4000-8000-00000000ffff' } }], {})).rejected[0].code, 'venue_unknown');
-    assert.equal((await rpc(w.url, 'anon', 'ops_approve_venue', { p_venue: v, p_reason: 'x' })).error?.code, '42501');
-    assert.equal((await rpc(w.url, O, 'ops_approve_venue', { p_venue: v, p_reason: 'approving myself' })).error?.code, '42501');
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: '' }), { ok: false, code: 'reason_required' });
-    const ok = await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu and photos checked' });
+    assert.equal((await rpc(w.url, 'anon', 'ops_approve_venue', { p_venue: v, p_reason: 'x', p_expected_revision: 1 })).error?.code, '42501');
+    assert.equal((await rpc(w.url, O, 'ops_approve_venue', { p_venue: v, p_reason: 'approving myself', p_expected_revision: 1 })).error?.code, '42501');
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: '', p_expected_revision: 1 }), { ok: false, code: 'reason_required' });
+    const ok = await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu and photos checked', p_expected_revision: 1 });
     assert.equal(ok.ok, true);
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'needs-review' })).state, 'ok');
     assert.equal((await w.admin.query(`select status from public.entitlements where venue_id = $1`, [v])).rows[0].status, 'trialing');
@@ -377,7 +377,7 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
     const upd = (await w.admin.query(`select actor_kind, detail from public.activity_log where venue_id = $1 and action = 'venues.update' and detail->'columns' ? 'approved_at'`, [v])).rows;
     assert.equal(upd.length, 1, 'the approval columns are audited like any other change');
     assert.deepEqual([upd[0].actor_kind, upd[0].detail.columns, upd[0].detail.changes.approved_at[0]], ['staff', ['approved_at', 'approved_by'], null]);
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'again' }), { ok: false, code: 'already_approved' });
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'again', p_expected_revision: 1 }), { ok: false, code: 'already_approved' });
   });
 
   test('a venue has one trial: set back to pending and published again, it does not start a new one', async () => {
@@ -389,7 +389,7 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
       await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Soup', 3000)`, [v, s]);
     });
     assert.equal((await rpc(w.url, O, 'publish_menu', { p_venue: v })).review, 'pending');
-    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Checked' })).ok, true);
+    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Checked', p_expected_revision: 1 })).ok, true);
     const ent = async () => (await w.admin.query(`select status, trial_started_at, trial_ends_at from public.entitlements where venue_id = $1`, [v])).rows[0];
     assert.equal((await ent()).status, 'trialing');
     await w.admin.query(`update public.entitlements set trial_started_at = trial_started_at - interval '20 days', trial_ends_at = trial_ends_at - interval '20 days' where venue_id = $1`, [v]);
