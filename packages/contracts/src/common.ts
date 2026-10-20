@@ -15,6 +15,8 @@ export type Validation<T> = { readonly ok: true; readonly value: T } | { readonl
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+/** A stock illustration's id (`stock/<id>`): a dish's `stock_id`, a draft's `illustration`, a snapshot's stock asset. */
+export const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -54,10 +56,39 @@ export function textLength(s: string): number {
   return n;
 }
 
-const UNSTORABLE = new RegExp('\\x00|[\\uD800-\\uDBFF](?![\\uDC00-\\uDFFF])|(?<![\\uD800-\\uDBFF])[\\uDC00-\\uDFFF]');
-/** Text PostgreSQL can store: no NUL character and no lone surrogate (half of an emoji). Validators of typed text
- * refuse anything else as `text_invalid`. */
-export const isStorableText = (s: string): boolean => !UNSTORABLE.test(s);
+/** Text PostgreSQL can store: no NUL character and no lone surrogate (half of an emoji: a high surrogate not followed
+ * by a low one, or a low one not right after a high one). Validators of typed text refuse anything else as
+ * `text_invalid`. A scan, not a regular expression: old Safari (before 16.4) has no lookbehind. */
+export function isStorableText(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0 || (c >= 0xdc00 && c <= 0xdfff)) return false;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (d < 0xdc00 || d > 0xdfff) return false;
+      i += 1;
+    }
+  }
+  return true;
+}
+
+/** An own property of `o` (the static `hasOwn` of `Object` is missing in Safari and iOS before 15.4). */
+export const hasOwn = (o: object, k: PropertyKey): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
+/**
+ * A random uuid (RFC 4122, version 4): `crypto.randomUUID` where there is one, else made from
+ * `crypto.getRandomValues` (Safari and iOS before 15.4 have no `randomUUID`, and no browser has it outside a secure
+ * context).
+ */
+export function newUuid(): string {
+  const c = globalThis.crypto;
+  if (typeof c.randomUUID === 'function') return c.randomUUID();
+  const b = c.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 export function textOk(v: unknown, max: number): v is Text {
   return isObject(v) && isString(v.he) && isString(v.en) && textLength(v.he) <= max && textLength(v.en) <= max;

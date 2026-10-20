@@ -3,19 +3,20 @@
  * venue's menu), the first publish's approval, plans, and Mana's own leads. Every one of these is logged with a reason
  * the owner sees (leads: every read is logged, never with the contact).
  */
-import { isBlank, isInt, isObject, isString, isUuid, oneOf, type Validation } from './common.ts';
+import { isBlank, isInt, isObject, isString, isUuid, oneOf, STOCK_RE, type Validation } from './common.ts';
 import type { DishRow } from './domain.ts';
 import {
   ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, PLANS, TAGS, TARGET_KINDS,
   type ActForOwnerAction, type CaseStatus, type EntitlementStatus, type OnboardingState, type OnboardingStep, type Plan, type TargetKind,
 } from './enums.ts';
-import { EVENT_TIME_RE } from './events.ts';
+import { instantMs } from './events.ts';
 import { BLOCKER_RE, BLOCKERS_MAX, isAutoStep } from './onboarding.ts';
 import { isReason, optionalText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 import { AVAILABILITY_NOTE_MAX } from './availability.ts';
 import { isUntilSpec, type UntilSpec } from './time.ts';
 
-const isInstant = (v: unknown): v is string => isString(v) && EVENT_TIME_RE.test(v) && !Number.isNaN(Date.parse(v));
+/** An ISO time with its offset that PostgreSQL reads as the same instant (`instantMs`: no 2026-02-30). */
+const isInstant = (v: unknown): v is string => !Number.isNaN(instantMs(v));
 
 // ---------------------------------------------------------------- act for owner (D25)
 
@@ -30,7 +31,9 @@ export type DishPatch = Partial<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number
  * What each `act_for_owner` action takes. An action that changes a value the owner may be editing too carries the
  * `updated_at` staff read (`expectedUpdatedAt`): when the row changed since, the database answers `stale` with what
  * it holds now, and writes nothing, so staff never overwrite a change of the owner's they did not see. It is compared
- * in whole seconds (`app.iso`, the precision of every staff read): `app.iso(updated_at) = app.iso(expectedUpdatedAt)`.
+ * at full precision: the client sends back exactly the string it read (an ISO time with up to 6 fractional digits and
+ * its offset), and the database compares `updated_at = expectedUpdatedAt::timestamptz`. The read it comes from must
+ * therefore give the full precision (a row's `to_jsonb`, not `app.iso`, which drops the fraction).
  */
 export type ActForOwnerPayloads = {
   'availability.set': { readonly targetKind: TargetKind; readonly targetId: string; readonly until: UntilSpec; readonly note?: string | null };
@@ -38,7 +41,6 @@ export type ActForOwnerPayloads = {
   /** `expectedUpdatedAt`: the dish's `updated_at` as staff read it. Both names may not end up blank (`name_missing`;
    * the database also refuses a patch that blanks the one name the dish has, as `payload_invalid`). */
   'dish.update': { readonly dishId: string; readonly patch: DishPatch; readonly expectedUpdatedAt: string };
-  'menu.publish': { readonly note?: string | null };
   /** `expectedUpdatedAt`: the step's `updatedAt` as staff read it; null = the step was never written. */
   'onboarding.set': {
     readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers?: readonly string[]; readonly expectedUpdatedAt: string | null;
@@ -53,8 +55,9 @@ export type ActForOwnerInput = {
 
 export type ActForOwnerCode =
   | 'reason_required' | 'venue_unknown' | 'owner_declined' | 'action_unknown' | 'payload_invalid' | 'target_unknown' | 'until_invalid'
-  | 'until_in_past' | 'step_automatic' | 'step_done' | 'plan_expired' | 'plan_suspended' | 'empty_menu' | 'invalid_menu';
-/** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). */
+  | 'until_in_past' | 'step_automatic' | 'step_done';
+/** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). Its
+ * `updated_at` (dish) and `updatedAt` (step) are at full precision, like every time a client sends back. */
 export type ActForOwnerStale =
   | { readonly ok: false; readonly code: 'stale'; readonly action: 'dish.update'; readonly current: Readonly<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number] | 'id' | 'updated_at'>> }
   | {
@@ -71,11 +74,9 @@ const PAYLOAD_KEYS: Readonly<Record<ActForOwnerAction, readonly string[]>> = {
   'availability.set': ['targetKind', 'targetId', 'until', 'note'],
   'availability.restore': ['targetKind', 'targetId'],
   'dish.update': ['dishId', 'patch', 'expectedUpdatedAt'],
-  'menu.publish': ['note'],
   'onboarding.set': ['step', 'state', 'blockers', 'expectedUpdatedAt'],
   'support_case.update': ['caseId', 'status'],
 };
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /**
  * Codes: type, field_not_allowed, id_invalid, reason_required, action_unknown, enum_invalid, until_invalid,
@@ -109,7 +110,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         for (const k of Object.keys(patch)) if (!(DISH_PATCH_COLUMNS as readonly string[]).includes(k)) x.add('field_not_allowed', `payload.patch.${k}`);
         const max: Record<string, number> = {
           name_he: LIMITS.nameLength, name_en: LIMITS.nameLength, desc_he: LIMITS.descLength, desc_en: LIMITS.descLength,
-          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: 300, allergens_en: 300,
+          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: LIMITS.allergensLength, allergens_en: LIMITS.allergensLength,
         };
         for (const [k, v] of Object.entries(patch)) {
           const path = `payload.patch.${k}`;
@@ -125,9 +126,6 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         if (isString(patch.name_he) && isString(patch.name_en) && isBlank(patch.name_he) && isBlank(patch.name_en)) x.add('name_missing', 'payload.patch');
         break;
       }
-      case 'menu.publish':
-        optionalText(x, p.note, 'payload.note', 200);
-        break;
       case 'onboarding.set':
         if (!oneOf(ONBOARDING_STEPS, p.step)) x.add('enum_invalid', 'payload.step');
         if (p.expectedUpdatedAt !== null && !isInstant(p.expectedUpdatedAt)) x.add('time_invalid', 'payload.expectedUpdatedAt');
@@ -153,11 +151,18 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
 
 // ---------------------------------------------------------------- the first publish's approval, plans
 
+/** A revision number is a PostgreSQL `integer` (int4). */
+export const REVISION_MAX = 2_147_483_647;
+
 /**
  * `ops_approve_venue(p_venue, p_reason, p_expected_revision)`: staff approve a venue's first publish; guests see it
  * and the trial starts. **The only way a venue is approved** (`ops_set_plan` never approves). `expectedRevision` is the
- * revision number staff reviewed (`ops_revision`): when the venue's newest revision is another, the database answers
- * `revision_changed` with the newest number and approves nothing, so staff never approve a menu they did not read.
+ * revision guests will see once it is approved: the number of the venue's **published** revision
+ * (`venues.published_revision_id`'s `menu_revisions.number`), which may be older than its newest (a restore). Staff
+ * read it from `OpsVenueRow.menu.revision` (the clients list, and `OpsVenueDetail.venue`), the same number as the
+ * owner's `DashboardMenu.revision`, and review that revision with `ops_revision` (where it is `live`). When the
+ * published revision is another, the database answers `revision_changed` with its number (and approves nothing), so
+ * staff never approve a menu they did not read; with nothing published, `not_published`.
  */
 export type ApproveVenueInput = { readonly venueId: string; readonly reason: string; readonly expectedRevision: number };
 export type ApproveVenueReply =
@@ -165,12 +170,12 @@ export type ApproveVenueReply =
   | { readonly ok: false; readonly code: 'revision_changed'; readonly revision: number }
   | RpcFail<'reason_required' | 'venue_unknown' | 'already_approved' | 'not_published'>;
 
-/** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid. */
+/** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid (an integer from 1 to `REVISION_MAX`). */
 export function validateApproveVenue(raw: unknown): Validation<ApproveVenueInput> {
   return validateInput<ApproveVenueInput>(raw, ['venueId', 'reason', 'expectedRevision'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
     if (!isReason(o.reason)) x.add('reason_required', 'reason');
-    if (!(isInt(o.expectedRevision) && o.expectedRevision >= 1)) x.add('revision_invalid', 'expectedRevision');
+    if (!(isInt(o.expectedRevision) && o.expectedRevision >= 1 && o.expectedRevision <= REVISION_MAX)) x.add('revision_invalid', 'expectedRevision');
   });
 }
 
@@ -200,7 +205,7 @@ export function validateSetPlan(raw: unknown, opts: { readonly now?: number } = 
     if (o.plan !== undefined && o.plan !== null && !oneOf(PLANS, o.plan)) x.add('plan_invalid', 'plan');
     if (o.until !== undefined && o.until !== null) {
       if (!isInstant(o.until)) x.add('time_invalid', 'until');
-      else if ((o.state === 'trialing' || o.state === 'active') && Date.parse(o.until) <= (opts.now ?? Date.now())) x.add('until_in_past', 'until');
+      else if ((o.state === 'trialing' || o.state === 'active') && instantMs(o.until) <= (opts.now ?? Date.now())) x.add('until_in_past', 'until');
     }
     if (!isReason(o.reason)) x.add('reason_required', 'reason');
   });

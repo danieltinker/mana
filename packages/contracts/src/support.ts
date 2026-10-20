@@ -30,6 +30,11 @@ export type SupportCase = {
 /**
  * `open_case` ("get help"): owners and managers. `allowAct` sets the venue's support switch in the same transaction;
  * only an owner may send it (a manager gets `owner_only`). Leaving it out keeps the switch as it is.
+ *
+ * `id` (the RPC's `p_id`): a uuid the client makes for this case, as `create_import`'s `importId` (left out or null:
+ * the database makes one). The same `id` sent again for the same venue answers the case stored the first time
+ * (`reused: true`; nothing is written, whatever the rest of the input says, and the rate limit does not count it), so a
+ * retry after a lost answer never opens a second case. An `id` that is another venue's case answers `id_taken`.
  */
 export type OpenCaseInput = {
   readonly venueId: string;
@@ -38,15 +43,17 @@ export type OpenCaseInput = {
   /** Absent or null = no body (''). */
   readonly body?: string | null;
   readonly allowAct?: boolean;
+  readonly id?: string | null;
 };
 export type OpenCaseReply =
-  | RpcOk<{ readonly caseId: string; readonly supportCanAct: boolean }>
-  | RpcFail<'venue_unknown' | 'rate_limited' | 'owner_only' | 'enum_invalid' | 'text_missing' | 'text_invalid' | 'text_too_long'>;
+  | RpcOk<{ readonly caseId: string; readonly supportCanAct: boolean; readonly reused: boolean }>
+  | RpcFail<'venue_unknown' | 'rate_limited' | 'owner_only' | 'enum_invalid' | 'text_missing' | 'text_invalid' | 'text_too_long' | 'id_taken'>;
 
 /** Codes: type, field_not_allowed, id_invalid, enum_invalid, text_missing, text_invalid, text_too_long. */
 export function validateOpenCase(raw: unknown): Validation<OpenCaseInput> {
-  return validateInput<OpenCaseInput>(raw, ['venueId', 'topic', 'subject', 'body', 'allowAct'], (x, o) => {
+  return validateInput<OpenCaseInput>(raw, ['venueId', 'topic', 'subject', 'body', 'allowAct', 'id'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
+    if (o.id !== undefined && o.id !== null && !isUuid(o.id)) x.add('id_invalid', 'id');
     if (!oneOf(CASE_TOPICS, o.topic)) x.add('enum_invalid', 'topic');
     requiredText(x, o.subject, 'subject', CASE_SUBJECT_MAX);
     if (o.body !== undefined) optionalText(x, o.body, 'body', CASE_BODY_MAX);

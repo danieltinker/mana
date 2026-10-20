@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { defaultSelection, fromPrice, priceDish, pricingContext, vatIncluded, type DishSelection, type PriceResult } from '../src/pricing.ts';
+import { choicesExhausted } from '../src/availability.ts';
 import type { AddonGroupV2, DishV2 } from '../src/snapshot.ts';
 import { cafeDemo, DISHES, ID } from './fixtures.ts';
 
@@ -221,6 +222,37 @@ test('defaultSelection skips a default opener whose required nested group is sol
   // one sauce back (not the default one): fries is pre-selected again, and its sauce starts empty (aioli is off)
   const one = { groups: ctx.groups, unavailable: { dishes: new Set<string>(), options: new Set([ID.aioli, ID.chipotle]) } };
   assert.deepEqual(defaultSelection(DISHES.burger, one).groups[0], { groupId: ID.side, options: [{ optionId: ID.fries, nested: [{ groupId: ID.sauce, options: [] }] }] });
+});
+
+test('defaultSelection over every shape: optional and required nested groups, quantities, several openers, anything off', () => {
+  // a dish with two default openers into one required group (min 2, one option of 2 units), one into an optional group
+  const id = (n: number) => `00000000-0000-4000-8000-00000000c${String(n).padStart(3, '0')}`;
+  const o = (n: number, extra: Partial<AddonGroupV2['options'][number]> = {}) =>
+    ({ id: id(n), name: { he: '', en: `o${n}` }, price: 100 * n, maxQty: 1, default: false, opensGroupId: null, ...extra });
+  const dips: AddonGroupV2 = { id: id(900), name: { he: '', en: 'Dips' }, selection: 'multiple', min: 2, max: 3, options: [o(1, { maxQty: 2, default: true }), o(2)] };
+  const herbs: AddonGroupV2 = { id: id(901), name: { he: '', en: 'Herbs' }, selection: 'single', min: 0, max: 1, options: [o(3)] };
+  const top: AddonGroupV2 = { id: id(902), name: { he: '', en: 'Top' }, selection: 'multiple', min: 1, max: 3, options: [
+    o(10, { default: true, opensGroupId: dips.id }), o(11, { default: true, opensGroupId: dips.id }), o(12, { default: true, opensGroupId: herbs.id }), o(13),
+  ] };
+  const groups = new Map([dips, herbs, top].map((g) => [g.id, g] as const));
+  const dish: DishV2 = { ...DISHES.lemonade, addons: [{ groupId: top.id, min: 1, max: 3 }] };
+  const ids = [1, 2, 3, 10, 11, 12, 13].map(id);
+  for (let mask = 0; mask < 2 ** ids.length; mask++) {
+    const offIds = new Set(ids.filter((_, i) => mask & (1 << i)));
+    const c = { groups, unavailable: { dishes: new Set<string>(), options: offIds } };
+    const chosen = defaultSelection(dish, c).groups[0]!.options;
+    const dipsReachable = [dips.options[0]!, dips.options[1]!].filter((x) => !offIds.has(x.id)).reduce((n, x) => n + x.maxQty, 0) >= dips.min;
+    // an opener into the required dips is kept exactly when the dips can be satisfied; the optional herbs never block
+    for (const n of [10, 11]) assert.equal(chosen.some((x) => x.optionId === id(n)), !offIds.has(id(n)) && dipsReachable, `mask ${mask} o${n}`);
+    assert.equal(chosen.some((x) => x.optionId === id(12)), !offIds.has(id(12)), `mask ${mask} o12`);
+    // what is pre-selected is never refused for being off, unknown or badly nested (only a choice still to make, or
+    // the dish itself when nothing can satisfy its required group)
+    const exhausted = choicesExhausted(dish, groups, offIds);
+    const r = priceDish(dish, defaultSelection(dish, c), { ...c, vatBasisPoints: 0 });
+    assert.ok(r.ok || r.errors.every((e) => e.code === 'below_min' || (exhausted && e.code === 'dish_unavailable')), `mask ${mask}: ${JSON.stringify(!r.ok && r.errors)}`);
+    // the menu shows a price exactly when the dish can be ordered
+    assert.equal(fromPrice(dish, c) !== null, !choicesExhausted(dish, groups, offIds), `mask ${mask}`);
+  }
 });
 
 test('a total too large for exact arithmetic is refused, not rounded', () => {
