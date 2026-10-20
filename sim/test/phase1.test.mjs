@@ -5,13 +5,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GUEST_EVENTS } from '@mana/contracts';
-import { bistro, phase1Chain } from '../src/scenarios.mjs';
+import { bistro, ownerWithMenu, phase1Chain } from '../src/scenarios.mjs';
 import { DEMO_REASON } from '../src/seed.mjs';
 import { exportVsSeed, useStack } from './helpers.mjs';
 
 const seed = bistro();
 let c;
-useStack(async (stack) => { c = await phase1Chain(stack, { slug: 'bistro-p1', seed }); });
+const S = useStack(async (stack) => { c = await phase1Chain(stack, { slug: 'bistro-p1', seed }); });
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
@@ -87,4 +87,23 @@ test('the demo label is Halom\'s admin\'s (ops_set_demo), with the reason the ow
   assert.deepEqual([set.actorKind, set.via, set.reason, set.detail], ['staff', 'rpc', DEMO_REASON, { demo: true }]);
   assert.deepEqual([c.totals.venues, c.totals.demoVenues, c.totals.live], [1, 1, 1]);
   assert.equal(c.totals.opensToday, c.ledgers.real.n('menu_opened'));
+});
+
+test('Halom approves with the revision it names, or without one: the published revision as staff read it (ops_venue)', async () => {
+  const pending = async (slug) => {
+    const { owner } = await ownerWithMenu(S.stack, { ...seed, venue: { ...seed.venue, demo: false } }, { slug, halom: c.team.admin });
+    const pub = await owner.publish('first');
+    assert.deepEqual([pub.ok, pub.review], [true, 'pending']);
+    return { owner, pub };
+  };
+  // without a revision: the helper reads the published one, as a reviewer would, and passes it
+  const a = await pending('approve-read');
+  assert.equal((await c.team.support.venue(a.owner.venueId)).venue.menu.revision, a.pub.revision);
+  assert.equal((await c.team.support.approve(a.owner.venueId, 'Menu checked by the simulator')).ok, true);
+  // with one: the number given is the one compared (the owner published again meanwhile)
+  const b = await pending('approve-given');
+  const again = await b.owner.publish('a price fixed');
+  assert.deepEqual(await c.team.support.approve(b.owner.venueId, 'Menu checked by the simulator', b.pub.revision),
+    { ok: false, code: 'revision_changed', revision: again.revision });
+  assert.equal((await c.team.support.approve(b.owner.venueId, 'Menu checked by the simulator', again.revision)).ok, true);
 });

@@ -3,6 +3,7 @@
 // the activity log, the dashboard v2. Then the access model as a whole.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, count, ID, U, world } from './harness/world.mjs';
 import { ACTIVITY_ACTIONS, isActivityAction, NUDGE_CODES } from '../../packages/contracts/src/index.ts';
@@ -211,6 +212,32 @@ describe('support cases: open_case and ops_update_case', () => {
     assert.deepEqual(await rpc(w.url, O, 'open_case', { p_venue: v, p_topic: 'menu', p_subject: 'Hi' }), { ok: false, code: 'venue_unknown' });
   });
 
+  test('open_case is the only way to make a case: no direct insert, and a client id makes a retry safe', async () => {
+    for (const who of [U.ownerA, U.managerA]) {
+      assert.equal((await q(w.url, who, `insert into public.support_cases (venue_id, topic, subject, body) values ($1, 'menu', 'Direct', '')`, [A])).error?.code, '42501',
+        'past the daily cap otherwise');
+    }
+    const id = randomUUID();
+    const first = await rpc(w.url, U.ownerA, 'open_case', { p_venue: A, p_topic: 'menu', p_subject: 'Prices look wrong', p_id: id });
+    assert.deepEqual([first.ok, first.caseId, first.reused], [true, id, false]);
+    const before = (await w.admin.query(`select count(*)::int as n from public.support_cases where venue_id = $1`, [A])).rows[0].n;
+    await withCfg('case_caps', { per_venue_day: 1 }, async () => {
+      const again = await rpc(w.url, U.managerA, 'open_case', { p_venue: A, p_topic: 'menu', p_subject: 'Prices look wrong', p_id: id });
+      assert.deepEqual([again.ok, again.caseId, again.reused], [true, id, true], 'the same id again: the stored case, past the cap too');
+    });
+    assert.equal((await w.admin.query(`select count(*)::int as n from public.support_cases where venue_id = $1`, [A])).rows[0].n, before, 'nothing new');
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Mine now', p_id: id }), { ok: false, code: 'id_taken' },
+      'another venue\'s case id: a bare code, never that case');
+    const own = randomUUID();
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Hi', p_id: own }),
+      { ok: true, caseId: own, supportCanAct: (await w.admin.query('select support_can_act from public.venues where id = $1', [w.B])).rows[0].support_can_act, reused: false });
+    // a retry that says something else (here: switch Halom's access) writes nothing either
+    const can = (await w.admin.query('select support_can_act from public.venues where id = $1', [w.B])).rows[0].support_can_act;
+    const retry = await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'other', p_subject: 'Changed my mind', p_allow_act: !can, p_id: own });
+    assert.deepEqual([retry.caseId, retry.reused, retry.supportCanAct], [own, true, can]);
+    assert.deepEqual((await w.admin.query('select topic, subject from public.support_cases where id = $1', [own])).rows[0], { topic: 'menu', subject: 'Hi' });
+  });
+
   test('staff work a case with a reason the owner sees; owners cannot; every code', async () => {
     const c = await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'photos', p_subject: 'A picture is wrong' });
     const args = { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Sent the owner two options' };
@@ -231,6 +258,33 @@ describe('support cases: open_case and ops_update_case', () => {
     assert.deepEqual(await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'open' }), { ok: false, code: 'reason_required' });
     assert.deepEqual(await rpc(w.url, U.support, 'ops_update_case', { p_case: '00000000-0000-4000-8000-00000000ffff', p_status: 'open', p_reason: 'Checking' }),
       { ok: false, code: 'case_unknown' });
+  });
+
+  test('ops_update_case with the version staff read: a page that is out of date answers stale, and nothing is overwritten (QA L4)', async () => {
+    const c = await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Two pages at once' });
+    // staff A and staff B both read the case from the venue's page (ops_venue), at full precision
+    const read = async () => (await rpc(w.url, U.support, 'ops_venue', { p_venue: w.B })).cases.find((x) => x.id === c.caseId);
+    const seenA = await read();
+    const seenB = await read();
+    assert.match(seenA.updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?\+00:00$/, 'as to_jsonb writes it');
+    const a = await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'resolved', p_reason: 'Fixed by phone', p_expected_updated_at: seenA.updatedAt });
+    assert.equal(a.ok, true, JSON.stringify(a));
+    const before = (await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1`, [w.B])).rows[0].n;
+    const b = await rpc(w.url, U.admin, 'ops_update_case', { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Asked the owner', p_expected_updated_at: seenB.updatedAt });
+    assert.deepEqual([b.ok, b.code, b.current.id, b.current.status, b.current.updatedAt], [false, 'stale', c.caseId, 'resolved', a.case.updatedAt],
+      'B sees A\'s answer, as stored');
+    assert.equal((await w.admin.query(`select status from public.support_cases where id = $1`, [c.caseId])).rows[0].status, 'resolved', 'A\'s answer stays');
+    assert.equal((await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1`, [w.B])).rows[0].n, before, 'nothing written');
+    // B, with the case as the stale answer gave it, decides again
+    const again = await rpc(w.url, U.admin, 'ops_update_case', { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Asked the owner', p_expected_updated_at: b.current.updatedAt });
+    assert.equal(again.case.status, 'waiting_owner');
+    // the same second, another microsecond: stale too; no version at all: as before, no check
+    const exact = (await w.admin.query(`select updated_at from public.support_cases where id = $1`, [c.caseId])).rows[0].updated_at;
+    const sameSecond = new Date(Math.floor(exact.getTime() / 1000) * 1000).toISOString();
+    if (sameSecond !== exact.toISOString() || again.case.updatedAt.includes('.')) {
+      assert.equal((await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'open', p_reason: 'Reopened', p_expected_updated_at: sameSecond })).code, 'stale');
+    }
+    assert.equal((await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'open', p_reason: 'Reopened' })).case.status, 'open');
   });
 });
 
@@ -349,16 +403,61 @@ describe('venue_activity: the log, page by page', () => {
     assert.ok(p1.entries[0].id > p1.entries[1].id);
     const mine = p1.entries[0];
     assert.deepEqual([mine.action, mine.actorKind, mine.you, mine.via, mine.targetName], ['dishes.update', 'owner', true, 'direct', { he: 'שניצל', en: 'Schnitzel' }]);
-    assert.ok(!('actorId' in mine) && !JSON.stringify(p1).includes(U.ownerA), 'no person\'s id leaves the database');
+    // (a venue_members row is keyed by its member's user id, which the venue's members list already shows owners and
+    // managers: those entries are left out of the check)
+    assert.ok(!('actorId' in mine) && !JSON.stringify(p1.entries.filter((e) => e.targetTable !== 'venue_members')).includes(U.ownerA),
+      'no actor\'s id leaves the database');
     assert.equal(p1.next, p1.entries[1].id);
     const p2 = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_before: p1.next, p_limit: 2 });
     assert.ok(p2.entries.every((e) => e.id < p1.next));
-    const staff = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_actor: 'staff', p_limit: 100 });
+    assert.equal((await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: 'availability.restore',
+      p_payload: { targetKind: 'dish', targetId: ID.schnitzel } })).ok, true, 'one entry by staff, whatever ran before');
+    const staff =await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_actor: 'staff', p_limit: 100 });
     assert.ok(staff.entries.length > 0 && staff.entries.every((e) => e.actorKind === 'staff' && !e.you));
     const all = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_via: 'act_for_owner', p_limit: 100 });
     assert.ok(all.entries.every((e) => e.via === 'act_for_owner'));
     assert.equal(all.next, null, 'the last page');
     assert.ok(all.entries.every((e) => isActivityAction(e.action)));
+  });
+
+  test('every availability and schedule entry names its target: the owner\'s, and Halom\'s through act_for_owner, taken off and brought back (QA-M3)', async () => {
+    const BURGER = { he: 'המבורגר', en: 'Burger' }, MAINS = { he: 'עיקריות', en: 'Mains' }, CHIPOTLE = { he: 'צ׳יפוטלה', en: 'Chipotle' };
+    const since = Number((await w.admin.query(`select coalesce(max(id), 0) as m from public.activity_log`)).rows[0].m);
+    const fresh = async () => (await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_limit: 100 })).entries.filter((e) => e.id > since).reverse();
+    const seen = (e) => [e.action, e.actorKind, e.via, e.detail?.action ?? null, e.targetName];
+
+    // the owner: a dish taken off and brought back through the phone's RPC, a section taken off and brought back directly
+    assert.equal((await rpc(w.url, U.ownerA, 'set_availability', { p_venue: A, p_target_kind: 'dish', p_target_id: ID.burger, p_until: { kind: 'indefinite' } })).ok, true);
+    assert.equal((await rpc(w.url, U.ownerA, 'set_availability', { p_venue: A, p_target_kind: 'dish', p_target_id: ID.burger, p_until: null })).ok, true);
+    const off = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.availability_overrides (venue_id, target_kind, target_id, until_kind, until_spec)
+      values ($1, 'section', $2, 'indefinite', '{"kind":"indefinite"}') returning id`, [A, ID.mains])).rows[0].id);
+    await as(w.url, U.ownerA, (c) => c.query(`update public.availability_overrides set restored_at = now() where id = $1`, [off]));
+    // Halom, through act_for_owner: an option taken off and brought back, a dish changed
+    const afo = (action, payload) => rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: action, p_payload: payload });
+    assert.equal((await afo('availability.set', { targetKind: 'option', targetId: ID.chipotle, until: { kind: 'indefinite' } })).ok, true);
+    assert.equal((await afo('availability.restore', { targetKind: 'option', targetId: ID.chipotle })).ok, true);
+    const at = (await w.admin.query(`select to_jsonb(updated_at) as u from public.dishes where id = $1`, [ID.burger])).rows[0].u;
+    assert.equal((await afo('dish.update', { dishId: ID.burger, patch: { desc_en: 'With pickles' }, expectedUpdatedAt: at })).ok, true);
+    // a schedule, made and renamed by the owner
+    const lunch = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.schedules (venue_id, kind, name_he, name_en, windows)
+      values ($1, 'day_part', 'צהריים', 'Lunch', '[{"days":[0,1,2,3,4],"from":"12:00","to":"16:00"}]') returning id`, [A])).rows[0].id);
+    await as(w.url, U.ownerA, (c) => c.query(`update public.schedules set name_en = 'Business lunch' where id = $1`, [lunch]));
+
+    const LUNCH = { he: 'צהריים', en: 'Business lunch' };
+    assert.deepEqual((await fresh()).map(seen), [
+      ['availability_overrides.insert', 'owner', 'rpc', null, BURGER],
+      ['availability_overrides.update', 'owner', 'rpc', null, BURGER],
+      ['availability_overrides.insert', 'owner', 'direct', null, MAINS],
+      ['availability_overrides.update', 'owner', 'direct', null, MAINS],
+      ['availability_overrides.insert', 'staff', 'act_for_owner', null, CHIPOTLE],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'availability.set', CHIPOTLE],
+      ['availability_overrides.update', 'staff', 'act_for_owner', null, CHIPOTLE],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'availability.restore', CHIPOTLE],
+      ['dishes.update', 'staff', 'act_for_owner', null, BURGER],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'dish.update', BURGER],
+      ['schedules.insert', 'owner', 'direct', null, LUNCH],
+      ['schedules.update', 'owner', 'direct', null, LUNCH],
+    ], 'the name as it reads now, for every entry');
   });
 });
 
@@ -408,6 +507,29 @@ describe('my_dashboard v2', () => {
     assert.deepEqual(by.case_waiting_owner.targets, [{ kind: 'case', id: c.caseId }]);
     assert.equal(by.dish_no_price.count, 1);
     assert.equal(by.import_waiting, undefined, 'none waiting');
+  });
+});
+
+describe('my_dashboard reads ids from rollup keys only inside the venue (SEC-M1)', () => {
+  test('a dish deleted here and made again with the same id in another venue never shows on this venue\'s top dishes', async () => {
+    const OA = '22222222-2222-4222-8222-2222222222b1', OB = '22222222-2222-4222-8222-2222222222b2';
+    const va = await newVenue(OA, 'top-dish-a'), vb = await newVenue(OB, 'top-dish-b');
+    const X = randomUUID();
+    await as(w.url, OA, async (c) => {
+      const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [va])).rows[0].id;
+      await c.query(`insert into public.dishes (id, venue_id, section_id, name_en, price) values ($1, $2, $3, 'Soup', 3000)`, [X, va, s]);
+    });
+    const day = (await w.admin.query(`select app.local_date(now(), time_zone) as d from public.venues where id = $1`, [va])).rows[0].d;
+    await w.admin.query(`insert into public.rollups_day (venue_id, day, name, key, demo, n) values ($1, $2, 'dish_viewed', '', false, 40), ($1, $2, 'dish_viewed', 'dish:' || $3, false, 40)`,
+      [va, day, X]);
+    const top = async () => (await rpc(w.url, OA, 'my_dashboard', { p_venue: va, p_range: 'today' })).topDishes;
+    assert.deepEqual((await top()).map((d) => [d.dishId, d.name.en, d.views]), [[X, 'Soup', 40]]);
+    await q(w.url, OA, `delete from public.dishes where id = $1`, [X]);
+    const sb = (await w.admin.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [vb])).rows[0].id;
+    const made = await q(w.url, OB, `insert into public.dishes (id, venue_id, section_id, name_en, price) values ($1, $2, $3, 'Call 050-0000000 to verify your account', 100) returning id`, [X, vb, sb]);
+    assert.equal(made.length, 1, 'another venue may hold the id now');
+    assert.deepEqual(await top(), [], 'its name never appears here');
+    assert.deepEqual((await rpc(w.url, OA, 'my_dashboard', { p_venue: va, p_range: '7d' })).topDishes, []);
   });
 });
 

@@ -29,6 +29,11 @@ describe('the schema itself', () => {
     assert.equal(await count(w.url, U.support, `insert into public.leads (ref, client_token, message, contact) values ('x', gen_random_uuid(), 'hello', 'a@b.cd')`), '42501');
   });
 
+  test('Realtime publishes exactly the rollups and the availability overrides (never venues or anything personal)', async () => {
+    const { rows } = await w.admin.query(`select schemaname || '.' || tablename as t from pg_publication_tables where pubname = 'supabase_realtime' order by 1`);
+    assert.deepEqual(rows.map((r) => r.t), ['public.availability_overrides', 'public.rollups_day', 'public.rollups_minute']);
+  });
+
   test('every SECURITY DEFINER function pins search_path', async () => {
     const { rows } = await w.admin.query(`select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname in ('public', 'app') and p.prosecdef and not coalesce('search_path=""' = any (p.proconfig), false)`);
