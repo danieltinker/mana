@@ -18,7 +18,9 @@ makes this the app.
 | `data/client.ts` | The supabase-js client and sign-in shared with v1 (`lib/api.ts`), `q()` and `rpc()` (an RPC's `{ok:false, code}` is thrown), the config's `env`, `schema`, `realtime` (`runtime`, read with the contracts' `configFlags`, as `src/main.tsx` reads `schema`) |
 | `data/errors.ts` | Every failure as one code (`V2Error`): the schema's raised words (`nesting_too_deep`, `limits_loosened`, `limit_*` …), PostgREST and Auth codes |
 | `data/menu.ts` | The tables and RPCs, stateless, typed with `@mana/contracts`' row types; direct table access under RLS (as `sim/src/owner.mjs`): guarded updates (`updateIf`), inserts with the client's id (`insertOnce`), `save_addon_group` |
-| `data/store.ts` | The state: session, places, the open place's whole menu (the draft), saving (autosave of the changed columns, guarded, one queue per row; conflicts; writes that put the stored rows on screen) |
+| `data/store.ts` | The state: session, places, the open place's whole menu (the draft), saving (autosave of the changed columns, guarded; conflicts; writes that put the stored rows on screen) |
+| `data/saves.ts` | The rows' save queue (pure, unit-tested): one write in flight per row, typing merged, failures and conflicts held for the owner |
+| `saving.tsx`, `leave.ts` | The "not saved" line with its retry (on the page and in a sheet); the guard that asks before leaving a screen with changes |
 | `data/forms.ts` | Rows ↔ forms, ₪ ↔ agorot, and the validators' rules before any write (same codes) |
 | `data/nesting.ts` | The one nesting level as the editor applies it: what an option may open, never a second level |
 | `data/guest.ts` | A dish as the guest gets it (as `app.build_snapshot_full` builds it) and the guest's choices, priced with `priceDish` |
@@ -34,29 +36,47 @@ makes this the app.
 
 - **Every write goes through `data/store.ts`**, which puts the rows the database returned on screen (names come back
   stripped, positions as stored) and bumps `edits`, which the draft preview follows.
-- **A form sends only what its owner changed.** `patchRow(table, id, patch)` (autosave, 600 ms) takes the columns of one
-  edit (`dishEdit` for a dish, the section sheet's own diff), never a whole row.
+- **A form sends only what its owner changed.** `patchRow(table, id, patch)` (autosave, 600 ms) and `saveNow(table, id,
+  patch)` (at once; answers 'saved' or 'conflict') take the columns of one edit (`dishEdit` for a dish, the section
+  sheet's own diff), never a whole row.
+- **One queue for the rows' writes** (`data/saves.ts`, unit-tested with a fake API in `test/unit/v2-saves.test.mjs`):
+  - one write in flight per row; what is typed meanwhile waits as one patch (the latest value of each column) and goes
+    when that write is answered, over the version it left; moves, dish limits and group saves wait in the same lane;
+  - a failure (no connection, or an answer that never came) takes in everything typed after it for that row; nothing
+    more is sent for that row until the owner retries (the "not saved" line, on the page and inside an open sheet) or
+    the connection comes back (`online`); the retry sends all of it as one patch, so a later value always wins;
+  - a write that stored a column takes it out of the failed patch.
 - **Every change of a row is guarded** (`api.updateIf`): it is written only while the row still has the `updated_at` this
   screen read (a move: the position it started from; a dish's limits: the limits it read). Zero rows back is read again:
-  - changed elsewhere (`stale`): nothing is written; `conflicts` holds the owner's values beside the stored row and
-    `conflict.tsx` asks (no close button): keep mine (sent again over the stored version) or take the stored one. A
-    stored row that already holds the owner's values (their own answer was lost) needs no question;
-  - not there any more: dropped, "no longer exists";
-  - still there, unchanged: row-level security said no, so it is "not allowed" (`forbidden`), the field shows what is
-    stored, and the role is read again (a manager made counter turns read-only on the spot).
-- **The writes to one row run one after another** (`onRow`), each with the version the one before left.
+  - changed elsewhere (`stale`): nothing of it is written, and nothing typed after it is sent; `conflicts` holds the
+    owner's latest values beside the stored row and `conflict.tsx` asks (no close button): keep mine (sent over the
+    stored version; asked again if it moved once more) or take the stored one. Two cases are not "changed elsewhere":
+    the row already holds what was typed, and the row moved only because of this screen's own write whose answer was
+    lost (every column that moved holds what this screen sent): then what is still to send goes, unasked;
+  - still there, unchanged: row-level security said no, so it is "not allowed" (`forbidden`);
+  - not readable any more: the membership is read again; "not allowed" when the account may no longer edit here (the
+    place stays on screen, read-only), "no longer exists" only when someone who may edit deleted the row (the menu is
+    read again). A row is never just dropped from the screen.
+  Every permission refusal, on every write path (autosave, moves, limits, new rows, deletions, group saves), reads the
+  role again: a manager made counter turns read-only on the spot.
 - **An add-on group is saved as one** (`save_addon_group`, `saveGroupForm`): the group and every option in one
   transaction, with the client's own ids, sent with the group's `updated_at` as the form read it. Before it is sent, the
   form is checked with the contracts' `validateAddonGroup` / `validateAddonGroupInput` (the database's twin: the same
   codes, shown at the form's fields by `groupFieldError`) and the loaded menu with `addonGroupMenuIssues` (a second
   nesting level; a dish whose own limits the change would break, named: `dish_limits`). Answers: saved; `stale` with the
-  stored group (the editor shows it: save mine over it, or take it); `option_in_rules` (the editor names the rules and
-  asks before sending again with `confirmRules`); or a refusal that changed nothing. The same input sent twice is
-  answered "saved", so a retry after a lost answer is safe.
-- **New rows carry ids made here** (`newId`; `insertOnce`): quick-add of a dish, a new section, a new group and its
-  choices keep their id until stored, so trying again after a lost answer never stores a second row.
-- **A refusal is a code, said in plain words**: `toV2Error` maps it, `errText` (v2 `i18n.ts`) says it (`refused`, and
-  `resync` makes a form read its row again). A network failure keeps what was typed and offers to retry.
+  stored group (the editor shows it, and "save my changes over it" sends the stored group with only what the owner
+  changed in this form put over it, field by field and choice by choice: `mergeGroupForms`; or take it);
+  `option_in_rules` (the editor names the rules and asks before sending again with `confirmRules`); or a refusal that
+  changed nothing. The same input sent twice is answered "saved", so a retry after a lost answer is safe.
+- **New rows carry ids made here** (`newId`; `insertOnceInfo`): quick-add of a dish, a new section, a new group and its
+  choices keep their id until stored, so trying again after a lost answer never stores a second row; when the owner
+  retyped it meanwhile, what they typed last goes over the stored one. A link (a group on a dish, "goes well with") tried
+  again finds the one already stored by its pair.
+- **A refusal is a code, said in plain words**: `toV2Error` maps it (the schema's `not_allowed` and row-level security's
+  refusal are one code, `forbidden`), `errText` (v2 `i18n.ts`) says it (`refused`, and `resync` makes a form read its
+  row again).
+- **Ways out ask first**: signing out or switching place with a change that did not save, and leaving a group form with
+  changes (its back link, the bottom bar, the brand, the account sheet: `leave.ts`).
 - **Publishing waits for saving**: while a change is on its way, failed, or waiting for a decision, the publish button
   is off and the screen says which.
 - **Prices are agorot**, typed in shekels (`agorotOf`, `shekelsOf`), never floats.
@@ -101,7 +121,8 @@ needs a native read before it reaches anyone.
 they are. Browser tests live in `e2e/` (`startE2E()` serves the built `_site` with a local config: schema 2 on the
 simulator's stack): `e2e/studio-v2.test.mjs` is the whole scenario (the pattern), `e2e/studio-v2-edges.test.mjs` the
 edges (production boot, price parity with `public_menu`, two tabs, lost answers, offline, a counter, sign-up, RTL,
-keyboard, names, text never HTML).
+keyboard, names, text never HTML), `e2e/studio-v2-saving.test.mjs` saving on a slow, failing or forgetful network
+(two edits in flight, retries, roles that change, the ways out).
 
 ## Not here yet
 
