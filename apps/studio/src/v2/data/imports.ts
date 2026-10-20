@@ -7,11 +7,11 @@
 //   owner's own token before any paid call. The scanner is not always there: `scannerStatus` says so first.
 // `importsApi(call)` takes the RPC caller, so the unit tests pass a fake one.
 import {
-  IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, textLength, validateApplyImport, validateCreateImport, validateSaveDraft,
+  IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, READER_NOTES, textLength, validateApplyImport, validateCreateImport, validateSaveDraft,
   type ApplyImportReply, type CreateImportInput, type CreateImportReply, type DiscardImportReply, type ExistingMenu, type ImportDecisions, type ImportDraft, type ImportSource,
   type MenuImportView, type ReaderNote as ContractNote, type SaveDraftReply, type Validation,
 } from '@mana/contracts';
-import { contractNote, parsePaste, parseWoltText, type ReaderNote } from '@mana/import';
+import { parsePaste, parseWoltText, type ReaderNote } from '@mana/import';
 import { V2Error } from './errors.ts';
 
 export type TextSource = 'paste' | 'wolt_text';
@@ -34,7 +34,7 @@ export function readText(source: TextSource, text: string): Reading {
 }
 
 /** The notes `save_import_draft` stores: the ones the contracts know (a reader's own codes stay on this screen only). */
-export const storableNotes = (notes: readonly ReaderNote[]): ContractNote[] => notes.filter(contractNote);
+export const storableNotes = (notes: readonly ReaderNote[]): ContractNote[] => notes.filter((n): n is ContractNote => n.code in READER_NOTES);
 
 /** A draft with no dish at all: nothing to review (an empty paste, or text that held no menu). */
 export const isEmptyDraft = (d: ImportDraft): boolean => d.sections.every((s) => s.dishes.length === 0);

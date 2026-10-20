@@ -52,7 +52,8 @@ export function scanStub(stack, { reply, configured = true }) {
   async function attach(page) {
     await page.route('**/config.js', async (route) => {
       const res = await route.fetch();
-      const body = (await res.text()).replace('"scan": false', '"scan": true');
+      // the settings as JSON ("scan": false) or as the local config file writes them (scan: false)
+      const body = (await res.text()).replace(/(["']?)scan\1(\s*):(\s*)false/, '$1scan$1$2:$3true');
       await route.fulfill({ status: 200, contentType: 'text/javascript', body });
     });
     await page.route('**/storage/v1/object/menu-private/**', async (route) => {
