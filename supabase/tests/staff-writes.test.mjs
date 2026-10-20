@@ -117,6 +117,13 @@ describe('ops_approve_venue names the revision the reviewer looked at', () => {
     const unpublished = await newOwner('11111111-1111-4111-8111-1111111111c9', 'never-published');
     assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: unpublished, p_reason: 'Menu checked', p_expected_revision: 1 }),
       { ok: false, code: 'not_published' });
+    // published, then taken down by its owner before the review: nothing published is not_published, never a revision
+    const O2 = '11111111-1111-4111-8111-1111111111cb';
+    const down = await newOwner(O2, 'taken-down');
+    assert.equal((await rpc(w.url, O2, 'publish_menu', { p_venue: down })).revision, 1);
+    assert.equal((await rpc(w.url, O2, 'unpublish_menu', { p_venue: down })).ok, true);
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: down, p_reason: 'Menu checked', p_expected_revision: 1 }),
+      { ok: false, code: 'not_published' });
     assert.equal((await rpc(w.url, O, 'ops_approve_venue', { p_venue: v, p_reason: 'approving myself', p_expected_revision: 2 })).error?.code, '42501');
   });
 });

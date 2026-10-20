@@ -219,17 +219,23 @@ describe('support cases: open_case and ops_update_case', () => {
     }
     const id = randomUUID();
     const first = await rpc(w.url, U.ownerA, 'open_case', { p_venue: A, p_topic: 'menu', p_subject: 'Prices look wrong', p_id: id });
-    assert.deepEqual([first.ok, first.caseId], [true, id]);
+    assert.deepEqual([first.ok, first.caseId, first.reused], [true, id, false]);
     const before = (await w.admin.query(`select count(*)::int as n from public.support_cases where venue_id = $1`, [A])).rows[0].n;
     await withCfg('case_caps', { per_venue_day: 1 }, async () => {
       const again = await rpc(w.url, U.managerA, 'open_case', { p_venue: A, p_topic: 'menu', p_subject: 'Prices look wrong', p_id: id });
-      assert.deepEqual([again.ok, again.caseId], [true, id], 'the same id again: the stored case, past the cap too');
+      assert.deepEqual([again.ok, again.caseId, again.reused], [true, id, true], 'the same id again: the stored case, past the cap too');
     });
     assert.equal((await w.admin.query(`select count(*)::int as n from public.support_cases where venue_id = $1`, [A])).rows[0].n, before, 'nothing new');
     assert.deepEqual(await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Mine now', p_id: id }), { ok: false, code: 'id_taken' },
       'another venue\'s case id: a bare code, never that case');
     const own = randomUUID();
-    assert.equal((await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Hi', p_id: own })).caseId, own);
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Hi', p_id: own }),
+      { ok: true, caseId: own, supportCanAct: (await w.admin.query('select support_can_act from public.venues where id = $1', [w.B])).rows[0].support_can_act, reused: false });
+    // a retry that says something else (here: switch Halom's access) writes nothing either
+    const can = (await w.admin.query('select support_can_act from public.venues where id = $1', [w.B])).rows[0].support_can_act;
+    const retry = await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'other', p_subject: 'Changed my mind', p_allow_act: !can, p_id: own });
+    assert.deepEqual([retry.caseId, retry.reused, retry.supportCanAct], [own, true, can]);
+    assert.deepEqual((await w.admin.query('select topic, subject from public.support_cases where id = $1', [own])).rows[0], { topic: 'menu', subject: 'Hi' });
   });
 
   test('staff work a case with a reason the owner sees; owners cannot; every code', async () => {
