@@ -23,7 +23,7 @@ makes this the app.
 | `data/nesting.ts` | The one nesting level as the editor applies it: what an option may open, never a second level |
 | `data/guest.ts` | A dish as the guest gets it (as `app.build_snapshot_full` builds it) and the guest's choices, priced with `priceDish` |
 | `data/draft.ts`, `data/changes.ts` | `preview_menu` beside the published revision: what stops a publish, what warns (with `lintSnapshotV2`), what would change; where the menu stands (never, pending approval, live, offline) |
-| `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, and the first reason when nothing would be suggested (`whyNot`, found by asking `matchSuggestion` one condition at a time) |
+| `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, day, hour and the guest's tags (`passesTagFilter`), and the first reason when nothing would be suggested (the contracts' `whyNoSuggestion`, on which `matchSuggestion` is built) |
 | `data/hours.ts` | Opening hours (several windows a day, no overlap, across midnight too), closed dates and schedules (day parts, specials): rows ↔ forms with the schema's checks; `venueHoursOf` builds the hours exactly as `public_menu`'s live overlay does |
 | `data/availability.ts` | The quick actions (F05): the "until" choices and their `resolveUntil` moments, what is off now (`offState`, with the contracts' `isAvailable`), "taken off today", and `availabilityApi(rpc)`: `set_availability` and `restore_today` with the contracts' validators first (pure: the tests pass a fake RPC) |
 | `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, else polling (`LIVE_REFRESH`, `pollDelay`, visible pages only); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
@@ -92,15 +92,26 @@ makes this the app.
   calls the RPCs directly, not through `write`.
 - **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, which is
   `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`. Reordering rules
-  is guarded by the priority each had (`setPriorities`, as `moveRow` guards positions). **Opening hours and closed dates
-  have no `updated_at`**: a window's new times are written only while it still has the times the screen read
-  (`saveHours`, `stale` otherwise, and the stored times come back); a closed date is only added or deleted.
+  is guarded by the priority each had (`setPriorities`, as `moveRow` guards positions), after a fresh read of the whole
+  order: another tab's reorder is not written over, the order as stored comes back with a notice. **Opening hours and
+  closed dates have no `updated_at`**: they are read again when the hours screen opens or comes back into view
+  (`refreshHours`) and before hours are added (the overlap check runs on what is stored now); a window's new times are
+  written only while it still has the times the screen read (`saveHours`, `stale` otherwise, and the stored times come
+  back); a closed date is only added or deleted. When the backend adds `updated_at` and its own overlap check
+  (`hours_overlap`, already in `DB_CODES`) to `venue_hours`, `saveHours` can guard on it like the rest.
+- **A lost answer is not "changed elsewhere"**: a guarded write that finds its own values already stored (its earlier
+  answer was lost) counts as saved. New rows keep their ids across tries; a try after a lost answer with other values
+  than the stored ones is not stored over them silently (`insertAllOnce` answers `stored_earlier` with the stored rows):
+  a new rule stores the change on the stored rule (guarded), new hours say what was stored.
 - **One place at a time**: switching place or account drops everything (what failed to save included, after the owner
   confirms it); late answers for the old one are ignored. A store of a later lane registers `onReset(fn)` to drop its own
   state with it.
 - **Availability is written by the RPCs only**: `set_availability` and `restore_today` (ADR-008), never table inserts
   (those stay granted for the simulator). A whole add-on group is each of its choices, one call each. Overrides are
-  read, never patched on screen: every action fetches them again.
+  read, never patched on screen: every action fetches them again. The availability sheet reads the clock every second
+  while it is open, so the "back at" shown before the tap is the minute stored. "Taken off today" is the venue's
+  calendar day, as `restore_today` has it: at 00:30, what was taken off at 23:50 is yesterday's (a question for Rami
+  whether a service day should run past midnight; the contracts and the database would change together).
 - **Everything about time is the contracts'**: `resolveUntil`, `isOpenAt`, `nextOpening`, `isAvailable`,
   `matchSuggestion`, in the venue's `time_zone`; the screens only say the moments in words (`words.ts`).
 

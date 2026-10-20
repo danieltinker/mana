@@ -20,6 +20,7 @@ import { sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import type { DishLimits, GroupForm } from './forms.ts';
 import { groupFieldError, groupFromForm } from './forms.ts';
+import { hhmm } from './hours.ts';
 import * as api from './menu.ts';
 import type { GroupRows, MenuData, MenuTable, Membership } from './menu.ts';
 import { byPosition, newId, nextPosition, reorder } from './rows.ts';
@@ -436,10 +437,29 @@ export async function removeRows(table: MenuTable, ids: string[]): Promise<void>
  * New rows of one table for the open place, in one statement (several opening windows at once: all of them or none),
  * each with an id made here unless the screen gave one: a try sent again after a lost answer finds them stored.
  */
-export function addRows<T extends MenuTable>(table: T, rows: Partial<Rows[T]>[]): Promise<Rows[T][]> {
-  const venue_id = vid();
+export async function addRows<T extends MenuTable>(table: T, rows: Partial<Rows[T]>[]): Promise<Rows[T][]> {
+  const venue_id = vid(), gen = generation;
   const list = rows.map((r) => ({ id: newId(), venue_id, ...r }) as { id: string; [column: string]: unknown });
-  return write(() => api.insertAllOnce<Rows[T]>(table, list), (out) => put(table, out));
+  try {
+    return await write(() => api.insertAllOnce<Rows[T]>(table, list), (out) => put(table, out));
+  } catch (e) {
+    // an earlier try was stored (its answer was lost) with other values than this one: on screen as stored, and said
+    const err = toV2Error(e);
+    if (err.code === 'stored_earlier' && gen === generation && Array.isArray(err.detail)) { put(table, err.detail as Rows[T][]); edits.value++; }
+    throw err;
+  }
+}
+
+/**
+ * The opening hours and closed dates as stored now (another device may have changed them; they have no `updated_at` to
+ * guard with): read when the hours screen opens, comes back into view, and before hours are added.
+ */
+export async function refreshHours(): Promise<void> {
+  const d = menu.value; if (!d) return;
+  const gen = generation;
+  const [hours, closures] = await Promise.all([api.venueRows<VenueHoursRow>('venue_hours', d.venue.id), api.venueRows<VenueClosureRow>('venue_closures', d.venue.id)]);
+  if (gen !== generation || !menu.value) return;
+  menu.value = { ...menu.value, hours, closures };
 }
 
 /**
@@ -467,6 +487,8 @@ export function saveHours(id: string, times: Pick<VenueHoursRow, 'opens' | 'clos
   return onRow(keyOf('venue_hours', id), () => write(async () => {
     const r = await api.updateIf<VenueHoursRow>('venue_hours', id, { opens: was.opens, closes: was.closes }, times);
     if (r.ok) return r.row;
+    // the times stored are already these: this screen's own earlier try, whose answer was lost
+    if (r.why === 'stale' && hhmm(r.row.opens) === hhmm(times.opens) && hhmm(r.row.closes) === hhmm(times.closes)) return r.row;
     if (r.why === 'stale') put('venue_hours', [r.row]); else if (r.why === 'gone') drop('venue_hours', [id]);
     throw new V2Error(r.why === 'stale' ? 'stale' : r.why === 'gone' ? 'not_found' : 'forbidden');
   }, (r) => put('venue_hours', [r])));
@@ -490,8 +512,15 @@ export function setPriorities(priorities: ReadonlyMap<string, number>): Promise<
   const d = menu.value!, gen = generation;
   const was = new Map(d.rules.map((r) => [r.id, r.priority] as const));
   menu.value = { ...d, rules: d.rules.map((r) => (priorities.has(r.id) ? { ...r, priority: priorities.get(r.id)! } : r)) };
+  // the order is the whole list's: when any rule's priority changed elsewhere (another tab reordered), nothing is written
+  // and the list as stored comes back, with a notice
+  const fresh = api.venueRows<{ id: string; priority: number }>('upsell_rules', d.venue.id, 'id,priority')
+    .then((rows) => rows.length === was.size && rows.every((r) => was.get(r.id) === r.priority));
   const moves = [...priorities].map(([id, priority]) => onRow(keyOf('upsell_rules', id), async () => {
+    if (!(await fresh)) return { ok: false as const, why: 'stale' as const, row: null };
     const r = await api.updateIf<UpsellRuleRow>('upsell_rules', id, { priority: was.get(id)! }, { priority });
+    // already at the new priority: this screen's own earlier try, whose answer was lost
+    if (!r.ok && r.why === 'stale' && r.row.priority === priority) return { ok: true as const, row: r.row };
     if (r.ok && gen === generation) put('upsell_rules', [r.row]);
     return r;
   }));
