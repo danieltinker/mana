@@ -98,7 +98,7 @@ export async function liveFromSeed(stack, seed, slug, team) {
   const published = await owner.publish('simulator');
   if (!published.ok) throw new Error('publish_menu: ' + JSON.stringify(published));
   if (published.review === 'pending') {
-    const ok = await team.support.approve(owner.venueId, 'Synthetic venue checked by the simulator');
+    const ok = await team.support.approve(owner.venueId, 'Synthetic venue checked by the simulator', published.revision);
     if (!ok.ok) throw new Error('ops_approve_venue: ' + JSON.stringify(ok));
   }
   return { owner, ids, slug, venueId: owner.venueId };
@@ -169,7 +169,7 @@ export async function phase0Chain(stack, { slug = 'bistro-chain', seed = bistro(
   const { owner, ids } = await ownerWithMenu(stack, seed, { slug, halom: team.admin });
   const published = await owner.publish('opening day');
   const before = { menu: await asAnon(stack).rpc('public_menu', { p_slug: slug }), card: await team.support.venueCard(owner.venueId) };
-  const approved = await team.support.approve(owner.venueId, 'First menu checked: prices and add-ons look right');
+  const approved = await team.support.approve(owner.venueId, 'First menu checked: prices and add-ons look right', published.revision);
 
   const guests = await scriptedGuests(stack, slug, ids);
 

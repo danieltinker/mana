@@ -52,7 +52,7 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     const r = await set('photos', 'done');
     assert.equal(r.ok, true);
     assert.deepEqual(r.progress.steps.find((s) => s.step === 'photos'), { step: 'photos', state: 'done', blockers: [], auto: false, updatedAt: r.progress.steps.find((s) => s.step === 'photos').updatedAt });
-    assert.match(r.progress.steps.find((s) => s.step === 'photos').updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    assert.match(r.progress.steps.find((s) => s.step === 'photos').updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{1,6}(Z|[+-]\d\d:\d\d)$/, 'a version, to the microsecond');
     assert.deepEqual([r.progress.total, r.progress.next, r.progress.complete], [9, 'review', false]);
     assert.equal((await set('hours', 'blocked', ['dish_without_price'])).ok, true);
     const kept = await set('hours', 'doing');
@@ -80,13 +80,28 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
 
   test('Halom\'s act_for_owner("onboarding.set") follows the same rules', async () => {
     const afo = (payload) => rpc(w.url, U.support, 'act_for_owner', { p_venue: w.B, p_reason: 'Owner asked on the phone', p_action: 'onboarding.set', p_payload: payload });
-    assert.deepEqual(await afo({ step: 'publish', state: 'done' }), { ok: false, code: 'step_automatic' });
-    assert.deepEqual(await afo({ step: 'menu', state: 'doing' }), { ok: false, code: 'step_done' });
-    assert.deepEqual(await afo({ step: 'nope', state: 'done' }), { ok: false, code: 'enum_invalid' });
-    const ok = await afo({ step: 'style', state: 'done' });
+    /** The step's updatedAt as staff read it (ops_venue), to the microsecond; null for a step never written. */
+    const seen = async (step) => (await rpc(w.url, U.support, 'ops_venue', { p_venue: w.B })).onboarding.steps.find((s) => s.step === step).updatedAt;
+    assert.deepEqual(await afo({ step: 'publish', state: 'done', expectedUpdatedAt: await seen('publish') }), { ok: false, code: 'step_automatic' });
+    assert.deepEqual(await afo({ step: 'menu', state: 'doing', expectedUpdatedAt: await seen('menu') }), { ok: false, code: 'step_done' });
+    assert.deepEqual(await afo({ step: 'nope', state: 'done', expectedUpdatedAt: null }), { ok: false, code: 'enum_invalid' });
+    assert.deepEqual(await afo({ step: 'style', state: 'done' }), { ok: false, code: 'payload_invalid' }, 'expectedUpdatedAt is required');
+    const at0 = await seen('style');   // null when never written
+    const ok = await afo({ step: 'style', state: 'done', expectedUpdatedAt: at0 });
     assert.deepEqual([ok.ok, ok.result.step, ok.result.state, ok.result.progress.steps.find((s) => s.step === 'style').state], [true, 'style', 'done', 'done']);
     const log = await lastLog(w.B, 'onboarding_progress.update');
     assert.deepEqual([log.actor_kind, log.via, log.reason], ['staff', 'act_for_owner', 'Owner asked on the phone']);
+    // the step changed since staff read it: stale, with the step as it is
+    const at = await seen('style');
+    assert.match(at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{1,6}(Z|[+-]\d\d:\d\d)$/, 'to the microsecond');
+    const before = (await w.admin.query('select count(*)::int as n from public.activity_log')).rows[0].n;
+    assert.deepEqual(await afo({ step: 'style', state: 'skipped', expectedUpdatedAt: at0 }),
+      { ok: false, code: 'stale', action: 'onboarding.set', current: { step: 'style', state: 'done', blockers: ok.result.progress.steps.find((s) => s.step === 'style').blockers, updatedAt: at } });
+    const second = at.replace(/\.\d+(?=Z$|[+-]\d\d:\d\d$)/, '');
+    assert.equal((await afo({ step: 'style', state: 'skipped', expectedUpdatedAt: second })).code, 'stale', 'the same second is not the same version');
+    assert.equal((await w.admin.query('select count(*)::int as n from public.activity_log')).rows[0].n, before, 'nothing written');
+    assert.equal((await afo({ step: 'style', state: 'skipped', expectedUpdatedAt: at })).ok, true);
+    assert.equal((await w.admin.query(`select state from public.onboarding_progress where venue_id = $1 and step = 'style'`, [w.B])).rows[0].state, 'skipped');
   });
 
   test('the venue\'s first dish marks "menu" done; clients never write an automatic step done', async () => {
@@ -117,6 +132,43 @@ describe('add-on groups: limits an import guessed wait for the owner', () => {
     assert.equal(await count(w.url, U.ownerB, `update public.addon_groups set limits_confirmed = true where id = $1`, [w.b.group]), 1);
     assert.equal(await state(), true);
     await as(w.url, U.ownerB, (c) => c.query(`update public.addon_groups set min_units = 0, name_en = 'Bread' where id = $1`, [w.b.group]));
+  });
+});
+
+describe('opening hours: updated_at, and windows never overlap (hours_overlap)', () => {
+  test('a window carries updated_at, moved by every change', async () => {
+    const O = '22222222-2222-4222-8222-2222222222a7';
+    const v = await newVenue(O, 'hours-version');
+    const id = await as(w.url, O, async (c) => (await c.query(`insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, 1, '09:00', '12:00') returning id`, [v])).rows[0].id);
+    const at = async () => (await w.admin.query(`select updated_at from public.venue_hours where id = $1`, [id])).rows[0].updated_at;
+    const first = await at();
+    assert.ok(first);
+    await as(w.url, O, (c) => c.query(`update public.venue_hours set closes = '13:00' where id = $1`, [id]));
+    assert.ok((await at()) > first);
+  });
+
+  test('two windows of one day, a window past midnight into the next day\'s first, Saturday into Sunday: refused; touching is fine', async () => {
+    const O = '22222222-2222-4222-8222-2222222222a8';
+    const v = await newVenue(O, 'hours-overlap');
+    const add = (weekday, opens, closes) => q(w.url, O, `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, $2, $3, $4) returning id`, [v, weekday, opens, closes]);
+    const refused = (r) => /hours_overlap/.test(r.error?.message ?? '');
+    assert.ok(!(await add(5, '10:00', '14:00')).error);
+    assert.ok(refused(await add(5, '12:00', '16:00')), 'Friday 10-14 and 12-16');
+    assert.ok(refused(await add(5, '09:00', '18:00')), 'one inside the other');
+    assert.ok(!(await add(5, '14:00', '16:00')).error, 'touching at 14:00');
+    assert.ok(!(await add(5, '18:00', '02:00')).error, 'Friday night past midnight');
+    assert.ok(refused(await add(6, '01:00', '03:00')), 'Saturday\'s first window, still Friday night');
+    assert.ok(!(await add(6, '02:00', '05:00')).error, 'from 02:00 on Saturday');
+    assert.ok(!(await add(6, '22:00', '01:00')).error, 'Saturday night into Sunday');
+    assert.ok(refused(await add(0, '00:30', '04:00')), 'Sunday 00:30: the week wraps');
+    assert.ok(refused(await add(3, '08:00', '08:00')) === false, 'a 24-hour Wednesday alone is fine');
+    assert.ok(refused(await add(4, '07:00', '09:00')), 'Thursday 07:00 is still Wednesday\'s 24 hours');
+    const id = (await q(w.url, O, `select id from public.venue_hours where venue_id = $1 and weekday = 5 and opens = '14:00'`, [v]))[0].id;
+    assert.ok(refused(await q(w.url, O, `update public.venue_hours set opens = '13:00' where id = $1`, [id])), 'an update too');
+    assert.ok(!(await q(w.url, O, `update public.venue_hours set closes = '15:00' where id = $1`, [id])).error, 'a window never overlaps itself');
+    const other = await newVenue('22222222-2222-4222-8222-2222222222a9', 'hours-other');
+    assert.ok(!(await q(w.url, '22222222-2222-4222-8222-2222222222a9', `insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, 5, '10:00', '14:00')`, [other])).error,
+      'per venue');
   });
 });
 

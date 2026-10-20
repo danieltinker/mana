@@ -3,7 +3,7 @@
  * venue's menu), the first publish's approval, plans, and Mana's own leads. Every one of these is logged with a reason
  * the owner sees (leads: every read is logged, never with the contact).
  */
-import { isBlank, isInt, isObject, isString, isUuid, oneOf, type Validation } from './common.ts';
+import { isBlank, isInt, isObject, isString, isUuid, oneOf, STOCK_RE, type Validation } from './common.ts';
 import type { DishRow } from './domain.ts';
 import {
   ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, PLANS, TAGS, TARGET_KINDS,
@@ -75,7 +75,6 @@ const PAYLOAD_KEYS: Readonly<Record<ActForOwnerAction, readonly string[]>> = {
   'onboarding.set': ['step', 'state', 'blockers', 'expectedUpdatedAt'],
   'support_case.update': ['caseId', 'status'],
 };
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /**
  * Codes: type, field_not_allowed, id_invalid, reason_required, action_unknown, enum_invalid, until_invalid,
@@ -109,7 +108,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         for (const k of Object.keys(patch)) if (!(DISH_PATCH_COLUMNS as readonly string[]).includes(k)) x.add('field_not_allowed', `payload.patch.${k}`);
         const max: Record<string, number> = {
           name_he: LIMITS.nameLength, name_en: LIMITS.nameLength, desc_he: LIMITS.descLength, desc_en: LIMITS.descLength,
-          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: 300, allergens_en: 300,
+          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: LIMITS.allergensLength, allergens_en: LIMITS.allergensLength,
         };
         for (const [k, v] of Object.entries(patch)) {
           const path = `payload.patch.${k}`;
