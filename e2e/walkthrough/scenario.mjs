@@ -70,6 +70,18 @@ const plain = (s) => String(s ?? '').replace(/[\u200e\u200f\u2060\u2066-\u2069]/
 const nis = (agorot) => '₪' + (agorot % 100 ? (agorot / 100).toFixed(2) : String(agorot / 100));
 function must(cond, what) { if (!cond) throw new Error(what); }
 
+/** A call that crosses the network, tried again twice when the network itself fails (fetch's TypeError), then
+ * reported as `what` failed. */
+async function retried(what, fn) {
+  for (let i = 0; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (!(e instanceof TypeError) || i === 2) throw new Error(`${what}: ${e instanceof Error ? e.message : String(e)}`);
+      await sleep(1000 * (i + 1));
+    }
+  }
+}
+
 /** Waits until `read()` gives `want` (as JSON), or throws with what it last read. */
 async function until(read, want, what, ms = 15_000, every = 250) {
   const end = Date.now() + ms;
@@ -131,7 +143,7 @@ async function preflight({ env, config, site, accounts, stack, input }) {
     const r = await fetch(site + p).catch((e) => ({ ok: false, status: e.message }));
     if (!r.ok) throw new Error(`the site does not serve ${p} (${r.status}): is it built and served?`);
   }
-  const auth = await fetch(config.supabaseUrl.replace(/\/$/, '') + '/auth/v1/settings', { headers: { apikey: config.supabaseKey } }).then((r) => r.json()).catch(() => null);
+  const auth = await retried('the sign-in service', () => fetch(config.supabaseUrl.replace(/\/$/, '') + '/auth/v1/settings', { headers: { apikey: config.supabaseKey } }).then((r) => r.json())).catch(() => null);
   if (!auth) throw new Error('the database\'s sign-in service did not answer');
   if (auth.disable_signup) throw new Error('step 1 (the owner signs up) needs sign-up open on the database (Auth: "Allow new users to sign up")');
   return { confirmByMail: auth.mailer_autoconfirm === false };
@@ -166,13 +178,13 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
   if (env === 'local' && stack) {
     ownerEmail = `owner.${runId}@walkthrough.example`;
     const staffEmail = `staff.${runId}@walkthrough.example`;
-    await HalomBot.firstAdmin(stack, stack, { email: staffEmail });              // the first admin, as supabase/README.md makes it
+    await retried('making Halom\'s first admin on the local stack', () => HalomBot.firstAdmin(stack, stack, { email: staffEmail }));   // as supabase/README.md makes it
     staffLogin = { email: staffEmail, password: 'sim-staff-pass-1' };
   }
   const { confirmByMail } = await preflight({ env, config, site, accounts: { ...accounts, owner: ownerEmail ? { email: ownerEmail } : null, staff: staffLogin }, stack, input });
   // Halom's account, checked before anything is written: it signs in and is an admin (the demo label is an admin's)
-  const staffSession = await signIn(target, staffLogin).catch(() => null);
-  must(staffSession, 'Halom\'s account did not sign in (steps 10, 15–16)');
+  const staffSession = await retried('Halom\'s sign-in', () => signIn(target, staffLogin)).catch(() => null);
+  must(staffSession, 'Halom\'s account did not sign in (steps 10, 15 and 16)');
   const staffApi = asUser(target, staffSession);
   const [staffRow] = await staffApi.select('staff', { select: 'role', user_id: `eq.${staffSession.userId}` }).catch(() => []);
   must(staffRow?.role === 'admin', 'Halom\'s account is not a Halom admin (the demo label and the approval are an admin\'s)');
@@ -194,17 +206,17 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     const owner = await newPage(browser, PHONE);
     const shots = input.wolt.screenshots;
     let stub = null;
-    if (env === 'local' && stack && shots?.reply) {
-      // the scanner here: the real menus-ai handler in this process with a recorded model reply (nothing paid)
-      const { scanStub } = await import('../scan-stub.mjs');
-      stub = scanStub(stack, { reply: shots.reply });
-      await stub.attach(owner);
-    }
     const go = (hash) => owner.goto(site + 'studio/#/' + hash);
     const onStep = (s, ms = 30_000) => owner.locator(`[data-screen="onboarding"][data-step="${s}"]`).waitFor({ timeout: ms });
     const rows = (table, extra = {}) => state.ownerBot.api.select(table, { select: '*', venue_id: `eq.${state.venueId}`, ...extra });
 
     await w.step({ id: 'owner-signup', name: 'The owner signs up', side: 'owner', budgetMs: budgetOf('owner-signup', env), page: owner }, async (s) => {
+      if (env === 'local' && stack && shots?.reply) {
+        // the scanner here: the real menus-ai handler in this process with a recorded model reply (nothing paid)
+        const { scanStub } = await import('../scan-stub.mjs');
+        stub = scanStub(stack, { reply: shots.reply });
+        await stub.attach(owner);
+      }
       await owner.goto(site + 'studio/');
       await owner.locator('[data-screen="start"]').waitFor();
       const fill = async () => {
