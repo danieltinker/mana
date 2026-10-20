@@ -14,7 +14,20 @@ import { imagesMax, isEmptyDraft, isTextSource, readText, type ImageSource, type
 import { checkScanner, createImageImport, importApi, keepNotes, loadImports, prepareImage, runScan, saveTextDraft, scanner, type Prepared } from '../data/onboarding.ts';
 import { newId } from '../data/rows.ts';
 import { menu } from '../data/store.ts';
-import { errText, lang, t, tn } from '../i18n.ts';
+import { errText, has, lang, t, tn } from '../i18n.ts';
+
+/** Scanner failures the v1 app already says in plain words (lib/i18n.ts `scan.e.*`). */
+const V1_SCAN: Readonly<Record<string, string>> = {
+  heic: 'scan.e.heic', bad_image: 'scan.e.bad_image', too_big: 'scan.e.too_big', timeout: 'scan.e.timeout', network: 'scan.e.network',
+  signed_out: 'scan.e.signed_out', image_unreadable: 'scan.e.unreadable', model_failed: 'scan.e.upstream', not_configured: 'scan.e.not_configured',
+  not_allowed: 'scan.e.not_member', forbidden: 'scan.e.not_member', failed: 'scan.e.failed', bad_request: 'scan.e.failed',
+};
+/** A reading of pictures that did not work, in plain words: this flow's own words first, then the v1 scanner's. */
+export function scanWords(code: string): string {
+  if (has('ob.scan.e.' + code)) return t('ob.scan.e.' + code);
+  if (V1_SCAN[code]) return t(V1_SCAN[code]!);
+  return errText(code);
+}
 
 const ICON: Readonly<Record<ImportSource, string>> = { paste: 'paste', wolt_text: 'copy', wolt_screenshots: 'image', scan: 'camera' };
 const ORDER: readonly ImportSource[] = ['wolt_text', 'wolt_screenshots', 'scan', 'paste'];
@@ -187,7 +200,7 @@ function Pictures({ source }: { source: ImageSource }) {
     } catch (e) {
       const err = toV2Error(e);
       const at = (err.detail as { picture?: number } | null)?.picture;
-      const words = errText(err.code, 'ob.scan.e');
+      const words = scanWords(err.code);
       setError(at ? t('ob.src.e.picture', { n: at }) + ' ' + words : words);
     } finally { setBusy(''); }
   }

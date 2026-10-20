@@ -101,7 +101,7 @@ async function sha256(data: BufferSource): Promise<string> {
  * The input's hash for `create_import` (`inputSha256`): the SHA-256 of the files' own SHA-256s, lowercase hex, joined in
  * order. The same pictures in the same order are the same input, so importing them again finds the earlier import.
  */
-export async function imagesHash(files: readonly Uint8Array[]): Promise<string> {
+export async function imagesHash(files: readonly Uint8Array<ArrayBuffer>[]): Promise<string> {
   const each: string[] = [];
   for (const f of files) each.push(await sha256(f));
   return sha256(new TextEncoder().encode(each.join('')));

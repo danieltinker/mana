@@ -26,6 +26,12 @@ import { canEdit, menu, reloadMenuQuietly } from '../data/store.ts';
 import { langsOf, shekels } from '../format.ts';
 import { errText, fmtDateTime, lang, t, tn } from '../i18n.ts';
 import { ErrorLine, MoneyInput } from '../ui.tsx';
+import { scanWords } from './import-source.tsx';
+
+/** How many of what the plan counts, by kind (the dish's own add-on links are not counted on their own). */
+const KIND_WORDS: Readonly<Record<string, string>> = {
+  section: 'imp.n.sections', dish: 'imp.n.dishes', group: 'imp.n.groups', option: 'imp.n.options', photo: 'imp.n.photos', dish_group: 'imp.n.groups',
+};
 
 const say = (x: Text | null | undefined): string => {
   if (!x) return '';
@@ -47,7 +53,7 @@ export function ImportsWaiting() {
             <a class="row-main" href={'#/onboarding/review/' + i.id}>
               <span class="row-text">
                 <span class="row-name">{t('ob.src.' + i.source)}</span>
-                <span class="row-sub"><span class={'badge ' + (i.status === 'parsed' ? 'badge-warn' : i.status === 'failed' ? 'badge-bad' : 'badge-todo')}>{t('imp.status.' + i.status)}</span><span class="fine">{fmtDateTime(i.created_at)}</span></span>
+                <span class="row-sub"><span class={'badge ' + (i.status === 'parsed' ? 'badge-warn' : i.status === 'failed' ? 'badge-out' : 'badge-todo')}>{t('imp.status.' + i.status)}</span><span class="fine">{fmtDateTime(i.created_at)}</span></span>
               </span>
               <Icon name="chev" size={18} flip />
             </a>
@@ -82,7 +88,7 @@ function NotReady({ line }: { line: ImportLine }) {
     try {
       const r = await runScan(line.source as 'scan' | 'wolt_screenshots', line.id);
       await loadImport(line.id);
-      if (!r.ok) setError(errText(r.code, 'ob.scan.e')); else keepNotes(line.id, r.notes);
+      if (!r.ok) setError(scanWords(r.code)); else keepNotes(line.id, r.notes);
     } finally { setBusy(''); }
   }
   async function discard() {
@@ -96,11 +102,11 @@ function NotReady({ line }: { line: ImportLine }) {
     <section class="card" data-import-state={line.status}>
       <p class="status"><span class={'dot ' + (line.status === 'applied' ? 'dot-on' : 'dot-off')} aria-hidden="true" />{t('imp.status.' + line.status)}</p>
       {line.status === 'applied' && counts && <p>{t('imp.appliedAt', { date: fmtDateTime(line.applied_at!) })} {t('imp.counts', { s: counts.sections, d: counts.dishes, g: counts.groups })}</p>}
-      {line.status === 'failed' && <p>{errText(line.error_code ?? 'failed', 'ob.scan.e')}</p>}
+      {line.status === 'failed' && <p>{scanWords(line.error_code ?? 'failed')}</p>}
       {(line.status === 'uploaded' || line.status === 'parsing') && <p>{t(image ? 'imp.reading' : 'imp.unsaved')}</p>}
       {error && <Note kind="error">{error}</Note>}
       <div class="flow-actions">
-        {line.status === 'applied' && <Btn kind="primary" block icon="chev" onClick={() => go('onboarding/' + ((progress.value && nextOpenAfter(progress.value, 'review')) ?? 'done'))} data-action="flow-next">{t('ob.next')}</Btn>}
+        {line.status === 'applied' && <Btn kind="primary" block icon="chev" onClick={() => go('onboarding/' + ((progress.value && nextOpenAfter(progress.value, 'review')) ?? 'done'))} data-action="flow-next">{t('app.next')}</Btn>}
         {image && (line.status === 'failed' || line.status === 'uploaded') && <Btn kind="primary" block busy={busy === 'again'} icon="refresh" onClick={again} data-action="read-again">{t('imp.readAgain')}</Btn>}
         {line.status === 'parsing' && <Btn block icon="refresh" onClick={() => loadImport(line.id)} data-action="check-again">{t('imp.checkAgain')}</Btn>}
         {(line.status === 'failed' || line.status === 'uploaded') && <Btn kind="ghost" block busy={busy === 'discard'} onClick={discard} data-action="discard-import">{t('imp.discard')}</Btn>}
@@ -234,7 +240,7 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
         <h2 id="plan-h">{t('imp.plan.title')}</h2>
         {pv.plan ? (changesNothing(pv.plan)
           ? <p data-plan-nothing>{t('imp.plan.nothing')}</p>
-          : <ul class="planlist">{planLines(pv.plan).map((x) => <li key={x.op + x.kind} data-plan-line={x.op + ':' + x.kind} data-n={x.n}>{tn('imp.plan.' + x.op + '.' + x.kind, x.n)}</li>)}</ul>)
+          : <ul class="planlist">{planLines(pv.plan).map((x) => <li key={x.op + x.kind} data-plan-line={x.op + ':' + x.kind} data-n={x.n}>{t('imp.op.' + x.op, { what: tn(KIND_WORDS[x.kind], x.n) })}</li>)}</ul>)
           : <p class="muted">{t('imp.plan.none')}</p>}
         {pv.plan && openN > 0 && <p class="fine">{t('imp.plan.provisional')}</p>}
         {pv.planErrors.map((e, i) => <p key={i} class="ferr" data-plan-error={e.code}>{errText(e.code, 'imp.e')}</p>)}
@@ -273,7 +279,7 @@ function Exception({ r, draft, editable, diffs, onChoose, onEdit }: {
 }) {
   const what = t('imp.x.' + r.e.code, { name: say(r.about.name) || t('menu2.unnamed'), within: say(r.about.within), theirs: say(r.about.theirs), n: r.e.count });
   const listed = r.e.code === 'price_differs' ? diffs.get(r.e.key.split('@')[0]!) ?? [] : [];
-  const label = (c: ImportChoice) => t('imp.c.' + r.e.code + '.' + c);
+  const label = (c: ImportChoice) => t('imp.c.' + c);
   return (
     <li class={'exc' + (r.open ? ' is-open' : '')} data-exception={r.id} data-code={r.e.code} data-open={r.open ? 'yes' : 'no'} data-choice={r.effective ?? ''}>
       <p class="exc-what"><span class={'badge ' + (r.e.severity === 'fix' ? 'badge-warn' : 'badge-todo')}>{t(r.e.severity === 'fix' ? 'imp.fix' : 'imp.check')}</span> <span dir="auto">{what}</span></p>

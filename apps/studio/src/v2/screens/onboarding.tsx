@@ -172,7 +172,7 @@ function Actions({ children, error }: { children: ComponentChildren; error?: str
 }
 
 /** Continue to the next open step without writing (a step the database already finished). */
-function NextBtn({ step, p, label = 'ob.next' }: { step: OnboardingStep; p: OnboardingProgress; label?: string }) {
+function NextBtn({ step, p, label = 'app.next' }: { step: OnboardingStep; p: OnboardingProgress; label?: string }) {
   return <Btn kind="primary" block icon="chev" onClick={() => go(after(p, step))} data-action="flow-next">{t(label)}</Btn>;
 }
 
@@ -247,7 +247,7 @@ function ReviewStep({ p, facts }: { p: OnboardingProgress; facts: PlaceFacts }) 
         : <p>{t('ob.review.nothing')}</p>}
       <Actions error={error}>
         {isFinished(state) ? <NextBtn step="review" p={p} />
-          : end.end === 'review_skip' ? <Btn kind="primary" block busy={busy === 'review_skip'} onClick={() => finish('review_skip')} data-action="flow-review-skip">{t('ob.next')}</Btn>
+          : end.end === 'review_skip' ? <Btn kind="primary" block busy={busy === 'review_skip'} onClick={() => finish('review_skip')} data-action="flow-review-skip">{t('app.next')}</Btn>
           : <Btn kind="primary" block icon="chev" onClick={() => go('onboarding/menu')} data-action="flow-bring-menu">{t('ob.review.bring')}</Btn>}
       </Actions>
     </section>
@@ -283,7 +283,7 @@ function AddonsStep({ p, facts }: { p: OnboardingProgress; facts: PlaceFacts }) 
       )}
       <Actions error={error}>
         {isFinished(state) && facts.groupsUnconfirmed === 0 ? <NextBtn step="addons" p={p} />
-          : facts.groupsUnconfirmed === 0 ? <Btn kind="primary" block busy={busy === 'done'} onClick={() => finish('done')} data-action="flow-done">{t('ob.next')}</Btn>
+          : facts.groupsUnconfirmed === 0 ? <Btn kind="primary" block busy={busy === 'done'} onClick={() => finish('done')} data-action="flow-done">{t('app.next')}</Btn>
           : <Btn kind="ghost" block busy={busy === 'skip'} onClick={() => finish('skip')} data-action="flow-later">{t('ob.later')}</Btn>}
       </Actions>
     </>
@@ -326,7 +326,7 @@ function HoursStep() {
       <NowCard />
       <section class="card" aria-labelledby="ob-week-h" data-ob-week>
         <h2 id="ob-week-h">{t('hours.week')}</h2>
-        <ol class="week">{WEEK.map((day) => <DayRow key={day} day={day} rows={dayHours(d.hours, day)} editable={false} />)}</ol>
+        <ul class="weekdays">{WEEK.map((day) => <DayRow key={day} day={day} rows={dayHours(d.hours, day)} editable={false} />)}</ul>
         <Btn icon="clock" onClick={() => leaveFor('hours', 'hours')} data-action="set-hours">{t(d.hours.length ? 'ob.hours.change' : 'ob.hours.set')}</Btn>
       </section>
       <section class="card" data-services>

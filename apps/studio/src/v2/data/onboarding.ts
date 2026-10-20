@@ -106,7 +106,7 @@ export async function checkScanner(): Promise<'on' | 'off'> {
 }
 
 /** A picture ready to upload: the file as it is when the scanner can read it, else a JPEG at most 2400 px long. */
-export type Prepared = { readonly bytes: Uint8Array; readonly type: 'image/jpeg' | 'image/png' | 'image/webp'; readonly ext: 'jpg' | 'png' | 'webp' };
+export type Prepared = { readonly bytes: Uint8Array<ArrayBuffer>; readonly type: 'image/jpeg' | 'image/png' | 'image/webp'; readonly ext: 'jpg' | 'png' | 'webp' };
 
 /** The longest side the scanner's model reads in full (supabase/functions/menus-ai/README.md). */
 const LONG_SIDE = 2400;
