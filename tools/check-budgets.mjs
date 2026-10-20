@@ -100,6 +100,13 @@ function section(title, rows, budget) { const total = rows.reduce((n, r) => n + 
     if (!stage.length) breaches.push('view/app.js names no stage chunk');
     for (const c of stage) walk(c, 'the stage chunk (on demand, before the first dish)');
     for (const [c, why] of seen) rows.push(need(c, why));
+    /* schema 2: a menu on the clean schema also fetches v2-<hash>.js before its first dish (main.js loads it by the
+       address app.js was built with, so the walk above cannot see it). Counted for every menu, so the one budget holds on
+       both paths. */
+    const v2 = readdirSync(V).filter((f) => /^v2-[A-Z0-9]+\.js$/.test(f));
+    if (v2.length !== 1) breaches.push('view/ has ' + v2.length + ' v2-<hash>.js files (one expected)');
+    else if (!read(join(V, 'app.js')).toString().includes(v2[0])) breaches.push('view/app.js does not name ' + v2[0]);
+    for (const f of v2) rows.push(need(join(V, f), 'the v2 menu (config schema 2: choices, basket, events), before the first dish'));
   }
   rows.push(need(join(V, 'themes/oak.jpg'), 'the default table'), need(join(V, 'themes/oak_h.jpg'), 'the default table, height'));
   if (existsSync(join(V, 'app.css'))) {

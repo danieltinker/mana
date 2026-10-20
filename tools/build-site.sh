@@ -55,6 +55,7 @@ cp "$CONFIG" "$OUT/config.js"
 V=apps/view
 mkdir -p "$OUT/view"
 for f in index.html app.css app.js; do cp "$V/$f" "$OUT/view/$f"; done
+cp "$V"/v2-*.js "$OUT/view/"      # v2-<hash>.js: the guest menu on the clean schema (config schema 2 only); app.js names it
 for d in chunks demo fonts themes; do cp -R "$V/$d" "$OUT/view/$d"; done
 cp -R "$V/looks" "$OUT/view/looks"      # night:templates: the looks gallery and its stills (/mana/view/looks/)
 cp "$V/seat.js" "$OUT/view/seat.js"; cp -R "$V/seat" "$OUT/view/seat"      # night:seating  the seat map page (apps/view/seat/) and its entry
