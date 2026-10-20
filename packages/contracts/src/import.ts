@@ -150,8 +150,9 @@ const KEY_NON_BMP = new RegExp('[\\u{10000}-\\u{10FFFF}]', 'gu');
 const KEY_DROP = new RegExp('[\\u00A9\\u00AE\\u2122\\u20E3\\uFE00-\\uFE0F]', 'gu');
 /** Combining marks dropped after NFKD: Latin diacritics, and Hebrew points and cantillation (letters stay). */
 const KEY_MARKS = new RegExp('[\\u0300-\\u036F\\u0591-\\u05BD\\u05BF\\u05C1\\u05C2\\u05C4\\u05C5\\u05C7]', 'gu');
-/** Geresh and gershayim, and an ASCII ' or " right after a Hebrew letter (the way people type them): removed. */
-const KEY_GERESH = new RegExp('[\\u05F3\\u05F4]|(?<=[\\u05D0-\\u05EA])[\\x22\\x27]', 'gu');
+/** Geresh and gershayim, and an ASCII ' or " right after a Hebrew letter (the way people type them): removed. The
+ * letter is matched and kept (`$1`), since old Safari (before 16.4) has no lookbehind. */
+const KEY_GERESH = new RegExp('[\\u05F3\\u05F4]|([\\u05D0-\\u05EA])[\\x22\\x27]', 'gu');
 /**
  * Characters that separate words: every blank (`BLANK_CLASS`), ASCII punctuation and symbols, Latin-1 punctuation and
  * symbols (U+00A1–U+00BF, × ÷), Hebrew punctuation (maqaf, paseq, sof pasuq, nun hafukha), general punctuation
@@ -175,7 +176,8 @@ const KEY_SEPARATORS = new RegExp(
  * "Crème Brûlée!" → "creme brulee"; "Coke™" → "coke"; "Coffee ☕️" → "coffee"; "Keycap 1️⃣" → "keycap 1".
  *
  * SQL (`app.import_key`): the same steps with `regexp_replace(…, 'g')`, `normalize(…, NFKD)` and `translate(…)`, the
- * classes written with `\uXXXX` / `\UXXXXXXXX` escapes and the lookbehind `(?<=[א-ת])`.
+ * classes written with `\uXXXX` / `\UXXXXXXXX` escapes, and step 5 as a lookbehind for the Hebrew letter (PostgreSQL has
+ * lookbehind; the TypeScript keeps the letter instead, for old Safari).
  */
 export function importKey(text: string): string {
   return text
@@ -183,7 +185,7 @@ export function importKey(text: string): string {
     .replace(KEY_DROP, '')
     .normalize('NFKD')
     .replace(KEY_MARKS, '')
-    .replace(KEY_GERESH, '')
+    .replace(KEY_GERESH, (_, letter: string | undefined) => letter ?? '')
     .replace(/[A-Z]/g, (c) => c.toLowerCase())
     .replace(KEY_SEPARATORS, ' ')
     .replace(/^ | $/g, '');
