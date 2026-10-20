@@ -17,15 +17,17 @@ test('act for owner: one valid input per action, typed by the action', () => {
     { venueId: V, reason, action: 'availability.set', payload: { targetKind: 'dish', targetId: D, until: { kind: 'duration', minutes: 120 }, note: 'grill down' } },
     { venueId: V, reason, action: 'availability.restore', payload: { targetKind: 'section', targetId: D } },
     { venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { price: 6800, name_en: 'Schnitzel', tags: ['spicy'], hidden: false, stock_id: null }, expectedUpdatedAt: AT } },
-    { venueId: V, reason, action: 'menu.publish', payload: {} },
     { venueId: V, reason, action: 'onboarding.set', payload: { step: 'photos', state: 'done', blockers: [], expectedUpdatedAt: null } },
     { venueId: V, reason, action: 'support_case.update', payload: { caseId: D, status: 'resolved' } },
   ];
   assert.deepEqual(inputs.map((i) => i.action), [...ACT_FOR_OWNER_ACTIONS]);
   for (const i of inputs) assert.deepEqual(errs(validateActForOwner(i)), [], i.action);
   // @ts-expect-error a payload of another action does not type-check
-  const wrong: ActForOwnerInput = { venueId: V, reason, action: 'menu.publish', payload: { dishId: D, patch: {} } };
+  const wrong: ActForOwnerInput = { venueId: V, reason, action: 'support_case.update', payload: { caseId: D, status: 'resolved', dishId: D, patch: {} } };
   assert.deepEqual(errs(validateActForOwner(wrong)), ['field_not_allowed@payload.dishId', 'field_not_allowed@payload.patch']);
+  // phase 1 has no publish for the owner: it would publish a draft nobody reviewed (staff help through the approval)
+  assert.ok(!(ACT_FOR_OWNER_ACTIONS as readonly string[]).includes('menu.publish'));
+  assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'menu.publish', payload: {} })), ['action_unknown@action']);
 });
 
 test('act for owner: the reason, the action and each payload are checked', () => {
@@ -47,6 +49,14 @@ test('act for owner (round 3): what staff read is what they change, or the answe
   assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { price: 6800 } } })), ['time_invalid@payload.expectedUpdatedAt']);
   assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'onboarding.set', payload: { step: 'photos', state: 'done' } })), ['time_invalid@payload.expectedUpdatedAt']);
   assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'onboarding.set', payload: { step: 'photos', state: 'done', expectedUpdatedAt: 'yesterday' } })), ['time_invalid@payload.expectedUpdatedAt']);
+  // the version at full precision, exactly as read: up to 6 fractional digits, any offset; never rounded
+  for (const at of ['2026-10-16T09:00:00.123456+00:00', '2026-10-16T12:00:00.1+03:00', '2026-10-16T09:00:00Z']) {
+    const input = { venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { price: 6800 }, expectedUpdatedAt: at } };
+    const r = validateActForOwner(input);
+    assert.ok(r.ok && (r.value.payload as { expectedUpdatedAt: string }).expectedUpdatedAt === at, at);
+  }
+  assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { price: 6800 }, expectedUpdatedAt: '2026-10-16T09:00:00.1234567Z' } })),
+    ['time_invalid@payload.expectedUpdatedAt'], 'more than microseconds is not a PostgreSQL time');
   // QA L12: a patch may not blank both names (the database's check refuses it)
   assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { name_he: ' ', name_en: '' }, expectedUpdatedAt: AT } })), ['name_missing@payload.patch']);
   assert.deepEqual(errs(validateActForOwner({ venueId: V, reason, action: 'dish.update', payload: { dishId: D, patch: { name_he: '', name_en: 'Fries' }, expectedUpdatedAt: AT } })), []);

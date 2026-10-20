@@ -18,7 +18,7 @@ import { GROUP_UNITS_MAX } from './import.ts';
 import { onlyKeys, optionalText } from './rpc.ts';
 
 /** A group's label and names, an option's names: the schema's 60 code points. */
-export const ADDON_TEXT_MAX = 60;
+export const ADDON_TEXT_MAX = LIMITS.shortNameLength;
 /** The largest `position` the RPC accepts for an option. */
 export const ADDON_POSITION_MAX = 100_000;
 
@@ -55,8 +55,9 @@ export type AddonOptionWrite = Pick<AddonOptionRow, 'id'> &
  *      `ok` and writes nothing, whatever version was sent, so a retry after a lost answer succeeds;
  *    - **a differing input** whose `p_expected_updated_at` is absent or is not the group's `updated_at` is `stale`, with
  *      `current` (the stored group and options). The group's `updated_at` versions its options too: it moves whenever
- *      the RPC changes the group or any of its options. It is compared as `timestamptz`, so the client sends the value
- *      exactly as it read it (a table read and this reply give microseconds).
+ *      the RPC changes the group or any of its options. It is compared at full precision, `updated_at =
+ *      p_expected_updated_at` (a `timestamptz`, never rounded): the client sends back exactly the string it read (an
+ *      ISO time with up to 6 fractional digits; a table read and this reply give microseconds, `app.iso` would not).
  *    A group that does not exist is inserted, whatever version was sent (a group deleted elsewhere is created again).
  * 6. **The dishes that use the group** (its `dish_addon_groups` links, in `id` order; the first one refused answers),
  *    against the input's limits (`min_units`, `max_units`, defaults 0 and 1) and its options' capacity (the sum of their
