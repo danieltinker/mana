@@ -133,11 +133,15 @@ export function rankRules<R extends { readonly id: string; readonly priority: nu
   return [...rules].sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
-/** Why a rule suggests nothing at this moment, in the order `matchSuggestion` checks (the first that fails). */
+/**
+ * Why a rule suggests nothing at this moment, in the order `matchSuggestion` checks (the first that fails): a dish
+ * suggestion is checked for `hidden` to `filtered`, an add-on suggestion for `option_not_on_dish`, then `hidden` (the
+ * option is gone or hidden), then `option_unavailable` to `option_full`. One list keeps both orders.
+ */
 export const NO_SUGGESTION_CODES = [
   'chained', 'inactive', 'trigger', 'dismissed', 'cap', 'no_dish', 'basket_empty', 'scope', 'when', 'has', 'lacks',
-  'hidden', 'no_price', 'same_dish', 'in_basket', 'unavailable', 'filtered',
-  'option_not_on_dish', 'option_unavailable', 'option_chosen', 'option_would_replace', 'option_full',
+  'option_not_on_dish', 'hidden', 'no_price', 'same_dish', 'in_basket', 'unavailable', 'filtered',
+  'option_unavailable', 'option_chosen', 'option_would_replace', 'option_full',
 ] as const;
 export type NoSuggestionCode = (typeof NO_SUGGESTION_CODES)[number];
 /** `found`: for `lacks`, the basket's dishes the "basket lacks" condition names (directly or by their section). */

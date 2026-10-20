@@ -4,18 +4,19 @@
  * staff write only through logged functions (ADR-003). Demo venues are labelled and left out of real totals unless a
  * query asks for them.
  */
-import { isInt, isString, isUuid, oneOf, type Text, type Validation } from './common.ts';
+import { isInt, isUuid, oneOf, type Text, type Validation } from './common.ts';
 import type { ActivityAction, ActivityEntry } from './activity.ts';
 import type { DashboardMenu } from './dashboard.ts';
 import {
   ENTITLEMENT_STATUSES, ONBOARDING_STEPS, PLANS, REVIEW_STATES, type EntitlementStatus, type ImportSource, type ImportStatus,
   type OnboardingStep, type Plan, type ReviewState, type VenueKind, type VenueMode,
 } from './enums.ts';
-import { EVENT_NAMES, EVENT_TIME_RE, type EventName } from './events.ts';
+import { EVENT_NAMES, instantMs, type EventName } from './events.ts';
 import type { DraftCounts, ImportExceptionCode } from './import.ts';
 import type { OnboardingProgress } from './onboarding.ts';
 import { isReason, requiredText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 import type { SnapshotV2 } from './snapshot.ts';
+import { REVISION_MAX } from './staff.ts';
 import type { SupportCase } from './support.ts';
 import { isLocalDate, type LocalDate } from './time.ts';
 
@@ -244,8 +245,7 @@ export function validateOpsAnalyticsQuery(raw: unknown): Validation<OpsAnalytics
     if (o.names !== undefined && (!Array.isArray(o.names) || o.names.length === 0 || !o.names.every((n) => oneOf(EVENT_NAMES, n)) ||
         new Set(o.names).size !== o.names.length)) x.add('enum_invalid', 'names');
     if (o.resolution === 'minute') {
-      const at = (v: unknown): number => (isString(v) && EVENT_TIME_RE.test(v) ? Date.parse(v) : NaN);
-      const from = at(o.from), to = at(o.to);
+      const from = instantMs(o.from), to = instantMs(o.to);
       if (Number.isNaN(from) || from % 60_000 !== 0) x.add('time_invalid', 'from');
       if (Number.isNaN(to) || to % 60_000 !== 0) x.add('time_invalid', 'to');
       if (!Number.isNaN(from) && !Number.isNaN(to)) {
@@ -297,8 +297,9 @@ export type OpsRevisionQuery = { readonly venueId: string; readonly revision?: n
 export type OpsRevision =
   | RpcOk<{
       readonly venueId: string;
+      /** `live`: this is the published revision (`venues.published_revision_id`), the one guests see once approved. */
       readonly revision: { readonly id: string; readonly number: number; readonly createdAt: string; readonly note: string | null; readonly live: boolean };
-      /** The newest revision's number. */
+      /** The newest revision's number (not always the published one: a restore publishes an older revision). */
       readonly latest: number;
       readonly review: ReviewState;
       readonly snapshot: SnapshotV2;
@@ -309,6 +310,6 @@ export type OpsRevision =
 export function validateOpsRevisionQuery(raw: unknown): Validation<OpsRevisionQuery> {
   return validateInput<OpsRevisionQuery>(raw, ['venueId', 'revision'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
-    if (o.revision !== undefined && o.revision !== null && !(isInt(o.revision) && o.revision >= 1)) x.add('revision_invalid', 'revision');
+    if (o.revision !== undefined && o.revision !== null && !(isInt(o.revision) && o.revision >= 1 && o.revision <= REVISION_MAX)) x.add('revision_invalid', 'revision');
   });
 }
