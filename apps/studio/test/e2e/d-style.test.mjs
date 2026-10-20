@@ -20,6 +20,14 @@ before(async () => {
 });
 after(async () => { await teardown(); });
 
+test('a closed sheet leaves the focus on the page, as it always has (focus back to the opener is the v2 app\'s opt-in)', async () => {
+  await page.locator('.acctbtn').click();
+  await page.locator('[data-sheet=account]').waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+  assert.equal(await page.evaluate(() => document.activeElement === document.body), true);
+});
+
 test('logo, colour and table: chosen on the Style tab, saved at once', async () => {
   await page.locator('[data-tab=style]').click();
   await page.locator('.strip img').first().waitFor();

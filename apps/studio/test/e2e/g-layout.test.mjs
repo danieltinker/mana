@@ -71,8 +71,6 @@ for (const lang of ['he', 'en']) {
       await open('[data-act=soldout]', 'soldout', 'sheet sold out'); await closeSheet(page);
       await open('[data-act=qr]', 'qr', 'sheet qr', '[data-sheet=qr] .tcard-qr'); await closeSheet(page);
       await open('.acctbtn', 'account', 'sheet account'); await closeSheet(page);
-      // pinned: v1's sheets keep their behaviour (focus back to the opener is the v2 app's opt-in, ui.tsx returnFocus)
-      if (lang === 'he' && width === 390) assert.equal(await page.evaluate(() => document.activeElement === document.body), true, 'v1: a closed sheet leaves the focus on the page');
 
       // ---- menu: the list, reorder mode, the sheets
       await page.goto(app('menu'));
