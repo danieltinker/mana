@@ -1866,11 +1866,21 @@ export const READER_NOTES = {
   page_truncated: 'check',
   /** The scanner found no menu on a page, or could not read it. */
   page_unreadable: 'check',
-  /** A dish's line ends with a number that may be part of the name ("Combo 1", "Tea for 2", "since 1998") or with two
-   * prices ("House red 38 140"): the name was kept whole and no price was taken from it. `key`: the dish; `lines`: its
-   * line(s); `count`: how many lines; `rule`: null. */
+  /** A dish's line begins or ends with a number that may be part of the name or its price ("64 Schnitzel", "Combo 1",
+   * "Tea for 2", "since 1998"), or ends with two prices ("House red 38 140"): the name was kept whole and no price was
+   * taken from it. `key`: the dish; `lines`: its line(s); `count`: how many lines; `rule`: null. */
   price_ambiguous: 'check',
+  /** The same lines could be read two ways, and the reader chose one: check the dish or section it is on. `key`: that
+   * dish or section (never null, never a group or option); `lines`: the lines read; `count`: how many; `rule`, which
+   * guess (`LAYOUT_GUESS_RULES`): `tag_or_heading`, a tag word between two dishes read as a tag (or a heading);
+   * `desc_habit`, two short lines read as a name and its description, or as a heading and a name, as the menu does
+   * elsewhere; `common_name`, a common section name over a dish read as a heading; `other_language`, a common name
+   * under a dish read as its name in the other language. */
+  layout_guessed: 'check',
 } as const;
+/** The guesses a `layout_guessed` note names in its `rule`. */
+export const LAYOUT_GUESS_RULES = ['tag_or_heading', 'desc_habit', 'common_name', 'other_language'] as const;
+export type LayoutGuessRule = (typeof LAYOUT_GUESS_RULES)[number];
 export type ReaderNoteCode = keyof typeof READER_NOTES;
 export const READER_NOTE_CODES = Object.keys(READER_NOTES) as ReaderNoteCode[];
 /** Line numbers per note, and notes per import. */
@@ -1890,7 +1900,8 @@ export type ReaderNote = {
   readonly lines: readonly number[];
   /** How many lines or nodes the note stands for (can be more than `lines` holds). */
   readonly count: number;
-  /** For `noise`: the rule that recognised the lines (a machine word). */
+  /** For `noise`: the rule that recognised the lines (a machine word). For `layout_guessed`: one of
+   * `LAYOUT_GUESS_RULES`. Null for the other codes. */
   readonly rule: string | null;
 };
 
@@ -1902,16 +1913,20 @@ export type ReaderNote = {
  * fields; `code` one of `READER_NOTES` with its own `severity`; `key` null or a draft key (`DRAFT_KEY_RE`; with `draft`,
  * one the draft has, section, dish, group or option); `lines` an array of at most `NOTE_LINES_MAX` integers from 1 to
  * `NOTE_NUMBER_MAX`, strictly ascending (empty allowed); `count` an integer from 1 to `NOTE_NUMBER_MAX`; `rule` null or
- * a machine word of 1–40 characters (`a–z` first, then `a–z`, `0–9`, `_`).
+ * a machine word of 1–40 characters (`a–z` first, then `a–z`, `0–9`, `_`). A `layout_guessed` note also needs a `rule`
+ * of `LAYOUT_GUESS_RULES` (`rule_invalid`) and a `key` (null is `key_invalid`; with `draft`, a key that is not one of
+ * its sections or dishes is `ref_unknown`).
  */
 export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix = 'notes'): Issue[] {
   const x = new Issues();
   if (!Array.isArray(raw)) return [{ code: 'type', path: prefix }];
   if (raw.length > NOTES_MAX) x.add('too_many', prefix);
   let keys: Set<string> | null = null;
+  let dishOrSection: Set<string> | null = null;
   if (draft) {
     keys = new Set<string>();
     for (const s of draft.sections) { keys.add(s.key); for (const d of s.dishes) keys.add(d.key); }
+    dishOrSection = new Set(keys);
     for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
   }
   raw.forEach((n, i) => {
@@ -1920,17 +1935,18 @@ export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix
     only(x, n, ['code', 'severity', 'key', 'lines', 'count', 'rule'], p);
     if (!oneOf(READER_NOTE_CODES, n.code)) x.add('enum_invalid', `${p}.code`);
     else if (n.severity !== READER_NOTES[n.code]) x.add('enum_invalid', `${p}.severity`);
+    const layout = n.code === 'layout_guessed';
     if (n.key !== null) {
       if (!isString(n.key) || !DRAFT_KEY_RE.test(n.key)) x.add('key_invalid', `${p}.key`);
-      else if (keys && !keys.has(n.key)) x.add('ref_unknown', `${p}.key`);
-    }
+      else if (keys && !(layout ? dishOrSection! : keys).has(n.key)) x.add('ref_unknown', `${p}.key`);
+    } else if (layout) x.add('key_invalid', `${p}.key`);
     const lines = n.lines;
     if (!Array.isArray(lines) || lines.length > NOTE_LINES_MAX ||
         !lines.every((l, j) => isInt(l) && l >= 1 && l <= NOTE_NUMBER_MAX && (j === 0 || l > (lines[j - 1] as number)))) {
       x.add('lines_invalid', `${p}.lines`);
     }
     if (!isInt(n.count) || n.count < 1 || n.count > NOTE_NUMBER_MAX) x.add('count_invalid', `${p}.count`);
-    if (n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
+    if (layout ? !oneOf(LAYOUT_GUESS_RULES, n.rule) : n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
   });
   return x.list;
 }
