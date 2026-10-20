@@ -1,0 +1,22 @@
+{
+  "name": "@mana/import",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mana's menu readers (ADR-006): pasted lists, text copied from the owner's own Wolt page, the v1 scanner's events and the v2 scanner's replies, each turned into an ImportDraft of @mana/contracts. Pure functions: no network, no model, no cost.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mana/contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}
