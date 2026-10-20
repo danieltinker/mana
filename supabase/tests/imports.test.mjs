@@ -42,7 +42,7 @@ const scan = (who, venue, files = 1, extra = {}, source = 'scan') => {
   return rpc(w.url, who, 'create_import', { p_venue: venue, p_source: source, p_import_id: id,
     p_paths: pgArray(Array.from({ length: files }, (_, i) => `${venue}/imports/${id}/page-${i}.jpg`)), p_input_sha256: sha(), ...extra });
 };
-const claim = (who, id, mode = 'scan_menu') => rpc(w.url, who, 'claim_import_scan', { p_import: id, p_mode: mode });
+const claim = (who, id, mode = 'scan') => rpc(w.url, who, 'claim_import_scan', { p_import: id, p_mode: mode });
 const counters = async () => Object.fromEntries((await w.admin.query(`select key, n from app.event_counters where key like 'import-images:%'`)).rows.map((r) => [r.key, r.n]));
 const clearCounters = () => w.admin.query(`delete from app.event_counters where key like 'import-images:%'`);
 const clearImports = () => w.admin.query(`delete from public.menu_imports where venue_id in ($1, $2)`, [A, w.B]);
@@ -159,7 +159,7 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
     await clearImports();
     const s = await scan(U.ownerA, A);
     const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerB: U.ownerB, support: U.support, admin: U.admin };
-    assert.deepEqual(await whoMay('claim_import_scan', { p_import: s.importId, p_mode: 'scan_menu' }, roles),
+    assert.deepEqual(await whoMay('claim_import_scan', { p_import: s.importId, p_mode: 'scan' }, roles),
       { anon: '42501', stranger: 'import_unknown', counterA: 'import_unknown', ownerB: 'import_unknown', support: 'import_unknown', admin: 'import_unknown' });
     assert.deepEqual(await claim(U.ownerA, '00000000-0000-4000-8000-00000000ffff'), { ok: false, code: 'import_unknown' });
     assert.equal((await row(s.importId)).status, 'uploaded');
@@ -200,7 +200,7 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
     const s = await scan(U.ownerA, A);
     const p = await paste(U.ownerA, A, 'Soup 38');
     const wolt = await scan(U.ownerA, A, 1, {}, 'wolt_screenshots');
-    for (const [id, mode] of [[s.importId, 'wolt_screenshots'], [s.importId, 'scan'], [s.importId, null], [wolt.importId, 'scan_menu'], [p.importId, 'scan_menu'], [p.importId, 'paste']]) {
+    for (const [id, mode] of [[s.importId, 'wolt_screenshots'], [s.importId, 'scan_menu'], [s.importId, null], [wolt.importId, 'scan'], [p.importId, 'scan'], [p.importId, 'paste']]) {
       assert.deepEqual(await claim(U.ownerA, id, mode), { ok: false, code: 'not_scannable' }, `${id} ${mode}`);
     }
     assert.deepEqual(await counters(), {});
@@ -264,6 +264,8 @@ describe('save_import_draft: what a reader made of the input', () => {
   const draft = (source = 'paste', o = {}) => draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800), dish('d-salad', 'סלט', 'Salad', null)])], [],
     { source, ...o });
   const save = (who, id, d, notes) => rpc(w.url, who, 'save_import_draft', { p_import: id, p_draft: d, ...(notes === undefined ? {} : { p_notes: notes }) });
+  /** A reader's note: codes, a draft key, lines and counts, never the source's text. */
+  const NOTE = { code: 'noise', severity: 'info', key: null, lines: [1, 2], count: 2, rule: 'header' };
 
   test('owners and managers save a text import; the exceptions in the venue\'s languages; the notes readable, the text not', async () => {
     await clearImports();
@@ -271,16 +273,17 @@ describe('save_import_draft: what a reader made of the input', () => {
     const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerB: U.ownerB, support: U.support, admin: U.admin };
     assert.deepEqual(await whoMay('save_import_draft', { p_import: p.importId, p_draft: draft() }, roles),
       { anon: '42501', stranger: 'import_unknown', counterA: 'import_unknown', ownerB: 'import_unknown', support: 'import_unknown', admin: 'import_unknown' });
-    const r = await save(U.managerA, p.importId, draft(), [{ code: 'lines_merged', count: 2 }]);
+    const r = await save(U.managerA, p.importId, draft(), [NOTE, { ...NOTE, code: 'price_range', severity: 'check', key: 'd-soup', lines: [1], count: 1, rule: null }]);
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(r.counts, { sections: 1, dishes: 2, groups: 0, options: 0, photos: 0, dropped: 0 });
     const langs = (await w.admin.query(`select langs from public.venues where id = $1`, [A])).rows[0].langs;
     assert.deepEqual(r.exceptions, (await w.admin.query(`select app.import_exceptions($1::jsonb, $2::text[]) as e`, [JSON.stringify(draft()), langs])).rows[0].e);
     assert.ok(r.exceptions.some((e) => e.code === 'price_missing' && e.key === 'd-salad'));
     const x = await row(p.importId);
-    assert.deepEqual([x.status, x.error_code, x.parsed, x.exceptions, x.notes], ['parsed', null, draft(), r.exceptions, [{ code: 'lines_merged', count: 2 }]]);
+    const notes = [NOTE, { ...NOTE, code: 'price_range', severity: 'check', key: 'd-soup', lines: [1], count: 1, rule: null }];
+    assert.deepEqual([x.status, x.error_code, x.parsed, x.exceptions, x.notes], ['parsed', null, draft(), r.exceptions, notes]);
     const seen = await q(w.url, U.ownerA, `select ${IMPORT_CLIENT_COLUMNS.join(', ')} from public.menu_imports where id = $1`, [p.importId]);
-    assert.deepEqual(seen[0].notes, [{ code: 'lines_merged', count: 2 }]);
+    assert.deepEqual(seen[0].notes, notes);
     assert.equal((await q(w.url, U.ownerA, `select raw_text from public.menu_imports`)).error?.code, '42501');
     const log = (await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'menu_imports.update' order by id desc limit 1`, [A])).rows[0];
     for (const hidden of ['parsed', 'exceptions', 'notes']) assert.ok(!(hidden in (log.detail.changes ?? {})), `${hidden} is not copied into the log`);
@@ -301,9 +304,15 @@ describe('save_import_draft: what a reader made of the input', () => {
     const bad = await save(U.ownerA, p.importId, { ...draft(), v: 2 });
     assert.deepEqual([bad.code, bad.errors], ['invalid_draft', [{ code: 'version', path: 'v' }]]);
     assert.equal(await code(draft('wolt_text')), 'source_mismatch');
-    for (const notes of [{}, [1], [{ code: 'x', count: 1 }], [{ code: 'Lines', count: 1 }], [{ code: 'ok_code', count: -1 }], [{ code: 'ok_code', count: 1.5 }],
-      [{ code: 'ok_code', count: 1, text: 'Soup' }], Array.from({ length: 101 }, () => ({ code: 'ok_code', count: 1 }))]) {
-      assert.equal(await code(draft(), notes), 'notes_invalid', JSON.stringify(notes).slice(0, 60));
+    // the reader's notes (readerNoteIssues): invalid_draft, with the issues under notes
+    for (const [notes, issue] of [[{}, 'type@notes'], [[1], 'type@notes[0]'], [[{ ...NOTE, code: 'lines_merged' }], 'enum_invalid@notes[0].code'],
+      [[{ ...NOTE, severity: 'check' }], 'enum_invalid@notes[0].severity'], [[{ ...NOTE, key: 'D-1' }], 'key_invalid@notes[0].key'],
+      [[{ ...NOTE, key: 'd-nope' }], 'ref_unknown@notes[0].key'], [[{ ...NOTE, lines: [2, 1] }], 'lines_invalid@notes[0].lines'],
+      [[{ ...NOTE, lines: [0] }], 'lines_invalid@notes[0].lines'], [[{ ...NOTE, count: 0 }], 'count_invalid@notes[0].count'],
+      [[{ ...NOTE, rule: 'Header' }], 'rule_invalid@notes[0].rule'], [[{ ...NOTE, text: 'Soup' }], 'field_not_allowed@notes[0].text'],
+      [Array.from({ length: 2001 }, () => NOTE), 'too_many@notes']]) {
+      const r = await save(U.ownerA, p.importId, draft(), notes);
+      assert.deepEqual([r.code, r.errors.map((e) => `${e.code}@${e.path}`)], ['invalid_draft', [issue]], issue);
     }
     assert.equal(await code(draft(), []), undefined);
     await raw(`update public.menu_imports set status = 'parsing' where id = $1`, [p.importId]);
@@ -331,7 +340,7 @@ describe('save_import_draft: what a reader made of the input', () => {
     }
     const r = await save('service', s.importId, photo(own, 'confirmed'));
     assert.deepEqual([r.code, r.errors], ['rights_unconfirmed', [{ code: 'rights_unconfirmed', path: 'sections[0].dishes[0].photo.rights' }]]);
-    const ok = await save('service', s.importId, photo(own), [{ code: 'pages_read', count: 1 }]);
+    const ok = await save('service', s.importId, photo(own), [{ code: 'page_unreadable', severity: 'check', key: null, lines: [1], count: 1, rule: null }]);
     assert.equal(ok.ok, true, JSON.stringify(ok));
     assert.deepEqual([(await row(s.importId)).status, ok.counts.photos], ['parsed', 1]);
     assert.ok(ok.exceptions.some((e) => e.code === 'photo_rights_unknown'));

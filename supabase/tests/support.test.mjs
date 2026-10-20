@@ -4,7 +4,6 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, count, ID, U, world } from './harness/world.mjs';
-import { validateSnapshotV2 } from '../../packages/contracts/src/index.ts';
 
 let w;
 before(async () => { w = await world(); });
@@ -57,7 +56,7 @@ describe('act_for_owner', () => {
   });
 
   test('staff fix a price for the owner: one dish row changed, the change and the reason in the log', async () => {
-    const at = (await w.admin.query(`select updated_at from public.dishes where id = $1`, [ID.lemonade])).rows[0].updated_at.toISOString();
+    const at = (await w.admin.query(`select to_jsonb(updated_at) #>> '{}' as at from public.dishes where id = $1`, [ID.lemonade])).rows[0].at;
     const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' }, expectedUpdatedAt: at }, 'Typo in the imported price');
     assert.equal(r.ok, true);
     const log = (await ownerLog()).filter((x) => x.action === 'dishes.update' && x.via === 'act_for_owner').at(-1);
@@ -70,15 +69,10 @@ describe('act_for_owner', () => {
     assert.ok(!JSON.stringify(act.detail).includes('Fresh'), 'the words staff typed are not in the log');
   });
 
-  test('staff may publish for the owner; the revision says so', async () => {
-    const r = await afo(U.support, 'menu.publish', { note: 'after the price fix' }, 'Owner asked us to publish the fix');
-    assert.equal(r.ok, true);
-    assert.equal(r.result.ok, true);
-    const snap = (await rpc(w.url, 'anon', 'public_menu', { p_slug: 'cafe-demo' })).snapshot;
-    assert.ok(validateSnapshotV2(snap).ok);
-    assert.equal(snap.sections[2].dishes[1].price.amount, 1700);
-    const log = (await ownerLog()).filter((x) => x.action === 'menu.publish').at(-1);
-    assert.deepEqual([log.actor_kind, log.via, log.reason], ['staff', 'act_for_owner', 'Owner asked us to publish the fix']);
+  test('menu.publish is not an act_for_owner action in phase 1: staff help with publishing by approving', async () => {
+    const before = (await w.admin.query('select count(*)::int as n from public.menu_revisions where venue_id = $1', [A])).rows[0].n;
+    assert.deepEqual(await afo(U.support, 'menu.publish', { note: 'after the price fix' }, 'Owner asked us to publish the fix'), { ok: false, code: 'action_unknown' });
+    assert.equal((await w.admin.query('select count(*)::int as n from public.menu_revisions where venue_id = $1', [A])).rows[0].n, before);
   });
 
   test('availability.set until opening tomorrow, done for the owner', async () => {

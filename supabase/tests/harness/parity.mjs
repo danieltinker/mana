@@ -65,9 +65,13 @@ export function storable(v) {
  */
 export async function compareValidator(admin, sqlFn, tsFn, all, { anyFirst = [] } = {}) {
   const list = all.filter(storable);
-  const { rows } = await admin.query(`select coalesce(jsonb_agg(${sqlFn}(x) order by i), '[]') as r
-    from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list)]);
-  const sql = rows[0].r;
+  const sql = [];
+  // a few inputs per query (a draft at the limits takes a while; one query for all of them would meet the timeout)
+  for (let i = 0; i < list.length; i += 25) {
+    const { rows } = await admin.query(`select coalesce(jsonb_agg(${sqlFn}(x) order by i), '[]') as r
+      from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list.slice(i, i + 25))]);
+    sql.push(...rows[0].r);
+  }
   assert.equal(sql.length, list.length);
   list.forEach((input, i) => {
     const ts = tsFn(input);

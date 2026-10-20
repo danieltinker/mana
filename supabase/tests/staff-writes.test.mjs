@@ -105,8 +105,8 @@ describe('ops_approve_venue names the revision the reviewer looked at', () => {
     const again = await rpc(w.url, O, 'publish_menu', { p_venue: v, p_note: 'fixed a price' });
     assert.deepEqual([again.revision, again.review], [2, 'pending']);
     const before = await logCount();
-    assert.deepEqual(await approve(1), { ok: false, code: 'revision_changed', latest: 2 });
-    assert.deepEqual(await approve(3), { ok: false, code: 'revision_changed', latest: 2 });
+    assert.deepEqual(await approve(1), { ok: false, code: 'revision_changed', revision: 2 });
+    assert.deepEqual(await approve(3), { ok: false, code: 'revision_changed', revision: 2 });
     assert.equal(await logCount(), before, 'a refused approval writes nothing');
     assert.equal((await approve(2)).ok, true);
     const { rows } = await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'venue.approve'`, [v]);
@@ -146,13 +146,13 @@ describe('ops_set_plan never approves', () => {
 
 describe('act_for_owner dish.update: the dish as staff read it', () => {
   test('the owner saved since: stale with the dish as it is, nothing written; the current updated_at goes through', async () => {
-    const read = async () => (await w.admin.query(`select price, desc_en, updated_at from public.dishes where id = $1`, [ID.burger])).rows[0];
+    const read = async () => (await w.admin.query(`select price, desc_en, updated_at, to_jsonb(updated_at) #>> '{}' as at from public.dishes where id = $1`, [ID.burger])).rows[0];
     const seen = await read();
     await as(w.url, U.ownerA, (c) => c.query(`update public.dishes set price = 6900 where id = $1`, [ID.burger]));
     const before = await logCount();
     const afo = (at, patch = { price: 7000 }) => rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone',
       p_action: 'dish.update', p_payload: { dishId: ID.burger, patch, expectedUpdatedAt: at } });
-    const stale = await afo(seen.updated_at.toISOString());
+    const stale = await afo(seen.at);
     assert.equal(stale.ok, false);
     assert.equal(stale.code, 'stale');
     const now = await read();
@@ -160,9 +160,38 @@ describe('act_for_owner dish.update: the dish as staff read it', () => {
     assert.equal(now.price, 6900, 'nothing written');
     assert.equal(await logCount(), before, 'no activity row');
     assert.deepEqual(await afo('yesterday'), { ok: false, code: 'payload_invalid' });
+    assert.equal(stale.action, 'dish.update');
+    assert.equal(stale.current.updated_at, now.at, 'the version to the microsecond, as staff send it back');
+    const sameSecond = now.at.replace(/\.\d+(?=Z$|[+-]\d\d:\d\d$)/, '');
+    assert.equal((await afo(sameSecond)).code, 'stale', 'the same second is not the same version');
+    assert.deepEqual(await afo(stale.current.updated_at, { name_he: '', name_en: ' ' }), { ok: false, code: 'payload_invalid' }, 'never a dish with no name');
     const ok = await afo(stale.current.updated_at);
     assert.equal(ok.ok, true, JSON.stringify(ok));
     assert.equal((await read()).price, 7000);
+  });
+});
+
+describe('a version read is a version sent back', () => {
+  test('the dish as staff read it (a table read, as PostgREST gives it: to the microsecond) is accepted as it was read', async () => {
+    const [row] = await as(w.url, U.support, async (c) => (await c.query(`select to_jsonb(d) as d from public.dishes d where id = $1`, [ID.schnitzel])).rows.map((r) => r.d));
+    assert.match(row.updated_at, /\.\d{1,6}\+00:00$/, 'microseconds');
+    const r = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'dish.update',
+      p_payload: { dishId: ID.schnitzel, patch: { price_note_en: 'Lunch only' }, expectedUpdatedAt: row.updated_at } });
+    assert.equal(r.ok, true, JSON.stringify(r));
+  });
+
+  test('a step as ops_venue and my_dashboard give it is accepted as it was read', async () => {
+    const step = async () => (await rpc(w.url, U.support, 'ops_venue', { p_venue: A })).onboarding.steps.find((s) => s.step === 'hours');
+    const dash = (await rpc(w.url, U.ownerA, 'my_dashboard', { p_venue: A, p_range: 'today' }));
+    const seen = await step();
+    const fromDash = (dash.onboarding.steps ?? dash.onboarding).find((s) => s.step === 'hours');
+    assert.equal(fromDash.updatedAt, seen.updatedAt, 'the owner and staff read the same version');
+    const r = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'onboarding.set',
+      p_payload: { step: 'hours', state: 'doing', expectedUpdatedAt: seen.updatedAt } });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const again = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'onboarding.set',
+      p_payload: { step: 'hours', state: 'done', expectedUpdatedAt: seen.updatedAt } });
+    assert.equal(again.code, 'stale', 'the version moved with the change');
   });
 });
 

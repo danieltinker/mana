@@ -11,7 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const CONTRACTS = path.join(ROOT, 'packages/contracts');
-export const RECORDED = ['importKey', 'validateDraft', 'draftExceptions', 'validateDecisions', 'validateSaveDraft', 'validateApplyImport', 'planApply'];
+export const RECORDED = ['importKey', 'validateDraft', 'draftExceptions', 'validateDecisions', 'validateSaveDraft', 'validateApplyImport', 'planApply',
+  'readerNoteIssues'];
 
 /** Runs packages/contracts/test/import*.test.ts with the recording shim; returns { [fn]: argument lists }. */
 export function recordContractCalls() {

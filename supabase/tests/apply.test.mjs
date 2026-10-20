@@ -54,7 +54,7 @@ describe('apply_import', () => {
     assert.ok(imp.exceptions.every((e) => typeof e.choice === 'string'));
     const log = (await w.admin.query(`select actor_kind, via, target_table, target_ids, detail from public.activity_log where venue_id = $1 and action = 'import.apply'`, [V])).rows;
     assert.deepEqual(log.map((x) => [x.actor_kind, x.via, x.target_table, x.target_ids]), [['owner', 'rpc', 'menu_imports', [id]]]);
-    assert.deepEqual(log[0].detail, { source: 'wolt_text', summary: r.plan.summary, asked: {} });
+    assert.deepEqual(log[0].detail, { source: 'wolt_text', summary: r.plan.summary, planExceptions: {} });
     const via = (await w.admin.query(`select distinct via from public.activity_log where venue_id = $1 and action in ('sections.insert', 'dishes.insert', 'addon_groups.insert')`, [V])).rows;
     assert.deepEqual(via, [{ via: 'rpc' }], 'the menu rows are audited as the import wrote them');
     const steps = (await w.admin.query(`select step, state from public.onboarding_progress where venue_id = $1 and step in ('menu', 'review') order by step`, [V])).rows;
@@ -62,7 +62,8 @@ describe('apply_import', () => {
     const v = (await w.admin.query(`select published_revision_id, first_published_at from public.venues where id = $1`, [V])).rows[0];
     assert.deepEqual(v, { published_revision_id: null, first_published_at: null }, 'never a publish');
     const g = (await w.admin.query(`select name_en, min_units, max_units, limits_confirmed from public.addon_groups where venue_id = $1 order by name_en`, [V])).rows;
-    assert.deepEqual(g.map((x) => [x.name_en, x.limits_confirmed]), [['Extras', false], ['Sauce', false], ['Side of choice', false]], 'guessed limits wait for the owner');
+    assert.deepEqual(g.map((x) => [x.name_en, x.limits_confirmed]), [['Extras', false], ['Sauce', true], ['Side of choice', true]],
+      'the limits the source stated are confirmed; guessed ones wait for the owner');
     assert.deepEqual(await apply(O, id, draft, DEC), { ok: false, code: 'import_closed' });
   });
 
@@ -94,7 +95,7 @@ describe('apply_import', () => {
     const prices = (await w.admin.query(`select name_en, price from public.dishes where venue_id = $1 and name_en in ('Schnitzel', 'Burger') order by name_en`, [V])).rows;
     assert.deepEqual(prices, [{ name_en: 'Burger', price: 7200 }, { name_en: 'Schnitzel', price: 6600 }]);
     const log = (await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'import.apply' order by id desc limit 1`, [V])).rows[0];
-    assert.deepEqual(log.detail.asked, { price_differs: 1 }, 'the plan\'s own questions, counted per code');
+    assert.deepEqual(log.detail.planExceptions, { price_differs: 1 }, 'the plan\'s own questions, counted per code');
     const stored = (await w.admin.query(`select exceptions from public.menu_imports where id = $1`, [id])).rows[0].exceptions;
     assert.ok(!stored.some((e) => e.code === 'price_differs'), 'only the draft\'s own are stored on the import');
   });

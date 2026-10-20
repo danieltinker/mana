@@ -8,7 +8,8 @@ import { startCluster } from './harness/cluster.mjs';
 import { recordContractCalls } from './harness/import-corpus.mjs';
 import { ABSENT, compareValidator, inputs, storable } from './harness/parity.mjs';
 import {
-  draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, importKey, planApply, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
+  ACT_FOR_OWNER_ACTIONS, draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_CHOICES, IMPORT_EXCEPTION_CODES, IMPORT_EXCEPTIONS, importKey, planApply,
+  READER_NOTES, readerNoteIssues, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
 } from '../../packages/contracts/src/index.ts';
 import { applyPlan, bistroDraft, copy, dish, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
@@ -18,11 +19,15 @@ before(async () => { db = await startCluster({ seed: false }); calls = recordCon
 after(async () => { await db?.stop(); });
 
 const cp = (...c) => String.fromCodePoint(...c);
-/** One query: the SQL function on every input, in order. */
-async function sqlAll(fn, list) {
-  const { rows } = await db.admin.query(`select coalesce(jsonb_agg(${fn} order by i), '[]') as r
-    from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list)]);
-  return rows[0].r;
+/** The SQL function on every input, in order (a few inputs per query: large drafts take a while each). */
+async function sqlAll(fn, list, per = 10) {
+  const out = [];
+  for (let i = 0; i < list.length; i += per) {
+    const { rows } = await db.admin.query(`select coalesce(jsonb_agg(${fn} order by i), '[]') as r
+      from jsonb_array_elements($1::jsonb) with ordinality t(x, i)`, [JSON.stringify(list.slice(i, i + per))]);
+    out.push(...rows[0].r);
+  }
+  return out;
 }
 
 /** Every name in a draft or a menu (the importKey corpus). */
@@ -104,6 +109,41 @@ describe('the draft', () => {
   });
 });
 
+describe('the closed lists', () => {
+  test('IMPORT_EXCEPTIONS (order and severity), IMPORT_CHOICES, EXCEPTION_CHOICES, READER_NOTES, ACT_FOR_OWNER_ACTIONS', async () => {
+    const { rows } = await db.admin.query(`select app.import_exception_codes() c, app.import_choice_list() l, app.import_choices() x, app.reader_notes() n,
+      (select jsonb_object_agg(c, app.import_exception_severity(c)) from unnest(app.import_exception_codes()) c) s,
+      pg_get_functiondef('public.act_for_owner(uuid,text,text,jsonb)'::regprocedure) a`);
+    assert.deepEqual(rows[0].c, [...IMPORT_EXCEPTION_CODES]);
+    assert.deepEqual(rows[0].s, { ...IMPORT_EXCEPTIONS });
+    assert.deepEqual(new Set(rows[0].l), new Set(IMPORT_CHOICES));
+    assert.deepEqual(rows[0].x, JSON.parse(JSON.stringify(EXCEPTION_CHOICES)));
+    assert.deepEqual(rows[0].n, { ...READER_NOTES });
+    const listed = /not in \(([^)]*)\) then\s+return app\.fail\('action_unknown'\)/.exec(rows[0].a)[1].match(/'([a-z_.]+)'/g).map((v) => v.slice(1, -1));
+    assert.deepEqual(listed, [...ACT_FOR_OWNER_ACTIONS]);
+  });
+});
+
+describe('the reader\'s notes', () => {
+  test('app.validate_reader_notes is readerNoteIssues: the contracts\' own calls, then generated notes, with and without the draft', async () => {
+    const base = bistroDraft();
+    const note = { code: 'noise', severity: 'info', key: null, lines: [1, 3], count: 2, rule: 'header' };
+    const recorded = (calls.readerNoteIssues ?? []).map(([n, d, prefix]) => [n, d ?? null, prefix ?? 'notes']);
+    const generated = inputs([note, { ...note, code: 'price_range', severity: 'check', key: 'd-burger', lines: [4], count: 1, rule: null }], {
+      0: [ABSENT, 5, null, [], {}], '0.code': [ABSENT, 'nope', 5, 'price_range'], '0.severity': [ABSENT, 'check', null], '0.key': [ABSENT, 'd-burger', 'd-nope', 'D', 5, ''],
+      '0.lines': [ABSENT, [], [0], [1, 1], [2, 1], [1, 2.5], Array.from({ length: 101 }, (_, i) => i + 1), Array.from({ length: 100 }, (_, i) => i + 1), [1000001], '1'],
+      '0.count': [ABSENT, 0, 1, 1000000, 1000001, 1.5, '2'], '0.rule': [ABSENT, 'Header', 'a'.repeat(40), 'a'.repeat(41), '_x', 5], '0.text': ['Soup'],
+      '1.key': ['g-side', 'o-fries', 's-mains', 'x'], 2: [5],
+    }, { random: 200, seed: 13 }).filter((n) => storable(n));
+    const list = [...recorded, ...generated.flatMap((n) => [[n, base, 'notes'], [n, null, 'notes']]), [Array.from({ length: 2001 }, () => note), null, 'notes'],
+      [{}, null, 'n'], [null, null, 'notes']].filter((a) => storable(a));
+    const sql = await sqlAll(`app.validate_reader_notes(x->0, case when x->1 = 'null'::jsonb then null else x->1 end, x->>2)`, list);
+    // (as JSON carries them: a hole in an array is a null)
+    list.forEach(([n, d, prefix], i) => assert.deepEqual(sql[i], readerNoteIssues(JSON.parse(JSON.stringify(n)), d, prefix), JSON.stringify([n, prefix]).slice(0, 200)));
+    assert.ok(list.length > 300, String(list.length));
+  });
+});
+
 describe('decisions and the RPCs\' inputs', () => {
   test('app.validate_import_decisions is validateDecisions', async () => {
     const recorded = (calls.validateDecisions ?? []).map((a) => a[0]);
@@ -118,8 +158,10 @@ describe('decisions and the RPCs\' inputs', () => {
   test('app.validate_save_draft and app.validate_apply_import are validateSaveDraft and validateApplyImport', async () => {
     const I = '00000000-0000-4000-8000-0000000001a1';
     const dec = { v: 1, pricesConfirmed: true, choices: {} };
+    const note = { code: 'noise', severity: 'info', key: 'd-burger', lines: [1], count: 1, rule: null };
     const save = [...(calls.validateSaveDraft ?? []).map((a) => a[0]), ...inputs({ importId: I, draft: bistroDraft() }, {
-      importId: [ABSENT, null, 'x', I.toUpperCase()], draft: [ABSENT, null, 5, { ...bistroDraft(), v: 2 }, { ...bistroDraft(), dropped: -1 }], extra: [1] })];
+      importId: [ABSENT, null, 'x', I.toUpperCase()], draft: [ABSENT, null, 5, { ...bistroDraft(), v: 2 }, { ...bistroDraft(), dropped: -1 }], extra: [1],
+      notes: [ABSENT, null, [], [note], [{ ...note, key: 'd-nope' }], [{ ...note, count: 0 }], {}] })];
     await compareValidator(db.admin, 'app.validate_save_draft', validateSaveDraft, save);
     const apply = [...(calls.validateApplyImport ?? []).map((a) => a[0]), ...inputs({ importId: I, draft: bistroDraft(), decisions: dec }, {
       importId: [ABSENT, 'x'], draft: [ABSENT, { ...bistroDraft(), v: 2 }], decisions: [ABSENT, 5, { ...dec, v: 2 }, { ...dec, skip: [5] }], extra: [1] })];
