@@ -7,12 +7,13 @@ import {
   appliedIds, mergePrevious, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
   SCAN_IMAGE_CAPS, type ClaimScanReply, validateDecisions, NOTES_MAX, NOTES_BYTES_MAX, DRAFT_BYTES_MAX, DECISIONS_BYTES_MAX, saveDraftSizeFail,
-  applyImportSizeFail,
+  applyImportSizeFail, type ApplyImportReply, type ImportedIds,
 } from '../src/import.ts';
+import { BLOCKERS_MAX, onboardingProgress, validateSetStep, type SetStepReply } from '../src/onboarding.ts';
 import { addonGroupSizeFail, ADDON_GROUP_BYTES_MAX } from '../src/addons.ts';
 import { LIMITS } from '../src/enums.ts';
 import { instantMs } from '../src/events.ts';
-import { REVISION_MAX, validateActForOwner, validateApproveVenue } from '../src/staff.ts';
+import { REVISION_MAX, validateActForOwner, validateApproveVenue, type ActForOwnerReply } from '../src/staff.ts';
 import { validateOpsRevisionQuery } from '../src/ops.ts';
 import { indexMenu, NO_SUGGESTION_CODES, whyNoSuggestion } from '../src/upsell.ts';
 import { cafeDemo, ID, RULES } from './fixtures.ts';
@@ -737,4 +738,36 @@ test('round 10 (QA, seed -1686291165): an option\'s question on a target takes t
   const p = plan(reread, m, both);
   assert.deepEqual(asked(p), ['group_changed@o>g1=add_options']);
   assert.deepEqual(changed(p).filter((s) => s.startsWith('option:')), ['option:x1:create']);
+});
+
+test('round 10 (backend b9bc23c): mergePrevious counts only imports with applied_at and applied_ids, as app.existing_menu', () => {
+  const a = { id: uuid(0x1), appliedAt: '2026-10-20T10:00:00Z', appliedIds: { sections: { s: 'S1' }, dishes: { d: 'D1' } } };
+  const notApplied = { id: uuid(0x2), appliedAt: null, appliedIds: { sections: { s: 'S9' }, dishes: { d: 'D9' } } };
+  const partial = { id: uuid(0x3), appliedAt: '2026-10-20T11:00:00Z', appliedIds: { sections: { s: 'S2' } } as unknown as ImportedIds };
+  assert.deepEqual(mergePrevious([a, notApplied, partial]), { sections: { s: 'S2' }, dishes: { d: 'D1' } });
+  assert.equal(mergePrevious([notApplied]), undefined);
+});
+
+test('round 10 (backend b9bc23c): past BLOCKERS_MAX the blockers are too_many alone, for the owner and for Halom', () => {
+  const blockers = (n: number) => Array.from({ length: n }, () => 'Not A Blocker');
+  const owner = (n: number) => { const v = validateSetStep({ venueId: VENUE_ID, step: 'menu', state: 'blocked', blockers: blockers(n) }); return v.ok ? [] : v.errors.map((e) => e.code); };
+  assert.deepEqual(owner(BLOCKERS_MAX + 1), ['too_many']);
+  assert.equal(owner(BLOCKERS_MAX).filter((c) => c === 'blocker_invalid').length, BLOCKERS_MAX);
+  const halom = (n: number) => {
+    const v = validateActForOwner({
+      venueId: VENUE_ID, reason: 'the owner asked by phone', action: 'onboarding.set',
+      payload: { step: 'menu', state: 'blocked', blockers: blockers(n), expectedUpdatedAt: null },
+    });
+    return v.ok ? [] : v.errors.map((e) => e.code);
+  };
+  assert.deepEqual(halom(BLOCKERS_MAX + 1), ['too_many']);
+  assert.equal(halom(BLOCKERS_MAX).filter((c) => c === 'blocker_invalid').length, BLOCKERS_MAX);
+});
+
+test('round 10 (backend b9bc23c): a "doing" on a done step is kept; apply_import may answer import_busy', () => {
+  const progress = onboardingProgress([]);
+  const owner: SetStepReply = { ok: true, kept: true, progress };
+  const halom: ActForOwnerReply = { ok: true, action: 'onboarding.set', result: { step: 'menu', state: 'done', kept: true, progress }, logId: 1 };
+  const busy: ApplyImportReply = { ok: false, code: 'import_busy' };
+  assert.ok(owner.ok && owner.kept && halom.ok && !busy.ok);
 });

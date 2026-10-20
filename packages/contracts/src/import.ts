@@ -840,27 +840,26 @@ export type ExistingMenu = {
  */
 export type ImportedIds = { readonly sections: Readonly<Record<string, string>>; readonly dishes: Readonly<Record<string, string>> };
 
-/** One applied import as `mergePrevious` reads it: `menu_imports.id`, `applied_at` (as the database writes a
- * `timestamptz`) and `applied_ids` (null for an import applied before the column existed). */
-export type AppliedImport = { readonly id: string; readonly appliedAt: string; readonly appliedIds: ImportedIds | null };
+/** One import of the venue's as `mergePrevious` reads it: `menu_imports.id`, `applied_at` (as the database writes a
+ * `timestamptz`; null when not applied) and `applied_ids` (null for an import not applied, or applied before the
+ * column existed). */
+export type AppliedImport = { readonly id: string; readonly appliedAt: string | null; readonly appliedIds: ImportedIds | null };
 
 /**
- * `ExistingMenu.previous` from all of a venue's applied imports (`app.existing_menu` computes the same): for each
- * section key and each dish key, the row id from the most recently applied import whose `applied_ids` holds that key.
- * Most recent = the latest `applied_at` (to the microsecond), then the greater import id (uuid order: lowercase text).
- * Imports without `applied_ids` count for nothing; with none left, `undefined`. A key a later import has not
- * mentioned keeps an earlier import's row, so an import of another menu of the venue's (its wines) loses nothing.
+ * `ExistingMenu.previous` from a venue's imports, the reference for `app.existing_menu`: the imports that count are
+ * those with both `applied_at` and `applied_ids`; with none, `undefined`. Otherwise, for each section key and each
+ * dish key, the row id from the most recently applied of them whose `applied_ids` holds that key: the latest
+ * `applied_at` (to the microsecond), then the greater import id (uuid order: lowercase text). A key a later import has
+ * not mentioned keeps an earlier import's row, so an import of another menu of the venue's (its wines) loses nothing.
  */
 export function mergePrevious(imports: readonly AppliedImport[]): ImportedIds | undefined {
-  const withIds = imports.filter((i) => i.appliedIds !== null);
-  if (withIds.length === 0) return undefined;
-  const order = [...withIds].sort((a, b) => instantMs(a.appliedAt) - instantMs(b.appliedAt) || compareIds(a.id.toLowerCase(), b.id.toLowerCase()));
+  const applied = imports.filter((i) => i.appliedAt !== null && i.appliedIds !== null);
+  if (applied.length === 0) return undefined;
+  const order = [...applied].sort((a, b) => instantMs(a.appliedAt!) - instantMs(b.appliedAt!) || compareIds(a.id.toLowerCase(), b.id.toLowerCase()));
   const sections = new Map<string, string>();
   const dishes = new Map<string, string>();
-  for (const i of order) {
-    for (const [k, v] of Object.entries(i.appliedIds!.sections)) sections.set(k, v);
-    for (const [k, v] of Object.entries(i.appliedIds!.dishes)) dishes.set(k, v);
-  }
+  const fold = (into: Map<string, string>, ids: unknown) => { if (isObject(ids)) for (const [k, v] of Object.entries(ids)) into.set(k, v as string); };
+  for (const i of order) { fold(sections, i.appliedIds!.sections); fold(dishes, i.appliedIds!.dishes); }
   return { sections: Object.fromEntries(sections), dishes: Object.fromEntries(dishes) };
 }
 
@@ -2228,12 +2227,14 @@ export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
 
 /**
  * `apply_import`: `draft` is the one the owner looked at (the database refuses with `draft_changed` when the stored
- * draft is another), `decisions` their answers. The reply carries the plan that was applied.
+ * draft is another), `decisions` their answers. The reply carries the plan that was applied. `import_busy`: another
+ * import RPC of the venue holds its import lock (the apply tries it and does not wait); nothing was done, so the client
+ * retries after a moment.
  */
 export type ApplyImportInput = { readonly importId: string; readonly draft: ImportDraft; readonly decisions: ImportDecisions };
 export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
-  | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'not_parsed' | 'import_closed'>;
+  | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'import_busy' | 'not_parsed' | 'import_closed'>;
 
 /**
  * What `apply_import` answers on size alone, before it walks anything (SEC-M1; after the caller, the venue's import
