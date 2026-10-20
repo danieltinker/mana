@@ -31,10 +31,14 @@ export function exportMenu(venueId: string): Promise<MenuExport> {
   return q<MenuExport>(sb.rpc('export_menu', { p_venue: i.venueId }));
 }
 
-/** Ask Halom for help. `allowAct` (the owner's alone) sets whether Halom may act for the owner, in the same call. */
-export function openCase(input: OpenCaseInput): Promise<Extract<OpenCaseReply, { ok: true }>> {
+/**
+ * Ask Halom for help. `id` is the request's own, made on the phone (newUuid) and kept until an answer arrives: sent
+ * again after a lost answer, it answers the request stored the first time (`reused`), never a second one. The owner's
+ * switch for Halom acting is not part of a request (store.ts `setSupportCanAct`), so `allowAct` is never sent.
+ */
+export function openCase(input: Omit<OpenCaseInput, 'allowAct' | 'id'> & { readonly id: string }): Promise<Extract<OpenCaseReply, { ok: true }>> {
   const i = checked(validateOpenCase(input));
-  return rpc('open_case', { p_venue: i.venueId, p_topic: i.topic, p_subject: i.subject, p_body: i.body ?? '', p_allow_act: i.allowAct ?? null });
+  return rpc('open_case', { p_venue: i.venueId, p_topic: i.topic, p_subject: i.subject, p_body: i.body ?? '', p_id: i.id });
 }
 
 export type CaseLine = Pick<SupportCaseRow, 'id' | 'topic' | 'status' | 'subject' | 'created_at' | 'updated_at'>;

@@ -5,7 +5,7 @@
 // the activity log with its reason. The screen says plainly what happens next, lists the place's requests that are not
 // resolved, and keeps a person one tap away (WhatsApp). The shell's help button leads here from every screen.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, stripBlank, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, newUuid, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
@@ -47,29 +47,21 @@ export function HelpScreen() {
     setSent(caseId);
     await Promise.all([loadCases(), refreshVenue().catch(() => {})]);
   }
-  /**
-   * open_case takes no id of ours, so an answer lost on the way back cannot be told from a request never sent: before
-   * offering to send it again, look for it among the place's open requests (same topic and line, opened just now).
-   */
-  async function sentMeanwhile(started: number): Promise<CaseLine | null> {
-    const line = stripBlank(subject);
-    const list = await openCases(v.id);
-    return list.find((c) => c.topic === topic && c.subject === line && Date.parse(c.created_at) >= started - 120_000) ?? null;
-  }
+  // the request's id, made here and kept until an answer arrives: sent again after a lost answer, it is the same
+  // request (open_case answers the stored one, `reused`), never a second
+  const requestId = useRef(newUuid());
   async function send(e: Event) {
     e.preventDefault();
     if (busy) return;
     setError(''); setSubjectErr('');
-    const started = Date.now();
     setBusy(true);
     try {
       mayWrite();
-      const r = await openCase({ venueId: v.id, topic, subject, body });
+      const r = await openCase({ venueId: v.id, topic, subject, body, id: requestId.current });
+      requestId.current = newUuid();
       await done(r.caseId);
     } catch (err) {
       const code = toV2Error(err).code;
-      const found = code === 'network' ? await sentMeanwhile(started).catch(() => null) : null;
-      if (found) { await done(found.id); return; }
       if (code === 'text_missing' || code === 'text_too_long' || code === 'text_invalid') { setSubjectErr(errText(code, 'help.e')); subjectRef.current?.focus(); }
       else setError(errText(code, 'help.e'));
     } finally { setBusy(false); }

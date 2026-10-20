@@ -114,6 +114,23 @@ test('at a glance: "no visits yet"; then guest bots visit and, without a reload,
   assert.equal(await page.locator('[data-chart-table] tbody tr').count(), 7);
   await page.locator('[data-glance]').scrollIntoViewIfNeeded();
   await shot('03-home-7-days');
+  // in English too, the QR share stays with its label, in the label's type (L9)
+  const swapLang = async () => {
+    await page.locator('[data-action="account"]').click();
+    await page.locator('[data-menu="language"]').click();
+    if (await page.locator('dialog[data-sheet="account"]').count()) { await page.keyboard.press('Escape'); await page.locator('dialog[data-sheet="account"]').waitFor({ state: 'detached' }); }
+  };
+  await swapLang();
+  await page.getByText('From the QR code').waitFor();
+  const share = await page.locator('[data-share]').evaluate((el) => {
+    const label = el.closest('.glance-lbl'), cs = (x) => getComputedStyle(x);
+    return { inLabel: !!label, same: !!label && cs(el).fontSize === cs(label).fontSize && cs(el).fontWeight === cs(label).fontWeight, text: label?.textContent ?? '' };
+  });
+  assert.ok(share.inLabel && share.same, JSON.stringify(share));
+  assert.match(share.text, /^From the QR code · \d+%$/);
+  await shot('03b-home-7-days-en');
+  await swapLang();
+  await page.getByText('מקוד QR').first().waitFor();
 
   // the rules list: each suggestion's shown, accepted and dismissed, from the same dashboard
   await go('rules');
@@ -429,20 +446,32 @@ test('get help: a case the back office sees (ops_venues); Halom\'s answer is a n
   await help.locator(`[data-case="${caseId}"][data-status="waiting_owner"]`).waitFor();
   assert.match(await help.locator(`[data-case="${caseId}"]`).innerText(), /מחכה לכם/);
 
-  // an answer lost on the way back (open_case takes no id of ours): the request is found among the open ones, once
+  // an answer lost on the way back: the same tap again sends the same request (its id is made here, SEC-N6), and
+  // open_case answers the one stored the first time; one request, not two
   const subject = 'e2e: a request whose answer is lost';
   await help.locator('[data-topic="menu"]').click();
   await help.locator('[data-field="help-subject"]').fill(subject);
   let armed = true;
+  const sentIds = [];
   const match = (u) => u.pathname.endsWith('/rest/v1/rpc/open_case');
-  await page.route(match, async (r) => { if (armed) { armed = false; await r.fetch(); return r.abort('internetdisconnected'); } return r.continue(); });
+  await page.route(match, async (r) => {
+    sentIds.push(r.request().postDataJSON().p_id);
+    if (armed) { armed = false; await r.fetch(); return r.abort('internetdisconnected'); }
+    return r.continue();
+  });
+  await help.locator('[data-action="send-help"]').click();
+  await help.locator('[data-help-form] .note-error').waitFor();
+  const reply = page.waitForResponse((r) => match(new URL(r.url())));
   await help.locator('[data-action="send-help"]').click();
   const again = help.locator('[data-case-sent]');
   await again.waitFor();
   await page.unroute(match);
+  assert.equal(sentIds.length, 2);
+  assert.equal(sentIds[0], sentIds[1], 'the same id both times');
+  assert.equal((await (await reply).json()).reused, true, 'the database answers the request stored the first time');
   const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${owner.venueId}`, subject: `eq.${subject}` });
   assert.equal(stored.length, 1, 'one request, not two');
-  assert.equal(await again.getAttribute('data-case-sent'), stored[0].id);
+  assert.deepEqual([await again.getAttribute('data-case-sent'), stored[0].id], [sentIds[0], sentIds[0]]);
   assert.deepEqual(problems(), []);
 });
 
