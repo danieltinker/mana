@@ -33,6 +33,8 @@ let store = null, ui = null, stage = null, stageLoading = false, glFailed = fals
 let v2 = null;
 /* the v2 module's name (v2-<hash>.js) carries a hash of its content (tools/build.mjs writes it here), so this app.js never pairs with another one */
 const V2_FILE = typeof __MANA_V2__ === 'string' ? __MANA_V2__ : 'v2.js';      // eslint-disable-line no-undef
+/* a module that failed to load stays failed for this page under its address: "Try again" asks for it under a new one */
+let v2Tries = 0;
 let readyResolve, tableResolve;
 const ready = new Promise((r) => { readyResolve = r; }), tableReady = new Promise((r) => { tableResolve = r; });
 const ticker = createTicker({ manual: TEST, onFrameTime: (raw) => { if (stage && Q.get('adapt') !== 'off') stage.perf(raw); } });
@@ -93,7 +95,7 @@ async function boot() {
     const c = cfg(), kit = { text, asset, assetUrl, details, httpsUrl, rooms: ROOM_IDS, h, svg, TAG_ICON, tx, formatMoney };      // the v1 pieces it uses, handed in (src/v2/menu.js says why)
     const early = c.supabaseUrl && c.supabaseKey ? fetch(String(c.supabaseUrl).replace(/\/+$/, '') + '/rest/v1/rpc/public_menu', { method: 'POST',
       headers: { apikey: c.supabaseKey, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ p_slug: source.slug }) }).catch(() => null) : null;
-    const mod = await env.importModule(new URL(V2_FILE, document.baseURI).href).catch(() => null);
+    const mod = await env.importModule(new URL(V2_FILE + (v2Tries++ ? '?t=' + v2Tries : ''), document.baseURI).href).catch(() => null);
     if (!mod && await reloadOnce()) return;                             // an app.js from before a deploy: the page loads again, once
     if (Q.has('_r')) { const u = new URL(location.href); u.searchParams.delete('_r'); try { history.replaceState(history.state, '', u.href); } catch (e) { /* the address is only tidier */ } }
     if (!mod) res = { state: 'error', message: 'the menu did not load' };
@@ -113,14 +115,18 @@ async function boot() {
 }
 
 /* After a deploy, an app.js still in this phone's cache can name a v2 module that is no longer there. Once a minute at
-   most, the newest app.js is fetched past the cache and the page loads again under a fresh address; only when that fails
-   too does the guest see "the menu did not load". → true when the page is going. */
+   most, the newest app.js is fetched past the cache and, only when that answer came, the page loads again under a fresh
+   address. Offline (or the site unreachable) a reload would land on the browser's own "no internet" page: the guest
+   gets the menu's own "The menu did not load" with Try again instead. → true when the page is going.
+   Only a schema-2 menu ever comes here (production is schema 1 until the cutover). */
 async function reloadOnce() {
   const KEY = 'mana-v2-reload', now = Date.now();
   let last = 0;
-  try { last = Number(sessionStorage.getItem(KEY)) || 0; sessionStorage.setItem(KEY, String(now)); } catch (e) { return false; }      // no session storage: no way to know it was tried, so never
+  try { last = Number(sessionStorage.getItem(KEY)) || 0; } catch (e) { return false; }      // no session storage: no way to know it was tried, so never
   if (now - last < 60000) return false;
-  await fetch(new URL('app.js', document.baseURI).href, { cache: 'reload' }).catch(() => null);
+  const fresh = await fetch(new URL('app.js', document.baseURI).href, { cache: 'reload' }).catch(() => null);
+  if (!fresh || !fresh.ok) return false;
+  try { sessionStorage.setItem(KEY, String(now)); } catch (e) { return false; }
   const u = new URL(location.href); u.searchParams.set('_r', String(now));
   location.replace(u.href);
   return true;

@@ -732,6 +732,58 @@ test('after a deploy, an app.js that names a v2 module no longer there: the page
   }
 });
 
+test('offline just as the v2 module loads: the menu\'s own "did not load" with Try again, never the browser\'s no-internet page; back online, Try again opens the menu', { timeout: 120000 }, async () => {
+  const page = await e.page(), ctx = page.context(), modules = [];
+  let loads = 0;
+  page.on('request', (r) => { if (r.isNavigationRequest() && r.frame() === page.mainFrame()) loads += 1; });
+  await page.route(/\/v2-[A-Z0-9]+\.js(\?|$)/, async (route) => {                          // the line drops while the module is on its way
+    modules.push(route.request().url());
+    await ctx.setOffline(true);
+    return route.abort('internetdisconnected');
+  });
+  loads = 0;
+  await page.goto(e.webUrl + 'view/?m=bistro-check&lang=en&gl=off&test=1');
+  await page.locator('#statusTitle', { hasText: 'The menu did not load' }).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(1500);
+  assert.equal(loads, 1, 'no reload into the browser\'s error page');
+  assert.match(page.url(), /\/view\/\?m=bistro-check&lang=en&gl=off&test=1$/, 'still the menu\'s page');
+  assert.equal(await page.locator('#statusBtn').innerText(), 'Try again');
+  await shot(page, '24-offline-module-load');
+  await page.unroute(/\/v2-[A-Z0-9]+\.js(\?|$)/);
+  await ctx.setOffline(false);
+  await page.click('#statusBtn');
+  await page.waitForFunction(() => window.__mana && window.__mana.v2 && window.__mana.v2(), null, { timeout: 30000 });
+  assert.ok((await page.locator('#list .row').count()) > 0, 'the menu, in the same page');
+  assert.equal(loads, 1);
+  assert.equal(modules.length, 1);
+  page.problems = page.problems.filter((p) => !/Failed to load resource|ERR_INTERNET_DISCONNECTED|dynamically imported module|public_menu/.test(p));
+  assert.deepEqual(page.problems, []);
+  await ctx.close();
+});
+
+test('production (schema 1) never comes near the v2 module or its reload', { timeout: 120000 }, async () => {
+  for (const flags of [{ env: 'production', schema: 1 }, { env: 'production' }, {}]) {
+    const page = await e.page(), ctx = page.context(), asked = [];
+    let loads = 0;
+    page.on('request', (r) => { if (/\/v2-[A-Z0-9]+\.js/.test(r.url())) asked.push(r.url()); if (r.isNavigationRequest() && r.frame() === page.mainFrame()) loads += 1; });
+    await ctx.route(/\/config\.js$/, async (route) => {                                      // production's flags (or none) on this stack's config
+      const body = await (await route.fetch()).text(), cfg = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
+      delete cfg.env; delete cfg.schema; delete cfg.realtime;
+      return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.HALOM_MENUS_CONFIG = ' + JSON.stringify(Object.assign(cfg, flags)) + ';\n' });
+    });
+    loads = 0;
+    await page.goto(e.webUrl + 'view/?m=bistro-check&lang=en&gl=off&test=1');
+    // the v1 reader on this (v2) stack: a menu or the menu's own message, whichever it gets to
+    await page.waitForFunction(() => (window.__mana && window.__mana.state && window.__mana.state()) || !['loading', undefined].includes(document.getElementById('status').dataset.kind), null, { timeout: 30000 });
+    await page.waitForTimeout(2500);
+    assert.deepEqual(asked, [], JSON.stringify(flags) + ': the v2 module is never asked for');
+    assert.equal(loads, 1, JSON.stringify(flags) + ': never reloaded');
+    assert.equal(await page.evaluate(() => (window.HALOM_MENUS_CONFIG || {}).schema === 2), false);
+    assert.equal(await page.evaluate(() => !!(window.__mana && window.__mana.v2 && window.__mana.v2())), false, 'the v1 path');
+    await ctx.close();
+  }
+});
+
 test('Safari and iOS before 16.4 (no lookbehind, no Object.hasOwn, no randomUUID): the v2 menu boots, adds and sends its events', { timeout: 120000 }, async () => {
   const page = await e.page();
   const ctx = page.context(), parsedBad = [];
