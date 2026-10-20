@@ -4,8 +4,9 @@
  * Also a reference executor that applies an `ImportPlan` to an `ExistingMenu` in memory, the way `apply_import` writes
  * the tables, so a test can re-import into the result.
  */
-import type {
-  DraftDish, DraftGroup, DraftOption, DraftSection, ExistingMenu, ImportDraft, ImportPlan, PlanStep,
+import {
+  appliedIds, type DraftDish, type DraftGroup, type DraftOption, type DraftSection, type ExistingMenu, type ImportDraft, type ImportedIds, type ImportPlan,
+  type PlanStep,
 } from '../src/import.ts';
 
 export const tx = (he: string, en: string) => ({ he, en });
@@ -134,9 +135,10 @@ export function menuRuleBreaks(m: ExistingMenu): string[] {
 let nextId = 0xa00000000000;
 const freshId = (): string => `00000000-0000-4000-8000-${(nextId++).toString(16).padStart(12, '0')}`;
 
-type Rows = { -readonly [K in keyof ExistingMenu]: Array<Record<string, unknown>> };
+type Rows = { -readonly [K in Exclude<keyof ExistingMenu, 'previous'>]: Array<Record<string, unknown>> } & { previous?: ImportedIds };
 
-/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call). */
+/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call), and keeps what
+ * it put each section and dish on as `previous` (what `apply_import` stores as `menu_imports.applied_ids`). */
 export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
   const out = copy(menu) as unknown as Rows;
   const idOf = new Map<string, string>();
@@ -158,5 +160,6 @@ export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
       else rows.push({ ...r, id });
     } else Object.assign(rows.find((r) => r.id === s.id)!, resolved(s.set, s.refs));
   }
+  out.previous = appliedIds(plan, (_, key) => idOf.get(key));
   return out as unknown as ExistingMenu;
 }
