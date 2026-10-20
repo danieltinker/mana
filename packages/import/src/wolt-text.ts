@@ -8,15 +8,19 @@
  *     together with nothing between them ("Schnitzel₪64.00", `text_price`); a price after a space inside a line is
  *     the line's own words ("Family size ₪120" is a description).
  *  2. A listed dish reads name, then a one-line description, then its price; its labels come after the name or after
- *     the price, never before the name (`resolveDish`, `attach`). A tag word ("Vegan") right after a price with the
- *     next dish under it reads as a section heading, not as the dish's tag (`tags`: a heading read as a tag would
- *     put a false diet tag on a dish; a tag read as a heading costs one wrong section, which the preview shows).
+ *     the price, never before the name (`resolveDish`, `attach`). A tag word ("Vegan") between a price and the next
+ *     dish is a heading only when the page's own list names it; with a common heading after it ("Vegan", "Mains") it
+ *     is the dish before's tag, checked; otherwise it is left out and the dish before is checked (`tags`: a diet tag
+ *     is never guessed onto a dish, nor a section out of a label, without a `layout_guessed` note).
  *  3. Every price shows the shekel sign, so a bare number is never a price ("9.2" is a rating: `noise_rating`).
  *  4. A discount shows two prices side by side, and the higher one is the regular price (`price_discount`).
  *  5. A sold-out dish still shows its price (`label_sold_out`).
  *  6. The venue's header comes first, then the page's own list of sections, then the sections (`nav_headings`);
  *     without the list, a dish's first line is its name, and a line before it is a heading only when it is a common
- *     section name ("Desserts", "קינוחים") or the page's first (`resolveDish`).
+ *     section name ("Desserts", "קינוחים") or the page's first (`resolveDish`). A common name with a line marked as a
+ *     description under it ("Coffee", "Double espresso, oat milk") is the dish (`desc_mark`). Two short lines that
+ *     could be a heading and a name or a name and its description are read by the dishes around them (`desc_habit`),
+ *     and every such guess, like a common name read as a heading over a dish, is checked (`layout_guessed`).
  *  7. "Popular" / "Most ordered" / "פופולרי" is the first section and repeats dishes of other sections
  *     (`popular_heading`); the same word on a dish is a mark, not a heading. The section is kept: the draft's
  *     `dish_repeated` asks about each repeat, and a dish sheet copied under it joins the dish in its own section.
