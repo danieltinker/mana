@@ -20,8 +20,11 @@ const SITE = path.join(tmp, 'site');
 const CSP = (origin) => `<meta http-equiv="Content-Security-Policy" content="connect-src 'self' blob: ${origin}; frame-src 'self'">`;
 const page = (title, origin = 'https://zemdhczqlhkabfwxccqq.supabase.co') => `<!doctype html><meta charset="utf-8">${CSP(origin)}<title>${title}</title>`;
 const FILM = Buffer.from(Array.from({ length: 1000 }, (_, i) => i % 251));
-/* the back office's own policy (apps/ops/src/index.html): any Supabase project over https */
-const OPS_CSP = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'; connect-src \'self\' https://*.supabase.co; base-uri \'none\'">';
+/* the back office's own policy, read from apps/ops/src/index.html: any Supabase project over https, pictures from itself */
+const OPS_CSP = /<meta http-equiv="Content-Security-Policy" content="[^"]*">/.exec(fs.readFileSync(path.join(ROOT, 'apps/ops/src/index.html'), 'utf8'))[0];
+/** A page's policy as { directive: [sources] }. */
+const policyOf = (html) => Object.fromEntries(/content="([^"]*)"/.exec(/<meta http-equiv="Content-Security-Policy" content="[^"]*">/.exec(html)[0])[1]
+  .split(';').map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).map(([name, ...sources]) => [name, sources]));
 function writeSite(dir, config) {
   for (const [f, body] of Object.entries({ 'index.html': page('product'), 'guide/index.html': page('guide'), 'view/index.html': '<!doctype html><title>menu</title>',
     'ops/index.html': `<!doctype html>${OPS_CSP}<title>back office</title>`,
@@ -303,6 +306,39 @@ test('site-env: a local build\'s pages, the back office\'s included, may connect
   assert.ok(fs.readFileSync(path.join(dir, 'index.html'), 'utf8').includes(CSP(api)));
   assert.ok(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8').includes(`connect-src 'self' ${api} ws://127.0.0.1:57521; base-uri 'none'`), 'the back office: the stack over http and ws, no wildcard');
   assert.equal(siteEnv(dir, 'demo').status, 1, 'a local config is not the demo\'s');
+});
+
+test('site-env: the back office of a demo or local build shows pictures from the environment\'s own storage only; production\'s page is unchanged', () => {
+  const real = policyOf(OPS_CSP);
+  assert.deepEqual(real['img-src'], ["'self'", 'data:'], 'the policy the page ships with (apps/ops/src/index.html)');
+  const prod = path.join(tmp, 'img-prod'); writeSite(prod, fs.readFileSync(path.join(ROOT, 'config.js')));
+  const opsBefore = fs.readFileSync(path.join(prod, 'ops/index.html'), 'utf8');
+  assert.equal(siteEnv(prod, 'production').status, 0);
+  assert.equal(fs.readFileSync(path.join(prod, 'ops/index.html'), 'utf8'), opsBefore, 'production: byte for byte');
+  assert.deepEqual(policyOf(opsBefore)['img-src'], ["'self'", 'data:']);
+  for (const [env, config, own] of [
+    ['demo', fs.readFileSync(path.join(ROOT, 'config/demo.js')), 'https://hhmjcudeiiycwqqklksc.supabase.co'],
+    ['local', localConfigText({ apiUrl: 'http://127.0.0.1:57521', anonKey: anonJwt() }), 'http://127.0.0.1:57521'],
+  ]) {
+    const dir = path.join(tmp, `img-${env}`); writeSite(dir, config);
+    const r = siteEnv(dir, env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, new RegExp(`the back office shows pictures from ${own.replace(/[.]/g, '\\.')}`), env);
+    const got = policyOf(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8'));
+    assert.deepEqual(got['img-src'], ["'self'", 'data:', own], `${env}: exactly the environment's own storage host`);
+    for (const [name, sources] of Object.entries(real)) if (name !== 'img-src' && name !== 'connect-src') assert.deepEqual(got[name], sources, `${env}: ${name} unchanged`);
+    assert.deepEqual(Object.keys(got), Object.keys(real), `${env}: no directive added or dropped`);
+    for (const f of ['index.html', 'guide/index.html']) assert.equal(policyOf(fs.readFileSync(path.join(dir, f), 'utf8'))['img-src'], undefined, `${env}: ${f}'s img-src not touched`);
+    // run again (a rebuild's settings step on the same files): nothing is added twice
+    assert.equal(siteEnv(dir, env).status, 0);
+    assert.deepEqual(policyOf(fs.readFileSync(path.join(dir, 'ops/index.html'), 'utf8'))['img-src'], ["'self'", 'data:', own], `${env}: idempotent`);
+  }
+  // a back office page without img-src is not quietly opened to pictures: the step stops
+  const bare = path.join(tmp, 'img-bare'); writeSite(bare, fs.readFileSync(path.join(ROOT, 'config/demo.js')));
+  fs.writeFileSync(path.join(bare, 'ops/index.html'), '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; connect-src \'self\' https://*.supabase.co"><title>back office</title>');
+  const r = siteEnv(bare, 'demo');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /the back office's page: the policy has no img-src/);
 });
 
 test('check-site: the simulator\'s anon key is the only JWT a site may hold, on config.js\'s key line of a local build', () => {

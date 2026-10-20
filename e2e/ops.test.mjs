@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { HalomBot, OwnerBot, asAnon, loadSeed, readSeed, runRandom, SEEDS } from '@mana/sim';
 import { OUT, startE2E } from './helpers.mjs';
 import { withStorageImages } from '../apps/ops/tools/csp.mjs';
+import { PRODUCTION, retargetCsp } from '../tools/env.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'apps/ops/dist');
@@ -31,11 +32,11 @@ before(async () => {
   site = fs.mkdtempSync(path.join(os.tmpdir(), 'mana-ops-e2e-'));
   fs.writeFileSync(path.join(site, 'index.html'), '<!doctype html><meta charset="utf-8"><title>e2e</title>');
   e = await startE2E({ seed: null, site });
-  // the built back office, its Content-Security-Policy opened to the local stack as a local build opens it: connect-src
-  // (the platform lane's tools/site-env.mjs) and img-src for the revision's pictures (apps/ops/tools/csp.mjs)
+  // the built back office, its Content-Security-Policy as a local build has it (tools/site-env.mjs): connect-src the
+  // stack over http and ws, no wildcard (retargetCsp), and img-src the stack's storage for the revision's pictures
   fs.cpSync(DIST, path.join(site, 'ops'), { recursive: true });
   const index = path.join(site, 'ops/index.html');
-  const html = fs.readFileSync(index, 'utf8').replace(/connect-src 'self'/, `connect-src 'self' ${e.stack.apiUrl}`);
+  const html = retargetCsp(fs.readFileSync(index, 'utf8'), new URL(PRODUCTION.supabaseUrl).origin, e.stack.apiUrl);
   fs.writeFileSync(index, withStorageImages(html, e.stack.apiUrl));
 
   staff = await HalomBot.firstAdmin(e.stack, e.stack, STAFF);
