@@ -6,7 +6,7 @@
   "description": "Mana (Halom's menu product): staff back office. Sources in src/ (v1) and src/v2/ (schema 2, ADR-007), built static output in dist/.",
   "scripts": {
     "build": "node tools/build.mjs",
-    "check": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.src.json",
     "serve": "node test/stub.mjs",
     "serve:v2": "node test/v2/stub.mjs",
     "test:unit": "node --test test/unit.test.mjs test/v2/*.test.ts",

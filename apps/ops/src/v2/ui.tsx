@@ -4,7 +4,7 @@
  * or a plain text node: never HTML. The one exception is the mark, a constant from brand/tools/mark.mjs.
  */
 import { createContext, type ComponentChildren } from 'preact';
-import { useContext, useEffect, useState } from 'preact/hooks';
+import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 import type { Text } from '@mana/contracts';
 import { MARK_SMALL } from '../mark-shapes.js';
 import { names, PRODUCT, type Chip, type Tone } from './model.ts';
@@ -24,6 +24,8 @@ export type Ctx = {
   /** A staff RPC answered 42501: the database does not count this session as staff. */
   readonly notStaff: (f: Fail) => void;
   readonly signedOut: () => void;
+  /** Reads the caller's own staff row again; false (and the page leaves for the refused screen) when it is gone. */
+  readonly recheck: () => Promise<boolean>;
 };
 export const CtxContext = createContext<Ctx | null>(null);
 export function useCtx(): Ctx {
@@ -46,6 +48,34 @@ export function Name({ text, fallback = '', alt = true }: { text: Text | null | 
       <T class="name-main">{n.main}</T>
       {alt && n.alt && <T class="name-alt">{n.alt}</T>}
     </span>
+  );
+}
+
+/**
+ * A long text (an enquiry, a case's words) shown in 3 lines, with "Show all" whenever it is actually clipped (measured,
+ * not guessed from its length: four short lines clip too), and "Show less" once open. The whole text is always reachable.
+ */
+export function Clamp({ text, class: cls = '', data }: { text: string; class?: string; data: string }) {
+  const el = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const p = el.current;
+    if (!p || open) return undefined;
+    const check = () => setClipped(p.scrollHeight > p.clientHeight + 1);
+    check();
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(check);
+    ro.observe(p);
+    return () => ro.disconnect();
+  }, [text, open]);
+  return (
+    <>
+      <p ref={el} class={`${cls}${open ? '' : ' clamp3'}`} dir="auto" {...{ [`data-${data}`]: true }} data-open={open ? 'yes' : 'no'}>{text}</p>
+      {(clipped || open) && (
+        <button type="button" class="link small show-all" aria-expanded={open} onClick={() => setOpen((x) => !x)} data-show-all>{open ? 'Show less' : 'Show all'}</button>
+      )}
+    </>
   );
 }
 

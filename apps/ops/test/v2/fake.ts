@@ -98,6 +98,24 @@ function entry(w: World, venueId: string, at: number, action: ActivityAction, o:
   };
 }
 
+/** Where the fake's pictures live: the stub serves it from its own origin (stub.mjs rewrites this address). */
+export const MEDIA_BASE = 'https://media.stub.invalid/menu/';
+
+/** Café Demo with what a full review shows: words in both languages, a photo, a relief whose file is missing. */
+function withDetails(s: SnapshotV2): SnapshotV2 {
+  const m = structuredClone(s) as unknown as { assetBase: string; sections: { dishes: Record<string, unknown>[] }[] };
+  m.assetBase = MEDIA_BASE;
+  for (const sec of m.sections) for (const d of sec.dishes) {
+    if (d.id === ID.burger) {
+      Object.assign(d, { desc: t('Beef, brioche, pickles', 'בקר, בריוש, חמוצים'), allergens: t('gluten, sesame', 'גלוטן, שומשום'),
+        asset: { state: 'photo', color: 'cafe/burger.png', thumb: 'cafe/burger_t.png' } });
+      (d.price as { note: Text }).note = t('with a side', 'עם תוספת');
+    }
+    if (d.id === ID.schnitzel) d.asset = { state: 'relief', color: 'cafe/schnitzel.png', aux: 'cafe/schnitzel_d.png', thumb: 'cafe/missing_t.png', kind: 'flat', e: 1, h: 1, o: null, s: null };
+  }
+  return m as unknown as SnapshotV2;
+}
+
 /** Café Demo's first publish: the burger was ₪66 and there was no lemonade yet (what the comparison shows). */
 function firstTry(s: SnapshotV2): SnapshotV2 {
   const m = structuredClone(s) as unknown as { sections: { dishes: { id: string; price: { amount: number } | null }[] }[] };
@@ -116,8 +134,9 @@ export function world({ now = () => Date.now(), traffic = true }: { now?: () => 
   w.rolledUpAt = iso(Math.floor(n / MIN) * MIN);
 
   // Café Demo: a demo venue, published, waiting for Halom's approval; the espresso is sold out for two hours
-  // the published menu is revision 2, published five hours ago (the fixture's own number and time are a single publish's)
-  const demoSnap = { ...cafeDemo(), revision: 2, publishedAt: iso(n - 5 * HOUR) };
+  // the published menu is revision 2, published five hours ago (the fixture's own number and time are a single publish's),
+  // with what a full review shows: a description, a price note, allergens, a photo, and a relief whose file is missing
+  const demoSnap = withDetails({ ...cafeDemo(), revision: 2, publishedAt: iso(n - 5 * HOUR) });
   const demo: FakeVenue = {
     row: row(n - 3 * DAY, { id: VENUE.demo, slug: 'cafe-demo', name: t('Café Demo', 'קפה דמו'), isDemo: true, review: 'pending',
       onboarding: { stage: 'photos', done: 4, total: 9, since: iso(n - 2.5 * DAY), blocked: [{ step: 'photos', blockers: ['dish_without_photo'] }] },
@@ -629,9 +648,13 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
       const v = w.venues.find((x) => x.cases.some((c) => c.id === a.p_case));
       const c = v?.cases.find((x) => x.id === a.p_case);
       if (!v || !c) return { ok: false, code: 'case_unknown' };
+      // the backend's versioned update: refused when the case changed since the caller read it (the string as read)
+      if (a.p_expected_updated_at !== undefined && a.p_expected_updated_at !== null && a.p_expected_updated_at !== c.updatedAt) {
+        return { ok: false, code: 'stale', current: structuredClone(c) };
+      }
       if (typeof a.p_status === 'string') { c.status = a.p_status as CaseStatus; c.resolvedAt = c.status === 'resolved' ? iso(w.now()) : null; }
       if (typeof a.p_topic === 'string') c.topic = a.p_topic as SupportCase['topic'];
-      c.updatedAt = iso(w.now());
+      c.updatedAt = iso(Math.max(w.now(), Date.parse(c.updatedAt) + 1));
       v.row.openCases = v.cases.filter((x) => x.status !== 'resolved').length;
       log(w, v, 'support_cases.update', { via: 'rpc', reason, targetTable: 'support_cases', targetIds: [c.id], detail: { columns: ['status'], changes: { status: [null, c.status] } } });
       return { ok: true, case: structuredClone(c) };
@@ -685,7 +708,8 @@ function handle(w: World, user: string | null, fn: RpcName, a: Readonly<Record<s
     case 'ops_leads': {
       staffOnly();
       const s = a.p_status;
-      const leads = w.leads.filter((l) => (s === null || s === undefined ? l.status !== 'spam' : s === 'all' ? true : l.status === s));
+      const limit = typeof a.p_limit === 'number' ? Math.min(a.p_limit, 500) : 100;
+      const leads = w.leads.filter((l) => (s === null || s === undefined ? l.status !== 'spam' : s === 'all' ? true : l.status === s)).slice(0, limit);
       return { leads: structuredClone(leads), count: leads.length };
     }
     case 'ops_update_lead': {

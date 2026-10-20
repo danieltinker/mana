@@ -150,7 +150,7 @@ test('act for owner (M4): a dish change carries the updated_at it was reviewed w
   const stale = await api.actForOwner(input);
   assert.ok(!stale.ok && stale.kind === 'refused' && stale.code === 'stale');
   if (!stale.ok) {
-    assert.match(stale.message, /changed this since your review\. Nothing was changed/);
+    assert.match(stale.message, /^This changed since your review\. Nothing was changed: review it again\.$/, 'never says who changed it');
     assert.equal(stale.reply?.action, 'dish.update');
     assert.deepEqual((stale.reply?.current as { price: number }).price, 7400, 'the refusal carries the values now');
   }
@@ -271,9 +271,49 @@ test('cases: ops_update_case gets null for what does not change, and needs a rea
   const caseId = (await api.venue(VENUE.demo)).ok ? w.venues[0]!.cases[0]!.id : '';
   const r = await api.updateCase({ caseId, status: 'waiting_owner', reason: 'Asked the owner for the photos' });
   assert.ok(r.ok && r.data.case.status === 'waiting_owner');
-  assert.deepEqual(last(w)?.args, { p_case: caseId, p_status: 'waiting_owner', p_topic: null, p_reason: 'Asked the owner for the photos' });
+  assert.deepEqual(last(w)?.args, { p_case: caseId, p_status: 'waiting_owner', p_topic: null, p_reason: 'Asked the owner for the photos', p_expected_updated_at: null });
   const nothing = await api.updateCase({ caseId, reason: 'Nothing at all' });
   assert.ok(!nothing.ok && nothing.errors?.some((e) => e.code === 'nothing_to_change'));
+});
+
+test('cases (L4): the update carries the case\'s updatedAt as read; a change since is refused with the case as it is', async () => {
+  const { w, api } = setup();
+  const c = w.venues[0]!.cases[0]!;
+  const seen = c.updatedAt;
+  const n = w.calls.length;
+  const bad = await api.updateCase({ caseId: c.id, status: 'resolved', reason: 'Done with it', expectedUpdatedAt: 'last week' });
+  assert.ok(!bad.ok && bad.kind === 'invalid' && bad.errors?.some((e) => e.code === 'time_invalid'));
+  assert.equal(w.calls.length, n, 'refused before the call');
+  assert.ok((await api.updateCase({ caseId: c.id, status: 'waiting_owner', reason: 'Asked the owner, by A', expectedUpdatedAt: seen })).ok);
+  assert.equal(last(w)?.args.p_expected_updated_at, seen, 'sent back exactly as read');
+  const stale = await api.updateCase({ caseId: c.id, status: 'resolved', reason: 'Done, by B', expectedUpdatedAt: seen });
+  assert.ok(!stale.ok && stale.code === 'stale' && (stale.reply?.current as { status: string }).status === 'waiting_owner');
+  assert.equal(w.venues[0]!.cases[0]!.status, 'waiting_owner', 'nothing changed');
+});
+
+test('approve: a revision number past PostgreSQL\'s integer is refused before the call (SEC-N2)', async () => {
+  const { w, api } = setup();
+  const n = w.calls.length;
+  const r = await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2147483648 });
+  assert.ok(!r.ok && r.kind === 'invalid' && r.errors?.some((e) => e.code === 'revision_invalid'));
+  assert.ok((await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2147483647 })).ok === false, 'the largest is sent (and refused by the fake: not the published one)');
+  assert.equal(w.calls.length, n + 1);
+});
+
+test('own_venue (backend 050b7ad): a staff member who is also a member of the venue is told so in plain words', async () => {
+  const { w } = setup();
+  const member = fakeBackend(w, USERS.support);
+  const backend: Backend = { ...member, rpc: async (fn, args) => (['ops_approve_venue', 'ops_set_plan', 'ops_set_demo'].includes(fn)
+    ? { data: { ok: false, code: 'own_venue' }, error: null } : member.rpc(fn, args)) };
+  const api = opsApi(backend);
+  for (const r of [
+    await api.approve({ venueId: VENUE.demo, reason: 'Menu checked with the owner', expectedRevision: 2 }),
+    await api.setPlan({ venueId: VENUE.demo, state: 'suspended', until: null, plan: null, reason: 'Testing the plan switch' }),
+    await api.setDemo({ venueId: VENUE.demo, demo: false, reason: 'Testing the demo switch' }),
+  ]) {
+    assert.ok(!r.ok && r.kind === 'refused' && r.code === 'own_venue');
+    if (!r.ok) assert.equal(r.message, 'You are a member of this venue (its owner, a manager or the counter), so you cannot approve it or change its plan or demo label: another Halom staff member must.');
+  }
 });
 
 test('plan: admins only, a reason, a known state', async () => {

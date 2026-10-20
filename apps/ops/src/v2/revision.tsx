@@ -8,17 +8,26 @@
  * a venue waiting for approval, or when asked: never on a timer.
  */
 import { useEffect, useState } from 'preact/hooks';
-import type { OpsRevision, OpsVenueDetail, Text } from '@mana/contracts';
+import type { OpsRevision, OpsVenueDetail, SnapshotV2, Text } from '@mana/contracts';
 import type { Fail, Ok } from './api.ts';
 import { compareSnapshots, diffSize, fmtDateTime, fmtMoney, names, type MenuDiff } from './model.ts';
 import { Badge, Notice, T, useCtx } from './ui.tsx';
+import { MenuReadView } from './menu-read.tsx';
 
 type Rev = Ok<OpsRevision>;
 type Shown = { readonly rev: Rev; readonly base: Rev | null };
 /** Which revision to show: the published one (what guests see, or will see once approved), the newest, or a number. */
 type Which = 'published' | 'newest' | number;
+/** The revision on screen: the number the approval names, and its menu (names for the timeline before approval). */
+export type OnScreen = { readonly number: number; readonly snapshot: SnapshotV2 };
 
-export function Revisions({ detail, onRead }: { detail: OpsVenueDetail; onRead: () => unknown }) {
+export function Revisions({ detail, onRead, onShown, cache }: {
+  detail: OpsVenueDetail; onRead: () => unknown;
+  /** Told the revision now on screen, after each successful read (a failed read leaves the last one on screen, and says so). */
+  onShown?: (s: OnScreen) => void;
+  /** Revisions already read on this page, by number: stored revisions never change, so each is read (and logged) once. */
+  cache?: Map<number, Rev>;
+}) {
   const { api, notStaff, signedOut } = useCtx();
   const v = detail.venue;
   const pending = v.review === 'pending';
@@ -34,13 +43,18 @@ export function Revisions({ detail, onRead }: { detail: OpsVenueDetail; onRead: 
 
   const read = async (which: Which, compare: typeof want.compare) => {
     setBusy(true); setFail(null);
+    let fetched = false;
     const got = async (n: number | null) => {
+      const hit = n !== null ? cache?.get(n) : undefined;
+      if (hit) return { ok: true as const, data: hit };
+      fetched = true;
       const r = await api.revision({ venueId: v.id, revision: n });
       if (!r.ok) { if (r.kind === 'not_staff') notStaff(r); else if (r.kind === 'signed_out') signedOut(); }
+      else cache?.set(r.data.revision.number, r.data);
       return r;
     };
     const r = await got(which === 'published' ? published : which === 'newest' ? null : which);
-    if (!r.ok) { setBusy(false); setFail(r); return; }
+    if (!r.ok) { setBusy(false); setFail(r); if (fetched) onRead(); return; }
     const rev = r.data;
     const live = v.menu.revision;
     const before = rev.revision.number > 1 ? rev.revision.number - 1 : null;
@@ -49,9 +63,10 @@ export function Revisions({ detail, onRead }: { detail: OpsVenueDetail; onRead: 
         : compare === 'previous' ? before : compare === rev.revision.number ? null : compare;
     const b = target === null ? null : await got(target);
     setBusy(false);
-    if (b && !b.ok) { setFail(b); return; }
     setShown({ rev, base: b && b.ok ? b.data : null });
-    onRead();
+    onShown?.({ number: rev.revision.number, snapshot: rev.snapshot });
+    if (b && !b.ok) setFail(b);
+    if (fetched) onRead();
   };
   // a venue waiting for approval: read the menu it waits with; again when the owner publishes a newer one
   useEffect(() => { if (asked) void read(want.number, want.compare); }, [asked, v.menu.revision]);
@@ -98,7 +113,8 @@ export function Revisions({ detail, onRead }: { detail: OpsVenueDetail; onRead: 
                 </label>
               </div>
             )}
-            {fail && <Notice tone="bad">Could not read the revision. {fail.message}</Notice>}
+            {fail && <Notice tone="bad"><span data-revision-fail>Could not read the revision. {fail.message}
+              {shown ? ` Still on screen: revision ${shown.rev.revision.number}.` : ''}</span></Notice>}
             {busy && !shown && <p class="boot" role="status">Reading the revision…</p>}
             {shown && <Shown shown={shown} busy={busy} pending={pending} published={published} />}
           </>
@@ -111,8 +127,6 @@ export function Revisions({ detail, onRead }: { detail: OpsVenueDetail; onRead: 
 function Shown({ shown, busy, pending, published }: { shown: Shown; busy: boolean; pending: boolean; published: number | null }) {
   const { rev, base } = shown;
   const diff = base ? compareSnapshots(base.snapshot, rev.snapshot) : null;
-  const added = new Set(diff?.dishesAdded.map((d) => d.id));
-  const price = new Map(diff?.prices.map((p) => [p.id, p] as const));
   const isPublished = rev.revision.number === published;
   return (
     <div class={'stack-s' + (busy ? ' is-stale' : '')} data-revision={rev.revision.number}>
@@ -126,25 +140,7 @@ function Shown({ shown, busy, pending, published }: { shown: Shown; busy: boolea
           {rev.revision.number > published ? ' (the owner went back to an earlier revision, or has not published this one)' : ''}.</span></Notice>
       )}
       {base && diff && <Diff diff={diff} base={base.revision.number} baseIsPublished={base.revision.number === published} />}
-      <ul class="menu-view" data-revision-menu>
-        {rev.snapshot.sections.map((sec) => (
-          <li key={sec.id} class="msec">
-            <ul>
-              <li class="mrow" data-menu-row="section"><T class="mrow-name">{names(sec.name).main}</T></li>
-              {sec.dishes.map((d) => {
-                const p = price.get(d.id);
-                return (
-                  <li key={d.id} class="mrow is-sub" data-id={d.id}>
-                    <T class="mrow-name">{names(d.name).main}</T>
-                    {added.has(d.id) && <Badge tone="info" data="new">new</Badge>}
-                    <span class="mrow-price">{p ? <>{p.from === null ? 'no price' : fmtMoney(p.from)} → </> : null}{d.price ? fmtMoney(d.price.amount) : 'no price'}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </li>
-        ))}
-      </ul>
+      <MenuReadView snapshot={rev.snapshot} diff={diff} />
     </div>
   );
 }

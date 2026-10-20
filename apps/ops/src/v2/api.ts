@@ -7,7 +7,7 @@
  * typed fake in the tests.
  */
 import {
-  isObject, isUuid, stripBlank, validateActForOwner, validateActivityQuery, validateApproveVenue, validateDashboardQuery,
+  instantMs, isObject, isUuid, stripBlank, validateActForOwner, validateActivityQuery, validateApproveVenue, validateDashboardQuery,
   validateExportQuery, validateOpsAnalyticsQuery, validateOpsLeadsQuery, validateOpsRevisionQuery, validateOpsVenueQuery, validateOpsVenuesQuery,
   validateSetDemo, validateSetPlan, validateUpdateCase, validateUpdateLead,
   type ActForOwnerInput, type ActForOwnerReply, type ActivityPage, type ActivityQuery, type ApproveVenueInput, type ApproveVenueReply,
@@ -82,7 +82,9 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   revision_unknown: 'That revision does not exist.',
   revision_changed: 'The owner’s published revision changed since your review. Nothing was approved: read it and review again.',
   approval_first: 'A plan does not approve a venue: approve its first publish first, after reading its menu.',
-  stale: 'The owner changed this since your review. Nothing was changed: review it again.',
+  stale: 'This changed since your review. Nothing was changed: review it again.',
+  own_venue: 'You are a member of this venue (its owner, a manager or the counter), so you cannot approve it or change its plan or demo label: another Halom staff member must.',
+  case_changed: 'This case changed since your review. Nothing was changed: review it again.',
   revision_invalid: 'That is not a revision number.',
   text_invalid: 'Some text holds characters that cannot be stored.',
   already_approved: 'This venue was already approved.',
@@ -132,6 +134,12 @@ const invalid = (errors: readonly Issue[]): Fail => ({
   message: errors[0] && CODE_TEXT[errors[0].code] ? (CODE_TEXT[errors[0].code] as string) : 'Some details are missing or wrong.',
 });
 const malformed: Fail = { ok: false, kind: 'server', message: 'The server sent an answer this page does not understand.' };
+
+/**
+ * `ops_update_case` with the case's version as staff read it (`p_expected_updated_at`, the backend's round: a change since
+ * answers `stale` with the case as it is). The contract's `UpdateCaseInput` gains it in its round 7; this type goes then.
+ */
+export type CaseInput = UpdateCaseInput & { readonly expectedUpdatedAt?: string | null };
 
 /** The success half of a write's reply (the contracts type both halves; the failure becomes a `Fail`). */
 export type Ok<R> = Extract<R, { readonly ok: true }>;
@@ -228,11 +236,16 @@ export function opsApi(backend: Backend) {
       return write<ActForOwnerReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
     },
 
-    updateCase(input: UpdateCaseInput): Promise<Result<Ok<UpdateCaseReply>>> {
-      const v = validateUpdateCase(input);
-      if (!v.ok) return Promise.resolve(invalid(v.errors));
+    /** With the case's `updatedAt` as read (`expectedUpdatedAt`, sent back unchanged): a change since answers `stale`. */
+    updateCase(input: CaseInput): Promise<Result<Ok<UpdateCaseReply>>> {
+      const { expectedUpdatedAt, ...base } = input;
+      const v = validateUpdateCase(base);
+      const errors = [...(v.ok ? [] : v.errors),
+        ...(expectedUpdatedAt === undefined || expectedUpdatedAt === null || !Number.isNaN(instantMs(expectedUpdatedAt)) ? [] : [{ code: 'time_invalid', path: 'expectedUpdatedAt' }])];
+      if (errors.length) return Promise.resolve(invalid(errors));
       return write<UpdateCaseReply>('ops_update_case', {
         p_case: input.caseId, p_status: input.status ?? null, p_topic: input.topic ?? null, p_reason: input.reason ? stripBlank(input.reason) : null,
+        p_expected_updated_at: expectedUpdatedAt ?? null,
       });
     },
 

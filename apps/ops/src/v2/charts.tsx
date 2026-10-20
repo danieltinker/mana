@@ -4,21 +4,26 @@
  * labelled axes, one direct label (the peak), a hover and keyboard read-out, and a table twin. A chart with nothing to
  * show says so instead of drawing an empty frame; no number is ever made up.
  */
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { fmtInt, fmtPct } from './model.ts';
 
-function useWidth(ref: { current: HTMLElement | null }): number {
+/**
+ * The plot's width, measured whenever the plot is in the page: a callback ref, so a chart that starts empty (no plot)
+ * measures when its first data arrives on a poll, and again after the table view gives the plot back.
+ */
+function useWidth(): [(el: HTMLElement | null) => void, number] {
   const [w, setW] = useState(0);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
+  const ro = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: HTMLElement | null) => {
+    ro.current?.disconnect();
+    ro.current = null;
+    if (!el) return;
     const measure = () => setW(Math.floor(el.getBoundingClientRect().width));
     measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+    if (typeof ResizeObserver === 'function') { ro.current = new ResizeObserver(measure); ro.current.observe(el); }
   }, []);
-  return w;
+  useEffect(() => () => ro.current?.disconnect(), []);
+  return [ref, w];
 }
 
 /** The next round number at or above v, for the y axis (2, 4, 5, 10, 20, …). */
@@ -50,8 +55,7 @@ export type ColumnsProps = {
 };
 
 export function Columns({ id, title, labels, longLabels, values, unit, per, axis, empty }: ColumnsProps) {
-  const box = useRef<HTMLDivElement>(null);
-  const width = useWidth(box);
+  const [box, width] = useWidth();
   const [active, setActive] = useState(-1);
   const [asTable, setAsTable] = useState(false);
   const total = values.reduce((s, v) => s + v, 0);

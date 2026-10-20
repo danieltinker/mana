@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HalomBot, OwnerBot, asAnon, loadSeed, readSeed, runRandom, SEEDS } from '@mana/sim';
 import { OUT, startE2E } from './helpers.mjs';
+import { withStorageImages } from '../apps/ops/tools/csp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'apps/ops/dist');
@@ -30,11 +31,12 @@ before(async () => {
   site = fs.mkdtempSync(path.join(os.tmpdir(), 'mana-ops-e2e-'));
   fs.writeFileSync(path.join(site, 'index.html'), '<!doctype html><meta charset="utf-8"><title>e2e</title>');
   e = await startE2E({ seed: null, site });
-  // the built back office, its Content-Security-Policy opened to the local stack (a local build does the same: the
-  // platform lane's tools/site-env.mjs)
+  // the built back office, its Content-Security-Policy opened to the local stack as a local build opens it: connect-src
+  // (the platform lane's tools/site-env.mjs) and img-src for the revision's pictures (apps/ops/tools/csp.mjs)
   fs.cpSync(DIST, path.join(site, 'ops'), { recursive: true });
   const index = path.join(site, 'ops/index.html');
-  fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace(/connect-src 'self'/, `connect-src 'self' ${e.stack.apiUrl}`));
+  const html = fs.readFileSync(index, 'utf8').replace(/connect-src 'self'/, `connect-src 'self' ${e.stack.apiUrl}`);
+  fs.writeFileSync(index, withStorageImages(html, e.stack.apiUrl));
 
   staff = await HalomBot.firstAdmin(e.stack, e.stack, STAFF);
   const seed = readSeed(path.join(SEEDS, 'cafe-demo.json')).seed;
@@ -244,7 +246,10 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     await p.locator('[data-page=clients]').waitFor();
 
     // find it
+    // the search is asked after a pause in the typing, and the list starts again from nothing: wait for its answer
+    const searched = p.waitForResponse((r) => r.url().includes('/rpc/ops_venues') && (r.request().postData() ?? '').includes(`"q":"${v.slug}"`));
     await p.locator('[data-search]').fill(v.slug);
+    await searched;
     const row = p.locator(`[data-venue="${v.slug}"]`).first();
     await row.waitFor();
     assert.match(await row.innerText(), /Café Demo/);

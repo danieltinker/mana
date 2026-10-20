@@ -3,12 +3,12 @@
  * are personal data: the database logs every read, so this page loads them when it opens and when asked, never on a
  * timer. Every enquiry's words are shown as text.
  */
-import { useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { LEAD_STATUSES, type LeadStatus, type OpsLead, type OpsLeads } from '@mana/contracts';
 import { useLive } from './hooks.ts';
 import { ago, fmtDateTime, fmtInt } from './model.ts';
 import { Freshness } from './freshness.tsx';
-import { LoadError, T, useCtx, useNarrow } from './ui.tsx';
+import { Clamp, LoadError, Notice, T, useCtx, useNarrow } from './ui.tsx';
 import { Write } from './write.tsx';
 
 const STATUS_LABEL: Readonly<Record<LeadStatus, string>> = {
@@ -26,12 +26,23 @@ export function contactHref(contact: string): string | null {
   return null;
 }
 
+/** The newest this page reads: more than this, and it says the list and its counts are of these only. */
+export const LEADS_READ = 300;
+
 export function Leads() {
-  const { api } = useCtx();
+  const { api, recheck } = useCtx();
   const narrow = useNarrow(900);
   const [show, setShow] = useState<Show>('open');
-  const live = useLive<OpsLeads>(() => api.leads({ status: 'all' }), [], { poll: false });
+  const live = useLive<OpsLeads>(() => api.leads({ status: 'all', limit: LEADS_READ }), [], { poll: false });
+  // personal data on screen: whenever the page is looked at again, check that this account is still staff
+  useEffect(() => {
+    const on = () => { if (document.visibilityState === 'visible') void recheck(); };
+    window.addEventListener('focus', on);
+    document.addEventListener('visibilitychange', on);
+    return () => { window.removeEventListener('focus', on); document.removeEventListener('visibilitychange', on); };
+  }, [recheck]);
   const all = live.data?.leads ?? [];
+  const capped = all.length >= LEADS_READ;
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: all.length, open: 0 };
     for (const s of LEAD_STATUSES) c[s] = 0;
@@ -48,6 +59,7 @@ export function Leads() {
         <Freshness live={live} polls={false} />
       </div>
       <p class="muted small">Enquiries from Mana’s product page, newest first. They are personal data: each time this list loads, the database logs that Halom read it.</p>
+      {capped && <Notice tone="info"><span data-leads-capped>Showing the newest {fmtInt(LEADS_READ)} enquiries only: older ones are not on this page, and the counts below are of these {fmtInt(LEADS_READ)}.</span></Notice>}
       {!live.data && live.fail && <LoadError fail={live.fail} retry={() => void live.refresh()} what="the leads" />}
       {!live.data && !live.fail && <p class="boot" role="status">Loading the leads…</p>}
       {live.data && (all.length === 0 ? (
@@ -78,7 +90,7 @@ export function Leads() {
 }
 
 function Lead({ l, card = false, onDone }: { l: OpsLead; card?: boolean; onDone: () => Promise<boolean> }) {
-  const { api } = useCtx();
+  const { api, recheck } = useCtx();
   const [status, setStatus] = useState<LeadStatus>(l.status);
   const [owner, setOwner] = useState(l.owner ?? '');
   const [notes, setNotes] = useState(l.notes ?? '');
@@ -92,7 +104,7 @@ function Lead({ l, card = false, onDone }: { l: OpsLead; card?: boolean; onDone:
   const meta = <><span class="mono lead-ref" data-ref>{l.ref}</span> <span class="sub">{fmtDateTime(l.created_at)} · {ago(l.created_at, Date.now())}{l.locale ? ` · ${l.locale}` : ''}</span></>;
   const words = (
     <div class="dream">
-      <p class="dream-text clamp3" dir="auto" data-dream>{l.message}</p>
+      <Clamp text={l.message} class="dream-text" data="dream" />
       {(l.venue_name || l.source !== 'mana-landing') && <p class="sub">{l.venue_name && <T>{l.venue_name}</T>}{l.source !== 'mana-landing' && <> · <T>{l.source}</T></>}</p>}
     </div>
   );
@@ -105,17 +117,26 @@ function Lead({ l, card = false, onDone }: { l: OpsLead; card?: boolean; onDone:
   const edit = (
     <div class="lead-edit">
       <p class="small"><span class={`status status-${l.status}`}>{STATUS_LABEL[l.status]}</span>{l.owner && <> · <T>{l.owner}</T></>}</p>
-      {l.notes && <p class="small pre clamp3"><T>{l.notes}</T></p>}
+      {l.notes && <Clamp text={l.notes} class="small pre" data="lead-notes-text" />}
       <details class="case-edit" open={open} onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
         <summary data-edit>Edit</summary>
         <Write id={`lead-${l.ref}`} submit="Save" reason={false}
-          plan={() => {
+          plan={async () => {
+            // a removed staff member is stopped here, before the write, not by its refusal
+            if (!(await recheck())) return { ok: false, why: 'Your staff access is no longer there.' };
             const c = changes();
             return c.length ? { ok: true, what: `Save for ${l.ref}: ${c.join(', ')}.`, input: { id: l.id, ...(status !== l.status ? { status } : {}),
               ...(owner.trim() !== (l.owner ?? '') ? { owner: owner.trim() } : {}), ...(notes.trim() !== (l.notes ?? '') ? { notes: notes.trim() } : {}) } }
               : { ok: false, why: 'Nothing would change.' };
           }}
           run={(input) => api.updateLead(input)}
+          landed={async (input) => {
+            const r = await api.leads({ status: 'all' });
+            const now = r.ok ? r.data.leads.find((x) => x.id === input.id) : undefined;
+            if (!now) return 'unknown';
+            return (input.status === undefined || now.status === input.status) && (input.owner === undefined || (now.owner ?? '') === input.owner)
+              && (input.notes === undefined || (now.notes ?? '') === input.notes) ? 'yes' : 'no';
+          }}
           done={() => 'Saved.'} onDone={onDone}>
           <label class="field"><span>Status</span>
             <select value={status} onChange={(e) => setStatus(e.currentTarget.value as LeadStatus)} data-lead-status>
