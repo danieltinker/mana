@@ -31,62 +31,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { ROOT } from './env.mjs';
 
-/** Where the list is: MANA_FORBIDDEN_NAMES_FILE, else private/forbidden-names.txt. */
-export const listFile = (env = process.env) => env.MANA_FORBIDDEN_NAMES_FILE || path.join(ROOT, 'private/forbidden-names.txt');
-
-const ENTITIES = { nbsp: ' ', ensp: ' ', emsp: ' ', thinsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", shy: '', zwj: '', zwnj: '', lrm: '', rlm: '' };
-const FINALS = { 'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ' };
-const ESCAPED = { n: ' ', t: ' ', r: ' ' };
-const codePoint = (n) => { try { return String.fromCodePoint(n); } catch { return ' '; } };
-
-/** What a reader sees: escapes, %XX and entities decoded, tags and format characters dropped. */
-export function decode(s) {
-  return s
-    .replace(/\\(?:u\{([0-9a-fA-F]{1,6})\}|u([0-9a-fA-F]{4})|([ntr])|([\\"'/]))/g, (m, a, b, c, d) => (a ?? b ? codePoint(parseInt(a ?? b, 16)) : c ? ESCAPED[c] : d))
-    .replace(/(?:%[0-9a-fA-F]{2})+/g, (m) => { try { return decodeURIComponent(m); } catch { return m; } })
-    .replace(/&(#[xX][0-9a-fA-F]+|#\d+|[A-Za-z][A-Za-z0-9]*);/g, (m, e) => {
-      if (e[0] === '#') return codePoint(/^#[xX]/.test(e) ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
-      const accented = /^([A-Za-z])(acute|grave|circ|uml|tilde|cedil|ring|slash|caron)$/.exec(e);
-      return accented ? accented[1] : ENTITIES[e.toLowerCase()] ?? ' ';
-    })
-    .replace(/<\/?[A-Za-z][^<>]*>/g, '')
-    .replace(/\p{Cf}/gu, '');
-}
-/** A line's words: decoded, NFKD, accents and points dropped, camel case split, lower case, Hebrew finals folded. */
-export const wordsOf = (s) => decode(s).normalize('NFKD').replace(/\p{M}/gu, '')
-  .replace(/(\p{Ll})(\p{Lu})/gu, '$1 $2').replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, '$1 $2')
-  .toLowerCase().replace(/[ךםןףץ]/g, (c) => FINALS[c]).match(/\p{L}+/gu) ?? [];
-
-/** The names in a list file's text: [{ words, joined }] (a blank line or a # comment is skipped). */
-export function parseList(text) {
-  return text.split(/\r?\n/).map((l) => l.replace(/#.*$/, '').trim()).filter(Boolean).map((l) => wordsOf(l)).filter((w) => w.length)
-    .map((words) => ({ words, joined: words.length > 1 ? words.join('') : null }));
-}
-
-const plural = (w, of) => w === of || w === of + 's' || w === of + 'es';
-/** The lines of `text` that hold a listed name: [{ line, entry }] (the name's place in the list, never the name). */
-export function findNames(text, names) {
-  const out = [], longest = Math.max(1, ...names.map((n) => n.words.length));
-  let recent = [];                                          // the last words read, across lines: { w, line }
-  text.split('\n').forEach((s, i) => {
-    for (const w of wordsOf(s)) {
-      recent.push({ w, line: i + 1 });
-      if (recent.length > longest) recent = recent.slice(-longest);
-      names.forEach((n, entry) => {
-        const k = n.words.length, tail = recent.slice(-k);
-        if (tail.length === k && tail.every((x, j) => (j < k - 1 ? x.w === n.words[j] : plural(x.w, n.words[j])))) out.push({ line: tail[0].line, entry });
-        else if (n.joined && w.includes(n.joined)) out.push({ line: i + 1, entry });
-      });
-    }
-  });
-  return out;
-}
-
-/** A path as the guard prints it: a part that holds a listed word (or a name written as one) is masked. */
-export function maskPath(p, names) {
-  const listed = new Set(names.flatMap((n) => n.words)), joined = names.map((n) => n.joined).filter(Boolean);
-  return p.split('/').map((part) => (wordsOf(part).some((w) => listed.has(w) || [...listed].some((l) => plural(w, l)) || joined.some((j) => w.includes(j))) ? '[masked]' : part)).join('/');
-}
+/* the reader and matcher live in tools/names.mjs (no tests there), so other suites check their files with them */
+import { findingsIn, findNames, listFile, maskPath, parseList, readList } from './names.mjs';
+export { decode, findingsIn, findNames, listFile, maskPath, parseList, readList, wordsOf } from './names.mjs';
 
 const git = (args, cwd = ROOT) => spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 1 << 30 });
 /** The file's text, or null for a binary file (a NUL byte in its first 8 KB) or one that is gone. */
@@ -107,13 +54,11 @@ export function pushedBranches(env = process.env, cwd = ROOT) {
   return out;
 }
 
-const FILE = listFile(), NAMED = !!process.env.MANA_FORBIDDEN_NAMES_FILE, NAMES = fs.existsSync(FILE) ? parseList(fs.readFileSync(FILE, 'utf8')) : null;
-if (NAMED && !NAMES?.length) {
-  test('the list MANA_FORBIDDEN_NAMES_FILE names is there and holds names', () => {
-    assert.fail(`MANA_FORBIDDEN_NAMES_FILE points at ${NAMES ? 'an empty list' : 'nothing'}: set it to the list, or unset it`);
-  });
-} else if (!NAMES?.length) {
-  console.log(`note: no list: nothing checked (private/forbidden-names.txt is ${NAMES ? 'empty' : 'not there'}; the machines that push have it)`);
+const LIST = readList(), NAMES = LIST.names;
+if (LIST.problem) {
+  test('the list MANA_FORBIDDEN_NAMES_FILE names is there and holds names', () => { assert.fail(LIST.problem); });
+} else if (LIST.note) {
+  console.log('note: ' + LIST.note);
 } else {
   test('no tracked or new file holds a forbidden name, in its text or its path', () => {
     const r = git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']);
@@ -121,9 +66,8 @@ if (NAMED && !NAMES?.length) {
     const found = [];
     let read = 0;
     for (const f of r.stdout.split('\0').filter(Boolean)) {
-      for (const x of findNames(f.replace(/\//g, ' / '), NAMES)) found.push(`${maskPath(f, NAMES)}: its path holds forbidden name #${x.entry + 1}`);
-      const s = readText(path.join(ROOT, f)); if (s === null) continue; read++;
-      for (const x of findNames(s, NAMES)) found.push(`${maskPath(f, NAMES)}:${x.line}: forbidden name #${x.entry + 1}`);
+      const s = readText(path.join(ROOT, f)); if (s !== null) read++;
+      found.push(...findingsIn(f, s, NAMES));
     }
     assert.ok(read > 100, 'the repository\'s text files were read');
     assert.deepEqual(found, []);
