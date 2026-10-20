@@ -234,6 +234,8 @@ test('prices typed as people type them, in Hebrew and in English, on a dish and 
       assert.equal((await optionsOf(ids.groups.spare))[0].price, before, `choice "${typed}" is not stored`);
     } else await until(async () => (await optionsOf(ids.groups.spare))[0].price === stored, `choice "${typed}" stored as ${stored}`);
   }
+  // the editor has the answer (nothing left to save: leaving does not ask)
+  await ed.locator('[data-action="save-group"]:disabled:not([aria-busy])').waitFor();
   await switchLanguage(page);
   await page.context().close();
 });
