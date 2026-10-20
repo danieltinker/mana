@@ -9,10 +9,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# The build job only reads (the code, and the Pages settings configure-pages needs); only the deploy job may write to
+# Pages, and only from main.
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  pages: read
 
 concurrency:
   group: pages
@@ -27,10 +28,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            view/package-lock.json
-            studio/package-lock.json
-            ops/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Build the site
         run: bash tools/build-site.sh
       - uses: actions/configure-pages@v5
@@ -40,7 +38,11 @@ jobs:
 
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

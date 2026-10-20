@@ -16,13 +16,18 @@ post-processing as Halom's Python pipeline (`base/pipeline.py`).
 
 Older sections below still name the old repository's paths (`projects/menus/…`). In this repository the sources are
 the folders in the table; `tools/build-site.sh` puts the built files at the root of `_site/`, and halom.io serves them at `/mana/…`.
+Since 15 Oct 2026 the three apps' sources are under `apps/` (`apps/view`, `apps/studio`, `apps/ops`); what they are built
+into, and every address below, did not change. A path like `studio/` or `view/` in this file is an address; a source
+path is written `apps/…`.
 
 | Path in this repository | Built into `_site/` as | What | Lane |
 |---|---|---|---|
 | `brand/site/` | `index.html`, `guide/`, `privacy/`, `terms/` | owner-facing product page | studio |
-| `studio/` | `studio/` | owner dashboard (SPA) | studio |
-| `view/` | `view/` | diner viewer | viewer |
+| `apps/studio/` | `studio/` | owner dashboard (SPA) | studio |
+| `apps/ops/` | `ops/` | Halom back office | ops |
+| `apps/view/` | `view/` | diner viewer | viewer |
 | `gen/` | `gen/` | in-browser generator: module, runtime, models | gen |
+| `stock/` | `stock/` | placeholder picture library | viewer |
 | `config.js` | `config.js` | Supabase URL + publishable key + URL bases | lead |
 
 Public URLs (since 13 Oct 2026): `https://halom.io/mana/...` (the product page, `studio/`, `ops/`, `view/`, `gen/`,
@@ -280,10 +285,10 @@ rest is icons, pictures and the controls themselves. No paragraph of instruction
 ---
 # Amendments r2 (13 Oct 2026, round two of the remaster) — optional snapshot fields; still `v: 1`, readers ignore what they do not know
 Nothing in the backend changes: every field below is optional and the viewer infers what is missing. The viewer validates them
-in `view/src/snapshot.js`; an invalid value is treated as absent.
+in `apps/view/src/snapshot.js`; an invalid value is treated as absent.
 
 - `category.room`: `table | vitrine | cellar | taps | cocktail`. The room of the place the category is shown in (see
-  `view/README.md`, "The rooms of the place"). Absent or unknown → from `kind`: food → `table`, dessert → `vitrine`, wine →
+  `apps/view/README.md`, "The rooms of the place"). Absent or unknown → from `kind`: food → `table`, dessert → `vitrine`, wine →
   `cellar`, beer → `taps`, drinks → `cocktail`. `scene` keeps its meaning (`table` keeps the table, `bar` → the drinks room of
   the kind, `holo` → the projector) and `theme.surface = 'holo'` still makes every category a projection.
 - `business.soldOut`: `bottom` (default) | `hide`. `bottom`: an item with `available: false` is shown at the end of its section,
@@ -295,5 +300,5 @@ in `view/src/snapshot.js`; an invalid value is treated as absent.
 - `item.details.beer.taste`: `{ style?: lager | wheat | pale | ipa | amber | stout | sour, bitter?: 1..3 (mild, balanced, bitter),
   notes?: [citrus | malt | roast | hop | sour | fruit | spice] }`.
   Without `taste`, the viewer reads the existing fields (`wine.color`, `wine.notes.*`, `beer.style`, `beer.abv`) and, marked as
-  suggested, the merchant's own description words (`view/src/drinks/taste.js`). Nothing is ever shown that the merchant did not
+  suggested, the merchant's own description words (`apps/view/src/drinks/taste.js`). Nothing is ever shown that the merchant did not
   enter or write.

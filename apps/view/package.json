@@ -1,0 +1,22 @@
+{
+  "name": "halom-menu-view",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Mana: what a guest sees. Sources in src/; the build (app.js, seat.js, chunks/) is made by npm run build and is not in git.",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node --test test/rooms.test.mjs test/physics.test.mjs test/glide.test.mjs test/store.test.mjs test/snapshot.test.mjs test/scenes.test.mjs test/drinks.test.mjs test/looks.test.mjs test/seat.test.mjs ../../seating/timers.test.mjs ../../seating/floor.test.mjs",
+    "test:browser": "node --test --test-concurrency=1 test/browser.test.mjs test/drinks.browser.test.mjs test/looks.browser.test.mjs test/seat.browser.test.mjs test/hero.browser.test.mjs test/host.browser.test.mjs test/floor.browser.test.mjs test/rooms.browser.test.mjs",
+    "film": "node tools/film.mjs",
+    "serve": "node tools/serve.mjs",
+    "pretest:browser": "node tools/build.mjs",
+    "preserve": "node tools/build.mjs"
+  },
+  "devDependencies": {
+    "@fontsource-variable/frank-ruhl-libre": "^5.3.0",
+    "@fontsource/ibm-plex-sans-hebrew": "^5.3.0",
+    "esbuild": "^0.28.2",
+    "three": "^0.128.0"
+  }
+}

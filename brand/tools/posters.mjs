@@ -5,7 +5,7 @@
                                          tools/build-site.mjs replaces it with the video's first frame
      site/img/demo-poster.jpg            the whole table: the still behind "Play with it"
      tools/film/placeholders/*.jpg       stills the film composer animates until the real screen recordings arrive
-   Which viewer: MANA_VIEW (see tools/serve.mjs); the default here is the published copy, because ../view is being rebuilt.
+   Which viewer: MANA_VIEW (see tools/serve.mjs); the default here is the published copy, because ../apps/view is being rebuilt.
    Run: node tools/posters.mjs [page|film]      (about 20 s for the page stills, 60 s for the film stills) */
 import { createRequire } from 'node:module';
 import { mkdirSync, existsSync } from 'node:fs';

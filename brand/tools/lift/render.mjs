@@ -6,8 +6,8 @@
               --fps 30   --from 0 --to 10   --stills 0,3,6,9.5   --out <folder>   --crf 17
    Output: <out>/the-lift-<dish>-<lang>.mp4 and sheet-<dish>-<lang>.jpg (one frame every half second).
 
-   Point --view at the guest view with its media (pictures, fonts, table textures): this repository's view/ folder, or
-   _site/view after tools/build-site.sh. three.js comes from view/node_modules (npm ci there once). */
+   Point --view at the guest view with its media (pictures, fonts, table textures): this repository's apps/view/ folder, or
+   _site/view after tools/build-site.sh. three.js comes from apps/view/node_modules (npm ci at the root once). */
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -20,8 +20,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 let pw; try { pw = require('playwright'); } catch { pw = createRequire('/opt/npm-tools/node_modules/')('playwright'); }
 const arg = (name, def) => { const i = process.argv.indexOf('--' + name); return i < 0 ? def : (process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : true); };
-const VIEW = resolve(arg('view', join(HERE, '../../../view')));
-const THREE = resolve(HERE, '../../../view/node_modules/three/build/three.module.js');
+const VIEW = resolve(arg('view', join(HERE, '../../../apps/view')));
+const THREE = resolve(HERE, '../../../apps/view/node_modules/three/build/three.module.js');
 const dish = arg('dish', 'shakshuka'), label = arg('label', 'demo'), scale = Number(arg('scale', 1)), fps = Number(arg('fps', 30)), crf = String(arg('crf', 17));
 const langs = arg('lang', 'en') === 'both' ? ['en', 'he'] : [arg('lang', 'en')];
 const from = Number(arg('from', 0)), to = Number(arg('to', 10)), OUT = resolve(arg('out', join(HERE, 'out')));

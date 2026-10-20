@@ -10,7 +10,7 @@ the truth. This page is the short version for front-end work.
   → `{ "ok": true }` or `{ "ok": false, "code": "invalid_email"|"email_rejected"|"weak_password"|"exists"|"rate_limited"|"spam"|"failed" }`.
   `email_rejected` (13 Oct 2026): Auth itself refused the address (`email_address_invalid`: its domain failed Auth's own
   e-mail validation); `invalid_email` also covers Auth's "Unable to validate email address: invalid format". The function
-  strips invisible marks, a full-width `@` and a trailing full stop before checking, as the app does (`studio/src/lib/email.ts`).
+  strips invisible marks, a full-width `@` and a trailing full stop before checking, as the app does (`apps/studio/src/lib/email.ts`).
   The account is usable at once (no confirmation e-mail: the project has no mail service yet; say nothing about
   "check your inbox"). Then sign in with supabase-js `auth.signInWithPassword({ email, password })`.
 - Password reset by e-mail does NOT work yet. Show "Forgot it? Message us on WhatsApp" (https://wa.me/972542022269).
@@ -154,4 +154,4 @@ is the reference; the event shapes above are the contract).
 - 0004: `menu_events_daily(business_id, day, kind in book|seat|view|start, n)` read by members; `site_events_daily(day, kind in
   view|start, n)` read by nobody through the API; `track_menu(p_slug, p_kind)` (book, seat; published menus only) and
   `track_site(p_kind)`, both anon-callable, both capped per day (`app_config.event_caps`), never called from a demo or a preview.
-- Tested in the studio stack: `STACK_EXTRA_SQL=1`, `cd studio && npm run test:proposed`.
+- Tested in the studio stack: `STACK_EXTRA_SQL=1`, `cd apps/studio && npm run test:proposed`.

@@ -2,9 +2,9 @@
    room's floor, pale zones, low walls (the window wall as clear glass with a bright edge, the door as a gap with an oak
    threshold), and the furniture: white table tops with a thin oak edge, light grey chairs, a pale bar counter. Static
    parts are merged by material, so the whole room is a handful of draw calls. Metres; the room's middle is the origin
-   and the slab's top is y = 0. The plan maths (footprints, where chairs stand) is the seat demo's (view/src/seat/plan.js). */
+   and the slab's top is y = 0. The plan maths (footprints, where chairs stand) is the seat demo's (apps/view/src/seat/plan.js). */
 import { BufferGeometry, BufferAttribute, BoxGeometry, CylinderGeometry, ShapeGeometry, ExtrudeGeometry, Shape, Matrix4, Euler, Quaternion, Vector3, Mesh, Group, Color, MeshStandardMaterial, MeshPhysicalMaterial } from 'three';
-import { footprint, seatsOf } from '../../../../view/src/seat/plan.js';
+import { footprint, seatsOf } from '../../../../apps/view/src/seat/plan.js';
 
 export const TABLE_H = .74, WALL_H = 1.0, WALL_T = .14, MARGIN = 1.0, SLAB_T = .5;
 const lin = (hex) => new Color(hex).convertSRGBToLinear();

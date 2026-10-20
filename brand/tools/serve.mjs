@@ -5,7 +5,7 @@
    next to the real viewer at <prefix>view/ (read, not copied), the placeholder library at <prefix>stock/, a stub studio
    page at <prefix>studio/, a local config.js (v2 shape), and a stub of the leads function:
      POST /stub/rest/v1/rpc/submit_lead   →  {ok:true,ref} | {ok:false,code}     (contact "fail@x.io" → 500; "limit@x.io" → rate_limited)
-   Which viewer: MANA_VIEW=<folder> (or opts.view); default ../view. While the viewer lane is rebuilding ../view, point it at
+   Which viewer: MANA_VIEW=<folder> (or opts.view); default ../apps/view. While the viewer lane is rebuilding ../apps/view, point it at
    a stable copy, e.g. MANA_VIEW=/home/claude/halom-projects/projects/menus/view.
    Options: { delay, view, scan (config.features.scan), providers (config.auth.providers), media: {'img/hero.mp4': '/abs/file'},
    pages: {'index.html': '<html…>'} }. `media` and `pages` overlay what is not in site/ yet (the hero video, the films, the
@@ -29,7 +29,7 @@ export const KEY = 'sb_publishable_test';
 
 export function createServer(opts = {}) {
   const leads = [], log = [];
-  const VIEW = resolve(opts.view || process.env.MANA_VIEW || join(HERE, '..', '..', 'view'));
+  const VIEW = resolve(opts.view || process.env.MANA_VIEW || join(HERE, '..', '..', 'apps', 'view'));
   const SITE_DIR = opts.site ? resolve(opts.site) : SITE;                 // another build of the page (for example yesterday's, to measure it)
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x'); let path = decodeURIComponent(url.pathname);
