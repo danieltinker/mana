@@ -12,9 +12,12 @@ after(async () => { await browser.close(); srv.server.close(); });
 const host = (q = '') => srv.origin + VIEW + 'host/?demo=olea&test=1' + q;
 const rows = (page) => page.evaluate(() => Object.fromEntries(window.__host.rows().map((r) => [r.id, r.phase])));
 const text = (page, sel) => page.$eval(sel, (el) => el.textContent.trim());
+const EVENING = new Date(2026, 9, 16, 20, 0);
 
 test('loads alive, seats a table, a sped-up table runs out: the alert stays until Extend; a reload keeps the floor', async () => {
-  const { page, errors, ctx } = await open(browser, host('&speed=30&lang=he'), { width: 1280, height: 800 });
+  /* at ×30 every second the test spends looking and clicking is half a minute of the evening, and a busy machine spends many:
+     so the page's clock is the test's, standing still while it looks and running only when it is turned */
+  const { page, errors, ctx } = await open(browser, host('&speed=30&lang=he'), { width: 1280, height: 800, clock: EVENING });
   await page.waitForSelector('.tb');
   assert.equal(await page.$eval('html', (e) => e.lang + '/' + e.dir), 'he/rtl');
   assert.equal(await page.$$eval('#floor .tb', (els) => els.length), 12);
@@ -27,8 +30,9 @@ test('loads alive, seats a table, a sped-up table runs out: the alert stays unti
   await page.click('#partyInc'); await page.click('#frameInc'); assert.equal(await text(page, '#frameVal'), '105 דק׳');
   await page.click('#seatGo'); await page.waitForSelector('#sheet', { state: 'hidden' });
   let S = await page.evaluate(() => window.__host.state().tables.h2); assert.deepEqual([S.phase, S.party, S.minutes], ['seated', 3, 105]);
-  /* w3 had four minutes; at ×30 its time is up in about eight seconds */
-  await page.waitForSelector('.toast[role="alert"][data-id="w3"]', { timeout: 30000 });
+  /* w3 had four minutes; at ×30 its time is up after eight seconds of the page's clock, not before */
+  await page.clock.runFor(7000); assert.equal((await rows(page)).w3, 'ending', 'seven seconds at ×30: three and a half minutes, still running');
+  await page.clock.runFor(2000); await page.waitForSelector('.toast[role="alert"][data-id="w3"]');
   assert.match(await text(page, '.toast[data-id="w3"] b'), /^הזמן נגמר · שולחן 3 · ליד החלון$/);
   assert.equal((await rows(page)).w3, 'over'); assert.equal(await page.$eval('.tb[data-id="w3"]', (e) => e.dataset.phase), 'over');
   assert.ok((await page.title()).startsWith('● '), 'the tab says so');
