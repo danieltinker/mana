@@ -16,7 +16,8 @@ owner app ──upload──► menu-private/<venue>/imports/<import id>/<file> 
                   import's source against the mode, uploaded|failed → parsing. Nothing is read before it.
                3. the claim's paths checked, all of them, before any download: each exactly
                   <claimed venue>/imports/<this import>/<name> (name: letters, digits, ".", "_", "-"; not "." or "..");
-                  the claim's import is the one asked; 1 to IMPORT_IMAGES_MAX images (scan 8, wolt_screenshots 24)
+                  the claim's import is the one asked; 1 to IMPORT_IMAGES_MAX images (scan 8, wolt_screenshots 24),
+                  as many as the claim charged (`images`)
                4. the images, read with the owner's own token (Storage's row-level security decides), at most
                   MAX_IMAGE_BYTES (3.75 MB) each, refused by their declared size or while they stream, JPEG, PNG,
                   WebP or GIF

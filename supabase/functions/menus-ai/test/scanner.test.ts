@@ -61,10 +61,11 @@ function deps(fetch: typeof globalThis.fetch, env: Partial<Env> = {}, now: () =>
 }
 
 type Claimed = Extract<ClaimScanReply, { ok: true }>;
-const claimReply = (source: Claimed['source'], n: number, o: Partial<Claimed> = {}): Claimed => ({
-  ok: true, importId: IMPORT, venueId: VENUE, source, paths: Array.from({ length: n }, (_, i) => `${VENUE}/imports/${IMPORT}/${i + 1}.jpg`), rightsConfirmed: false,
-  langs: ['he', 'en'], ...o,
-});
+const claimReply = (source: Claimed['source'], n: number, o: Partial<Claimed> = {}): Claimed => {
+  const paths = 'paths' in o ? o.paths! : Array.from({ length: n }, (_, i) => `${VENUE}/imports/${IMPORT}/${i + 1}.jpg`);
+  // the claim charges its images: as many as its paths
+  return { ok: true, importId: IMPORT, venueId: VENUE, source, paths, images: Array.isArray(paths) ? paths.length : 0, rightsConfirmed: false, langs: ['he', 'en'], ...o };
+};
 
 /** The Supabase side as the backend lane's RPCs answer (ADR-008), with the scanner's own draft checked and stored. */
 function project(source: Claimed['source'], images: number, o: { image?: () => Response; save?: (draft: ImportDraft) => Response; claim?: () => Response; patch?: () => Response } = {}) {
@@ -253,7 +254,9 @@ test('the claim gates every paid call: refused, nothing is downloaded or read', 
   // every refusal claim_import_scan answers (backend stage 2), and a caller without a session
   const refusals: Array<[Response, Record<string, unknown>]> = [
     [jsonResponse({ ok: false, code: 'rate_limited', cap: 'scan_images_per_venue_day' }), { code: 'rate_limited', cap: 'scan_images_per_venue_day' }],
+    [jsonResponse({ ok: false, code: 'rate_limited', cap: 'scan_images_per_day' }), { code: 'rate_limited', cap: 'scan_images_per_day' }],
     [jsonResponse({ ok: false, code: 'rate_limited', cap: 'Not A Cap!' }), { code: 'rate_limited' }],
+    [jsonResponse({ ok: false, code: 'rate_limited', cap: 'scans_per_venue_day' }), { code: 'rate_limited' }],
     [jsonResponse({ code: '42501', message: 'not_allowed' }, 403), { code: 'not_allowed' }],
     ...(['import_unknown', 'not_scannable', 'import_closed', 'import_busy'] as const).map((code): [Response, Record<string, unknown>] => [jsonResponse({ ok: false, code }), { code }]),
   ];
@@ -291,6 +294,7 @@ test('QA L1: a claim with no paths, or with too many for its source, marks the i
     ['no images', 'scan', { paths: [] }, 'image_unreadable'],
     ['9 printed pages', 'scan', { paths: Array.from({ length: IMPORT_IMAGES_MAX.scan + 1 }, (_, i) => `${VENUE}/imports/${IMPORT}/${i}.jpg`) }, 'too_many_images'],
     ['25 screenshots', 'wolt_screenshots', { paths: Array.from({ length: IMPORT_IMAGES_MAX.wolt_screenshots + 1 }, (_, i) => `${VENUE}/imports/${IMPORT}/${i}.jpg`) }, 'too_many_images'],
+    ['images charged that are not the paths', 'scan', { images: 2 }, 'paths_invalid'],
   ] as const) {
     const mode = source === 'scan' ? 'scan_menu' : 'wolt_screenshots';
     const p = project(source, 1, { claim: () => jsonResponse(claimReply(source, 1, o as Partial<Claimed>)) });

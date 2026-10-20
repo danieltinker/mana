@@ -7,7 +7,7 @@
  * `validateSaveDraft` → `save_import_draft` (the draft and the reader's notes). Any failure after the claim marks the import `failed` with a code of
  * `SCAN_ERROR_CODES` (a timeout too: an import is never left `parsing`), and nothing else is written.
  */
-import { IMPORT_IMAGES_MAX, isUuid, LANGS, validateSaveDraft, type DraftCounts, type ImportException, type ScanErrorCode } from '@mana/contracts';
+import { IMPORT_IMAGES_MAX, isUuid, LANGS, SCAN_IMAGE_CAPS, validateSaveDraft, type DraftCounts, type ImportException, type ScanErrorCode, type ScanImageCap } from '@mana/contracts';
 import { MODE_SOURCE, readScanReply, scanDraft, type PageReading, type ReaderNote, type ScanMode, type StockHint } from '@mana/import';
 import { callModel, requestBody, sniffMedia, toBase64, type Image, type ModelAnswer } from './anthropic.ts';
 import type { Deps } from './deps.ts';
@@ -29,8 +29,8 @@ export type ReadReply =
     readonly ok: true; readonly importId: string; readonly counts: DraftCounts; readonly exceptions: readonly ImportException[];
     readonly notes: readonly ReaderNote[]; readonly dropped: number; readonly calls: number; readonly usage: { readonly in: number; readonly out: number };
   }
-  /** `cap`: with `rate_limited`, the claim's cap that was reached (`scan_images_per_venue_day`, …). */
-  | { readonly ok: false; readonly code: string; readonly upstream?: number; readonly cap?: string };
+  /** `cap`: with `rate_limited`, the claim's cap that was reached (`SCAN_IMAGE_CAPS`). */
+  | { readonly ok: false; readonly code: string; readonly upstream?: number; readonly cap?: ScanImageCap };
 
 /**
  * The calls one import needs, as lists of image indexes: one per printed page; screenshots in runs of `WOLT_BATCH`,
@@ -101,8 +101,9 @@ export async function readImport(d: Deps, asked: ScanMode, importId: string, aut
     // the claim is not cut by the deadline: it is quick, and its answer says whether the import is now this read's
     const c = await claim(d, importId, source, auth);
     if (!c.ok) {
-      const cap = (c as { cap?: unknown }).cap;
-      return done({ ok: false, code: c.code, ...(c.code === 'rate_limited' && typeof cap === 'string' && /^[a-z_]{1,40}$/.test(cap) ? { cap } : {}) });
+      // rate_limited names the cap reached: passed on only when it is one of the contracts' caps
+      const cap = c.code === 'rate_limited' && 'cap' in c ? c.cap : null;
+      return done({ ok: false, code: c.code, ...(cap !== null && (SCAN_IMAGE_CAPS as readonly unknown[]).includes(cap) ? { cap } : {}) });
     }
     claimed = true;
     // the claim is the authority on what the import is; the scanner still reads only what it asked for
@@ -112,6 +113,8 @@ export async function readImport(d: Deps, asked: ScanMode, importId: string, aut
     const max = IMPORT_IMAGES_MAX[c.source];
     log.images = c.paths.length;
     if (c.paths.length === 0 || c.paths.length > max) return await fail('image_unreadable', c.paths.length ? 'too_many_images' : 'image_unreadable');
+    // the claim charged `images`: exactly the paths it gave, or something is wrong with it
+    if (c.images !== c.paths.length) return await fail('image_unreadable', 'paths_invalid');
     const mode: ScanMode = MODE_OF[c.source];
     const langs = Array.isArray(c.langs) && c.langs.length ? c.langs : LANGS;
 
