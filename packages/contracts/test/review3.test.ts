@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
-  type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote,
+  type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
 } from '../src/import.ts';
 import { instantMs } from '../src/events.ts';
 import { REVISION_MAX, validateActForOwner, validateApproveVenue } from '../src/staff.ts';
@@ -294,4 +294,19 @@ test('round 4: the readers\' price_ambiguous note is stored with the draft (a di
   const errs = (raw: unknown) => { const v = validateSaveDraft(raw); return v.ok ? [] : v.errors.map((e) => `${e.code}@${e.path}`); };
   assert.deepEqual(errs({ importId: '00000000-0000-4000-8000-0000000000d9', draft: bistroDraft(), notes: [note] }), []);
   assert.deepEqual(errs({ importId: '00000000-0000-4000-8000-0000000000d9', draft: bistroDraft(), notes: [{ ...note, severity: 'info' }] }), ['enum_invalid@notes[0].severity']);
+});
+
+test('round 5: the readers\' layout_guessed note, on a dish or a section, with the guess it made', () => {
+  assert.equal(READER_NOTES.layout_guessed, 'check');
+  assert.deepEqual([...LAYOUT_GUESS_RULES], ['tag_or_heading', 'desc_habit', 'common_name', 'other_language']);
+  const d = bistroDraft();
+  const note = (o: Partial<ReaderNote> = {}): ReaderNote => ({ code: 'layout_guessed', severity: 'check', key: 'd-schnitzel', lines: [3], count: 1, rule: 'desc_habit', ...o });
+  const issues = (notes: unknown[], draft: ImportDraft | null = d) => readerNoteIssues(notes, draft).map((e) => `${e.code}@${e.path}`);
+  assert.deepEqual(issues(LAYOUT_GUESS_RULES.map((rule) => note({ rule }))), [], 'every rule, on a dish');
+  assert.deepEqual(issues([note({ key: d.sections[0]!.key, rule: 'common_name', lines: [1, 2], count: 2 })]), [], 'on a section');
+  assert.deepEqual(issues([note({ rule: null }), note({ rule: 'delivery' }), note({ key: null }), note({ key: d.groups[0]!.key }), note({ severity: 'info' })]),
+    ['rule_invalid@notes[0].rule', 'rule_invalid@notes[1].rule', 'key_invalid@notes[2].key', 'ref_unknown@notes[3].key', 'enum_invalid@notes[4].severity']);
+  assert.deepEqual(issues([note({ key: 'g-anything' })], null), [], 'without the draft, the key is checked for shape only');
+  const v = validateSaveDraft({ importId: '00000000-0000-4000-8000-0000000000d9', draft: d, notes: [note(), note({ code: 'price_ambiguous', rule: null })] });
+  assert.ok(v.ok, 'stored with the draft by save_import_draft');
 });
