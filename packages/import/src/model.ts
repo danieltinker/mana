@@ -80,6 +80,11 @@ export function note(target: { notes: PendingNote[] }, code: PendingNote['code']
   target.notes.push({ code, lines });
 }
 
+/** A `layout_guessed` note on a node: the reader chose one of two readings, by the rule named. */
+export function guessed(target: { notes: PendingNote[] }, rule: string, ...lines: number[]): void {
+  target.notes.push({ code: 'layout_guessed', lines, rule });
+}
+
 /** An option of the dish's groups so far, by name (`importKey`), that opens nothing yet: where a nested group hangs. */
 export function optionNamed(d: MDish, name: string): MOption | null {
   const key = importKey(name);

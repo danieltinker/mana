@@ -22,7 +22,7 @@
  */
 import {
   DRAFT_BYTES_MAX, DRAFT_CAPS, draftBytes, draftExceptions, draftGroupLimits, DROPPED_MAX, EXCEPTIONS_MAX, fallbackKey, GROUP_UNITS_MAX, importKey, isBlank, isInt,
-  LANGS, LIMITS, PRICE_TEXT_MAX, ROOMS, SECTION_KINDS, stripBlank, TAGS,
+  DRAFT_TEXT_MAX, LANGS, LIMITS, ROOMS, SECTION_KINDS, STOCK_RE, stripBlank, TAGS,
   type DraftDish, type DraftDishGroup, type DraftGroup, type DraftOption, type DraftPhoto, type DraftSection, type ImportDraft, type ImportSource,
   type Lang, type Room, type SectionKind, type Text,
 } from '@mana/contracts';
@@ -37,9 +37,6 @@ export type ReadResult = { readonly draft: ImportDraft; readonly notes: readonly
 /** One reading, before the draft: a reader's model, its whole-input notes and its unread line count. */
 export type Reading = { readonly model: MenuModel; readonly notes: readonly ReaderNote[]; readonly dropped: number };
 
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const NAME_MAX = { section: 60, group: 60, option: 60, dish: LIMITS.nameLength } as const;
-const ALLERGENS_MAX = 300;
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
@@ -264,7 +261,7 @@ function normalise(model: MenuModel, left: Left): MenuModel {
   const group = (g: MGroup): MGroup | null => {
     if (groups.has(g)) return groups.get(g)!;
     const notes: PendingNote[] = [...g.notes];
-    const name = clipText(g.name, NAME_MAX.group, notes, null);
+    const name = clipText(g.name, DRAFT_TEXT_MAX.group, notes, null);
     if (!named(name)) { groups.set(g, null); return null; }
     const copy = newGroup(name, { translated: translatedOf(g.translated, name), selection: g.selection, notes });
     groups.set(g, copy);
@@ -272,11 +269,11 @@ function normalise(model: MenuModel, left: Left): MenuModel {
     copy.max = g.max;
     left.options_per_group += Math.max(0, g.options.length - READ_BOUND.optionsPerGroup);
     for (const o of g.options.slice(0, READ_BOUND.optionsPerGroup)) {
-      const oname = clipText(o.name, NAME_MAX.option, notes, null);
+      const oname = clipText(o.name, DRAFT_TEXT_MAX.option, notes, null);
       if (!named(oname)) continue;
       const opens = o.opens ? group(o.opens) : null;
       const price = isInt(o.price) && o.price >= 0 && o.price <= LIMITS.price ? o.price : null;
-      const text = price === null && o.priceText !== null && !isBlank(o.priceText) ? clip(stripBlank(storable(o.priceText)), PRICE_TEXT_MAX).text : null;
+      const text = price === null && o.priceText !== null && !isBlank(o.priceText) ? clip(stripBlank(storable(o.priceText)), DRAFT_TEXT_MAX.priceText).text : null;
       copy.options.push(newOption(oname, price, {
         translated: translatedOf(o.translated, oname), priceText: text,
         maxQty: opens ? 1 : Math.min(Math.max(isInt(o.maxQty) ? o.maxQty : 1, 1), LIMITS.optionQuantity), isDefault: o.isDefault === true, opens,
@@ -292,7 +289,7 @@ function normalise(model: MenuModel, left: Left): MenuModel {
   left.sections += Math.max(0, model.sections.length - READ_BOUND.sections);
   for (const s of model.sections.slice(0, READ_BOUND.sections)) {
     const notes: PendingNote[] = [...s.notes];
-    const name = clipText(s.name, NAME_MAX.section, notes, s.line);
+    const name = clipText(s.name, DRAFT_TEXT_MAX.section, notes, s.line);
     if (!named(name)) continue;
     const copy = newSection(name, (SECTION_KINDS as readonly string[]).includes(s.kind) ? s.kind : 'food', {
       translated: translatedOf(s.translated, name), room: s.room !== null && (ROOMS as readonly string[]).includes(s.room) ? s.room : null, notes, line: s.line,
@@ -302,9 +299,9 @@ function normalise(model: MenuModel, left: Left): MenuModel {
     dishBudget -= dishes.length;
     for (const d of dishes) {
       const dn: PendingNote[] = [...d.notes];
-      const dname = clipText(d.name, NAME_MAX.dish, dn, d.line);
+      const dname = clipText(d.name, DRAFT_TEXT_MAX.dish, dn, d.line);
       if (!named(dname)) continue;
-      const desc = clipText(d.desc, LIMITS.descLength, dn, d.line);
+      const desc = clipText(d.desc, DRAFT_TEXT_MAX.desc, dn, d.line);
       const price = isInt(d.price) && d.price >= 0 && d.price <= LIMITS.price ? d.price : null;
       const links: MLink[] = [];
       left.groups_per_dish += Math.max(0, d.links.length - READ_BOUND.groupsPerDish);
@@ -314,9 +311,9 @@ function normalise(model: MenuModel, left: Left): MenuModel {
       }
       copy.dishes.push(newDish(dname, {
         desc, translated: translatedOf(d.translated, dname, desc), price,
-        priceText: price === null && d.priceText !== null && !isBlank(d.priceText) ? clip(stripBlank(storable(d.priceText)), PRICE_TEXT_MAX).text : null,
-        priceNote: clipText(d.priceNote, LIMITS.noteLength, dn, d.line), tags: TAGS.filter((t) => d.tags.includes(t)),
-        allergens: clipText(d.allergens, ALLERGENS_MAX, dn, d.line), photo: d.photo,
+        priceText: price === null && d.priceText !== null && !isBlank(d.priceText) ? clip(stripBlank(storable(d.priceText)), DRAFT_TEXT_MAX.priceText).text : null,
+        priceNote: clipText(d.priceNote, DRAFT_TEXT_MAX.priceNote, dn, d.line), tags: TAGS.filter((t) => d.tags.includes(t)),
+        allergens: clipText(d.allergens, DRAFT_TEXT_MAX.allergens, dn, d.line), photo: d.photo,
         illustration: d.illustration !== null && STOCK_RE.test(d.illustration) ? d.illustration : null, links, notes: dn, line: d.line,
       }));
     }
@@ -514,7 +511,7 @@ function build(source: ImportSource, readings: readonly Reading[], models: reado
   }
 
   // ---- the draft's nodes
-  const notesOn = (key: string, notes: readonly PendingNote[]): void => { for (const n of notes) book.add(n.code, n.lines, { key, count: 1 }); };
+  const notesOn = (key: string, notes: readonly PendingNote[]): void => { for (const n of notes) book.add(n.code, n.lines, { key, count: 1, rule: n.rule ?? null }); };
   const groups: DraftGroup[] = [];
   let optionsLeft = 0;
   for (const s of keptOrder) {
@@ -589,9 +586,13 @@ function photoOf(dishes: readonly MDish[]): DraftPhoto | null {
 }
 
 function dedupeNotes(notes: readonly PendingNote[]): PendingNote[] {
-  const by = new Map<string, number[]>();
-  for (const n of notes) by.set(n.code, [...(by.get(n.code) ?? []), ...n.lines]);
-  return [...by.entries()].map(([code, lines]) => ({ code: code as PendingNote['code'], lines: [...new Set(lines)] }));
+  const by = new Map<string, { code: PendingNote['code']; rule?: string; lines: number[] }>();
+  for (const n of notes) {
+    const id = `${n.code}|${n.rule ?? ''}`;
+    const e = by.get(id);
+    if (e) e.lines.push(...n.lines); else by.set(id, { code: n.code, ...(n.rule === undefined ? {} : { rule: n.rule }), lines: [...n.lines] });
+  }
+  return [...by.values()].map((e) => ({ ...e, lines: [...new Set(e.lines)] }));
 }
 
 // ---------------------------------------------------------------- a draft back into a model, and merging drafts

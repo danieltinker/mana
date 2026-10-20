@@ -165,3 +165,52 @@ test('QA-L8 and QA-M9: the worst lines stay fast and valid (60,000 characters, l
     assert.ok(r.notes.some((n) => n.code === 'text_clipped' && n.rule === 'line'), 'the line was cut at LINE_MAX');
   }
 });
+
+/** Each dish as `he/en price {notes on it}`, and each section as `# he/en {notes on it}`. */
+const placed = (r: ReturnType<typeof parsePaste>): string[] => {
+  const name = (t: { he: string; en: string }) => [t.he, t.en].filter((x) => x !== '').join('/');
+  const on = (key: string) => r.notes.filter((n) => n.key === key).map((n) => `${n.code}${n.rule ? `:${n.rule}` : ''}@${n.lines.join(',')}`);
+  const tail = (key: string) => (on(key).length ? ` {${on(key).join(' ')}}` : '');
+  return valid(r).sections.flatMap((s) => [`# ${name(s.name)}${tail(s.key)}`, ...s.dishes.map((x) => `${name(x.name)} ${x.price ?? '-'}${tail(x.key)}`)]);
+};
+
+test('QA-M2 (round 2): a common section name right under a dish in the other script is its name there, checked', () => {
+  // the dishes around it are named in both languages, a line each: the name, checked (`other_language`)
+  assert.deepEqual(placed(parsePaste('משקאות\nבירה 28\nBeer\nלימונדה 16\nLemonade\nיין 34\nWine')), [
+    '# משקאות', 'בירה/Beer 2800 {layout_guessed:other_language@3}', 'לימונדה/Lemonade 1600', 'יין/Wine 3400 {layout_guessed:other_language@7}',
+  ]);
+  // English first, a Hebrew common name under it
+  assert.deepEqual(placed(parsePaste('Drinks\nBeer 28\nבירה\nWine 34\nיין')), [
+    '# Drinks', 'בירה/Beer 2800 {layout_guessed:other_language@3}', 'יין/Wine 3400 {layout_guessed:other_language@5}',
+  ]);
+  // nothing around it is named that way: a heading, checked
+  assert.deepEqual(placed(parsePaste('עיקריות\nשניצל 64\nDesserts\nעוגת גבינה 30')), [
+    '# עיקריות', 'שניצל 6400', '# Desserts {layout_guessed:other_language@3}', 'עוגת גבינה 3000',
+  ]);
+  // in the dish's own script, or after a blank line, a common name is a heading as before, with no note
+  const plain = parsePaste('Mains\nSteak 120\nDesserts\nCheesecake 30\n\nקינוחים\nמלבי 26');
+  assert.deepEqual(placed(plain), ['# Mains', 'Steak 12000', '# Desserts', 'Cheesecake 3000', '# קינוחים', 'מלבי 2600']);
+});
+
+test('QA-L4 (round 2): a bare number before the name stays in it, and the dish is checked', () => {
+  const r = parsePaste('# Grill\n58 Kebab\n66 Shishlik\n₪44 Halloumi');
+  assert.deepEqual(placed(r), ['# Grill', '58 Kebab - {price_ambiguous@2}', '66 Shishlik - {price_ambiguous@3}', 'Halloumi 4400']);
+  // right under a heading it is a dish, not a heading
+  assert.deepEqual(placed(parsePaste('Mains\n58 Kebab\nShishlik 66')), ['# Mains', '58 Kebab - {price_ambiguous@2}', 'Shishlik 6600']);
+  assert.equal(classifyPasteLine('58 Kebab')?.rule, 'price_ambiguous');
+  // a description that starts with a number stays a description
+  const desc = valid(parsePaste('# Breakfast\nFull breakfast 62\n2 eggs, toast, salad'));
+  assert.deepEqual(desc.sections[0]!.dishes.map((x) => [x.name.en, x.price, x.desc.en]), [['Full breakfast', 6200, '2 eggs, toast, salad']]);
+});
+
+test('QA-M1 (round 2): words with the letters of NIS or ILS in them are words, never prices', () => {
+  // a name with its price on the next line
+  assert.deepEqual(placed(parsePaste('# Starters\nSnails\n52\nLentils\n32')), ['# Starters', 'Snails 5200', 'Lentils 3200']);
+  // a heading
+  assert.deepEqual(placed(parsePaste('Wines\nHouse white 36\n\nSignature cocktails\nPaloma 44\n\nMocktails\nVirgin mule 24')),
+    ['# Wines', 'House white 3600', '# Signature cocktails', 'Paloma 4400', '# Mocktails', 'Virgin mule 2400']);
+  // a list with no prices
+  assert.deepEqual(placed(parsePaste('Soups\nOnion soup\nBlack lentils\nPea soup')), ['# Soups', 'Onion soup -', 'Black lentils -', 'Pea soup -']);
+  for (const line of ['Cocktails', 'Oxtails', 'Anis', 'Tennis', 'Nisan', 'Red lentils']) assert.equal(classifyPasteLine(line)?.rule, 'text', line);
+  for (const line of ['Soup 30 NIS', 'Soup NIS 30', 'Soup 30 ש"ח']) assert.equal(classifyPasteLine(line)?.rule, 'dish_inline', line);
+});

@@ -4,15 +4,18 @@
  * exceptions (`draftExceptions`) are about the draft; these notes are about the source. A note never carries the
  * source's text, only line numbers, counts and the draft key it concerns.
  *
- * One code is the text readers' own until the contracts have it (an open item for the architect): `price_ambiguous`.
+ * One code is the text readers' own until the contracts have it (an open item for the architect): `layout_guessed`.
+ * `contractNote` tells the notes `save_import_draft` already stores.
  */
 import { NOTE_LINES_MAX, NOTES_MAX, READER_NOTES, type ReaderNote as ContractNote, type ReaderNoteCode } from '@mana/contracts';
 
 export const NOTES = {
   ...READER_NOTES,
-  /** The name ends with a number that may be part of the name ("Combo 1", "Tea for 2", "since 1998") or two prices
-   * ("House red 38 140"): the name was kept whole, with no price taken from it. */
-  price_ambiguous: 'check',
+  /** The same lines read two ways, and the reader chose one (`rule`: `tag_or_heading`, a tag word between two dishes;
+   * `desc_habit`, two short lines as a name and its description or a heading and a name; `common_name`, a common
+   * section name over a dish; `other_language`, a common name under a dish as its name in the other language):
+   * check the dish or section it is on. */
+  layout_guessed: 'check',
 } as const;
 export type NoteCode = keyof typeof NOTES;
 export type NoteSeverity = (typeof NOTES)[NoteCode];
@@ -27,7 +30,7 @@ export const contractNote = (n: ReaderNote): n is ContractNote => n.code in READ
 export type { ReaderNoteCode };
 
 /** A note on a node before the draft has keys: resolved to the node's key when the draft is built. */
-export type PendingNote = { readonly code: NoteCode; readonly lines: readonly number[] };
+export type PendingNote = { readonly code: NoteCode; readonly lines: readonly number[]; readonly rule?: string };
 
 /** Collects whole-input notes, merging those with the same code and rule. */
 export class NoteBook {

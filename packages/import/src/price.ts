@@ -13,10 +13,17 @@ export const PRICE_MAX = 48;
 /** A number shown without a currency is a price only below this (₪10,000, in agorot). */
 const BARE_MAX = 1_000_000;
 
-/** The shekel as menus write it: the sign, ש"ח with any quote mark, NIS, ILS. */
-const SHEKEL = String.raw`(?:₪|ש["״”']{1,2}ח|NIS|ILS)`;
+/** The shekel's signs: ₪, and ש"ח (with any quote mark) as a word of its own. */
+const SIGN = String.raw`(?:₪|(?<![א-ת])ש["״”']{1,2}ח(?![א-ת]))`;
+/** Its codes, NIS and ILS, only as whole words (never the end of "Cocktails", "Lentils" or "Tennis"). */
+const CODE = String.raw`(?:(?<!\p{L})(?:NIS|ILS)(?!\p{L}))`;
+/** The shekel as menus write it. */
+const SHEKEL = String.raw`(?:${SIGN}|${CODE})`;
 const NUM = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,7}(?:[.,]\d{1,2})?`;
 const MONEY = String.raw`(?:${SHEKEL} ?(?:${NUM})|(?:${NUM}) ?${SHEKEL})`;
+/** Something shown as a price Mana cannot read: a sign and up to `n` more characters, or a code beside up to `n`
+ * characters one of which is a digit (so a word that only holds the code's letters is never price-like). */
+const ODD = (n: number) => String.raw`(?:${SIGN} ?\S{1,${n}}|\S{1,${n}} ?${SIGN}|${CODE} ?(?=\S{0,${n - 1}}\d)\S{1,${n}}|(?=\S{0,${n - 1}}\d)\S{1,${n}} ?${CODE})`;
 const FROM = String.raw`(?:from|starting at|starts at|החל מ[-־]?|מ[-־])`;
 const DASH = String.raw` ?[–—-] ?`;
 
@@ -29,9 +36,9 @@ const RE = {
   several: new RegExp(`^(${MONEY}|${NUM})(?: ?\\/ ?(?:${MONEY}|${NUM}))+$`, 'iu'),
   pair: new RegExp(`^(${MONEY}) ?(${MONEY})$`, 'iu'),
   /** Looks like a price (a shekel sign and something) but is not one Mana can read: "₪ 4O", "₪--". */
-  shekelish: new RegExp(`^\\+? ?(?:${SHEKEL} ?\\S{1,12}|\\S{1,12} ?${SHEKEL})$`, 'iu'),
+  shekelish: new RegExp(`^\\+? ?${ODD(12)}$`, 'iu'),
   /** The same after a name: a shekel and at most 8 more characters, one of them a digit or a letter often read for one. */
-  oddTail: new RegExp(`^(?:${SHEKEL} ?\\S{1,8}|\\S{1,8} ?${SHEKEL})$`, 'iu'),
+  oddTail: new RegExp(`^${ODD(8)}$`, 'iu'),
   free: /^(?:free|no charge|חינם|ללא תשלום|ללא תוספת תשלום|ללא עלות|\+ ?0)$/iu,
   leading: new RegExp(`^(${MONEY}) (?=\\S)`, 'iu'),
   digits: /\d[\d.,]*/u,

@@ -53,14 +53,14 @@
  */
 import { importKey, stripBlank, type Lang, type Tag, type Text } from '@mana/contracts';
 import { buildDraft, nameIdentity, type ReadResult } from './build.ts';
-import { DEFAULT_SECTION_NAME, newDish, newGroup, newOption, newSection, note, optionNamed, setPrice, type MDish, type MGroup, type MSection } from './model.ts';
+import { DEFAULT_SECTION_NAME, guessed, newDish, newGroup, newOption, newSection, note, optionNamed, setPrice, type MDish, type MGroup, type MSection } from './model.ts';
 import { NoteBook } from './notes.ts';
 import { hasMoney, readOptionPrice, readPrice, splitPrice, type PriceRead } from './price.ts';
 import {
   groupCue, guessKind, isCommonSection, isPopularSection, joinRules, nameMarkers, NO_RULE, readAllergens, readLabel, readRule, readTags, ruleLimits,
   type GroupRule, type Label,
 } from './rules.ts';
-import { append, bilingual, descShaped, headingShaped, lower, mainLang, scriptOf, sourceLines } from './text.ts';
+import { append, bilingual, descMarked, descShaped, headingShaped, lower, mainLang, scriptOf, sourceLines } from './text.ts';
 
 // ---------------------------------------------------------------- 1. lines
 
@@ -70,7 +70,10 @@ export type WoltToken =
   | { readonly k: 'price'; readonly price: PriceRead; readonly next?: number }
   | { readonly k: 'option_price'; readonly agorot: number | null; readonly text: string }
   | { readonly k: 'rule'; readonly rule: GroupRule; readonly heading: string | null }
-  | { readonly k: 'tags'; readonly tags: readonly Tag[]; readonly text: string }
+  /** `guess`: in the slot between a price and the next dish, read as the dish's own label (`refine`): checked. */
+  | { readonly k: 'tags'; readonly tags: readonly Tag[]; readonly text: string; readonly guess?: boolean }
+  /** Tag words between a price and the next dish that nothing tells from a heading: left out, the dish checked. */
+  | { readonly k: 'unplaced'; readonly text: string }
   | { readonly k: 'label'; readonly label: Label; readonly text: string }
   | { readonly k: 'allergens'; readonly text: string | null }
   | { readonly k: 'end'; readonly price: PriceRead | null }
@@ -207,6 +210,8 @@ export function classifyWoltLine(line: string): { readonly rule: string; readonl
 
 type Classified = { readonly n: number; readonly text: string; tokens: WoltToken[] };
 
+/** How many lines after a tag word the reader looks for a common heading. */
+const SLOT_LOOK = 6;
 /** Noise found by its words, which a dish's name may also be: a price right under the line makes it a name. */
 const WORD_NOISE = new Set(['button', 'footer', 'hours', 'rating', 'delivery']);
 const LETTER = /[A-Za-zא-ת]/u;
@@ -245,11 +250,24 @@ function refine(lines: Classified[], headings: ReadonlySet<string>): void {
   for (let f = 0; f < flat.length; f++) {
     const a = flat[f]!, t = tok(a)!;
     if (t.k === 'tags') {
-      // rule `tags`: tag words are a dish's when they are inside its lines or after its price at the end; a page's
-      // own section, or tag words with the next dish under them, are a heading
-      const prev = tok(flat[near(f, -1)]), next = tok(flat[f + 1]);
-      const heading = headings.has(importKey(t.text)) || (prev?.k !== 'text' && next?.k === 'text' && closes[f + 1] === 'price');
-      if (heading) put(a, { k: 'text', text: t.text });
+      // rule `tags`: tag words are a heading only where the evidence says so (one of the page's own sections, or
+      // before any dish, where only a heading stands); inside a dish's lines, or after its price with no dish after
+      // them, they are its tags. Between a price and the next dish's lines they may be either dish's label or a
+      // heading: with a common heading after them ("Vegan", "Mains": "Mains" wins) they are the dish before's, checked;
+      // otherwise neither a tag nor a heading (a diet tag is never guessed onto a dish): left out, the dish before checked.
+      // the next line past other tag words and labels (noise there, a footer, ends the page: the tag is the dish's)
+      let ahead = f + 1;
+      while (ahead < flat.length && (tok(flat[ahead])!.k === 'tags' || tok(flat[ahead])!.k === 'label')) ahead++;
+      const prev = tok(flat[near(f, -1)]), next = tok(flat[ahead]);
+      if (headings.has(importKey(t.text))) { put(a, { k: 'text', text: t.text }); continue; }
+      if (prev?.k === 'text' || next?.k !== 'text' || closes[ahead] !== 'price') continue;
+      if (prev === undefined) { put(a, { k: 'text', text: t.text }); continue; }
+      let common = false;
+      for (let g = ahead, seen = 0; g < flat.length && seen < SLOT_LOOK && !common; g++) {
+        const u = tok(flat[g])!;
+        if (u.k === 'text') { seen += 1; common = isCommonSection(u.text); } else if (!quiet(u)) break;
+      }
+      put(a, common ? { ...t, guess: true } : { k: 'unplaced', text: t.text });
     } else if (t.k === 'allergens' && t.text === null) {
       // rule `allergens`: a bare heading takes the next line as its list, unless that line heads a group
       const b = flat[f + 1], next = tok(b), after = tok(flat[f + 2]);
@@ -319,7 +337,8 @@ class WoltReader {
       case 'text': this.text(n, t.text); break;
       case 'head': this.head(n, t.text, t.strong); break;
       case 'label': this.label(n, t.label); break;
-      case 'tags': this.attach(n, (d) => { d.tags = [...new Set([...d.tags, ...t.tags])]; }); break;
+      case 'tags': this.attach(n, (d) => { d.tags = [...new Set([...d.tags, ...t.tags])]; if (t.guess) guessed(d, 'tag_or_heading', n); }); break;
+      case 'unplaced': if (this.dish) guessed(this.dish, 'tag_or_heading', n); else this.unknown([n]); break;
       case 'allergens': if (t.text !== null) this.attach(n, (d) => this.setAllergens(d, t.text!)); else this.unknown([n]); break;
       case 'rule': this.rule(n, t.rule, t.heading); break;
       case 'option_price': this.optionPrice(n, t.agorot, t.text); break;
@@ -456,31 +475,43 @@ class WoltReader {
     this.run = [];
     const k = lines.length;
     let nameAt = k - 1;
+    /** A reading the lines allow two ways: the rule that chose, checked on the section it opened and on the dish. */
+    let guess: string | null = null;
+    // a common name with a line marked as a description under it is the dish's name ("Coffee", "Filter coffee, refill")
+    const named = (i: number) => i === k - 2 && descMarked(lines[k - 1]!.text);
     let known = -1;
     for (let i = k - 2; i >= 0 && known < 0; i--) if (this.isHeading(lines[i]!.text)) known = i;
     // without the page's list, a heading by itself (a common section name, tag words) among three lines or more
-    if (known < 0 && k >= 3) for (let i = k - 2; i >= 0 && known < 0; i--) if (this.strong(lines[i]!)) known = i;
+    if (known < 0 && k >= 3) for (let i = k - 2; i >= 0 && known < 0; i--) if (this.strong(lines[i]!) && !named(i)) known = i;
     if (known >= 0) nameAt = known + 1;
     else if (k >= 2) {
       const a = lines[k - 2]!, b = lines[k - 1]!;
-      if (this.dishesRead === 0 && this.section === null) nameAt = !this.strong(a) && descShaped(b.text) ? k - 2 : k - 1;
-      else if (this.strong(a)) nameAt = k - 1;
+      if (this.dishesRead === 0 && this.section === null) nameAt = (!this.strong(a) && descShaped(b.text)) || named(k - 2) ? k - 2 : k - 1;
+      else if (named(k - 2)) nameAt = k - 2;
+      else if (this.strong(a)) { nameAt = k - 1; guess = 'common_name'; }
       else if (descShaped(b.text) || hasMoney(b.text) || k > 2) nameAt = k - 2;
       else {
         const before = this.section?.dishes[this.section.dishes.length - 1];
         const described = next >= 2 || (next === 0 && before !== undefined && (before.desc.he !== '' || before.desc.en !== ''));
         nameAt = described ? k - 2 : k - 1;
+        guess = 'desc_habit';
       }
     }
     const head = lines.slice(0, nameAt);
-    if (head.length > 0) this.openFromHead(head);
+    if (head.length > 0) {
+      this.openFromHead(head);
+      if (guess) guessed(this.section!, guess, head[head.length - 1]!.n);
+    }
     this.addDish(lines[nameAt]!, lines.slice(nameAt + 1), price, n);
+    if (guess) guessed(this.dish!, guess, lines[nameAt]!.n);
   }
 
   /** The lines before a dish's name: the section heading, with the venue header or the page's section list before it. */
   private openFromHead(head: readonly Line[]): void {
     let at = -1;
     for (let i = head.length - 1; i >= 0 && at < 0; i--) if (this.isHeading(head[i]!.text)) at = i;
+    // a common section name wins over tag words before it ("Vegan", "Mains": the heading is "Mains")
+    for (let i = head.length - 1; i > 0 && at < 0; i--) if (isCommonSection(head[i]!.text) && head.slice(0, i).every((l) => readTags(l.text) !== null)) at = i;
     if (at < 0) {
       if (this.dishesRead > 0) at = 0;
       else {
