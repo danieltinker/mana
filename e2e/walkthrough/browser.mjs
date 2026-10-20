@@ -6,9 +6,11 @@
 import fs from 'node:fs';
 import { ARGS, CHROME, playwright } from '../../tools/browser.mjs';
 
-/** The owner's and a guest's phone (an iPhone 13's screen), and Halom's desk. */
-export const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'he-IL', timezoneId: 'Asia/Jerusalem' };
-export const DESK = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false, locale: 'en-GB', timezoneId: 'Asia/Jerusalem' };
+/** The owner's and a guest's phone (an iPhone 13's screen), and Halom's desk. Both ask for reduced motion, a setting
+ * people use: the apps then draw no transitions and scroll at once, so a sheet's button is still when it is tapped on a
+ * slow machine, and the screenshots are of a settled screen. */
+export const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'he-IL', timezoneId: 'Asia/Jerusalem', reducedMotion: 'reduce' };
+export const DESK = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false, locale: 'en-GB', timezoneId: 'Asia/Jerusalem', reducedMotion: 'reduce' };
 
 /**
  * @param {{ apiUrl: string, headed?: boolean }} o  apiUrl: the database the site talks to (its host is the one outside
