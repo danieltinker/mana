@@ -13,7 +13,7 @@
  * - the database emits `SERVER_EVENTS` itself (publish, onboarding, import), never a client;
  * - `LATER_EVENTS` are reserved names for phases 2–3 (ordering, payment, printing); nobody may send them yet.
  */
-import { Issues, isInt, isObject, isString, isUuid, oneOf, type Issue, type Validation } from './common.ts';
+import { hasOwn, Issues, isInt, isObject, isString, isUuid, newUuid, oneOf, type Issue, type Validation } from './common.ts';
 import { IMPORT_SOURCES, ONBOARDING_STEPS, TRIGGERS, type ImportSource, type OnboardingStep, type Trigger } from './enums.ts';
 
 export const GUEST_EVENTS = [
@@ -137,9 +137,9 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   else {
     // own keys only: "constructor", "__proto__" or "toString" are not properties of the contract
     for (const k of Object.keys(props))
-      if (!Object.hasOwn(spec, k)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
+      if (!hasOwn(spec, k)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
     for (const [k, kind] of Object.entries(spec)) {
-      if (!Object.hasOwn(props, k)) x.add('prop_missing', `props.${k}`);
+      if (!hasOwn(props, k)) x.add('prop_missing', `props.${k}`);
       else if (!propOk(kind, props[k])) x.add('prop_invalid', `props.${k}`);
     }
   }
@@ -216,4 +216,4 @@ export type TrackEventsReply =
   | { readonly ok: false; readonly code: 'batch_invalid' };
 
 /** A fresh dedupe id (random, never derived from the person or the device). */
-export const newEventId = (): string => crypto.randomUUID();
+export const newEventId = (): string => newUuid();
