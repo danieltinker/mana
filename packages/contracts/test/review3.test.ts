@@ -7,7 +7,7 @@ import {
   appliedIds, mergePrevious, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
   SCAN_IMAGE_CAPS, type ClaimScanReply, validateDecisions, NOTES_MAX, NOTES_BYTES_MAX, DRAFT_BYTES_MAX, DECISIONS_BYTES_MAX, saveDraftSizeFail,
-  applyImportSizeFail, type ApplyImportReply, type ImportedIds, type DraftOption,
+  applyImportSizeFail, type ApplyImportReply, type ImportedIds, type DraftOption, IMPORT_CAP_KEYS,
 } from '../src/import.ts';
 import { BLOCKERS_MAX, onboardingProgress, validateSetStep, type SetStepReply } from '../src/onboarding.ts';
 import { addonGroupSizeFail, ADDON_GROUP_BYTES_MAX } from '../src/addons.ts';
@@ -767,9 +767,18 @@ test('round 10 (backend b9bc23c): past BLOCKERS_MAX the blockers are too_many al
 test('round 10 (backend b9bc23c): a "doing" on a done step is kept; apply_import may answer import_busy', () => {
   const progress = onboardingProgress([]);
   const owner: SetStepReply = { ok: true, kept: true, progress };
-  const halom: ActForOwnerReply = { ok: true, action: 'onboarding.set', result: { step: 'menu', state: 'done', kept: true, progress }, logId: 1 };
+  // round 10d (QA-L11): a kept step writes no support.act_for_owner row, so its logId is null
+  const halom: ActForOwnerReply = { ok: true, action: 'onboarding.set', result: { step: 'menu', state: 'done', kept: true, progress }, logId: null };
+  const logged: ActForOwnerReply = { ok: true, action: 'onboarding.set', result: { step: 'menu', state: 'done', progress }, logId: 1 };
   const busy: ApplyImportReply = { ok: false, code: 'import_busy' };
-  assert.ok(owner.ok && owner.kept && halom.ok && !busy.ok);
+  assert.ok(owner.ok && owner.kept && halom.ok && halom.logId === null && logged.ok && logged.logId === 1 && !busy.ok);
+});
+
+test('round 10d (the backend\'s replies at 202522b): apply_import may answer rate_limited; import_caps names its key', () => {
+  const capped: ApplyImportReply = { ok: false, code: 'rate_limited' };
+  assert.ok(!capped.ok && capped.code === 'rate_limited');
+  assert.deepEqual([...IMPORT_CAP_KEYS], ['per_venue_day', 'scan_images_per_venue_day', 'scan_images_per_user_day', 'scan_images_per_day', 'refused_applies_per_venue_hour']);
+  assert.ok(SCAN_IMAGE_CAPS.every((k) => (IMPORT_CAP_KEYS as readonly string[]).includes(k)));
 });
 
 test('round 10 (fuzz seed -304226620): an option add_options adds opens its nested group, created for it, so the next import asks nothing', () => {

@@ -71,8 +71,10 @@ export type OnboardingSetResult = {
 };
 /** What each action's `result` holds: what it did, ids and numbers only (the log keeps the same). */
 export type ActForOwnerResults = { readonly [A in ActForOwnerAction]: A extends 'onboarding.set' ? OnboardingSetResult : Readonly<Record<string, unknown>> };
+/** `logId`: the `support.act_for_owner` log row the action wrote; null when it wrote none, as an `onboarding.set`
+ * answered `kept` does (it changed nothing; QA-L11). */
 export type ActForOwnerReply =
-  | { [A in ActForOwnerAction]: RpcOk<{ readonly action: A; readonly result: ActForOwnerResults[A]; readonly logId: number }> }[ActForOwnerAction]
+  | { [A in ActForOwnerAction]: RpcOk<{ readonly action: A; readonly result: ActForOwnerResults[A]; readonly logId: number | null }> }[ActForOwnerAction]
   | ActForOwnerStale
   | RpcFail<ActForOwnerCode>;
 
