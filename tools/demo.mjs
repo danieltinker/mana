@@ -9,7 +9,8 @@
                                                     (sign in only at 127.0.0.1 or on a personal hotspot, never as staff)
      npm run demo -- --scenario <name>              prepare a scenario (D38) once the site is up, then serve
 
-   A scenario is a module exporting `async run({ config, origin, root, outDir, log })`, which may return
+   A scenario is a module exporting `async run({ config, origin, root, outDir, log })` (on the local stack, through
+   npm run dev:local -- --scenario <name>, also `stack`: the simulator's stack), which may return
    { links: [[label, path]] } to print (paths on the demo server, for example '/m/<slug>'). It is looked for as
    tools/demo-scenarios/<name>.mjs (in the repository: synthetic data only), then as private/demo-scenarios/<name>.mjs
    (git-ignored: a client's walkthrough, which never enters the repository, and whose name and path are never printed,
@@ -71,8 +72,9 @@ function guardProcess() {
 /** Runs a scenario ({ file, label, private } from findScenario); it writes under `outDir` (private/demo-output/<name>/)
     or _site/, and nowhere git sees: a file it adds or changes there, tracked or not, fails it. A private scenario's
     failure names neither the scenario nor its files, nor its error's name (MANA_DEMO_DEBUG=1 shows the error as it
-    is), and `guard` keeps whatever it leaves running from crashing the demo with its stack. Returns its links. */
-export async function runScenario({ file, label, private: secret = false }, { config, origin, root = ROOT, log = (...m) => console.log('  ', ...m), guard = true }) {
+    is), and `guard` keeps whatever it leaves running from crashing the demo with its stack. `context` goes to run() as
+    well (dev:local passes the stack). Returns its links. */
+export async function runScenario({ file, label, private: secret = false }, { config, origin, root = ROOT, log = (...m) => console.log('  ', ...m), guard = true, context = {} }) {
   const outDir = path.join(root, 'private/demo-output', path.basename(file, '.mjs'));
   const before = gitSees(root), debug = process.env.MANA_DEMO_DEBUG === '1';
   if (!before) log('(not a git checkout: the check for files changed outside private/ and _site/ is skipped)');
@@ -82,7 +84,7 @@ export async function runScenario({ file, label, private: secret = false }, { co
     const mod = await import(pathToFileURL(file).href);
     if (typeof mod.run !== 'function') throw new Error(`${label} exports no run()`);
     fs.mkdirSync(outDir, { recursive: true });
-    r = (await mod.run({ config, origin, root, outDir, log })) || {};
+    r = (await mod.run({ ...context, config, origin, root, outDir, log })) || {};
   } catch (e) {
     if (!secret || debug) throw e;
     throw new Error(PRIVATE_FAILED.replace('%s', ` (${kindOf(e)})`));

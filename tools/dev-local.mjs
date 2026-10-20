@@ -6,6 +6,10 @@
      npm run dev:local                        stack (ports from SIM_PORT_BASE, default 57500) + Café Demo + build + serve
      npm run dev:local -- --guests 30         also 30 seeded-random guests (sim/src/random.mjs), so the numbers move
      npm run dev:local -- --no-build          serve the _site/ already built with MANA_ENV=local
+     npm run dev:local -- --scenario <name>   a demo scenario (D38, the same seam as npm run demo: tools/demo.mjs) once the
+                                              site is up, with the stack in its context; the stack's sign-up is open for it
+                                              (every address confirmed at once), so an owner can sign up in the browser
+     npm run dev:local -- --scenario <name> --exit    stop once it has run (exit 1 when it fails): a scripted check
 
    The site is served on the stack's web port (SIM_PORT_BASE + 80), the address the stack's GoTrue knows as the site.
    Ctrl-C stops the server and the stack. */
@@ -14,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HalomBot, loadSeed, readSeed, runRandom, SEEDS } from '@mana/sim';
 import { startStack } from '@mana/sim/stack';
+import { findScenario, runScenario } from './demo.mjs';
 import { CONFIG_FILES, configProblems, localConfigText, readConfig, ROOT } from './env.mjs';
 import { parseArgs, printLinks, serveSite, siteLinks } from './serve-site.mjs';
 
@@ -22,8 +27,11 @@ import { parseArgs, printLinks, serveSite, siteLinks } from './serve-site.mjs';
 const SLUG = 'cafe-demo', OWNER = `owner.${SLUG}@example.invalid`, ADMIN = 'admin.local@example.invalid';
 
 async function main(argv) {
-  const a = parseArgs(argv, ['no-build']);
-  if (a._.length) throw new Error(`unexpected "${a._[0]}"; usage: npm run dev:local -- [--guests N] [--no-build]`);
+  const a = parseArgs(argv, ['no-build', 'exit']);
+  if (a._.length) throw new Error(`unexpected "${a._[0]}"; usage: npm run dev:local -- [--guests N] [--no-build] [--scenario name [--exit]]`);
+  const scenario = a.scenario ? findScenario(a.scenario) : null;
+  if (scenario instanceof Error) throw scenario;
+  if (a.exit && !scenario) throw new Error('--exit goes with --scenario');
   if (!(process.platform === 'linux' && process.arch === 'x64')) {
     throw new Error('dev:local needs Linux x64: the stack runs the GoTrue release, a Linux binary (sim/README.md). On a Mac: npm run demo');
   }
@@ -31,7 +39,7 @@ async function main(argv) {
   if (!Number.isInteger(guests) || guests < 0) throw new Error('--guests takes a whole number');
 
   const t0 = Date.now();
-  const stack = await startStack({ quiet: false });
+  const stack = await startStack({ quiet: false, signup: scenario ? 'open' : 'closed' });
   let web = null;
   const stop = async () => { if (web) await web.close(); await stack.stop(); };
   try {
@@ -63,6 +71,13 @@ async function main(argv) {
     printLinks([...siteLinks(web.origin, { slug: SLUG }), ['api', `${stack.apiUrl}  (/rest/v1, /auth/v1)`], ['postgres', stack.dbUrl]]);
     console.log('\nLocal accounts (this machine only; passwords: the simulator\'s defaults in sim/src/owner.mjs and sim/src/halom.mjs)');
     printLinks([['owner of Café Demo', OWNER], ['Halom admin', ADMIN]]);
+    if (scenario) {
+      console.log(`\n· ${scenario.label}`);
+      const config = readConfig(built, { origin });
+      const links = await runScenario(scenario, { config, origin: web.origin, context: { stack } });
+      if (links.length) printLinks(links.map(([label, p]) => [label, web.origin + p]));
+      if (a.exit) { await stop(); process.exit(process.exitCode ?? 0); }
+    }
   } catch (e) {
     await stop();
     throw e;
