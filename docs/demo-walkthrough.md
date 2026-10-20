@@ -61,8 +61,11 @@ cd e2e && node --test walkthrough.test.mjs     # the e2e test: twice on one stac
   MANA_DEMO_STAFF_PASSWORD=…
   MANA_DEMO_STAFF_TOTP_SECRET=…  # optional: the base32 secret of that admin's TOTP factor (as an authenticator app gets it)
   MANA_DEMO_OWNER_EMAIL=halom.studio+demo-{run}@gmail.com   # for client-walkthrough; {run} makes it fresh per run
+  MANA_DEMO_CLIENT_DISPLAY_NAME=…  # optional: a private scenario's venue name on the database
   ```
-  A private scenario takes the owner's address from its own settings file. If an account is missing, the run stops
+  A private scenario takes the owner's address from its own settings file. Its venue is named neutrally by default (a
+  published demo menu on `mana` is a public page, D40); the client's own name is used only when
+  `MANA_DEMO_CLIENT_DISPLAY_NAME` is set. If an account is missing, the run stops
   before anything is written and says which step needs which account.
 - **Staff 2FA** (`staff_require_aal2` on): the admin needs a verified TOTP factor, and `MANA_DEMO_STAFF_TOTP_SECRET` its
   secret. The run signs in with the password, then completes the second step with a code it computes (RFC 6238:
