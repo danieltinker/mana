@@ -70,3 +70,31 @@ Add to order ₪62.00`;
 
 /** What the owner pastes: the page, then the sheet. */
 export const WOLT_TEXT = PAGE + '\n' + SHEET;
+
+/** The same menu copied another day: the sheet first, then the sections in another order (another input, the same menu). */
+export const WOLT_TEXT_REORDERED = `Morning Sim Café
+Café · Breakfast · ₪₪
+Most ordered
+Breakfast
+Coffee
+Cakes
+${SHEET}
+Cakes
+Cheesecake
+₪26.00
+Seasonal cake
+Ask us about today's cake
+₪ 2O
+Coffee
+Cappuccino
+Double shot, steamed milk
+₪16.00
+Espresso
+₪12.00
+Breakfast
+Shakshuka
+Two eggs in tomato sauce
+₪48.00
+Schnitzel plate
+Crispy chicken, side of choice
+₪62.00`;

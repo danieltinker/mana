@@ -60,6 +60,9 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await page.getByRole('radio', { name: 'מסעדה' }).click();
   await shot(page, '01-new-place');
   await page.getByRole('button', { name: 'יצירת המקום' }).click();
+  // a new place opens on the setup flow's first open step; this owner builds the menu by hand
+  await page.locator('[data-screen="onboarding"][data-step="menu"]').waitFor();
+  await page.locator('[data-action="build-by-hand"]').click();
   await page.getByRole('heading', { name: 'התפריט עוד ריק' }).waitFor();
   await shot(page, '02-empty-menu');
 
@@ -374,7 +377,7 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await page.locator('#place-name').fill('Bistro Two Sim');
   await page.locator('[data-avail="free"]').waitFor();
   await page.getByRole('button', { name: 'יצירת המקום' }).click();
-  await page.getByRole('heading', { name: 'התפריט עוד ריק' }).waitFor();
+  await page.locator('[data-screen="onboarding"][data-step="menu"]').waitFor();          // a new place: the setup flow
   await page.locator('[data-action="switch-venue"]').click();
   await shot(page, '19-switch-place');
   await page.locator('dialog[data-sheet="account"] [data-venue="schnitzel-sim"]').click();

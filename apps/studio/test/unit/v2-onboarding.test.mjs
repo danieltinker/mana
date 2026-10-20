@@ -15,7 +15,7 @@ import { imagePath, imagesHash, importsApi, isEmptyDraft, readText, storableNote
 import {
   aboutOf, carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, planLines, preview, priceDiffs, sameDraft, withDishPrice,
 } from '../../src/v2/data/review.ts';
-import { WOLT_TEXT } from '../../../../e2e/fixtures/wolt-text-cafe.mjs';
+import { WOLT_TEXT, WOLT_TEXT_REORDERED } from '../../../../e2e/fixtures/wolt-text-cafe.mjs';
 
 const VENUE = '00000000-0000-4000-8000-0000000000c1';
 const LANGS = ['he', 'en'];
@@ -95,6 +95,9 @@ test('every write the flow makes is one set_onboarding_step takes: never an auto
       assert.equal(validateSetStep({ venueId: VENUE, step, state: v.state, blockers: v.blockers }).ok, true, step);
     }
   }
+  // blockers only on the owner's own steps: the database finishes its own without clearing them
+  assert.deepEqual(visitWrite('menu', 'todo', NOTHING), { state: 'doing', blockers: [] });
+  assert.deepEqual(visitWrite('addons', 'todo', { ...NOTHING, groupsUnconfirmed: 1 }), { state: 'doing', blockers: ['group_without_limits'] });
   assert.deepEqual(endWrite('review', 'review_skip'), { step: 'review', state: 'skipped' });
   assert.equal(endWrite('menu', 'review_skip'), null);
   assert.equal(endWrite('publish', 'done'), null);
@@ -219,6 +222,12 @@ test('importing the same menu again changes nothing (Hopa test 1): the same text
   assert.equal(re.ok, true);
   assert.equal(changesNothing(re.plan), true, JSON.stringify(re.plan.summary));
   assert.equal(applied(menu, re.plan).dishes.length, 6, 'no dish twice');
+  // the same menu copied another day (another text: the sheet first, the sections in another order)
+  const later = parseWoltText(WOLT_TEXT_REORDERED).draft;
+  const id = `price_unreadable@${dishNamed(later, 'Seasonal cake').key}`;
+  const other = gate(later, menu, choose(yes, id, 'no_price'), LANGS);
+  assert.equal(other.ok, true);
+  assert.equal(changesNothing(other.plan), true, JSON.stringify(other.plan.summary));
 });
 
 test('a price read that differs from the venue\'s: one question for its section, the dish with both prices, the venue\'s kept by default', () => {

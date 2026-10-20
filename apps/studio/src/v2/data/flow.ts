@@ -98,11 +98,15 @@ export function stepEnd(s: OnboardingStep, f: PlaceFacts): StepEnd {
   }
 }
 
-/** The state a step is written with when the owner first opens it: `doing` (with what holds it back), never over a finished one. */
+/**
+ * The state a step is written with when the owner first opens it: `doing`, never over a finished one. With what holds it
+ * back only on the owner's own steps: the database finishes its own (menu, review, publish) without touching their
+ * blockers, which would then stay on a step that is done.
+ */
 export function visitWrite(s: OnboardingStep, state: OnboardingState, f: PlaceFacts): { state: 'doing'; blockers: string[] } | null {
   if (state !== 'todo') return null;
   if (s === 'venue') return null;                        // create_venue marks it; nothing to visit
-  return { state: 'doing', blockers: blockersOf(s, f) };
+  return { state: 'doing', blockers: isAutoStep(s) ? [] : blockersOf(s, f) };
 }
 
 /** The write that ends a step from the owner's side, or null when only the database may end it (and `end` says so). */

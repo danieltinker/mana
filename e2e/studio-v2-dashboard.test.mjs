@@ -424,7 +424,7 @@ test('a first publish waiting for Halom flips to live by itself when Halom appro
   await page.reload();
   await page.locator('[data-action="switch-venue"]').click();
   await page.locator('[data-venue="dash-approval-sim"]').click();
-  await page.locator('[data-screen="menu"]').waitFor();                            // never published: it opens on the menu
+  await page.locator('[data-screen="onboarding"]').waitFor();                      // never published: it opens on the setup flow
   await go('publish');
   const pub = page.locator('[data-screen="publish"]');
   await pub.locator('[data-action="publish"]:not([disabled])').waitFor();

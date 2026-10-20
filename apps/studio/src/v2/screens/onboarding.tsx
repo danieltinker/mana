@@ -78,11 +78,20 @@ export function OnboardingScreen({ rest }: { rest: string[] }) {
   const vid = d.venue.id;
   const p = progress.value;
   const [first, sub] = rest;
-  useEffect(() => { void loadProgress(); void loadImports().catch(() => {}); refreshDraft(); }, [vid]);
+  // where the flow opens depends on the imports too (one waiting for its check opens first): read before choosing
+  const [importsRead, setImportsRead] = useState(false);
+  useEffect(() => {
+    setImportsRead(false);
+    void loadProgress();
+    loadImports().catch(() => {}).finally(() => setImportsRead(true));
+    refreshDraft();
+  }, [vid]);
   // a publish (or Halom's approval) marks the publish step done: read the progress again when the place's standing moves
   useEffect(() => { void loadProgress(); }, [d.venue.published_revision_id, d.dishes.length > 0]);
   useEffect(() => { returnTo.value = null; }, [first]);
-  useEffect(() => { if (p && editable && (!first || (first !== 'done' && !isStep(first)))) go('onboarding/' + openStep(p, placeFacts()), true); }, [p, first]);
+  useEffect(() => {
+    if (p && importsRead && editable && (!first || (first !== 'done' && !isStep(first)))) go('onboarding/' + openStep(p, placeFacts()), true);
+  }, [p, first, importsRead]);
   if (!editable) return null;
   if (!p) return <div class="page" data-screen="onboarding">{progressError.value ? <ErrorLine code={progressError.value} onRetry={() => loadProgress()} /> : <Loading />}</div>;
   if (first === 'done') return <AllSet p={p} />;
