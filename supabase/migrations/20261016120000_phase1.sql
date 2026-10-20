@@ -1856,7 +1856,8 @@ begin
   select v_target || coalesce(jsonb_object_agg(e.key, jsonb_build_object('id', e.value->>'id', 'ref', null)), '{}'),
          v_name_matched || coalesce(jsonb_object_agg(e.key, true), '{}')
   into v_target, v_name_matched from jsonb_each(v_m) e;
-  -- a dish of a section merged into a section left out goes with it (the contracts leave such a dish without a target)
+  -- a dish of a section merged into a section left out goes with it: the dish, its links and its photo are
+  -- parent_skipped, as the contracts' planApply leaves them out (its `gone`)
   select coalesce(jsonb_object_agg(d->>'key', true), '{}') into v_gone
   from jsonb_array_elements(v_secs) a(s), jsonb_array_elements(s->'dishes') b(d)
   where not v_skipped ? (d->>'key') and v_skipped ? coalesce(v_merged->>(s->>'key'), s->>'key');
