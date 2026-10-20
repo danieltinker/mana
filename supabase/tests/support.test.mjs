@@ -3,8 +3,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { as, q, rpc } from './harness/cluster.mjs';
-import { A, ID, U, world } from './harness/world.mjs';
-import { validateSnapshotV2 } from '../../packages/contracts/src/index.ts';
+import { A, count, ID, U, world } from './harness/world.mjs';
 
 let w;
 before(async () => { w = await world(); });
@@ -46,7 +45,9 @@ describe('act_for_owner', () => {
     assert.deepEqual(await afo(U.support, 'venue.delete', {}), { ok: false, code: 'action_unknown' });
     assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { slug: 'x' } }), { ok: false, code: 'payload_invalid' });
     assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { price: -5 } }), { ok: false, code: 'payload_invalid' });
-    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: w.b.dish, patch: { price: 1 } }), { ok: false, code: 'target_unknown' }, 'B\'s dish through A');
+    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: ID.burger, patch: { price: 1 } }), { ok: false, code: 'payload_invalid' }, 'no expectedUpdatedAt');
+    assert.deepEqual(await afo(U.support, 'dish.update', { dishId: w.b.dish, patch: { price: 1 }, expectedUpdatedAt: new Date().toISOString() }),
+      { ok: false, code: 'target_unknown' }, 'B\'s dish through A');
     assert.deepEqual(await afo(U.support, 'availability.set', { targetKind: 'dish', targetId: ID.burger, until: { kind: 'forever' } }), { ok: false, code: 'payload_invalid' });
     const after = (await w.admin.query('select count(*)::int as n from public.activity_log')).rows[0].n;
     assert.equal(after, before, 'a refused act leaves no trace and no change');
@@ -55,27 +56,23 @@ describe('act_for_owner', () => {
   });
 
   test('staff fix a price for the owner: one dish row changed, the change and the reason in the log', async () => {
-    const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' } }, 'Typo in the imported price');
+    const at = (await w.admin.query(`select to_jsonb(updated_at) #>> '{}' as at from public.dishes where id = $1`, [ID.lemonade])).rows[0].at;
+    const r = await afo(U.admin, 'dish.update', { dishId: ID.lemonade, patch: { price: 1700, desc_en: 'Fresh' }, expectedUpdatedAt: at }, 'Typo in the imported price');
     assert.equal(r.ok, true);
     const log = (await ownerLog()).filter((x) => x.action === 'dishes.update' && x.via === 'act_for_owner').at(-1);
     assert.deepEqual(log.detail.changes, { price: [1600, 1700] }, 'numbers with their values; words only as "changed"');
     assert.deepEqual(log.detail.columns, ['desc_en', 'price']);
     assert.equal(log.reason, 'Typo in the imported price');
     const act = (await ownerLog()).filter((x) => x.action === 'support.act_for_owner').at(-1);
-    assert.deepEqual(act.detail, { action: 'dish.update', keys: ['dishId', 'patch'], patchKeys: ['desc_en', 'price'],
+    assert.deepEqual(act.detail, { action: 'dish.update', keys: ['dishId', 'expectedUpdatedAt', 'patch'], patchKeys: ['desc_en', 'price'],
       result: { dishId: ID.lemonade, fields: ['desc_en', 'price'] } });
     assert.ok(!JSON.stringify(act.detail).includes('Fresh'), 'the words staff typed are not in the log');
   });
 
-  test('staff may publish for the owner; the revision says so', async () => {
-    const r = await afo(U.support, 'menu.publish', { note: 'after the price fix' }, 'Owner asked us to publish the fix');
-    assert.equal(r.ok, true);
-    assert.equal(r.result.ok, true);
-    const snap = (await rpc(w.url, 'anon', 'public_menu', { p_slug: 'cafe-demo' })).snapshot;
-    assert.ok(validateSnapshotV2(snap).ok);
-    assert.equal(snap.sections[2].dishes[1].price.amount, 1700);
-    const log = (await ownerLog()).filter((x) => x.action === 'menu.publish').at(-1);
-    assert.deepEqual([log.actor_kind, log.via, log.reason], ['staff', 'act_for_owner', 'Owner asked us to publish the fix']);
+  test('menu.publish is not an act_for_owner action in phase 1: staff help with publishing by approving', async () => {
+    const before = (await w.admin.query('select count(*)::int as n from public.menu_revisions where venue_id = $1', [A])).rows[0].n;
+    assert.deepEqual(await afo(U.support, 'menu.publish', { note: 'after the price fix' }, 'Owner asked us to publish the fix'), { ok: false, code: 'action_unknown' });
+    assert.equal((await w.admin.query('select count(*)::int as n from public.menu_revisions where venue_id = $1', [A])).rows[0].n, before);
   });
 
   test('availability.set until opening tomorrow, done for the owner', async () => {
@@ -122,13 +119,15 @@ describe('act_for_owner', () => {
 
 describe('support cases and onboarding', () => {
   test('the owner asks for help; Halom sees the case in ops_overview and resolves it for the owner', async () => {
-    const id = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.support_cases (venue_id, topic, subject, body)
-      values ($1, 'import', 'The import missed my drinks', 'Two drinks are missing') returning id, status, opened_by`, [A])).rows[0]);
+    const opened = await rpc(w.url, U.ownerA, 'open_case', { p_venue: A, p_topic: 'import', p_subject: 'The import missed my drinks', p_body: 'Two drinks are missing' });
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    const id = (await w.admin.query(`select id, status, opened_by from public.support_cases where id = $1`, [opened.caseId])).rows[0];
     assert.equal(id.status, 'open');
     assert.equal(id.opened_by, U.ownerA);
     const o = await rpc(w.url, U.support, 'ops_overview');
     assert.equal(o.venues.find((v) => v.id === A).openCases, 1);
-    assert.ok(o.totals.openCases >= 1);
+    assert.ok(o.venues.find((v) => v.id === A).warnings.includes('case_open'));
+    assert.equal(o.totals.openCases, 0, 'Café Demo is a demo venue: its case is on its row, not in the real totals');
     const r = await afo(U.support, 'support_case.update', { caseId: id.id, status: 'resolved' }, 'Added the two drinks by hand');
     assert.equal(r.ok, true);
     const { rows } = await w.admin.query('select status, resolved_at is not null as done from public.support_cases where id = $1', [id.id]);
@@ -140,15 +139,20 @@ describe('support cases and onboarding', () => {
   test('onboarding: progress per step, the stage in ops_overview, blockers are machine words', async () => {
     const o = await rpc(w.url, U.support, 'ops_overview');
     const b = o.venues.find((v) => v.id === w.B);
-    assert.equal(b.onboarding.stage, 'menu');
-    assert.equal(b.onboarding.done, 2);
+    assert.equal(b.onboarding.stage, 'review', 'venue (create_venue), menu (the first dish) and publish are the database\'s, done');
+    assert.equal(b.onboarding.done, 3);
     assert.equal(b.menu.live, true);
-    const r = await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'blocked', blockers = '{"price missing!"}' where venue_id = $1 and step = 'menu'`, [w.B]);
+    const r = await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'blocked', blockers = '{"price missing!"}' where venue_id = $1 and step = 'addons'`, [w.B]);
     assert.match(r.error?.message ?? '', /blocker_invalid/);
-    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'blocked', blockers = '{dish_without_price}' where venue_id = $1 and step = 'menu'`, [w.B]));
+    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'blocked', blockers = '{dish_without_price}' where venue_id = $1 and step = 'addons'`, [w.B]));
     const o2 = await rpc(w.url, U.support, 'ops_overview');
-    assert.deepEqual(o2.venues.find((v) => v.id === w.B).onboarding.blocked, [{ step: 'menu', blockers: ['dish_without_price'] }]);
+    assert.deepEqual(o2.venues.find((v) => v.id === w.B).onboarding.blocked, [{ step: 'addons', blockers: ['dish_without_price'] }]);
     assert.equal(o2.venues.find((v) => v.id === A).isDemo, true);
+    // the database's own steps: never done by hand, never undone once it marked them
+    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'review'`, [w.B])).error?.message ?? '', /step_automatic/);
+    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'todo' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '', /step_done/);
+    assert.equal(await count(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'menu'`, [w.B]), 1, 'done → done is not a change');
+    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'todo', blockers = '{}' where venue_id = $1 and step = 'addons'`, [w.B]));
   });
 });
 

@@ -365,10 +365,10 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'needs-review' })).state, 'unavailable');
     assert.deepEqual((await w.admin.query(`select status from public.entitlements where venue_id = $1`, [v])).rows[0], { status: 'pending' }, 'no trial yet');
     assert.deepEqual((await track([{ ...view(), venueId: v, props: { dishId: '00000000-0000-4000-8000-00000000ffff' } }], {})).rejected[0].code, 'venue_unknown');
-    assert.equal((await rpc(w.url, 'anon', 'ops_approve_venue', { p_venue: v, p_reason: 'x' })).error?.code, '42501');
-    assert.equal((await rpc(w.url, O, 'ops_approve_venue', { p_venue: v, p_reason: 'approving myself' })).error?.code, '42501');
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: '' }), { ok: false, code: 'reason_required' });
-    const ok = await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu and photos checked' });
+    assert.equal((await rpc(w.url, 'anon', 'ops_approve_venue', { p_venue: v, p_reason: 'x', p_expected_revision: 1 })).error?.code, '42501');
+    assert.equal((await rpc(w.url, O, 'ops_approve_venue', { p_venue: v, p_reason: 'approving myself', p_expected_revision: 1 })).error?.code, '42501');
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: '', p_expected_revision: 1 }), { ok: false, code: 'reason_required' });
+    const ok = await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu and photos checked', p_expected_revision: 1 });
     assert.equal(ok.ok, true);
     assert.equal((await rpc(w.url, 'anon', 'public_menu', { p_slug: 'needs-review' })).state, 'ok');
     assert.equal((await w.admin.query(`select status from public.entitlements where venue_id = $1`, [v])).rows[0].status, 'trialing');
@@ -377,7 +377,7 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
     const upd = (await w.admin.query(`select actor_kind, detail from public.activity_log where venue_id = $1 and action = 'venues.update' and detail->'columns' ? 'approved_at'`, [v])).rows;
     assert.equal(upd.length, 1, 'the approval columns are audited like any other change');
     assert.deepEqual([upd[0].actor_kind, upd[0].detail.columns, upd[0].detail.changes.approved_at[0]], ['staff', ['approved_at', 'approved_by'], null]);
-    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'again' }), { ok: false, code: 'already_approved' });
+    assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'again', p_expected_revision: 1 }), { ok: false, code: 'already_approved' });
   });
 
   test('a venue has one trial: set back to pending and published again, it does not start a new one', async () => {
@@ -389,7 +389,7 @@ describe('M4 (security): Halom approves the first publish; owners need a confirm
       await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Soup', 3000)`, [v, s]);
     });
     assert.equal((await rpc(w.url, O, 'publish_menu', { p_venue: v })).review, 'pending');
-    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Checked' })).ok, true);
+    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Checked', p_expected_revision: 1 })).ok, true);
     const ent = async () => (await w.admin.query(`select status, trial_started_at, trial_ends_at from public.entitlements where venue_id = $1`, [v])).rows[0];
     assert.equal((await ent()).status, 'trialing');
     await w.admin.query(`update public.entitlements set trial_started_at = trial_started_at - interval '20 days', trial_ends_at = trial_ends_at - interval '20 days' where venue_id = $1`, [v]);
@@ -563,7 +563,13 @@ describe('L4 and L9: the service role and the grant audit', () => {
     const writes = (await w.admin.query(`select c.relname || ':' || p.priv as w from pg_class c join pg_namespace n on n.oid = c.relnamespace
       cross join unnest(array['INSERT', 'UPDATE', 'DELETE']) p(priv)
       where n.nspname in ('public', 'app') and c.relkind in ('r', 'p') and has_table_privilege('service_role', c.oid, p.priv) order by 1`)).rows.map((x) => x.w);
-    assert.deepEqual(writes, ['assets:INSERT', 'assets:UPDATE', 'menu_imports:INSERT', 'menu_imports:UPDATE']);
+    assert.deepEqual(writes, ['assets:INSERT', 'assets:UPDATE']);
+    // on imports, only what the scanner does itself (phase 1): mark a read it claimed as failed, and purge
+    const cols = (await w.admin.query(`select a.attname || ':' || p.priv as w from pg_attribute a cross join unnest(array['INSERT', 'UPDATE']) p(priv)
+      where a.attrelid = 'public.menu_imports'::regclass and a.attnum > 0 and has_column_privilege('service_role', a.attrelid, a.attnum, p.priv) order by 1`)).rows.map((x) => x.w);
+    assert.deepEqual(cols, ['error_code:UPDATE', 'raw_paths:UPDATE', 'raw_purged_at:UPDATE', 'status:UPDATE']);
+    assert.equal((await q(w.url, 'service', `insert into public.menu_imports (venue_id, source, raw_text) values ('${w.B}', 'paste', 'x')`)).error?.code, '42501');
+    assert.equal((await q(w.url, 'service', `update public.menu_imports set parsed = '{}' where false`)).error?.code, '42501');
   });
 
   test('app.audit_grants() finds nothing outside the intended access model', async () => {
@@ -653,14 +659,16 @@ describe('QA m3, m4, m5 and the RPCs that must survive the cutover', () => {
     }
   });
 
-  test('one live import per input: the same text twice is refused until the first is discarded', async () => {
-    const ins = () => q(w.url, U.ownerB, `insert into public.menu_imports (venue_id, source, raw_text, input_sha256)
-      values ($1, 'paste', 'Soup 38', encode(extensions.digest('Soup 38', 'sha256'), 'hex')) returning id`, [w.B]);
-    const first = await ins();
-    assert.ok(!first.error);
-    assert.equal((await ins()).error?.code, '23505');
-    await as(w.url, U.ownerB, (c) => c.query(`update public.menu_imports set status = 'discarded' where id = $1`, [first[0].id]));
-    assert.ok(!(await ins()).error, 'after discarding, the same input may come again');
+  test('one live import per input: the same text again is the same import until it is discarded', async () => {
+    const make = (text) => rpc(w.url, U.ownerB, 'create_import', { p_venue: w.B, p_source: 'paste', p_text: text });
+    const first = await make('Soup 38');
+    assert.deepEqual([first.ok, first.status, first.reused], [true, 'uploaded', false]);
+    assert.deepEqual(await make(' Soup 38\n'), { ok: true, importId: first.importId, status: 'uploaded', reused: true }, 'stored stripped, hashed by the database');
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: first.importId }), { ok: true });
+    const again = await make('Soup 38');
+    assert.deepEqual([again.ok, again.reused], [true, false], 'after discarding, the same input may come again');
+    assert.notEqual(again.importId, first.importId);
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: again.importId }), { ok: true });
   });
 
   test('next_opening: no opening within 14 days is null, in the database as in the contracts', async () => {

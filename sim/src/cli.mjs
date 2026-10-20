@@ -10,11 +10,12 @@
 //   sim run --slug s [--guests N --minutes M --seed S --realtime]
 //                                               random guests on a running stack's venue; prints what they did and the numbers
 //   sim scenario phase0 [--slug s]              the scripted phase-0 chain on a running stack; prints every side's view
+//   sim scenario phase1 [--slug s]              phase 1's dashboards, help, phone and export on a running stack
 import path from 'node:path';
 import { attachStack, startStack } from '../stack/start.mjs';
 import { HalomBot } from './halom.mjs';
 import { runRandom } from './random.mjs';
-import { phase0Chain } from './scenarios.mjs';
+import { phase0Chain, phase1Chain } from './scenarios.mjs';
 import { loadSeed, readSeed, SEEDS } from './seed.mjs';
 
 function parse(argv) {
@@ -100,6 +101,16 @@ try {
       say('Halom card', { review: c.views.card.review, opens: c.views.card.opens, suggestions7d: c.views.card.suggestions7d, stage: c.views.card.onboarding.stage });
       say('owner sees', c.views.activity.filter((x) => x.via === 'act_for_owner').map((x) => `${x.action} by ${x.actor_kind}: "${x.reason}"`));
     } finally { await stack.stop(); }
+  } else if (cmd === 'scenario' && a._[1] === 'phase1') {
+    const stack = await attachStack();
+    try {
+      const c = await phase1Chain(stack, { slug: a.slug ?? `bistro-p1-${Date.now().toString(36)}` });
+      say('guests on the real venue', c.ledgers.real.totals());
+      say('Halom analytics, last hour (real)', c.analytics.real.totals);
+      say('owner dashboard (7d)', c.dashboard.totals, 'nudges', c.dashboard.nudges.map((n) => n.code));
+      say('help', { caseId: c.help.asked.caseId, status: c.help.updated.case?.status });
+      say('phone', { offUntil: c.phone.off.untilAt, restored: c.phone.restored.restored });
+    } finally { await stack.stop(); }
   } else {
     say(`usage:
   sim stack [--keep]
@@ -107,6 +118,7 @@ try {
   sim seed <seed.json> [--slug s]
   sim run --slug s [--guests N --minutes M --seed S --realtime]
   sim scenario phase0 [--slug s]
+  sim scenario phase1 [--slug s]
 (ports: SIM_PORT_BASE, default 57500; see sim/README.md)`);
     process.exit(cmd ? 2 : 0);
   }

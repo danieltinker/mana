@@ -71,9 +71,10 @@ describe('track_events', () => {
   test('accepts valid guest events, dedupes by id within and across batches', async () => {
     const a = ev('dish_viewed', { dishId: w.b.dish });
     const r = await track([a, a, ev('menu_opened', { src: 'link', lang: 'he', revision: 1 })]);
-    assert.deepEqual(r, { ok: true, accepted: 2, duplicates: 1, capped: 0, rejected: [] });
+    assert.deepEqual(r, { ok: true, accepted: 2, duplicates: 1, capped: 0, rejected: [], duplicateIndexes: [1], cappedIndexes: [] },
+      'an id repeated inside one batch is a duplicate at its second index');
     const again = await track([a]);
-    assert.deepEqual(again, { ok: true, accepted: 0, duplicates: 1, capped: 0, rejected: [] }, 'a retried batch adds nothing');
+    assert.deepEqual(again, { ok: true, accepted: 0, duplicates: 1, capped: 0, rejected: [], duplicateIndexes: [0], cappedIndexes: [] }, 'a retried batch adds nothing');
   });
 
   test('rejects personal fields and anything outside the contract, one event at a time', async () => {
@@ -177,7 +178,8 @@ describe('rollups', () => {
     assert.deepEqual(d.opensBy, { qr: 2, link: 1, he: 2, en: 1 });
     assert.equal(d.totals.dishViews, 2);
     assert.deepEqual(d.topDishes.map((x) => [x.dishId, x.views, x.adds]), [[w.b.dish, 2, 1]]);
-    assert.deepEqual(d.rules.find((x) => x.ruleId === R), { ruleId: R, label: '', line: { he: '', en: 'Soup?' }, active: true, shown: 1, accepted: 1, dismissed: 0 });
+    assert.deepEqual(d.rules.find((x) => x.ruleId === R),
+      { ruleId: R, label: '', line: { he: '', en: 'Soup?' }, trigger: 'add', active: true, inactiveReason: null, shown: 1, accepted: 1, dismissed: 0 });
     assert.equal(d.lastHour.reduce((s, x) => s + x.opens, 0), 3);
     const o = await rpc(w.url, U.support, 'ops_overview');
     const vb = o.venues.find((x) => x.id === w.B);
@@ -207,18 +209,14 @@ describe('rollups', () => {
     assert.deepEqual(rows, [{ n: 1 }]);
   });
 
-  test('server events: onboarding steps and imports are emitted by the database itself', async () => {
+  test('server events: onboarding steps are emitted by the database itself', async () => {
     await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'hours'`, [w.B]));
-    const imp = await as(w.url, U.ownerB, async (c) => (await c.query(`insert into public.menu_imports (venue_id, source, raw_text) values ($1, 'wolt_text', 'Soup 38') returning id`, [w.B])).rows[0].id);
-    await q(w.url, 'service', `update public.menu_imports set status = 'parsed', parsed = '{"sections":[{"dishes":[{},{}]}]}', exceptions = '[{"code":"price_missing"}]' where id = $1`, [imp]);
-    const { rows } = await w.admin.query(`select name, props from public.events where venue_id = $1 and source = 'server' and name in ('onboarding_step_done', 'import_parsed') order by at, name`, [w.B]);
-    // create_venue finished "venue", the first publish finished "publish", this test finished "hours"
-    assert.deepEqual(rows.filter((r) => r.name === 'onboarding_step_done').map((r) => r.props.step).sort(), ['hours', 'publish', 'venue']);
-    assert.deepEqual(rows.filter((r) => r.name === 'import_parsed').map((r) => r.props), [{ importId: imp, source: 'wolt_text', sections: 1, dishes: 2, exceptions: 1 }]);
-    // an owner cannot mark an import as parsed: only the scanner (service role) does
-    const r2 = await as(w.url, U.ownerB, async (c) => (await c.query(`insert into public.menu_imports (venue_id, source, raw_text) values ($1, 'paste', 'x') returning id`, [w.B])).rows[0].id);
-    const t = await q(w.url, U.ownerB, `update public.menu_imports set status = 'parsed' where id = $1`, [r2]);
-    assert.match(t.error?.message ?? '', /import_transition/);
+    const { rows } = await w.admin.query(`select name, props from public.events where venue_id = $1 and source = 'server' and name = 'onboarding_step_done' order by at, name`, [w.B]);
+    // create_venue finished "venue", the venue's first dish "menu", the first publish "publish", this test "hours"
+    assert.deepEqual(rows.map((r) => r.props.step).sort(), ['hours', 'menu', 'publish', 'venue']);
+    // an owner can neither write an import nor move one: every transition is a function (import.test.mjs)
+    assert.equal((await q(w.url, U.ownerB, `insert into public.menu_imports (venue_id, source, raw_text) values ($1, 'paste', 'x')`, [w.B])).error?.code, '42501');
+    assert.equal((await q(w.url, U.ownerB, `update public.menu_imports set status = 'parsed' where venue_id = $1`, [w.B])).error?.code, '42501');
   });
 });
 

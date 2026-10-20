@@ -252,8 +252,12 @@ export class GuestBot {
       if (!r.ok) throw new Error('track_events: ' + JSON.stringify(r));
       const rejected = new Set(r.rejected.map((x) => x.index));
       batch.forEach((e, i) => { if (!rejected.has(i)) this.sent.push(e); });
-      // duplicates and capped events are not named one by one: the ledger then cannot be exact, and says so
-      if (r.duplicates === 0 && r.capped === 0) batch.forEach((e, i) => { if (!rejected.has(i)) this.ledger.add(e); });
+      // the reply names duplicates and capped events by index (phase 1), so the ledger counts exactly what was stored;
+      // a reply without the indexes (an older schema) leaves it uncertain
+      if (Array.isArray(r.duplicateIndexes) && Array.isArray(r.cappedIndexes)) {
+        const skip = new Set([...rejected, ...r.duplicateIndexes, ...r.cappedIndexes]);
+        batch.forEach((e, i) => { if (!skip.has(i)) this.ledger.add(e); });
+      } else if (r.duplicates === 0 && r.capped === 0) batch.forEach((e, i) => { if (!rejected.has(i)) this.ledger.add(e); });
       else this.uncertain = true;
       this.results.accepted += r.accepted;
       this.results.duplicates += r.duplicates;

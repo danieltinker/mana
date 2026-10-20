@@ -1,5 +1,6 @@
 // The Halom bot: what Halom staff do in the back office, through the staff RPCs only (ops_*, act_for_owner,
-// create_staff_invite / redeem_staff_invite). Staff never write a venue's tables directly.
+// create_staff_invite / redeem_staff_invite). Staff never write a venue's tables directly; marking a venue as a demo
+// is ops_set_demo, an admin's.
 import { asUser, createUser, signIn } from './client.mjs';
 
 export class HalomBot {
@@ -36,11 +37,46 @@ export class HalomBot {
   /** Admins only: an invite for one e-mail address; the code is returned once. */
   invite(email, role = 'support') { return this.api.rpc('create_staff_invite', { p_email: email, p_role: role }); }
 
+  /** Phase 0's back office (kept for older callers; the clients list is `venues`). */
   overview() { return this.api.rpc('ops_overview', {}); }
 
-  async venueCard(venueId) { return (await this.overview()).venues.find((v) => v.id === venueId) ?? null; }
+  /** The clients list (ops_venues): filters, sort and paging as OpsVenuesQuery. */
+  venues(filters = {}) { return this.api.rpc('ops_venues', { p_filters: filters }); }
 
-  approve(venueId, reason) { return this.api.rpc('ops_approve_venue', { p_venue: venueId, p_reason: reason }); }
+  /** One venue (ops_venue): its row, members, onboarding, imports, cases and timeline. */
+  venue(venueId) { return this.api.rpc('ops_venue', { p_venue: venueId }); }
+
+  async venueCard(venueId) { return (await this.venue(venueId)).venue ?? null; }
+
+  /** The stored menu Halom approves (ops_revision): the newest revision unless a number is asked. */
+  revision(venueId, number = null) { return this.api.rpc('ops_revision', { p_venue: venueId, p_revision: number }); }
+
+  /** Counts per minute or per day across venues or for one (ops_analytics, OpsAnalyticsQuery). */
+  analytics(query) { return this.api.rpc('ops_analytics', { p_query: query }); }
+
+  /** A support case's status or topic, with the reason the owner sees. */
+  updateCase(caseId, { status = null, topic = null, reason }) {
+    return this.api.rpc('ops_update_case', { p_case: caseId, p_status: status, p_topic: topic, p_reason: reason });
+  }
+
+  /** Admins only: label a venue demo or real (ops_set_demo), with the reason the owner sees. */
+  setDemo(venueId, demo, reason) { return this.api.rpc('ops_set_demo', { p_venue: venueId, p_demo: demo, p_reason: reason }); }
+
+  /** Approves a venue's first publish, naming the revision the reviewer looked at (revision_changed when the owner
+   * published a newer one meanwhile). Without `revision`, the published revision as staff read it now (`ops_venue`'s
+   * `venue.menu.revision`, the number guests will see; null when nothing is published, which the database refuses as
+   * revision_invalid). */
+  async approve(venueId, reason, revision = undefined) {
+    const expected = revision ?? (await this.venue(venueId))?.venue?.menu?.revision ?? null;
+    return this.api.rpc('ops_approve_venue', { p_venue: venueId, p_reason: reason, p_expected_revision: expected });
+  }
+
+  /** act_for_owner('dish.update') with the dish's updated_at as support reads it now: refused as stale, writing
+   * nothing, when the owner saved the dish since. */
+  async updateDish(venueId, reason, dishId, patch) {
+    const [d] = await this.api.select('dishes', { select: 'updated_at', id: `eq.${dishId}` });
+    return this.actForOwner(venueId, reason, 'dish.update', { dishId, patch, expectedUpdatedAt: d?.updated_at ?? null });
+  }
 
   /** The only staff write path into a venue's menu: logged with the reason, shown to the owner. */
   actForOwner(venueId, reason, action, payload = {}) {
