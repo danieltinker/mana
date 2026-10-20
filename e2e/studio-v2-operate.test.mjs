@@ -283,9 +283,7 @@ test('a day part on a section, the week with a split Friday, a holiday closure, 
   await pub.locator('[data-action="publish"]').click();
   await page.locator('[data-standing-card="pending"]').waitFor();
   const halom = await HalomBot.firstAdmin(e.stack, e.stack, { email: 'halom-operate@sim.local' });
-  // Halom approves the revision it reviewed: the one just published (ops_approve_venue's expected revision)
-  const [published] = await owner.api.select('menu_revisions', { select: 'number', venue_id: `eq.${owner.venueId}`, order: 'number.desc', limit: 1 });
-  assert.equal((await halom.approve(owner.venueId, 'e2e: the v2 operating scenario', published.number)).ok, true);
+  assert.equal((await halom.approve(owner.venueId, 'e2e: the v2 operating scenario')).ok, true);
   await pub.locator('[data-action="check-approval"]').click();
   await page.locator('[data-standing-card="live"]').waitFor();
 
