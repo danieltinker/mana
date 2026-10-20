@@ -13,6 +13,7 @@ import { ANY_ROW, addRelated, attachGroup, attachedTo, canEdit, menu, moveDishTo
 import { langsOf, ruleLine } from '../format.ts';
 import { errText, lang, t } from '../i18n.ts';
 import { Icon2, LangSeg, MoneyInput, ReadOnly, ReorderList, TabPanel, Tabs, useEntryLang } from '../ui.tsx';
+import { SaveFailedLine } from '../saving.tsx';
 import { GuestPreview } from './guest-preview.tsx';
 
 type Tab = 'details' | 'addons' | 'related';
@@ -29,6 +30,7 @@ export function DishSheet({ id, tab, onClose }: { id: string; tab?: string; onCl
   const groups = attachedTo(row.id).length, related = relatedOf(row.id).length;
   return (
     <Sheet open onClose={onClose} title={name} side tall name="dish" head={current !== 'related' ? <LangSeg value={L} onChange={setL} langs={langs} /> : undefined}>
+      <SaveFailedLine />
       {!canEdit() && <Note>{t('menu2.readOnly')}</Note>}
       <Tabs label={t('dish.tabs')} value={current} onChange={(k) => go(`menu/d/${row.id}/${k}`, true)}
         tabs={[{ key: 'details', label: t('dish.tab.details') }, { key: 'addons', label: t('dish.tab.addons'), badge: groups }, { key: 'related', label: t('dish.tab.related'), badge: related }]} />

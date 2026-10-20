@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { LIMITS, defaultSelection, priceDish, validateSnapshotV2 } from '@mana/contracts';
 import {
   agorotOf, blockedColumns, changed, dishDraft, dishEdit, dishLimitsFromForm, dishToForm, effectiveLimits, groupFromForm, groupToForm, limitChoices,
-  newGroupForm, newOptionForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
+  mergeGroupForms, newGroupForm, newOptionForm, sectionFromForm, sectionToForm, shekelsOf, withSelection,
 } from '../../src/v2/data/forms.ts';
 import { canHoldOpeners, nestingProblem, openTargets } from '../../src/v2/data/nesting.ts';
 import { choose, clearGroup, guestModel, menuPrice, pricingOf, setQty, unitsIn } from '../../src/v2/data/guest.ts';
@@ -135,6 +135,30 @@ test('a group: the form round-trips, and every rule the validators hold is check
   assert.equal(groupFromForm(newGroupForm(), newId()).ok, false, 'a new group needs a name and a named choice');
 });
 
+test('"save my changes over it": only what the owner changed here goes over the group as stored now', () => {
+  const opened = groupToForm(side, rows.options);                        // the form as read: fries, salad, rice
+  const [F, S, R] = opened.options;
+  const corn = { ...newOptionForm(), nameEn: 'Corn' }, fresh = { ...newOptionForm(), nameEn: 'Beans' };
+  // elsewhere: a label, a larger maximum, fries renamed in English, salad dearer, rice deleted, corn added
+  const stored = { ...opened, label: 'Side, all', max: 3, options: [{ ...F, nameEn: 'Chips' }, { ...S, price: '5' }, corn] };
+  // here: the group's Hebrew name, fries deleted, salad renamed in Hebrew, rice cheaper, beans added
+  const mine = { ...opened, nameHe: 'תוספת', options: [{ ...S, nameHe: 'סלט ירוק' }, { ...R, price: '2' }, fresh] };
+  const m = mergeGroupForms(opened, mine, stored);
+  assert.deepEqual([m.label, m.nameHe, m.max], ['Side, all', 'תוספת', 3], 'their label and maximum stay; my name goes over');
+  assert.deepEqual(m.options.map((o) => [o.nameEn, o.nameHe, o.price]), [
+    ['Salad', 'סלט ירוק', '5'],                                              // their price, my name
+    ['Corn', '', ''],                                                        // added there: stays
+    ['Rice', rows.options.find((o) => o.id === R.id).name_he, '2'],         // deleted there, changed here: back
+    ['Beans', '', ''],                                                       // added here
+  ]);
+  assert.equal(m.options.some((o) => o.id === F.id), false, 'deleted here: gone');
+  // the owner changed the order: theirs wins over the stored one, what was added there comes after
+  const reordered = mergeGroupForms(opened, { ...opened, options: [R, S, F] }, stored);
+  assert.deepEqual(reordered.options.map((o) => o.nameEn), ['Salad', 'Chips', 'Corn'], 'rice, deleted there and unchanged here, stays deleted');
+  // nothing changed here: the stored group as it is
+  assert.deepEqual(mergeGroupForms(opened, opened, stored), stored);
+});
+
 test('a dish may only tighten a group: the editor offers only tighter limits, stores null for the group\'s own', () => {
   assert.deepEqual(limitChoices(side, 3, 1), { mins: [1, 2], maxes: [1, 2] });
   assert.deepEqual(limitChoices(side, 3, 2), { mins: [1, 2], maxes: [2] });
@@ -238,7 +262,7 @@ test('errors come back in the app\'s codes', () => {
   assert.equal(code({ code: 'P0001', message: 'nesting_too_deep', details: 'the group it opens already opens another group' }), 'nesting_too_deep');
   assert.equal(code({ code: 'P0001', message: 'limits_loosened' }), 'limits_loosened');
   assert.equal(code({ code: 'P0001', message: 'limit_dishes' }), 'limit_dishes');
-  assert.equal(code({ code: '42501', message: 'not_allowed' }), 'not_allowed');
+  assert.equal(code({ code: '42501', message: 'not_allowed' }), 'forbidden', 'the schema\'s permission refusal is the same code as row-level security\'s');
   assert.equal(code({ code: '42501', message: 'new row violates row-level security policy for table "dishes"' }), 'forbidden');
   assert.equal(code({ code: '23505', message: 'duplicate key value violates unique constraint "dish_relations_dish_id_related_dish_id_key"' }), 'duplicate');
   assert.equal(code({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), 'not_found');

@@ -3,12 +3,13 @@
 // a most-per-dish, an order, Hebrew and English, and one nesting level: a choice may open one group of its own. The
 // editor never offers a second level; should the database refuse one anyway (another device changed the library), its
 // answer is said in plain words and the library is shown as it now is.
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { LIMITS, type AddonGroupRow } from '@mana/contracts';
 import { Btn, Confirm, Empty, Field, Icon, IconBtn, Ltr, Note, PageHead, Seg, Sticky, Switch, go } from '../../ui.tsx';
 import { toast } from '../../lib/store.ts';
 import { toV2Error } from '../data/errors.ts';
-import { capacityOf, groupToForm, newGroupForm, newOptionForm, withSelection, type FieldError, type GroupForm, type OptionForm } from '../data/forms.ts';
+import { capacityOf, groupToForm, mergeGroupForms, newGroupForm, newOptionForm, withSelection, type FieldError, type GroupForm, type OptionForm } from '../data/forms.ts';
+import { leave as leaveScreen, useLeaveGuard } from '../leave.ts';
 import type { GroupRows } from '../data/menu.ts';
 import { canHoldOpeners, openTargets } from '../data/nesting.ts';
 import { byCreated, byPosition, named, newId } from '../data/rows.ts';
@@ -93,18 +94,22 @@ function GroupEditor({ id }: { id: string | null }) {
   // the group as this form read it: its version (sent with every save) and its content (what "changed" compares with)
   const [expected, setExpected] = useState<string | null>(row?.updated_at ?? null);
   const [base, setBase] = useState(() => shape(form));
+  const [opened, setOpened] = useState<GroupForm>(() => form);
   // a new group's id is made here and kept, so saving again after a lost answer never makes a second group
   const [gid] = useState(() => id ?? newId());
   const [errors, setErrors] = useState<readonly FieldError[]>([]), [error, setError] = useState('');
   const [busy, setBusy] = useState(false), [del, setDel] = useState(false), [leave, setLeave] = useState(false);
   const [stale, setStale] = useState<GroupRows | null>(null), [rules, setRules] = useState<{ id: string; name: string }[] | null>(null);
+  const leaveTo = useRef<(() => void) | null>(null);
   const editable = canEdit();
+  const dirty = shape(form) !== base;
+  // a group form with changes is not left without asking (the back link, the bottom bar, another place)
+  useLeaveGuard(editable && dirty, (proceed) => { leaveTo.current = proceed; setLeave(true); });
   if (id && !row) return <div class="page"><a class="backlink" href="#/addons"><Icon name="chev" size={16} back />{t('lib.title')}</a><p class="muted">{t('lib.notFound')}</p></div>;
 
   const nested = !canHoldOpeners(id, d.options);
   const targets = openTargets(id, byCreated(d.groups), d.options);
   const u = row ? useOf(row) : { dishes: [], opens: [], openedBy: [] };
-  const dirty = shape(form) !== base;
   const many = form.selection === 'multiple';
   const nameKey = L === 'he' ? 'nameHe' : 'nameEn';
   const errAt = (field: string) => { const e = errors.find((x) => x.field === field || x.field.startsWith(field + '_')); return e ? fieldText(e) : undefined; };
@@ -113,13 +118,13 @@ function GroupEditor({ id }: { id: string | null }) {
   const moveOpt = (i: number, to: number) => { const o = [...form.options]; const [x] = o.splice(i, 1); o.splice(to, 0, x!); set({ ...form, options: o }); };
   const cap = capacityOf(form.options);
   /** The form now shows `rows` as stored, and the next save goes over their version. */
-  const readAgain = (rows: GroupRows) => { const f = groupToForm(rows.group, rows.options); setForm(f); setBase(shape(f)); setExpected(rows.group.updated_at); };
+  const readAgain = (rows: GroupRows) => { const f = groupToForm(rows.group, rows.options); setForm(f); setOpened(f); setBase(shape(f)); setExpected(rows.group.updated_at); };
 
-  async function save({ over = expected, confirmRules = false, confirmLimits = false }: { over?: string | null; confirmRules?: boolean; confirmLimits?: boolean } = {}) {
+  async function save({ over = expected, confirmRules = false, confirmLimits = false, f = form }: { over?: string | null; confirmRules?: boolean; confirmLimits?: boolean; f?: GroupForm } = {}) {
     if (busy) return;
     setBusy(true); setError(''); setStale(null); setRules(null);
     try {
-      const r = await saveGroupForm(gid, form, over, { confirmRules, confirmLimits });
+      const r = await saveGroupForm(gid, f, over, { confirmRules, confirmLimits });
       if (r.ok) {
         toast(t(confirmLimits ? 'lib.confirm.done' : 'lib.saved'));
         if (!id) go('addons/' + gid, true);
@@ -145,8 +150,14 @@ function GroupEditor({ id }: { id: string | null }) {
       }
     } finally { setBusy(false); }
   }
-  // changed elsewhere: save the owner's form over the version stored now, or show the stored one
-  const keepMine = () => { const over = stale!.group.updated_at; setExpected(over); save({ over }); };
+  // changed elsewhere: only what the owner changed here goes over the group as stored now (mergeGroupForms), or the
+  // stored one is shown
+  const keepMine = () => {
+    const now = groupToForm(stale!.group, stale!.options), over = stale!.group.updated_at;
+    const merged = mergeGroupForms(opened, form, now);
+    setForm(merged); setOpened(now); setBase(shape(now)); setExpected(over);
+    save({ over, f: merged });
+  };
   const takeStored = () => { readAgain(stale!); setStale(null); };
   async function remove() {
     setBusy(true);
@@ -154,7 +165,7 @@ function GroupEditor({ id }: { id: string | null }) {
     catch (e) { setError(errText(toV2Error(e).code)); setDel(false); }
     finally { setBusy(false); }
   }
-  const back = () => (dirty ? setLeave(true) : go('addons'));
+  const back = () => leaveScreen(() => go('addons'));
 
   return (
     <div class="page has-sticky" data-screen="group-editor" data-group={id ?? 'new'}>
@@ -223,7 +234,7 @@ function GroupEditor({ id }: { id: string | null }) {
         confirmLabel={t('lib.rules.go')} danger busy={busy} onConfirm={() => save({ confirmRules: true })} onClose={() => setRules(null)} />
       <Confirm open={del} title={t('lib.delete')} body={u.dishes.length ? tn('lib.deleteUsed', u.dishes.length, { name: named(row, UI) }) : t('lib.deleteConfirm', { name: named(row, UI) })}
         confirmLabel={t('app.delete')} danger busy={busy} onConfirm={remove} onClose={() => setDel(false)} />
-      <Confirm open={leave} title={t('lib.leave.title')} body={t('lib.leave.body')} confirmLabel={t('lib.leave.go')} onConfirm={() => { setLeave(false); go('addons'); }} onClose={() => setLeave(false)} />
+      <Confirm open={leave} title={t('lib.leave.title')} body={t('lib.leave.body')} confirmLabel={t('lib.leave.go')} onConfirm={() => { setLeave(false); const to = leaveTo.current ?? (() => go('addons')); leaveTo.current = null; to(); }} onClose={() => { setLeave(false); leaveTo.current = null; }} />
     </div>
   );
 }
@@ -283,6 +294,7 @@ function StaleGroup({ rows, busy, onKeep, onTake }: { rows: GroupRows; busy: boo
         <p><span class="strong">{named(rows.group, L) || t('menu2.unnamed')}</span> · {ruleLine(rows.group.min_units, rows.group.max_units)}</p>
         <ul>{opts.map((o) => <li key={o.id}>{named(o, L) || t('menu2.unnamed')}{o.price > 0 && <> <Ltr>+{shekels(o.price)}</Ltr></>}{o.is_default && <span class="muted"> · {t('lib.default')}</span>}</li>)}</ul>
       </div>
+      <p class="fine" data-mine-only>{t('lib.stale.mineOnly')}</p>
       <div class="btnrow">
         <Btn kind="primary" busy={busy} onClick={onKeep} data-action="keep-mine">{t('lib.stale.keep')}</Btn>
         <Btn disabled={busy} onClick={onTake} data-action="take-stored">{t('lib.stale.take')}</Btn>

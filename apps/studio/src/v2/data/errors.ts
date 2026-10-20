@@ -57,6 +57,9 @@ export function toV2Error(e: unknown): V2Error {
   if (/invalid login credentials/i.test(msg)) return as('bad_login');
   if (/email not confirmed/i.test(msg)) return as('email_unconfirmed');
   if (/signups? not allowed/i.test(msg)) return as('signup_closed');
+  // the schema's permission refusal ('not_allowed', 42501) is the same as row-level security's: one code, so every write
+  // path that meets it reads the role again
+  if (msg === 'not_allowed' || msg === 'owner_only') return as('forbidden');
   if (DB_CODES.has(msg) || /^limit_[a-z_]+$/.test(msg)) return as(msg);
   if (code === 'PGRST301' || status === 401 || /jwt expired|invalid jwt|jwt malformed/i.test(msg)) return as('signed_out');
   if (code === '42501' || status === 403 || /row-level security|permission denied/i.test(msg)) return as('forbidden');

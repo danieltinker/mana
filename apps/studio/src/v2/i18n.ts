@@ -52,6 +52,9 @@ const S: Record<string, [string, string]> = {
   'venue.unsaved.title': ['יש שינויים שלא נשמרו', 'Some changes are not saved'],
   'venue.unsaved.body': ['השינויים האחרונים במקום הזה לא נשמרו. אם תעברו עכשיו למקום אחר, הם יאבדו.', 'The latest changes in this place did not save. If you switch now, they are lost.'],
   'venue.unsaved.go': ['לעבור בלי לשמור', 'Switch without saving'],
+  'signout.unsaved.body': ['השינויים האחרונים לא נשמרו. אם תצאו עכשיו מהחשבון, הם יאבדו.', 'Your latest changes did not save. If you sign out now, they are lost.'],
+  'signout.unsaved.go': ['לצאת בלי לשמור', 'Sign out without saving'],
+  'save2.failedLong': ['השינויים האחרונים לא הגיעו אלינו, או שלא קיבלנו אישור שהם נשמרו. מה שהקלדתם עדיין כאן, ו"לנסות שוב" שולח אותו שוב.', 'Your latest changes did not reach us, or we never heard back that they were saved. What you typed is still here, and "Try again" sends it again.'],
 
   // ---- the menu
   'menu2.empty.title': ['התפריט עוד ריק', 'The menu is empty'],
@@ -164,7 +167,8 @@ const S: Record<string, [string, string]> = {
   'lib.leave.go': ['לצאת בלי לשמור', 'Leave without saving'],
   'lib.stale.title': ['הקבוצה נשמרה במקום אחר', 'This group was saved somewhere else'],
   'lib.stale.body': ['היא נשמרה במסך או במכשיר אחר אחרי שפתחתם אותה. כך היא שמורה עכשיו:', 'It was saved on another screen or device after you opened it. This is how it is stored now:'],
-  'lib.stale.keep': ['לשמור את שלי במקומה', 'Save mine over it'],
+  'lib.stale.keep': ['לשמור עליה את השינויים שלי', 'Save my changes over it'],
+  'lib.stale.mineOnly': ['רק מה ששיניתם כאן נשמר עליה. כל השאר נשאר כפי שנשמר שם.', 'Only what you changed here is saved over it. Everything else stays as it was saved there.'],
   'lib.stale.take': ['לקחת את השמורה', 'Take the stored one'],
   'lib.e.dish_limits': ['למנה "{dish}" יש גבולות משלה לקבוצה הזאת, והשינוי הזה שובר אותם. שנו קודם את הגבולות במנה (בלשונית התוספות שלה).', 'The dish "{dish}" has its own limits for this group, and this change breaks them. Change the limits on the dish first (its Add-ons tab).'],
   'lib.rules.title': ['כללי הצעה משתמשים באפשרויות האלה', 'Suggestion rules use these choices'],
