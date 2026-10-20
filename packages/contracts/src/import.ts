@@ -2167,6 +2167,13 @@ export function validateCreateImport(raw: unknown): Validation<CreateImportInput
   return x.ok ? { ok: true, value: raw as unknown as CreateImportInput } : { ok: false, errors: x.list };
 }
 
+/** `app_config.import_caps`'s keys: the imports a venue creates per local day (`create_import`); the three
+ * `SCAN_IMAGE_CAPS`; and the applies the database refused for a venue (`plan_invalid`, `apply_failed`) per UTC hour,
+ * past which `apply_import` refuses before planning (`rate_limited`). Defaults: 20, 60, 120, 1000, 10. */
+export const IMPORT_CAP_KEYS = [
+  'per_venue_day', 'scan_images_per_venue_day', 'scan_images_per_user_day', 'scan_images_per_day', 'refused_applies_per_venue_hour',
+] as const;
+export type ImportCapKey = (typeof IMPORT_CAP_KEYS)[number];
 /** The caps on the images the scanner reads (each a paid model call), in `app_config.import_caps`: per venue per local
  * day, per person per UTC day, for all venues together per UTC day. */
 export const SCAN_IMAGE_CAPS = ['scan_images_per_venue_day', 'scan_images_per_user_day', 'scan_images_per_day'] as const;
@@ -2422,12 +2429,18 @@ export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
  * import RPC of the venue holds its import lock (the apply tries it and does not wait); nothing was done, so the client
  * retries after a moment. `plan_invalid`: `planApply`'s errors, in `errors` (among them, since round 10c,
  * `exception_unresolved` with message `nesting_too_deep` for an opener the plan would chain, and `group_ambiguous`).
- * The import's `applied_ids` is `appliedIds(draft, plan, …)`: the draft too, for a section's `null`.
+ * The import's `applied_ids` is `appliedIds(draft, plan, …)`: the draft too, for a section's `null`. `rate_limited`
+ * (round 10d): the venue's applies refused as `plan_invalid` or `apply_failed` in the current UTC hour reached
+ * `import_caps.refused_applies_per_venue_hour` (10); the apply is refused before planning and nothing is done, so the
+ * client says so and the owner tries again in the next hour.
  */
 export type ApplyImportInput = { readonly importId: string; readonly draft: ImportDraft; readonly decisions: ImportDecisions };
 export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
-  | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'import_busy' | 'not_parsed' | 'import_closed'>;
+  | RpcFail<
+      'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'import_busy' | 'not_parsed' | 'import_closed' |
+      'rate_limited'
+    >;
 
 /**
  * What `apply_import` answers on size alone, before it walks anything (SEC-M1; after the caller, the venue's import
