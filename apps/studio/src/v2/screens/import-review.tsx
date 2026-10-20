@@ -233,10 +233,13 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
       const code = toV2Error(e).code;
       // an answer lost after the database applied it, an import closed or changed on another device: read it again first
       if (code === 'network' || code === 'import_closed' || code === 'draft_changed') {
+        // said before reading: the import read again draws its new preview at once (its key changes), before this goes on
+        reread.add(line.id);
         const now = await loadImport(line.id).catch(() => null);
+        if (now?.status === 'parsed' && now.updated_at !== line.updated_at) return;          // shown again, as stored, saying so
+        reread.delete(line.id);
         if (now?.status === 'applied') { await applied(null); return; }
-        if (now?.status === 'parsed' && now.updated_at !== line.updated_at) { reread.add(line.id); return; }   // shown again, as stored
-        if (now && now.status !== 'parsed') return;                                                                // given up elsewhere: said by the screen
+        if (now && now.status !== 'parsed') return;                                           // given up elsewhere: said by the screen
       }
       setError(errText(code, 'imp.e'));
     } finally { setBusy(''); }

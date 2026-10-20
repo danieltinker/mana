@@ -491,7 +491,11 @@ test('an import of another place is never checked or applied here: said plainly,
   await page.locator('input[name="password"]').fill(PASSWORD);
   await page.locator('form.start-form button[type="submit"]').click();
   await page.locator('.shell').waitFor();
-  await page.waitForFunction(() => !Object.keys(localStorage).some((k) => k.startsWith('mana-import-answers:')));
+  // (the review this account opens on keeps its own answers at once: only those may be there)
+  await page.waitForFunction((own) => !Object.keys(localStorage).some((k) => k.startsWith('mana-import-answers:') && !k.startsWith(own)),
+    `mana-import-answers:${owner.userId}:`);
+  const left = await answerKeys(page);
+  assert.ok(left.every((k) => k.startsWith(`mana-import-answers:${owner.userId}:`)), JSON.stringify(left));
   // back on A's import: the answer given before signing out is asked again, and applying writes to A, never to B
   await page.goto(e.webUrl + 'studio/#/onboarding/review/' + a1.id);
   const cake = page.locator('[data-exception^="price_unreadable@"]');
