@@ -5,11 +5,13 @@ import { PRODUCT } from '../product.ts';
 import { sibling } from '../lib/api.ts';
 import { toast } from '../lib/store.ts';
 import { Brand } from '../brand.tsx';
-import { Btn, Confirm, Icon, Loading, Ltr, Note, SaveFailed, Sheet, Toasts, go, route } from '../ui.tsx';
+import { Btn, Confirm, Icon, Loading, Ltr, Note, Sheet, Toasts, go, route } from '../ui.tsx';
 import { ConflictDialog } from './conflict.tsx';
+import { leave, leaveGuarded } from './leave.ts';
+import { SaveFailedLine } from './saving.tsx';
 import { cfg } from './data/client.ts';
 import { named } from './data/rows.ts';
-import { flushSaves, hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveProblem, saveState, session, signOut, venueId } from './data/store.ts';
+import { flushSaves, hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveState, session, signOut, venueId } from './data/store.ts';
 import { errText, lang, setLang, t } from './i18n.ts';
 import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
 import { HelpButton } from './screens/help.tsx';
@@ -22,9 +24,12 @@ import './data/approval.ts';
 export function App() {
   useEffect(() => {
     initAuth();
-    const warn = (e: BeforeUnloadEvent) => { if (hasUnsaved()) { e.preventDefault(); e.returnValue = t('save.leave'); } };
+    const warn = (e: BeforeUnloadEvent) => { if (hasUnsaved() || leaveGuarded()) { e.preventDefault(); e.returnValue = t('save.leave'); } };
+    // the connection is back: what did not save goes again by itself
+    const online = () => { if (saveState.value === 'failed') retrySaves(); };
     window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
+    window.addEventListener('online', online);
+    return () => { window.removeEventListener('beforeunload', warn); window.removeEventListener('online', online); };
   }, []);
   useEffect(() => { if (refused.value) toast(errText(refused.value.code), 'error'); }, [refused.value]);
   useFocusOnNewScreen();
@@ -64,12 +69,14 @@ function Shell() {
   const name = named({ name_he: d.venue.name_he, name_en: d.venue.name_en }, lang.value);
   const [account, setAccount] = useState(false);
   const several = (memberships.value || []).length > 1;
+  // a dish's or a section's sheet says "not saved" itself (the page behind an open sheet cannot be reached)
+  const sheetOpen = here === 'menu' && (r[1] === 'd' || r[1] === 's') && !!r[2];
   return (
     <div class="shell is-tabs v2" data-mode="tabs" data-venue={d.venue.id}>
       <a class="skip" href="#main">{t('app.skip')}</a>
       <header class="top">
         <div class="top-in">
-          <a class="top-brand" href={'#/' + landing()} aria-label={PRODUCT.mark}><Brand small /></a>
+          <a class="top-brand" href={'#/' + landing()} aria-label={PRODUCT.mark} onClick={(e) => guardedLink(e, landing())}><Brand small /></a>
           {several
             ? <button type="button" class="top-biz top-switch" aria-haspopup="dialog" onClick={() => setAccount(true)} data-action="switch-venue"><span>{name}</span><Icon name="chevdown" size={16} /></button>
             : <span class="top-biz" title={name}>{name}</span>}
@@ -80,7 +87,7 @@ function Shell() {
       </header>
       <BottomNav here={here} />
       <main class="main" id="main" tabIndex={-1}>
-        {saveState.value === 'failed' && <SaveFailed problem={saveProblem.value} onRetry={() => retrySaves()} />}
+        {!sheetOpen && <SaveFailedLine />}
         {screen ? screen.render(r.slice(1)) : <Loading />}
       </main>
       <AccountSheet open={account} onClose={() => setAccount(false)} />
@@ -101,12 +108,19 @@ function SaveBadge() {
   );
 }
 
+/** A link inside the shell: when a screen holds changes not saved yet, the owner is asked before it is followed. */
+function guardedLink(e: MouseEvent, path: string) {
+  if (!leaveGuarded() || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+  e.preventDefault();
+  leave(() => go(path));
+}
+
 function BottomNav({ here }: { here: string }) {
   const [more, setMore] = useState(false);
   const fits = NAV.length <= PHONE_TABS;
   const shown = fits ? NAV : NAV.slice(0, PHONE_TABS - 1), rest = fits ? [] : NAV.slice(PHONE_TABS - 1);
   const item = (n: (typeof NAV)[number]) => (
-    <a key={n.key} href={'#/' + n.path} class="nav-item" aria-current={n.path === here ? 'page' : undefined} data-tab={n.key}>
+    <a key={n.key} href={'#/' + n.path} class="nav-item" aria-current={n.path === here ? 'page' : undefined} data-tab={n.key} onClick={(e) => guardedLink(e as unknown as MouseEvent, n.path)}>
       <span class="nav-ico"><Icon2 name={n.icon} size={22} />{n.dot?.() && <span class="nav-dot" aria-hidden="true" />}</span>
       <span class="nav-lbl">{t(n.label)}{n.dot?.() && <span class="sr"> · {t('nav2.waiting')}</span>}</span>
     </a>
@@ -119,7 +133,7 @@ function BottomNav({ here }: { here: string }) {
           <span class="nav-ico"><Icon name="dots" size={22} /></span><span class="nav-lbl">{t('nav2.more')}</span>
         </button>
         <Sheet open={more} onClose={() => setMore(false)} title={t('nav2.more')} name="more">
-          <ul class="menulist">{rest.map((n) => <li key={n.key}><a href={'#/' + n.path} onClick={() => setMore(false)}><Icon2 name={n.icon} /><span>{t(n.label)}</span></a></li>)}</ul>
+          <ul class="menulist">{rest.map((n) => <li key={n.key}><a href={'#/' + n.path} onClick={(e) => { setMore(false); guardedLink(e as unknown as MouseEvent, n.path); }}><Icon2 name={n.icon} /><span>{t(n.label)}</span></a></li>)}</ul>
         </Sheet>
       </>}
     </nav>
@@ -132,18 +146,29 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
   const email = session.value?.user?.email || '';
   const other = lang.value === 'he' ? 'en' : 'he';
   // a change that did not save belongs to this place: switching drops it, so the owner is asked first
-  const [ask, setAsk] = useState<string | null>(null);
+  const [ask, setAsk] = useState<string | null>(null), [askOut, setAskOut] = useState(false);
   // the place being opened decides where it opens (Home once it has published), not the one still on screen
   const switchTo = (id: string) => { setAsk(null); openVenue(id); go(landing(list.find((m) => m.venue.id === id)?.venue ?? null)); };
-  async function pick(id: string) {
+  function pick(id: string) {
     onClose();
     if (id === venueId.value) return;
-    await flushSaves().catch(() => {});
-    if (hasUnsaved()) setAsk(id); else switchTo(id);
+    leave(async () => {
+      await flushSaves().catch(() => {});
+      if (hasUnsaved()) setAsk(id); else switchTo(id);
+    });
+  }
+  // signing out drops what did not save: asked first
+  function out() {
+    onClose();
+    leave(async () => {
+      await flushSaves().catch(() => {});
+      if (hasUnsaved()) setAskOut(true); else signOut();
+    });
   }
   return (
     <>
     <Confirm open={!!ask} title={t('venue.unsaved.title')} body={t('venue.unsaved.body')} confirmLabel={t('venue.unsaved.go')} danger onConfirm={() => switchTo(ask!)} onClose={() => setAsk(null)} />
+    <Confirm open={askOut} title={t('venue.unsaved.title')} body={t('signout.unsaved.body')} confirmLabel={t('signout.unsaved.go')} danger onConfirm={() => { setAskOut(false); signOut(); }} onClose={() => setAskOut(false)} />
     <Sheet open={open} onClose={onClose} title={t('app.account')} name="account">
       {email && <p class="muted acct-mail"><Ltr>{email}</Ltr></p>}
       {list.length > 1 && (
@@ -159,10 +184,10 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
       )}
       <ul class="menulist">
         <li><button type="button" lang={other} onClick={() => setLang(other)} data-menu="language"><Icon name="globe" /><span>{t('app.langSwitch')}</span></button></li>
-        <li><button type="button" onClick={() => { onClose(); go('new'); }} data-menu="add-venue"><Icon name="plus" /><span>{t('app.addBusiness')}</span></button></li>
+        <li><button type="button" onClick={() => { onClose(); leave(() => go('new')); }} data-menu="add-venue"><Icon name="plus" /><span>{t('app.addBusiness')}</span></button></li>
         <li><a href={sibling(cfg!.sitePath || '../')} data-menu="site"><Icon name="open" /><span>{t('app.site')}</span></a></li>
         <li><a href={PRODUCT.whatsapp} target="_blank" rel="noopener noreferrer" data-menu="help"><Icon name="chat" /><span>{t('app.help')}</span></a></li>
-        <li><button type="button" onClick={() => { onClose(); signOut(); }} data-menu="sign-out"><Icon name="logout" /><span>{t('app.signOut')}</span></button></li>
+        <li><button type="button" onClick={out} data-menu="sign-out"><Icon name="logout" /><span>{t('app.signOut')}</span></button></li>
       </ul>
     </Sheet>
     </>
