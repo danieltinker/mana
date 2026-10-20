@@ -153,7 +153,7 @@ test('validateDraft: a dish limit may not contradict the group\'s stated limits;
   const d: any = copy(bistroDraft());
   d.sections[0].dishes[1].groups = [link('g-side'), link('g-extras', 5, null)]; // extras: guessed, capacity 3
   assert.deepEqual(codes(d), [], 'what the options can reach is the plan\'s business, not an invalid draft');
-  assert.equal(setOf(step(plan(d), 'dish_group', linkKey('d-burger', 'g-extras'))).min_units, null, 'the plan drops a minimum the group cannot reach');
+  assert.equal(setOf(step(plan(d), 'dish_group', linkKey('d-burger', 'g-extras'))).min_units, 3, 'the plan lowers a minimum the group cannot reach to its capacity');
   const stated: any = copy(d);
   stated.groups[2].min = 0; stated.groups[2].max = 3;
   assert.deepEqual(codes(stated), ['limits_invalid'], 'a dish minimum above the stated maximum');
