@@ -9,7 +9,8 @@ import { toV2Error } from '../data/errors.ts';
 import { agorotOf, changed, newSectionForm, sectionFromForm, sectionToForm, type SectionForm } from '../data/forms.ts';
 import { menuPrice } from '../data/guest.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
-import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
+import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows, saveNow } from '../data/store.ts';
+import { leave, pass, useLeaveGuard } from '../leave.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
@@ -157,38 +158,46 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
   const [form, setForm] = useState<SectionForm>(() => (row ? sectionToForm(row) : newSectionForm()));
-  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays)
-  const [opened] = useState(() => (row ? sectionToForm(row) : null));
+  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays); once
+  // saved (or handed to the save queue after a failure, which keeps it for a retry) the form holds nothing to lose
+  const [opened, setOpened] = useState<SectionForm>(() => form);
   const [newSectionId] = useState(newId);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [nameErr, setNameErr] = useState(''), [del, setDel] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const leaveTo = useRef<(() => void) | null>(null);
+  // a changed name (or kind, room, switch) is not dropped by Escape, the close button, Back or another tab: asked first
+  useLeaveGuard(canEdit() && JSON.stringify(form) !== JSON.stringify(opened), (proceed) => { leaveTo.current = proceed; setAsking(true); });
   if (id && !row) return <Sheet open onClose={onClose} title={t('menu.cat.edit')} name="section"><p class="muted">{t('item.notFound')}</p></Sheet>;
   const dishes = row ? d.dishes.filter((x) => x.section_id === row.id).length : 0;
   const set = (patch: Partial<SectionForm>) => { setForm({ ...form, ...patch }); setError(''); setNameErr(''); };
+  const close = () => leave(onClose);
 
   async function save() {
     const m = sectionFromForm(form);
     if (!m.ok) { if (m.errors.some((x) => x.field === 'name')) setNameErr(t('menu.cat.nameMissing')); else setError(errText(m.errors[0]!.code)); return; }
     setBusy(true);
     try {
-      if (row && opened) {
+      if (row) {
         const was = sectionFromForm(opened);
         const patch = was.ok ? changed(was.value, m.value) : m.value;
-        patchRow('sections', row.id, patch, { now: true });
-        onClose();
-      } else { await addSection(m.value, newSectionId); onClose(); }
+        setOpened(form);
+        // saved, or the owner is asked about a change made elsewhere (the conflict dialog): either way the sheet is done
+        await saveNow('sections', row.id, patch);
+        pass(onClose);
+      } else { await addSection(m.value, newSectionId); pass(onClose); }
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
   }
   async function remove() {
     setBusy(true);
-    try { await removeRows('sections', [row!.id]); setDel(false); onClose(); }
+    try { await removeRows('sections', [row!.id]); setDel(false); pass(onClose); }
     catch (e) { setError(errText(toV2Error(e).code)); setDel(false); }
     finally { setBusy(false); }
   }
   const nameField = L === 'he' ? 'nameHe' : 'nameEn';
   const confirmKey = dishes === 0 ? 'menu.cat.deleteConfirm0' : dishes === 1 ? 'menu.cat.deleteConfirm1' : 'menu.cat.deleteConfirm';
   return (
-    <Sheet open onClose={onClose} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
+    <Sheet open onClose={close} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
       foot={<>{row && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-section">{t('app.delete')}</Btn>}
         <Btn kind="primary" busy={busy} onClick={save} data-action="save-section">{row ? t('app.save') : t('menu.cat.add')}</Btn></>}>
       <SaveFailedLine />
@@ -213,6 +222,8 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
       {error && <Note kind="error">{error}</Note>}
       <Confirm open={del} title={t('menu.cat.delete')} body={t(confirmKey, { name: named(row, lang.value), n: dishes })} confirmLabel={t('app.delete')} danger busy={busy}
         onConfirm={remove} onClose={() => setDel(false)} />
+      <Confirm open={asking} title={t('lib.leave.title')} body={t('sec.leave.body')} confirmLabel={t('lib.leave.go')}
+        onConfirm={() => { setAsking(false); const to = leaveTo.current; leaveTo.current = null; to?.(); }} onClose={() => { setAsking(false); leaveTo.current = null; }} />
     </Sheet>
   );
 }

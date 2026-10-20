@@ -46,7 +46,9 @@ export function ConflictDialog() {
   if (!c) return null;
   const L = lang.value;
   const name = named(c.stored as unknown as { name_he: string; name_en: string }, L) || t('menu2.unnamed');
-  const mine = Object.keys(c.mine).filter((k) => !SKIP.has(k));
+  // only the owner's values that differ from what is stored are a question (one already stored, their own save whose
+  // answer was lost, is not listed; nor is it "changed there")
+  const mine = Object.keys(c.mine).filter((k) => !SKIP.has(k) && !same(c.mine[k], c.stored[k]));
   const there = c.before ? Object.keys(c.stored).filter((k) => !SKIP.has(k) && !(k in c.mine) && !same(c.before![k], c.stored[k])) : [];
   const decide = (keep: 'mine' | 'stored') => { ref.current?.close(); resolveConflict(c.key, keep); };
   return (

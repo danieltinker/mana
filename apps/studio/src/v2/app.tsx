@@ -142,7 +142,7 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
   const email = session.value?.user?.email || '';
   const other = lang.value === 'he' ? 'en' : 'he';
   // a change that did not save belongs to this place: switching drops it, so the owner is asked first
-  const [ask, setAsk] = useState<string | null>(null), [askOut, setAskOut] = useState(false);
+  const [ask, setAsk] = useState<string | null>(null), [askOut, setAskOut] = useState(false), [leaving, setLeaving] = useState(false);
   const switchTo = (id: string) => { setAsk(null); openVenue(id); go(landing()); };
   function pick(id: string) {
     onClose();
@@ -152,11 +152,13 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
       if (hasUnsaved()) setAsk(id); else switchTo(id);
     });
   }
-  // signing out drops what did not save: asked first
+  // signing out drops what did not save: what is on its way is waited for (the sheet says so; a write with no answer
+  // fails after a while, data/saves.ts), then the owner is asked if anything did not save
   function out() {
-    onClose();
     leave(async () => {
+      setLeaving(true);
       await flushSaves().catch(() => {});
+      setLeaving(false); onClose();
       if (hasUnsaved()) setAskOut(true); else signOut();
     });
   }
@@ -182,7 +184,9 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
         <li><button type="button" onClick={() => { onClose(); leave(() => go('new')); }} data-menu="add-venue"><Icon name="plus" /><span>{t('app.addBusiness')}</span></button></li>
         <li><a href={sibling(cfg!.sitePath || '../')} data-menu="site"><Icon name="open" /><span>{t('app.site')}</span></a></li>
         <li><a href={PRODUCT.whatsapp} target="_blank" rel="noopener noreferrer" data-menu="help"><Icon name="chat" /><span>{t('app.help')}</span></a></li>
-        <li><button type="button" onClick={out} data-menu="sign-out"><Icon name="logout" /><span>{t('app.signOut')}</span></button></li>
+        <li><button type="button" onClick={out} disabled={leaving} aria-busy={leaving ? 'true' : undefined} data-menu="sign-out">
+          {leaving ? <span class="spin spin-sm" aria-hidden="true" /> : <Icon name="logout" />}
+          <span role={leaving ? 'status' : undefined}>{t(leaving ? 'signout.saving' : 'app.signOut')}</span></button></li>
       </ul>
     </Sheet>
     </>

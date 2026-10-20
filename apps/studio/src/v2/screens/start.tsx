@@ -9,11 +9,15 @@ import { Brand, DishRise, LangToggle, ProviderMark } from '../../brand.tsx';
 import { Btn, Field, Icon, Ltr, Note } from '../../ui.tsx';
 import { cfg, sb } from '../data/client.ts';
 import { toV2Error } from '../data/errors.ts';
+import { named } from '../data/rows.ts';
+import { sessionEnded } from '../data/store.ts';
 import { errText, lang, t } from '../i18n.ts';
 
 type Waiting = { email: string; sent: boolean };
 
 export function StartScreen() {
+  // the session ended by itself (not the owner's sign-out): said, with the rows whose latest changes may not be saved
+  const ended = sessionEnded.value;
   const [email, setEmail] = useState(''), [password, setPassword] = useState(''), [show, setShow] = useState(false);
   const [busy, setBusy] = useState(''), [error, setError] = useState(''), [waiting, setWaiting] = useState<Waiting | null>(null);
   const emailRef = useRef<HTMLInputElement>(null), pwRef = useRef<HTMLInputElement>(null);
@@ -93,6 +97,8 @@ export function StartScreen() {
       <main class="start-main" id="main" data-screen="start">
         <p class="start-brand"><Brand big /></p>
         <h1 class="start-line">{t('auth.title')}</h1>
+        {ended && <Note kind="error"><span data-session-ended>{t('session.ended')}</span>
+          {ended.unsaved.length > 0 && <> <span data-session-unsaved>{t('session.unsaved', { names: ended.unsaved.map((n) => '"' + named({ name_he: n.he, name_en: n.en }, lang.value) + '"').join(', ') })}</span></>}</Note>}
         <DishRise />
         {providers.length > 0 && <>
           <div class="providers">
