@@ -199,7 +199,9 @@ export function groupFromForm(f: GroupForm, groupId: string): Mapped<GroupWrite>
  * was read (`opened` → `mine`) put over it, field by field and choice by choice, the way the dish dialog keeps only the
  * owner's columns. A choice deleted here goes; one added here comes; a choice changed elsewhere keeps those changes
  * unless the owner changed the same field; a choice deleted elsewhere stays deleted unless the owner changed it here; a
- * choice added elsewhere stays. The owner's order wins only when they changed the order.
+ * choice added elsewhere stays. The owner's order wins only when they changed the order. Prices are compared as agorot
+ * ("5" read and "5.0" typed is no change). When the owner changed which choices are pre-selected, their pre-selection
+ * wins as a whole (one default in a choose-one group, never theirs and another device's together).
  */
 export function mergeGroupForms(opened: GroupForm, mine: GroupForm, stored: GroupForm): GroupForm {
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -209,9 +211,11 @@ export function mergeGroupForms(opened: GroupForm, mine: GroupForm, stored: Grou
   const storedBy = new Map(stored.options.map((o) => [idOf(o), o] as const));
   const mineBy = new Map(mine.options.map((o) => [idOf(o), o] as const));
   const FIELDS = ['nameHe', 'nameEn', 'price', 'maxQty', 'isDefault', 'opensGroupId'] as const;
+  const sameField = (f: (typeof FIELDS)[number], a: OptionForm, b: OptionForm) => (f === 'price' ? agorotOf(a.price) === agorotOf(b.price) : same(a[f], b[f]));
+  const defaultsHere = mine.options.some((m) => { const o = openedBy.get(idOf(m)); return o ? m.isDefault !== o.isDefault : m.isDefault; });
   const merge = (m: OptionForm, o: OptionForm | undefined, s: OptionForm | undefined): OptionForm | null => {
     if (!o) return m;                                                          // added here
-    const here = FIELDS.filter((f) => !same(m[f], o[f]));
+    const here = FIELDS.filter((f) => !sameField(f, m, o));
     if (!s) return here.length ? m : null;                                     // deleted elsewhere: back only if changed here
     const out: OptionForm = { ...s };
     for (const f of here) (out as Record<string, unknown>)[f] = m[f];
@@ -231,7 +235,8 @@ export function mergeGroupForms(opened: GroupForm, mine: GroupForm, stored: Grou
     }
     for (const m of mine.options) if (!storedBy.has(idOf(m))) { const r = merge(m, openedBy.get(idOf(m)), undefined); if (r) options.push(r); }
   }
-  return { label: pick('label'), nameHe: pick('nameHe'), nameEn: pick('nameEn'), selection: pick('selection'), min: pick('min'), max: pick('max'), options };
+  const out = defaultsHere ? options.map((o) => ({ ...o, isDefault: mineBy.get(idOf(o))?.isDefault ?? false })) : options;
+  return { label: pick('label'), nameHe: pick('nameHe'), nameEn: pick('nameEn'), selection: pick('selection'), min: pick('min'), max: pick('max'), options: out };
 }
 
 /** A contracts issue about a group (path `group.min_units`, `options[2].price` …) at the form's field. */

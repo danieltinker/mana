@@ -297,6 +297,25 @@ test('a snapshot built from these rows passes the contracts\' validator (the pre
   assert.equal(v.ok, true, JSON.stringify(v.ok ? [] : v.errors));
 });
 
+test('"save my changes over it": the owner\'s pre-selection wins whole (one default in a choose-one group); prices compare as agorot', () => {
+  const tahini = option(sauce, { position: 2, name_en: 'Tahini' });
+  const opened = groupToForm(sauce, [...rows.options, tahini]);                          // ketchup pre-selected
+  const [K, A, Th] = opened.options;
+  const only = (id) => (o) => ({ ...o, isDefault: o.id === id });
+  const mine = { ...opened, options: opened.options.map(only(A.id)) };                   // here: aioli
+  const stored = { ...opened, options: opened.options.map(only(Th.id)) };                // elsewhere: tahini
+  const m = mergeGroupForms(opened, mine, stored);
+  assert.deepEqual(m.options.filter((o) => o.isDefault).map((o) => o.nameEn), ['Aioli'], 'never both');
+  assert.equal(groupFromForm(m, sauce.id).ok, true, 'the merged group is valid (not defaults_invalid)');
+  // the owner did not touch the pre-selection: the one made elsewhere stays
+  const renamed = { ...opened, options: opened.options.map((o) => (o.id === K.id ? { ...o, nameEn: 'Ketchup!' } : o)) };
+  assert.deepEqual(mergeGroupForms(opened, renamed, stored).options.filter((o) => o.isDefault).map((o) => o.nameEn), ['Tahini']);
+  // aioli read as "3": typed back as "3.0" is no change, and the price set elsewhere stays
+  const retyped = { ...opened, options: opened.options.map((o) => (o.id === A.id ? { ...o, price: '3.0' } : o)) };
+  const dearer = { ...opened, options: opened.options.map((o) => (o.id === A.id ? { ...o, price: '4' } : o)) };
+  assert.equal(mergeGroupForms(opened, retyped, dearer).options.find((o) => o.id === A.id).price, '4');
+});
+
 test('versions in order at full precision; a read answered late never takes the screen back to an older state', () => {
   assert.ok(stampOrder('2026-10-16T10:00:00.000002+00:00', '2026-10-16T10:00:00.000001+00:00') > 0, 'microseconds count');
   assert.ok(stampOrder('2026-10-16T10:00:00.5+00:00', '2026-10-16T10:00:00.123456+00:00') > 0, 'fewer digits');
