@@ -270,6 +270,12 @@ describe('the plan', () => {
       zero: (d) => { d.sections[1].dishes[0].price = 0; return d; },
       otherKind: (d) => { d.sections[1].kind = 'food'; return d; },
       twins: (d) => { d.sections.unshift(section('s-popular', 'פופולרי', 'Popular', [dish('d-burger-2', 'המבורגר', 'Burger', 7200)])); return d; },
+      // a duplicate of s-mains (answered merge by the fixes); with skip ['s-mains'] below, its dishes and their links go
+      // with it (parent_skipped)
+      mergedIntoSkipped: (d) => {
+        d.sections.push(section('s-mains-2', 'עיקריות', 'Mains', [dish('d-steak', 'סטייק', 'Steak', 9800, { groups: [link('g-side', 1, 1), link('g-extras')] })]));
+        return d;
+      },
     };
     const list = [];
     for (const [name, change] of Object.entries(variants)) {
@@ -291,6 +297,12 @@ describe('the plan', () => {
       for (const dec of decisions) list.push([d, menu, dec], [d, EMPTY_MENU, dec]);
       list.push([d, menu, fixed, { langs: ['he'] }]);
     }
+    const gone = planApply(variants.mergedIntoSkipped(copy(base)), menu, { ...answerFixes(variants.mergedIntoSkipped(copy(base)), menu), skip: ['s-mains'] });
+    assert.equal(gone.ok, true);
+    assert.deepEqual(gone.value.steps.filter((x) => x.key === 'd-steak' || x.key.startsWith('d-steak>')).map((x) => `${x.kind}:${x.key}:${x.op}:${x.reason}`),
+      ['dish:d-steak:skip:parent_skipped', 'dish_group:d-steak>g-side:skip:parent_skipped', 'dish_group:d-steak>g-extras:skip:parent_skipped'],
+      'a section merged into a section left out takes its dishes and their links with it');
+    assert.equal(gone.value.exceptions.find((e) => e.code === 'section_duplicate' && e.key === 's-mains-2')?.choice, 'merge');
     const n = await comparePlans(list.filter((a) => storable(a)), 'generated');
     assert.ok(n > 300, String(n));
     // Hopa test 1: the same draft again creates nothing
