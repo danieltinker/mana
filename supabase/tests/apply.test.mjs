@@ -4,6 +4,7 @@
 // counted in the import.apply row.
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash, randomUUID } from 'node:crypto';
 import { rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
 import { planApply } from '../../packages/contracts/src/index.ts';
@@ -246,6 +247,53 @@ describe('apply_import', () => {
     assert.equal(r.plan.summary.dish.skipped.choice, 1);
     const log = (await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'import.apply' order by id desc limit 1`, [V])).rows[0];
     assert.deepEqual(log.detail.summary, r.plan.summary, 'the import.apply row carries it');
+  });
+
+  test('photos through the whole import: Wolt screenshots claimed, read and applied; one photo per dish, never a second; rights confirmed in the preview or not (QA-L10)', async () => {
+    const OP = '55555555-5555-4555-8555-5555555555a7';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-photos@example.invalid', now())`, [OP]);
+    const VP = (await rpc(w.url, OP, 'create_venue', { p_slug: 'apply-photos', p_name_he: 'תמונות', p_name_en: 'Apply Photos' })).id;
+    /** One import: screenshots, the owner's claim, the scanner's draft (its dishes' photos in the import's folder), the owner's answers. */
+    const once = async (rights, dishes, answers) => {
+      const iid = randomUUID();
+      const dir = `${VP}/imports/${iid}`;
+      const mk = await rpc(w.url, OP, 'create_import', { p_venue: VP, p_source: 'wolt_screenshots', p_paths: `{${dir}/1.png}`,
+        p_input_sha256: createHash('sha256').update(iid).digest('hex'), p_rights_confirmed: rights, p_import_id: iid });
+      assert.equal(mk.ok, true, JSON.stringify(mk));
+      const cl = await rpc(w.url, OP, 'claim_import_scan', { p_import: iid, p_mode: 'wolt_screenshots' });
+      assert.equal(cl.ok, true, JSON.stringify(cl));
+      const draft = draftOf([section('s-new', 'מיוחדים', 'Specials', dishes.map(([key, he, en, price, r]) => dish(key, he, en, price, { photo: { path: `${dir}/${key}.jpg`, rights: r } })))],
+        [], { source: 'wolt_screenshots' });
+      const sv = await rpc(w.url, 'service', 'save_import_draft', { p_import: iid, p_draft: draft });
+      assert.equal(sv.ok, true, JSON.stringify(sv));
+      const decisions = { v: 1, pricesConfirmed: true, choices: Object.fromEntries(Object.entries(answers).map(([k, c]) => [`photo_rights_unknown@${k}`, c])) };
+      const want = planApply(draft, await existingOf(VP), decisions);
+      const r = await apply(OP, iid, draft, decisions);
+      assert.equal(r.ok, true, JSON.stringify(r).slice(0, 400));
+      assert.deepEqual(r.plan, JSON.parse(JSON.stringify(want.value)), 'the database planned what the contracts plan');
+      return { iid, dir, photos: r.plan.steps.filter((s) => s.kind === 'photo').map((s) => [s.key, s.op, s.reason]) };
+    };
+    const assets = async () => (await w.admin.query(`select d.name_en, a.kind, a.status, a.original_path, a.provenance from public.assets a
+      join public.dishes d on d.id = a.dish_id where a.venue_id = $1 order by d.name_en, a.created_at`, [VP])).rows;
+    // the owner confirmed the rights at upload: each dish's photo enters the picture pipeline, waiting for review
+    const first = await once(true, [['d-pie', 'פאי', 'Pie', 3400, 'confirmed'], ['d-shak', 'שקשוקה', 'Shakshuka', 4800, 'confirmed']], {});
+    assert.deepEqual(first.photos, [['d-pie', 'create', null], ['d-shak', 'create', null]]);
+    assert.deepEqual(await assets(), [
+      { name_en: 'Pie', kind: 'photo', status: 'uploaded', original_path: `${first.dir}/d-pie.jpg`,
+        provenance: { from: 'import', source: 'wolt_screenshots', rights: 'confirmed_at_upload', importId: first.iid } },
+      { name_en: 'Shakshuka', kind: 'photo', status: 'uploaded', original_path: `${first.dir}/d-shak.jpg`,
+        provenance: { from: 'import', source: 'wolt_screenshots', rights: 'confirmed_at_upload', importId: first.iid } },
+    ]);
+    // the same dishes from new screenshots: each keeps the photo it has (an import never adds a second)
+    const again = await once(true, [['d-pie', 'פאי', 'Pie', 3400, 'confirmed'], ['d-shak', 'שקשוקה', 'Shakshuka', 4800, 'confirmed']], {});
+    assert.ok(again.photos.every(([, op]) => op !== 'create'), JSON.stringify(again.photos));
+    assert.equal((await assets()).length, 2);
+    // rights not confirmed at upload: confirmed in the preview for one dish, left unanswered for the other
+    const third = await once(false, [['d-tart', 'טארט', 'Tart', 3900, 'unknown'], ['d-cake', 'עוגה', 'Cake', 3600, 'unknown']], { 'd-tart': 'confirm_rights' });
+    assert.deepEqual(third.photos, [['d-tart', 'create', null], ['d-cake', 'skip', 'choice']]);
+    const tart = (await assets()).filter((a) => a.name_en === 'Tart');
+    assert.deepEqual(tart.map((a) => [a.original_path, a.provenance.rights]), [[`${third.dir}/d-tart.jpg`, 'confirmed_at_apply']]);
+    assert.equal((await assets()).filter((a) => a.name_en === 'Cake').length, 0);
   });
 });
 

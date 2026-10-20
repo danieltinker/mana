@@ -9,6 +9,8 @@
 // The fuzz (import-fuzz.test.ts) plans thousands of random drafts. Each of its runs is marked (`fuzz(seed, n, kind)`):
 // a run of one draft (the seeds QA found) is recorded whole; of a larger run, one call in FUZZ_EVERY, the same ones on
 // every machine. MANA_TWINS_FULL=1 records every call (about 10 000 distinct plans; twenty minutes on a busy machine).
+// A call a full-size run found the twins differing on is pinned whole in ../fixtures/pinned-calls.json (with why), so
+// the sampled corpus always has it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -69,5 +71,7 @@ export function recordContractCalls({ full = process.env.MANA_TWINS_FULL === '1'
     for (const [fn, list] of Object.entries(JSON.parse(fs.readFileSync(out, 'utf8')))) (calls[fn] ??= []).push(...list);
   }
   fs.rmSync(dir, { recursive: true, force: true });
+  const pinned = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../fixtures/pinned-calls.json'), 'utf8'));
+  for (const fn of RECORDED) for (const { args } of pinned[fn] ?? []) (calls[fn] ??= []).push(args);
   return calls;
 }
