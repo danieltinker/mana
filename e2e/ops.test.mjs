@@ -221,6 +221,23 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   const log = await v.owner.activity();
   assert.equal(log.filter((r) => r.action === 'support.act_for_owner' && r.reason === 'Owner asked, api').length, 4, 'each is in the owner’s log with the reason');
 
+  // a case carries its version (L4, backend 050b7ad): the updatedAt staff read, sent back exactly; a second page with the
+  // version it read is refused with the case as stored, and never overwrites the first answer
+  const opened = await v.owner.askForHelp('photos', 'Photos for the drinks?', 'Invented for the test');
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+  const withCase = await admin.api.venue(v.venueId);
+  const theCase = withCase.ok ? withCase.data.cases.find((c) => c.id === opened.caseId) : null;
+  assert.ok(theCase, JSON.stringify(withCase).slice(0, 300));
+  const first = await admin.api.updateCase({ caseId: theCase.id, status: 'resolved', reason: 'Sent the photo guide, api', expectedUpdatedAt: theCase.updatedAt });
+  assert.ok(first.ok && first.data.case.status === 'resolved', JSON.stringify(first));
+  const second = await admin.api.updateCase({ caseId: theCase.id, status: 'waiting_owner', reason: 'Asked the owner, api', expectedUpdatedAt: theCase.updatedAt });
+  assert.ok(!second.ok && second.kind === 'refused' && second.code === 'stale' && second.reply?.current?.status === 'resolved', JSON.stringify(second));
+  const [caseRow] = await e.stack.sql('select status from public.support_cases where id = $1', [theCase.id]);
+  assert.equal(caseRow.status, 'resolved', 'the first answer stands');
+  const third = await admin.api.updateCase({ caseId: theCase.id, status: 'waiting_owner', reason: 'Asked the owner, api',
+    expectedUpdatedAt: first.ok ? first.data.case.updatedAt : null });
+  assert.ok(third.ok && third.data.case.status === 'waiting_owner', 'the version the answer carried is accepted as sent: ' + JSON.stringify(third));
+
   // the owner's switch: refused plainly, nothing written
   await v.owner.updateVenue({ support_can_act: false });
   const declined = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'availability.restore',
