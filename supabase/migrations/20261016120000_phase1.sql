@@ -2787,9 +2787,12 @@ create function app.case_json(p_case uuid) returns jsonb language sql stable sec
 $$;
 
 -- open_case: owners and managers ask Halom for help; allowAct (the owner's alone) sets the support switch with it
-create function public.open_case(p_venue uuid, p_topic text, p_subject text, p_body text default '', p_allow_act boolean default null) returns jsonb
+-- p_id: the client's own id for the case (a retry after a lost answer): the same id again answers the stored case and
+-- writes nothing; an id another venue's case holds answers id_taken, never that case
+create function public.open_case(p_venue uuid, p_topic text, p_subject text, p_body text default '', p_allow_act boolean default null,
+                                 p_id uuid default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
-declare errs jsonb; n integer; cid uuid; can_act boolean;
+declare errs jsonb; n integer; cid uuid; can_act boolean; held_by uuid;
   cap integer := coalesce((app.cfg('case_caps')->>'per_venue_day')::integer, 10);
 begin
   if (select auth.uid()) is null or not app.can_edit(p_venue) then raise exception 'not_allowed' using errcode = '42501'; end if;
@@ -2799,10 +2802,18 @@ begin
   if jsonb_array_length(errs) > 0 then return app.fail(errs->0->>'code'); end if;
   if p_allow_act is not null and not app.is_owner(p_venue) then return app.fail('owner_only'); end if;
   perform pg_advisory_xact_lock(hashtext('mana:case:' || p_venue::text));
+  if p_id is not null then
+    select venue_id into held_by from public.support_cases where id = p_id;
+    if found then
+      if held_by <> p_venue then return app.fail('id_taken'); end if;
+      return jsonb_build_object('ok', true, 'caseId', p_id, 'supportCanAct', (select v.support_can_act from public.venues v where v.id = p_venue));
+    end if;
+  end if;
   select count(*) into n from public.support_cases where venue_id = p_venue and created_at >= app.local_day_start(p_venue);
   if n >= cap then return app.fail('rate_limited'); end if;
   perform set_config('mana.via', 'rpc', true);
-  insert into public.support_cases (venue_id, topic, subject, body) values (p_venue, p_topic, p_subject, coalesce(p_body, '')) returning id into cid;
+  insert into public.support_cases (id, venue_id, topic, subject, body)
+  values (coalesce(p_id, gen_random_uuid()), p_venue, p_topic, p_subject, coalesce(p_body, '')) returning id into cid;
   if p_allow_act is not null then
     update public.venues set support_can_act = p_allow_act where id = p_venue and support_can_act is distinct from p_allow_act;
   end if;
@@ -3236,6 +3247,8 @@ end $$;
 -- ================================================================ the client dashboard v2 (F08, ClientDashboard)
 -- totals, opens by source and language, top dishes, for local days p_from..p_to (counted as the venue counts: demo
 -- traffic on a demo venue, real traffic otherwise)
+-- (an id read from a rollup key, dish:<id>, is looked up only inside p_venue: another venue may hold a row with the
+-- same id, a dish deleted here and made again there, and its name must never show on this venue's dashboard)
 create function app.dash_numbers(p_venue uuid, p_demo boolean, p_from date, p_to date) returns jsonb
 language sql stable security definer set search_path = '' as $$
   with r as (
@@ -3264,7 +3277,7 @@ language sql stable security definer set search_path = '' as $$
                    coalesce(sum(n) filter (where name = 'basket_added'), 0) as adds
             from r where key like 'dish:%' and name in ('dish_viewed', 'basket_added') group by 1
             order by 2 desc, 3 desc, 1 limit 10) z
-      join public.dishes d on d.id = z.dish_id), '[]'::jsonb))
+      join public.dishes d on d.id = z.dish_id and d.venue_id = p_venue), '[]'::jsonb))
 $$;
 
 -- The name of what an override takes off, now (empty when the row is gone)
@@ -3936,6 +3949,12 @@ drop policy imports_change on public.menu_imports;
 revoke insert, update on public.menu_imports from service_role;
 grant update (status, error_code, raw_paths, raw_purged_at) on public.menu_imports to service_role;
 
+-- support cases: open_case is the only way to make one (its daily cap and its client id), as for menu_imports.
+-- DESTRUCTIVE-LOOKING: revokes the column INSERT of authenticated on support_cases (venue_id, topic, subject, body) and
+-- drops the policy cases_open that let owners and managers insert cases directly. No rows change.
+revoke insert on public.support_cases from authenticated;
+drop policy cases_open on public.support_cases;
+
 -- functions: nothing by default, then by name (last in this file, so everything created above is covered; PostgreSQL
 -- grants EXECUTE on a new function to PUBLIC).
 -- DESTRUCTIVE-LOOKING: revokes every function privilege of PUBLIC, anon and authenticated in public and app; the
@@ -3956,7 +3975,7 @@ grant execute on function public.slug_available(text), public.create_venue(text,
 -- phase 1 (ADR-008): each checks its caller
 grant execute on function public.create_import(uuid, text, text, text[], text, boolean, uuid), public.claim_import_scan(uuid, text),
   public.discard_import(uuid), public.set_onboarding_step(uuid, text, text, text[]),
-  public.open_case(uuid, text, text, text, boolean), public.ops_update_case(uuid, text, text, text),
+  public.open_case(uuid, text, text, text, boolean, uuid), public.ops_update_case(uuid, text, text, text),
   public.set_availability(uuid, text, uuid, jsonb, text), public.restore_today(uuid), public.export_menu(uuid),
   public.venue_activity(uuid, bigint, integer, text, text), public.ops_venues(jsonb), public.ops_venue(uuid), public.ops_analytics(jsonb),
   public.ops_set_demo(uuid, boolean, text), public.ops_revision(uuid, integer),
@@ -4009,12 +4028,8 @@ declare expected text[] := array[
   'authenticated|column|public.onboarding_progress.state|UPDATE',
   'authenticated|column|public.onboarding_progress.step|INSERT',
   'authenticated|column|public.onboarding_progress.venue_id|INSERT',
-  'authenticated|column|public.support_cases.body|INSERT',
   'authenticated|column|public.support_cases.status|UPDATE',
-  'authenticated|column|public.support_cases.subject|INSERT',
-  'authenticated|column|public.support_cases.topic|INSERT',
   'authenticated|column|public.support_cases.topic|UPDATE',
-  'authenticated|column|public.support_cases.venue_id|INSERT',
   'authenticated|column|public.venue_members.role|UPDATE',
   'authenticated|column|public.venues.accent|UPDATE',
   'authenticated|column|public.venues.area_en|UPDATE',
@@ -4055,7 +4070,7 @@ declare expected text[] := array[
   'authenticated|function|public.discard_import(uuid)|EXECUTE',
   'authenticated|function|public.export_menu(uuid)|EXECUTE',
   'authenticated|function|public.my_dashboard(uuid,text)|EXECUTE',
-  'authenticated|function|public.open_case(uuid,text,text,text,boolean)|EXECUTE',
+  'authenticated|function|public.open_case(uuid,text,text,text,boolean,uuid)|EXECUTE',
   'authenticated|function|public.ops_analytics(jsonb)|EXECUTE',
   'authenticated|function|public.ops_approve_venue(uuid,text,integer)|EXECUTE',
   'authenticated|function|public.ops_leads(text,text,timestamp with time zone,integer)|EXECUTE',

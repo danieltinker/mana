@@ -119,8 +119,9 @@ describe('act_for_owner', () => {
 
 describe('support cases and onboarding', () => {
   test('the owner asks for help; Halom sees the case in ops_overview and resolves it for the owner', async () => {
-    const id = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.support_cases (venue_id, topic, subject, body)
-      values ($1, 'import', 'The import missed my drinks', 'Two drinks are missing') returning id, status, opened_by`, [A])).rows[0]);
+    const opened = await rpc(w.url, U.ownerA, 'open_case', { p_venue: A, p_topic: 'import', p_subject: 'The import missed my drinks', p_body: 'Two drinks are missing' });
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+    const id = (await w.admin.query(`select id, status, opened_by from public.support_cases where id = $1`, [opened.caseId])).rows[0];
     assert.equal(id.status, 'open');
     assert.equal(id.opened_by, U.ownerA);
     const o = await rpc(w.url, U.support, 'ops_overview');

@@ -89,6 +89,8 @@ are marked `-- DESTRUCTIVE-LOOKING:` in the file, each with what it does:
   screenshots; a scan at most 8, by `create_import`). Check 2 above.
 - `drop function public.ops_approve_venue(uuid, text)`: replaced by the three-argument version (the revision reviewed),
   granted again in the same file.
+- `support_cases`: the column INSERT of `authenticated` is revoked and the policy `cases_open` dropped; cases are made
+  only through `open_case` (its daily cap, its client id), as imports through their RPCs. No rows change.
 - `menu_imports`: the client policies `imports_add` and `imports_change` are dropped; clients now write imports only
   through the RPCs. The table's privileges are revoked from `authenticated` and given back as a column list without
   `raw_text`, and revoked from `service_role` and given back as an UPDATE on four columns.
@@ -212,7 +214,7 @@ the API), each `SECURITY DEFINER` with `search_path = ''`:
 | Who | Reads | Writes |
 |---|---|---|
 | guest (`anon`) | nothing; `public_menu(slug)` returns the published snapshot plus the live overlay | `track_events` (guest events only), `submit_lead` |
-| owner | everything of their venues, except an import's raw text (nobody reads it back) | menu, hours, availability, settings, cases, publish, restore, unpublish; imports only through their RPCs; the support switch (owner only) |
+| owner | everything of their venues, except an import's raw text (nobody reads it back) | menu, hours, availability, settings, publish, restore, unpublish; imports and new support cases only through their RPCs; the support switch (owner only) |
 | manager | like the owner | like the owner, except the team and the support switch |
 | counter | the menu of their venue | availability overrides only (take off, restore); never a price |
 | Halom support | every venue's menu and records | a venue's menu **only** through `act_for_owner`; approvals through `ops_approve_venue` (with a reason); leads only through `ops_leads` |
@@ -288,6 +290,10 @@ venue passes its cap is recorded and shown (`my_dashboard().capped`, `ops_overvi
 use `event_caps_demo` on counters of their own (`demo-source:…`), so the simulator's bots never cap a real venue's
 guests who share an address with them.
 
+Realtime publishes exactly `rollups_minute`, `rollups_day` and `availability_overrides` (a test pins the list): never
+`venues` or anything personal. A dashboard resolves an id it reads from a rollup key (`dish:<id>`) only inside the
+venue, since another venue may hold a row with the same id.
+
 The **source** is a SHA-256 of the caller's address with a random salt that changes every UTC day (kept two days, then
 deleted). The address is `cf-connecting-ip`, then `x-real-ip`, then the **last** `X-Forwarded-For` entry; never the
 leftmost, which a caller writes. The source is never stored with an event; a lead's source hash is forgotten after
@@ -313,7 +319,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `restore_revision(p_venue, p_revision)`, `unpublish_menu(p_venue)` | owner, manager | put an earlier revision back; take the menu off the air (live today on `halom-studio`, kept through the cutover) |
 | `my_dashboard(p_venue, p_range)` | owner, manager, staff | v2 (`"v": 2`, every phase-0 field kept): from the rollups, totals, opens by source and language, days (with `capped`), the last hour by minute (opens, views, adds; only minutes with something), top dishes, rule numbers (with trigger and why a rule is off); off now with names, who and whether it was today; onboarding steps (`auto`) and progress; nudges in `NUDGE_CODES` order; activity as entries (`you`, the row's name now); today's glance |
 | `set_onboarding_step(p_venue, p_step, p_state, p_blockers)` | owner, manager | `{ok, progress}`; the automatic steps (venue, menu, review, publish) are never marked done by hand (`step_automatic`), a done step stays done (`step_done`); blockers are machine words, kept when none are sent |
-| `open_case(p_venue, p_topic, p_subject, p_body, p_allow_act)` | owner, manager | `{ok, caseId, supportCanAct}`; `p_allow_act` switches Halom's access in the same call (owner only); `case_caps` per local day |
+| `open_case(p_venue, p_topic, p_subject, p_body, p_allow_act, p_id)` | owner, manager | the only way to make a case: `{ok, caseId, supportCanAct}`; `p_allow_act` switches Halom's access in the same call (owner only); `case_caps` per local day; `p_id` the client's own id: the same id again answers the stored case (a retry), another venue's is `id_taken` |
 | `ops_update_case(p_case, p_status, p_topic, p_reason)` | staff | `{ok, case}`; the reason (required) is shown to the owner |
 | `set_availability(p_venue, p_target_kind, p_target_id, p_until, p_note)` | owner, manager, counter | the phone's quick action: the newest answer counts (what was off is restored first, in the same call); `p_until` null brings the target back; a duration ends on a whole minute; `{ok, overrideId, untilAt, restored}` |
 | `restore_today(p_venue)` | owner, manager, counter | everything taken off on the venue's local today, back: `{ok, restored, targets}` |
