@@ -55,10 +55,13 @@ local.
 
 **The settings are judged on every request, not once at start** (`npm run serve`, `npm run demo`, `npm run
 dev:local`): `_site/` can be rebuilt while a server runs (`npm run build` in a second terminal). Before each answer for
-`config.js`, or for any file that is it under another name (a hard link, the same inode) or a copy (the same content),
-the server reads the file as it is now: production's settings are withheld unless `--live`, and settings of another
-environment than the one checked at start are refused (409), with one line in the terminal. Restart the server after a
-rebuild.
+`config.js`, for any file that is it under another name (a hard link, the same inode) or a copy (the same content), and
+for any file that assigns the settings (`HALOM_MENUS_CONFIG =`, a page that inlines them included), the server reads the
+file as it is now and judges what it holds, not its label: settings that point at halom-studio are production's, and
+withheld unless `--live`; settings that fail the checks of the environment checked at start (its label, address, key,
+schema, short links; for `dev:local` the running stack) are refused (409), with one line in the terminal. The file is
+opened once, and what was judged is exactly what is sent; if it cannot be judged, the answer is 409. Restart the server
+after a rebuild.
 
 The cutover (ADR-005) changes production's database in one reviewed pull request that changes, together, `config.js`,
 `PRODUCTION` in `tools/env.mjs` and the address written out in `tools/check-config.mjs`; the guard fails if only one of
@@ -194,10 +197,28 @@ Three fast suites (`node tools/test-all.mjs --fast` runs them with the rest):
   file in the repository holds an `sb_secret_…` key or a `service_role` key; `pages.yml` builds production only,
   checks it, and pins its actions.
 - `tools`: the local server (routes, ranges, headers, the reviewers' probes, the guarded production serve, the
-  settings judged on every request, also after a rebuild under a running server and through a hard link or a copy),
-  the build's settings step and its environment choice, the strict CSP rewrite, the JWT rule, the scenario seam (a
-  private scenario's failures, late ones included), the e2e server's short links, and that the tools a Mac runs load no
-  package.
+  settings judged on every request by what they hold, also after a rebuild under a running server, through a hard
+  link, a copy or a page that inlines them, a demo label on halom-studio's address, and `config.js` replaced in a tight
+  loop under a stream of requests), the build's settings step and its environment choice, the strict CSP rewrite, the
+  JWT rule, the scenario seam (a private scenario's failures, late ones included), the e2e server's short links, and
+  that the tools a Mac runs load no package.
+
+The simulator's suite (`sim`) also checks its seeds against the names list (`tools/names.mjs`, the same reader and
+matcher): skipped with a note without a list, failed when `MANA_FORBIDDEN_NAMES_FILE` points at nothing.
+
+### Old phones
+
+`old-phones` (a browser suite: `npm test` runs it, `--fast` does not; `node tools/test-all.mjs old-phones` alone) builds
+production (`bash tools/build-site.sh`), then opens each app's production entry, the owner app (`/mana/studio/`), the
+guest menu (`/mana/view/?demo=olea`, the in-build demo) and the back office (`/mana/ops/`), in Chromium made into an
+iPhone on iOS 15 before any script runs: `RegExp` refuses a lookbehind (Safari before 16.4), `Object.hasOwn` and
+`crypto.randomUUID` are gone (Safari before 15.4). Each must boot (the owner app and the back office render into
+`#app`; the guest menu leaves its boot mode) with no page error, and no script or page it loads may hold a lookbehind
+(a literal one is a parse error on those phones, which the patched `RegExp` cannot see). An entry chunk that imports
+code built for newer engines, a lookbehind made at load among them, is a blank page on an iPhone that was not updated;
+this suite fails on it. The settings are production's with the database address pointed at a closed port on
+127.0.0.1; every request to another host is aborted. `node tools/check-old-phones.mjs <a copy of _site/>` checks
+another build.
 
 Before a push, besides the suites: `gitleaks detect --source . --log-opts="<base>..HEAD" --redact --no-banner` (the
 branch's commits; it reads `.gitleaks.toml`).
@@ -205,7 +226,8 @@ branch's commits; it reads `.gitleaks.toml`).
 ## Never
 
 - Never write to the Supabase project `halom-studio`, by any path: no migration, no seed, no browser session against a
-  production build beyond the in-build demo.
+  production build beyond the in-build demo (the old-phones suite opens production's entries with the database address
+  on a closed local port, and aborts every other host).
 - Never call the live `menus-ai` with real scans.
 - Never commit a secret key (`sb_secret_…`, `service_role`), a `.env` file or `config/local.js`. The publishable keys
   in `config.js`, `config/demo.js`, `CONTRACT.md`, `API.md` (line 6) and `BACKEND.md` (line 3) are the only keys in

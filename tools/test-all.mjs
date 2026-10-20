@@ -43,6 +43,9 @@ const SUITES = [
   ['view-browser', 'apps/view', 'npm run -s test:browser', true],
   ['ops-e2e', 'apps/ops', 'npm run -s build && npm run -s test:e2e', true],
   ['studio-e2e', 'apps/studio', 'npm run -s build && npm run -s test:e2e', true],
+  // a production build, then each app's entry on an iPhone's engine of iOS 15: no lookbehind, no Object.hasOwn, no
+  // crypto.randomUUID (docs/environments.md, "Old phones")
+  ['old-phones', '.', 'bash tools/build-site.sh && node --test tools/check-old-phones.mjs', true],
   // brand/ is outside the workspace with a lock of its own (qrcode, the fonts, opentype.js): installed here when missing
   ['brand', 'brand', '([ -d node_modules ] || npm ci --no-audit --no-fund --loglevel=error) && node tools/test-site.mjs', true],
   ['e2e', 'e2e', 'npm test', true],             // the browser on the simulator's stack (phase 0: one smoke test)
