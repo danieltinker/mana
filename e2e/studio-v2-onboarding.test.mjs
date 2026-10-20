@@ -5,8 +5,9 @@
 // phone frame, and publishes; after Halom approves, public_menu is exactly what was imported (the side of choice with
 // its nested sauce, the typed price). The main path is timed. Then: leaving mid-flow and coming back on another device
 // (the same step, the typed price there); the same menu imported again adds nothing (Hopa test 1); "get help" opens a
-// case the back office's RPC reads; the scanner's path with a stub (the real handler, a recorded reply, no paid call),
-// and plainly "not available here" without one; a counter can run none of the flow's writes.
+// case the back office's RPC reads, and sent again after a lost answer (the request's own id) opens no second one; the
+// scanner's path with a stub (the real handler, a recorded reply, no paid call), and plainly "not available here"
+// without one; a counter can run none of the flow's writes.
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-onboarding/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -334,7 +335,40 @@ test('"get help" from a step opens a case on the step\'s topic, and the back off
   assert.deepEqual([c.topic, c.status, c.subject], ['import', 'open', 'The Wolt text left out a section']);
   const list = await halom.venues({ q: 'help-sim' });
   assert.ok(list.venues.find((v) => v.id === made.id).warnings.includes('case_open'));
-  assert.deepEqual(problems(page), []);
+
+  // a lost answer, and the look-up after it lost too: the owner sends again, with the request's own id, and the
+  // database answers with the case it already opened (reused), not a second one
+  await page.locator('[data-flow-help="import"]').click();
+  await page.locator('[data-help-form]').waitFor();
+  await page.locator(`[data-cases] [data-case="${caseId}"]`).waitFor();     // the screen's own read of the list is done
+  const subject = 'The prices of the drinks look off';
+  await page.locator('[data-field="help-subject"]').fill(subject);
+  const ids = [], replies = [];
+  const toCase = (u) => u.pathname.endsWith('/rest/v1/rpc/open_case');
+  const toList = (u) => u.pathname.endsWith('/rest/v1/support_cases');
+  let lose = true;
+  await page.route(toCase, async (r) => {
+    ids.push(JSON.parse(r.request().postData()).p_id);
+    const res = await r.fetch();
+    replies.push(await res.json());
+    if (lose) { lose = false; return r.abort('internetdisconnected'); }
+    return r.fulfill({ response: res });
+  });
+  await page.route(toList, (r) => r.abort('internetdisconnected'));          // every read of the list, until the error shows
+  await page.locator('[data-action="send-help"]').click();
+  await page.locator('[data-help-form] .note-error').waitFor();
+  await page.unroute(toList);
+  assert.equal(await page.locator('[data-case-sent]').count(), 0, 'not found: the screen offers to send again');
+  await page.locator('[data-action="send-help"]').click();
+  await sent.waitFor();
+  await page.unroute(toCase);
+  assert.equal(ids.length, 2);
+  assert.ok(ids[0] && ids[0] === ids[1], 'the same id both times');
+  assert.deepEqual(replies.map((x) => [x.ok, x.caseId, x.reused]), [[true, ids[0], false], [true, ids[0], true]]);
+  const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${made.id}`, subject: `eq.${subject}` });
+  assert.deepEqual(stored.map((x) => x.id), [ids[0]], 'one case');
+  assert.equal(await sent.getAttribute('data-case-sent'), ids[0]);
+  assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
   await page.context().close();
 });
 

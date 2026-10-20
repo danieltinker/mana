@@ -31,10 +31,14 @@ export function exportMenu(venueId: string): Promise<MenuExport> {
   return q<MenuExport>(sb.rpc('export_menu', { p_venue: i.venueId }));
 }
 
-/** Ask Halom for help. `allowAct` (the owner's alone) sets whether Halom may act for the owner, in the same call. */
+/**
+ * Ask Halom for help. `allowAct` (the owner's alone) sets whether Halom may act for the owner, in the same call. `id` is
+ * the request's own id, made by the screen: sent again (a retry after a lost answer) it opens no second case, and the
+ * reply says `reused`.
+ */
 export function openCase(input: OpenCaseInput): Promise<Extract<OpenCaseReply, { ok: true }>> {
   const i = checked(validateOpenCase(input));
-  return rpc('open_case', { p_venue: i.venueId, p_topic: i.topic, p_subject: i.subject, p_body: i.body ?? '', p_allow_act: i.allowAct ?? null });
+  return rpc('open_case', { p_venue: i.venueId, p_topic: i.topic, p_subject: i.subject, p_body: i.body ?? '', p_allow_act: i.allowAct ?? null, p_id: i.id ?? null });
 }
 
 export type CaseLine = Pick<SupportCaseRow, 'id' | 'topic' | 'status' | 'subject' | 'created_at' | 'updated_at'>;
