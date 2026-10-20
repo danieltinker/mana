@@ -4,10 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
+  appliedIds, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
-  SCAN_IMAGE_CAPS, type ClaimScanReply,
+  SCAN_IMAGE_CAPS, type ClaimScanReply, validateDecisions, NOTES_MAX, NOTES_BYTES_MAX, DRAFT_BYTES_MAX, DECISIONS_BYTES_MAX, saveDraftSizeFail,
+  applyImportSizeFail,
 } from '../src/import.ts';
+import { addonGroupSizeFail, ADDON_GROUP_BYTES_MAX } from '../src/addons.ts';
+import { LIMITS } from '../src/enums.ts';
 import { instantMs } from '../src/events.ts';
 import { REVISION_MAX, validateActForOwner, validateApproveVenue } from '../src/staff.ts';
 import { validateOpsRevisionQuery } from '../src/ops.ts';
@@ -424,4 +427,242 @@ test('round 8: claim_import_scan as built: the images it charged, and the cap a 
   };
   const capped: ClaimScanReply = { ok: false, code: 'rate_limited', cap: 'scan_images_per_user_day' };
   assert.ok(ok.ok && ok.images === ok.paths.length && !capped.ok);
+});
+
+// ---------------------------------------------------------------- round 9 (QA-M2: same-name nodes across re-imports)
+
+type HopaFlow = { draft: ImportDraft; first: ImportDecisions; reread: ImportDraft; again: ImportDecisions };
+/**
+ * QA's database fuzz as one flow: an import, the same again, a re-read with the owner's new answers, that re-read
+ * again, and once more. `forget` drops `previous` before the re-read, as for a venue whose last import was another
+ * draft (or was applied before `menu_imports.applied_ids`).
+ */
+const hopaFlow = (f: HopaFlow, forget = false) => {
+  const p1 = plan(f.draft, EMPTY_MENU, f.first);
+  let m = applyPlan(EMPTY_MENU, p1);
+  const p2 = plan(f.draft, m, f.first);
+  m = applyPlan(m, p2);
+  if (forget) { const { previous: _, ...rest } = m; m = rest; }
+  const p3 = plan(f.reread, m, f.again);
+  m = applyPlan(m, p3);
+  const p4 = plan(f.reread, m, f.again);
+  const m4 = applyPlan(m, p4);
+  const p5 = plan(f.reread, m4, f.again);
+  return { p1, p2, p3, p4, p5, menu: m, menu4: m4 };
+};
+const changed = (p: ImportPlan) => p.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief);
+const askedKeys = (p: ImportPlan) => p.exceptions.map((e) => `${e.code}@${e.key}`);
+/** Hopa test 1: the same draft with the same answers writes nothing, and asks nothing the import it repeats did not. */
+const assertHopa = (again: ImportPlan, before: ImportPlan, what: string) => {
+  assert.deepEqual(changed(again), [], `${what}: no row written`);
+  assert.deepEqual(askedKeys(again).filter((k) => !askedKeys(before).includes(k)), [], `${what}: nothing new asked`);
+};
+const assertFlow = (f: HopaFlow) => {
+  for (const forget of [false, true]) {
+    const r = hopaFlow(f, forget);
+    const how = forget ? 'the re-read into a menu without provenance' : 'with provenance';
+    assertHopa(r.p2, r.p1, `${how}, the same again`);
+    assertHopa(r.p4, r.p3, `${how}, the re-read again`);
+    assertHopa(r.p5, r.p3, `${how}, the re-read a third time`);
+    assert.deepEqual(sectionsOf(r.menu4), sectionsOf(r.menu));
+  }
+};
+/** A draft a test may change: its sections' names, its dishes' prices and price notes. */
+type Editable = { sections: Array<{ name: { he: string; en: string }; dishes: Array<{ price: number | null; priceNote: { he: string; en: string } }> }> };
+const renamedCopy = (d: ImportDraft, change: (x: Editable) => void = () => {}): ImportDraft => {
+  const x = copy(d) as unknown as Editable;
+  for (const s of x.sections) s.name = { he: `${s.name.he} חדש`, en: `${s.name.en} new` };
+  change(x);
+  return x as unknown as ImportDraft;
+};
+
+test('QA-M2 (db fuzz seed 307537388, shrunk): a Salad in each of two merged sections, kept apart; a re-read imported again makes no new Salad', () => {
+  const draft = draftOf([
+    section('s0', 'ראשונות', 'Starters', [dish('s0d0', 'סלט', 'Salad', 4200)]),
+    section('s1', 'ראשונות', 'Starters', [dish('s1d1', 'סלט', 'Salad', 4200)]),
+  ]);
+  const first = yes({ 'section_duplicate@s1': 'merge', 'dish_duplicate@s1d1': 'keep_both' });
+  const again = yes({ ...first.choices, 'dish_elsewhere@s1d1': 'new_dish' });
+  assertFlow({ draft, first, reread: renamedCopy(draft), again });
+  // before round 9, a re-read into a menu without provenance made "Starters new" with one Salad, and every import of
+  // it again matched the two Salads the other way round and made one more
+  const r = hopaFlow({ draft, first, reread: renamedCopy(draft), again }, true);
+  assert.deepEqual(sectionsOf(r.menu), [['Starters', ['Salad 4200', 'Salad 4200']], ['Starters new', ['Salad 4200']]]);
+  assert.deepEqual(r.p4.steps.filter((s) => s.kind === 'dish').map(brief), ['dish:s0d0:keep', 'dish:s1d1:keep']);
+});
+
+test('QA-M2 (db fuzz seed -668751856, shrunk): two sections of one name kept apart, one of them empty, renamed by a re-read', () => {
+  const draft = draftOf([section('s1', 'ילדים', 'Kids', []), section('s2', 'ילדים', 'Kids', [dish('s2d0', 'סלט', 'Salad', 0)])]);
+  const first = yes({ 'section_duplicate@s2': 'keep_both' });
+  const again = yes({ ...first.choices, 'dish_elsewhere@s2d0': 'new_dish', 'section_renamed@s2': 'rename' });
+  assertFlow({ draft, first, reread: renamedCopy(draft, (x) => { x.sections[1]!.dishes[0]!.price = 3000; }), again });
+});
+
+test('QA-M2 (QA\'s r8-hopa-twins.ts, shrunk from -668751856): one section keeps its name, its twin takes the re-read\'s', () => {
+  const draft = draftOf([
+    section('s-a', 'ילדים', 'Kids', [dish('d-schnitzel', 'שניצל', 'Schnitzel', 4200)]),
+    section('s-b', 'ילדים', 'Kids', [dish('d-salad', 'סלט', 'Salad', 3000)]),
+  ]);
+  const first = yes({ 'section_duplicate@s-b': 'keep_both' });
+  const again = yes({ ...first.choices, 'section_renamed@s-a': 'same_section', 'section_renamed@s-b': 'rename' });
+  assertFlow({ draft, first, reread: renamedCopy(draft), again });
+  const r = hopaFlow({ draft, first, reread: renamedCopy(draft), again });
+  assert.deepEqual(sectionsOf(r.menu), [['Kids', ['Schnitzel 4200']], ['Kids new', ['Salad 3000']]]);
+});
+
+test('QA-M2 (fuzz seed -345021870, shrunk): a dish the owner matched to another kind stays there when a row of its own kind frees up', () => {
+  const draft = draftOf([
+    section('s1', 'משקאות', 'Drinks', [dish('s1d0', 'שניצל', 'Schnitzel', null), dish('s1d2', 'שניצל', 'Schnitzel', 3000)], { kind: 'drinks' }),
+    section('s2', 'עיקריות', 'Mains', [dish('s2d2', 'שניצל', 'Schnitzel', 4200)]),
+  ]);
+  const first = yes({ 'price_missing@s1d0': 'no_price', 'dish_duplicate@s1d2': 'skip' });
+  const edited = copy(draft) as unknown as Editable;
+  edited.sections[0]!.name = { he: 'משקאות חדש', en: 'Drinks new' };
+  edited.sections[0]!.dishes[0]!.price = 4200;
+  edited.sections[0]!.dishes[1]!.priceNote = { he: 'לזוג', en: 'for two' };
+  const reread = edited as unknown as ImportDraft;
+  const again = yes({ 'dish_duplicate@s1d2': 'keep_both', 'dish_elsewhere@s1d0': 'new_dish', 'dish_other_kind@s1d2': 'same_dish' });
+  assertFlow({ draft, first, reread, again });
+});
+
+test('QA-M2 (fuzz seeds 1849530644, 1592050329, shrunk): two Lemonades kept apart; the renamed section is asked, or not, as the last import was', () => {
+  // the re-read into a menu without provenance: a tie leaves "Starters new" unproposed, so both Lemonades ask
+  // dish_elsewhere and the section is left without a row; the re-read again holds both and still asks no rename
+  const lemonades = draftOf([section('s1', 'ראשונות', 'Starters', [dish('s1d0', 'לימונדה', 'Lemonade', 3000), dish('s1d1', 'לימונדה', 'Lemonade', 4200)])]);
+  assertFlow({
+    draft: lemonades, first: yes({ 'dish_duplicate@s1d1': 'keep_both' }),
+    reread: renamedCopy(lemonades, (x) => { x.sections[0]!.dishes[1]!.price = null; }),
+    again: yes({ 'dish_duplicate@s1d1': 'keep_both', 'price_missing@s1d1': 'no_price', 'section_renamed@s1': 'rename' }),
+  });
+  // with provenance: the held Lemonade is no tie, the section is renamed onto the venue's, and stays so
+  const three = draftOf([section('s0', 'ראשונות', 'Starters', [
+    dish('s0d0', 'לימונדה', 'Lemonade', 3000), dish('s0d1', 'לימונדה', 'Lemonade', 4200), dish('s0d3', 'סלט', 'Salad', 0),
+  ])]);
+  assertFlow({
+    draft: three, first: yes({ 'dish_duplicate@s0d1': 'skip' }),
+    reread: renamedCopy(three, (x) => { x.sections[0]!.dishes[0]!.price = null; x.sections[0]!.dishes[1]!.price = 3000; }),
+    again: yes({ 'dish_duplicate@s0d1': 'keep_both', 'price_missing@s0d0': 'no_price', 'dish_elsewhere@s0d3': 'new_dish' }),
+  });
+});
+
+test('round 9: provenance: a node takes the row the last import put it on, while that row\'s name still matches', () => {
+  const twins = draftOf([
+    section('s-a', 'עיקריות', 'Mains', [dish('d-a', 'סלט', 'Salad', 3000)]),
+    section('s-b', 'ילדים', 'Kids', [dish('d-b', 'סלט', 'Salad', 3000)]),
+  ]);
+  const both = yes({ 'dish_repeated@d-b': 'keep_both' });
+  // the venue has two Salads in Mains, and an empty Kids
+  const menu = (previous?: ExistingMenu['previous']): ExistingMenu =>
+    ({ ...twoSections([SALAD(B1, A, 3000, 0), SALAD(B2, A, 3000, 1)]), ...(previous ? { previous } : {}) });
+  const on = (p: ImportPlan) => p.steps.filter((s) => s.kind === 'dish').map((s) => `${s.key}→${s.id}`);
+  assert.deepEqual(on(plan(twins, menu(), both)), [`d-a→${B1}`, `d-b→${B2}`], 'by name and position');
+  assert.deepEqual(on(plan(twins, menu({ sections: {}, dishes: { 'd-a': B2, 'd-b': B1 } }), both)), [`d-a→${B2}`, `d-b→${B1}`],
+    'held: the rows the last import wrote');
+  assert.deepEqual(on(plan(twins, menu({ sections: {}, dishes: { 'd-a': B2, 'd-b': B2 } }), both)), [`d-a→${B1}`, `d-b→${B2}`],
+    'a row two keys name: neither holds it');
+  assert.deepEqual(on(plan(twins, menu({ sections: {}, dishes: { 'd-a': '00000000-0000-4000-8000-0000000000ff', 'd-b': B1 } }), both)),
+    [`d-a→${B2}`, `d-b→${B1}`], 'a row gone holds nothing; the other key still holds its own');
+  const greens = { ...menu({ sections: {}, dishes: { 'd-a': B2 } }), dishes: [SALAD(B1, A, 3000, 0), { ...SALAD(B2, A, 3000, 1), name_he: 'ירוקים', name_en: 'Greens' }] };
+  assert.deepEqual(on(plan(twins, greens, both)), [`d-a→${B1}`, 'd-b→null'], 'a row renamed since holds nothing: names decide');
+  // a section holds its row the same way, before the others claim theirs
+  const mainsTwice = draftOf([section('s-x', 'עיקריות', 'Mains', [dish('d-x', 'שניצל', 'Schnitzel', 4000)]), section('s-y', 'עיקריות', 'Mains', [])]);
+  const twoMains: ExistingMenu = {
+    ...EMPTY_MENU, sections: [{ id: A, position: 0, name_he: 'עיקריות', name_en: 'Mains', kind: 'food' }, { id: B, position: 1, name_he: 'עיקריות', name_en: 'Mains', kind: 'food' }],
+  };
+  const sec = (p: ImportPlan) => p.steps.filter((s) => s.kind === 'section').map((s) => `${s.key}→${s.id}`);
+  const keepBoth = yes({ 'section_duplicate@s-y': 'keep_both' });
+  assert.deepEqual(sec(plan(mainsTwice, twoMains, keepBoth)), [`s-x→${A}`, `s-y→${B}`]);
+  assert.deepEqual(sec(plan(mainsTwice, { ...twoMains, previous: { sections: { 's-x': B, 's-y': A }, dishes: {} } }, keepBoth)), [`s-x→${B}`, `s-y→${A}`]);
+});
+
+test('round 9: appliedIds is what apply_import stores: the row each section and dish was created, updated or kept on', () => {
+  const d = bistroDraft();
+  const p1 = plan(d, EMPTY_MENU, yes({}, ['d-lemonade']));
+  const ids = new Map([['s-mains', 'S1'], ['s-drinks', 'S2'], ['d-schnitzel', 'D1'], ['d-burger', 'D2']]);
+  assert.deepEqual(appliedIds(p1, (_, key) => ids.get(key)), { sections: { 's-mains': 'S1' }, dishes: { 'd-schnitzel': 'D1', 'd-burger': 'D2' } },
+    'a node left out (and the section it empties) has none');
+  const m1 = applyPlan(EMPTY_MENU, p1);
+  const m2 = applyPlan(m1, plan(d, m1));
+  assert.deepEqual(Object.keys(m2.previous!.dishes), ['d-schnitzel', 'd-burger', 'd-lemonade']);
+  assert.equal(m2.previous!.dishes['d-schnitzel'], m1.previous!.dishes['d-schnitzel'], 'kept: the same row');
+  assert.equal(m2.previous!.dishes['d-lemonade'], m2.dishes.find((x) => x.name_en === 'Lemonade')!.id, 'created: the new row');
+});
+
+// ---------------------------------------------------------------- round 9 (the backend's SEC-M1: sizes before any work)
+
+test('round 9 (SEC-M1): past a DRAFT_CAPS count the draft gets the issues so far and its count issues, no node is walked', () => {
+  const bad = { ...dish('d-bad', 'סלט', 'Salad', 100), key: 'Not A Key', price: -1 };
+  const many = (n: number, at: number) => Array.from({ length: n }, (_, i) => section(`s${at}-${i}`, 'עיקריות', 'Mains', []));
+  const errors = (raw: unknown) => { const v = validateDraft(raw); return v.ok ? [] : v.errors.map((e) => `${e.code}@${e.path}`); };
+  // under the caps the bad dish is reported; past one, only the count (after the top-level issues)
+  const under = { ...draftOf([...many(79, 0), section('s-x', 'x', 'X', [bad])]), extra: 1 };
+  assert.deepEqual(errors(under), ['field_not_allowed@extra', 'key_invalid@sections[79].dishes[0].key', 'price_invalid@sections[79].dishes[0].price']);
+  const over = { ...draftOf([...many(80, 0), section('s-x', 'x', 'X', [bad])]), extra: 1 };
+  assert.deepEqual(errors(over), ['field_not_allowed@extra', 'too_large@sections']);
+  // every count, in validateDraft's order: the groups, each group's options, the sections, each dish's links, the dishes
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => opt(`o${i}`, 'א', 'A', 0));
+  const groups = Array.from({ length: 401 }, (_, i) => group(`g${i}`, 'ג', 'G', { options: i === 3 ? opts(61) : opts(1) }));
+  const links = Array.from({ length: 17 }, (_, i) => link(`g${i}`));
+  const dishes = Array.from({ length: 801 }, (_, i) => dish(`d${i}`, 'ד', 'D', 100, i === 5 ? { groups: links } : {}));
+  assert.deepEqual(errors(draftOf([section('s', 'ס', 'S', [bad, ...dishes]), ...many(80, 1)], groups)),
+    ['too_large@groups', 'too_large@groups[3].options', 'too_large@sections', 'too_large@sections[0].dishes[6].groups', 'too_large@sections']);
+  // a non-array or a non-object never counts
+  assert.deepEqual(errors(draftOf([{ ...section('s', 'ס', 'S', []), dishes: 'many' } as never])), ['type@sections[0].dishes']);
+});
+
+test('round 9 (SEC-M1): a decisions list past DECISIONS_LIST_MAX is too_large and not walked; the other list still is', () => {
+  const choices = (n: number) => Object.fromEntries([['Bad Id', 'skip'], ...Array.from({ length: n - 1 }, (_, i) => [`dish_repeated@d${i}`, 'skip'])]);
+  const errors = (raw: unknown) => { const v = validateDecisions(raw); return v.ok ? [] : v.errors.map((e) => `${e.code}@${e.path}`); };
+  assert.deepEqual(errors({ v: 1, pricesConfirmed: true, choices: choices(5000), skip: ['Bad'] }), ['choice_invalid@choices.Bad Id', 'key_invalid@skip[0]']);
+  assert.deepEqual(errors({ v: 1, pricesConfirmed: true, choices: choices(5001), skip: ['Bad'] }), ['too_large@choices', 'key_invalid@skip[0]']);
+  const skip = (n: number) => ['Bad', ...Array.from({ length: n - 1 }, (_, i) => `d${i}`)];
+  assert.deepEqual(errors({ v: 1, pricesConfirmed: true, choices: { 'Bad Id': 'skip' }, skip: skip(5000) }), ['choice_invalid@choices.Bad Id', 'key_invalid@skip[0]']);
+  assert.deepEqual(errors({ v: 2, pricesConfirmed: true, choices: { 'Bad Id': 'skip' }, skip: skip(5001) }), ['version@v', 'choice_invalid@choices.Bad Id', 'too_large@skip']);
+});
+
+test('round 9 (SEC-M1): past NOTES_MAX the notes are too_many alone; at it, each is checked', () => {
+  const notes = (n: number) => Array.from({ length: n }, () => ({ code: 'nope' }));
+  assert.deepEqual(readerNoteIssues(notes(NOTES_MAX + 1), null), [{ code: 'too_many', path: 'notes' }]);
+  assert.equal(readerNoteIssues(notes(NOTES_MAX), null).filter((e) => e.code === 'enum_invalid').length, NOTES_MAX);
+});
+
+const VENUE_ID = '00000000-0000-4000-8000-0000000000c1';
+
+test('round 9 (SEC-M1): the byte bounds, either side, as octet_length(v::text) measures them (draftBytes)', () => {
+  // a padded value of exactly `bytes` (calibrated with draftBytes, whose parity with octet_length the backend tests)
+  const padded = (base: Record<string, unknown>, bytes: number, hebrew = false) => {
+    const room = bytes - draftBytes({ ...base, pad: '' });
+    const v = { ...base, pad: hebrew ? 'x'.repeat(room % 2) + 'א'.repeat(Math.floor(room / 2)) : 'x'.repeat(room) };
+    assert.equal(draftBytes(v), bytes);
+    return v;
+  };
+  const draft = (bytes: number) => padded({ v: 1 }, bytes);
+  // save_import_draft: the draft, then the notes' count, then the notes' bytes
+  assert.equal(saveDraftSizeFail(draft(DRAFT_BYTES_MAX)), null);
+  assert.deepEqual(saveDraftSizeFail(draft(DRAFT_BYTES_MAX + 1)), { ok: false, code: 'too_large' });
+  assert.deepEqual(saveDraftSizeFail(null), { ok: false, code: 'too_large' });
+  const notes = (bytes: number, hebrew = false) => [padded({}, bytes - 2, hebrew)];
+  assert.equal(saveDraftSizeFail(draft(100), notes(NOTES_BYTES_MAX, true)), null, 'a Hebrew letter is two bytes');
+  assert.deepEqual(saveDraftSizeFail(draft(100), notes(NOTES_BYTES_MAX + 1, true)), { ok: false, code: 'too_large' });
+  assert.deepEqual(saveDraftSizeFail(draft(100), notes(NOTES_BYTES_MAX + 1)), { ok: false, code: 'too_large' });
+  assert.equal(saveDraftSizeFail(draft(100), null), null, 'null notes are []');
+  assert.deepEqual(saveDraftSizeFail(draft(100), Array.from({ length: NOTES_MAX + 1 }, () => 0)),
+    { ok: false, code: 'invalid_draft', errors: [{ code: 'too_many', path: 'notes' }] });
+  // apply_import: the draft (draft_changed), then the decisions
+  const decisions = (bytes: number) => padded({ v: 1, pricesConfirmed: true, choices: {} }, bytes);
+  assert.equal(applyImportSizeFail(draft(DRAFT_BYTES_MAX), decisions(DECISIONS_BYTES_MAX)), null);
+  assert.deepEqual(applyImportSizeFail(draft(DRAFT_BYTES_MAX + 1), decisions(100)), { ok: false, code: 'draft_changed' });
+  assert.deepEqual(applyImportSizeFail(draft(100), decisions(DECISIONS_BYTES_MAX + 1)),
+    { ok: false, code: 'invalid_decisions', errors: [{ code: 'too_large', path: '' }] });
+  // save_addon_group: the options' count (the venue's limit), then the group and its options together
+  const options = (n: number) => Array.from({ length: n }, () => ({ id: VENUE_ID }));
+  assert.equal(addonGroupSizeFail({ id: VENUE_ID }, options(LIMITS.optionsPerGroup)), null);
+  assert.deepEqual(addonGroupSizeFail({ id: VENUE_ID }, options(LIMITS.optionsPerGroup + 1)), { ok: false, code: 'limit_options_per_group' });
+  assert.equal(addonGroupSizeFail({ id: VENUE_ID }, options(40), 40), null, 'a venue whose config allows more');
+  const opts = options(2);
+  assert.equal(addonGroupSizeFail(padded({}, ADDON_GROUP_BYTES_MAX - draftBytes(opts)), opts), null);
+  assert.deepEqual(addonGroupSizeFail(padded({}, ADDON_GROUP_BYTES_MAX + 1 - draftBytes(opts)), opts), { ok: false, code: 'too_large' });
+  // a group left out is null (4 bytes); ["x…"] is 4 bytes more than its x's
+  assert.equal(addonGroupSizeFail(undefined, ['x'.repeat(ADDON_GROUP_BYTES_MAX - 8)]), null);
+  assert.deepEqual(addonGroupSizeFail(undefined, ['x'.repeat(ADDON_GROUP_BYTES_MAX - 7)]), { ok: false, code: 'too_large' });
 });

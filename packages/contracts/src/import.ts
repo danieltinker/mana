@@ -23,7 +23,7 @@
  * then by draft key, never by the order of the draft.
  */
 import {
-  BLANK_CLASS, cleanText, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, STOCK_RE, stripBlank, textLength,
+  BLANK_CLASS, cleanText, hasOwn, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, STOCK_RE, stripBlank, textLength,
   type Issue, type Lang, type Text, type Validation,
 } from './common.ts';
 import type {
@@ -71,7 +71,9 @@ export const DRAFT_TEXT_MAX = {
 export const DRAFT_CAPS = { sections: 80, dishes: 800, groups: 400, optionsPerGroup: 60, groupsPerDish: 16 } as const;
 
 export type DraftPhoto = {
-  /** In the private bucket, under the import's folder (`<venue id>/imports/<import id>/…`). */
+  /** In the private bucket, under the import's folder (`<venue id>/imports/<import id>/…`): a crop the scanner wrote,
+   * never one of the uploaded images (`raw_paths`), so the purge of the raw input never takes it (`PurgeableImport`);
+   * once applied it is the photo asset's `original_path`. */
   readonly path: string;
   readonly rights: PhotoRights;
 };
@@ -334,10 +336,11 @@ export function draftGroupLimits(g: Pick<DraftGroup, 'selection' | 'min' | 'max'
  * limits_invalid, limits_loosened, single_max, options_empty, option_qty_invalid, opener_qty, opens_self,
  * defaults_exceed, ref_unknown, addon_duplicate, count_invalid.
  *
- * - Sizes: at most `DRAFT_BYTES_MAX` bytes (`draftBytes`), within `DRAFT_CAPS`, and at most `EXCEPTIONS_MAX`
- *   exceptions; text lengths in code points of the text with its blank edges stripped (a photo path as it is); no NUL
- *   and no lone surrogate (`text_invalid`); no key the type does not
- *   have, at any level (`field_not_allowed`).
+ * - Sizes: at most `DRAFT_BYTES_MAX` bytes (`draftBytes`; past it, `too_large` alone), within `DRAFT_CAPS` (counted
+ *   before any node is checked: past a cap, the draft gets the top-level issues and its `too_large` count issues, nothing
+ *   else), and at most `EXCEPTIONS_MAX` exceptions; text lengths in code points of the text with its blank edges
+ *   stripped (a photo path as it is); no NUL and no lone surrogate (`text_invalid`); no key the type does not have, at
+ *   any level (`field_not_allowed`).
  * - A dish's limits: each 0–30 and min ≤ max; on a single choice, a max of 1 (`single_max`) and a min of 0 or 1
  *   (`limits_invalid`). Each limit on its own: under the group's **stated** min (max) a dish min (max) may only
  *   tighten (`limits_loosened`); an unstated one is a guess that yields to what a dish states. And they may not
@@ -363,6 +366,23 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
   if (!Array.isArray(raw.sections) || !Array.isArray(raw.groups)) return { ok: false, errors: x.list };
   const sections = raw.sections as unknown[];
   const groups = raw.groups as unknown[];
+  // the counts first (`DRAFT_CAPS`): a draft past one of them is refused with the issues so far and its count issues,
+  // before any node is walked (1.5 MB of small elements is hundreds of thousands of nodes; SEC-M1). In this order: the
+  // groups, each group's options, the sections, each dish's links, the dishes.
+  const caps = new Issues();
+  if (groups.length > DRAFT_CAPS.groups) caps.add('too_large', 'groups');
+  groups.forEach((g, i) => { if (isObject(g) && Array.isArray(g.options) && g.options.length > DRAFT_CAPS.optionsPerGroup) caps.add('too_large', `groups[${i}].options`); });
+  if (sections.length > DRAFT_CAPS.sections) caps.add('too_large', 'sections');
+  let dishCount = 0;
+  sections.forEach((s, i) => {
+    if (!isObject(s) || !Array.isArray(s.dishes)) return;
+    dishCount += s.dishes.length;
+    s.dishes.forEach((d, j) => {
+      if (isObject(d) && Array.isArray(d.groups) && d.groups.length > DRAFT_CAPS.groupsPerDish) caps.add('too_large', `sections[${i}].dishes[${j}].groups`);
+    });
+  });
+  if (dishCount > DRAFT_CAPS.dishes) caps.add('too_large', 'sections');
+  if (!caps.ok) return { ok: false, errors: [...x.list, ...caps.list] };
   const textSource = (TEXT_SOURCES as readonly unknown[]).includes(raw.source);
 
   const keys = new Set<string>();
@@ -373,7 +393,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
   };
 
   // ---- groups first, so dishes and openers can be checked against them
-  if (groups.length > DRAFT_CAPS.groups) x.add('too_large', 'groups');
   const groupByKey = new Map<string, Record<string, unknown>>();
   const groupLimits = new Map<string, { min: number; max: number; stated: boolean; capacity: number }>();
   groups.forEach((g, i) => {
@@ -390,7 +409,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
     if (!limits) x.add('limits_invalid', p);
     else if (g.selection === 'single' && g.max !== null && g.max !== 1) x.add('single_max', p);
     if (!Array.isArray(g.options) || g.options.length === 0) return void x.add('options_empty', `${p}.options`);
-    if (g.options.length > DRAFT_CAPS.optionsPerGroup) x.add('too_large', `${p}.options`);
     let defaults = 0;
     let quantitiesOk = true;
     g.options.forEach((o, j) => {
@@ -428,8 +446,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
   });
 
   // ---- sections and dishes
-  if (sections.length > DRAFT_CAPS.sections) x.add('too_large', 'sections');
-  let dishCount = 0;
   sections.forEach((s, i) => {
     const p = `sections[${i}]`;
     if (!isObject(s)) return void x.add('type', p);
@@ -440,7 +456,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
     if (!oneOf(SECTION_KINDS, s.kind)) x.add('enum_invalid', `${p}.kind`);
     if (s.room !== null && !oneOf(ROOMS, s.room)) x.add('enum_invalid', `${p}.room`);
     if (!Array.isArray(s.dishes)) return void x.add('type', `${p}.dishes`);
-    dishCount += s.dishes.length;
     s.dishes.forEach((d, j) => {
       const q = `${p}.dishes[${j}]`;
       if (!isObject(d)) return void x.add('type', q);
@@ -465,7 +480,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
       }
       if (d.illustration !== null && !(isString(d.illustration) && STOCK_RE.test(d.illustration))) x.add('stock_invalid', `${q}.illustration`);
       if (!Array.isArray(d.groups)) return void x.add('type', `${q}.groups`);
-      if (d.groups.length > DRAFT_CAPS.groupsPerDish) x.add('too_large', `${q}.groups`);
       const seen: Array<{ key: string; group: Record<string, unknown> }> = [];
       d.groups.forEach((a, k) => {
         const r = `${q}.groups[${k}]`;
@@ -489,7 +503,6 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
       });
     });
   });
-  if (dishCount > DRAFT_CAPS.dishes) x.add('too_large', 'sections');
   if (!x.ok) return { ok: false, errors: x.list };
   const draft = raw as unknown as ImportDraft;
   if (draftExceptions(draft).length > EXCEPTIONS_MAX) return { ok: false, errors: [{ code: 'too_many_exceptions', path: '' }] };
@@ -763,6 +776,12 @@ export type ImportDecisions = {
 const CHOICE_ID_RE = /^[a-z_]{1,40}@[a-z0-9_][a-z0-9_.>@-]{0,170}$/;
 const SKIP_KEY_RE = /^[a-z0-9][a-z0-9_.-]{0,63}(>[a-z0-9][a-z0-9_.-]{0,63})?$/;
 
+/** Answers and skipped keys per list: a list past it is `too_large` and is not walked (the other list still is). */
+export const DECISIONS_LIST_MAX = 5000;
+/** The decisions' jsonb text (`draftBytes`), at most: what 5000 answers and 5000 skipped keys take at their longest.
+ * `apply_import` answers `invalid_decisions` with `too_large` at `''` past it, before anything is walked. */
+export const DECISIONS_BYTES_MAX = 2_000_000;
+
 /** Codes: type, version, field_not_allowed, too_large, choice_invalid, key_invalid. */
 export function validateDecisions(raw: unknown): Validation<ImportDecisions> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
@@ -772,16 +791,14 @@ export function validateDecisions(raw: unknown): Validation<ImportDecisions> {
   if (typeof raw.pricesConfirmed !== 'boolean') x.add('type', 'pricesConfirmed');
   if (!isObject(raw.choices)) x.add('type', 'choices');
   else {
-    const entries = Object.entries(raw.choices);
-    if (entries.length > 5000) x.add('too_large', 'choices');
-    for (const [k, v] of entries) if (!CHOICE_ID_RE.test(k) || !oneOf(IMPORT_CHOICES, v)) x.add('choice_invalid', `choices.${k}`);
+    const ids = Object.keys(raw.choices);
+    if (ids.length > DECISIONS_LIST_MAX) x.add('too_large', 'choices');
+    else for (const k of ids) if (!CHOICE_ID_RE.test(k) || !oneOf(IMPORT_CHOICES, raw.choices[k])) x.add('choice_invalid', `choices.${k}`);
   }
   if (raw.skip !== undefined) {
     if (!Array.isArray(raw.skip)) x.add('type', 'skip');
-    else {
-      if (raw.skip.length > 5000) x.add('too_large', 'skip');
-      raw.skip.forEach((k, i) => { if (!isString(k) || !SKIP_KEY_RE.test(k)) x.add('key_invalid', `skip[${i}]`); });
-    }
+    else if (raw.skip.length > DECISIONS_LIST_MAX) x.add('too_large', 'skip');
+    else raw.skip.forEach((k, i) => { if (!isString(k) || !SKIP_KEY_RE.test(k)) x.add('key_invalid', `skip[${i}]`); });
   }
   return x.ok ? { ok: true, value: raw as unknown as ImportDecisions } : { ok: false, errors: x.list };
 }
@@ -803,7 +820,32 @@ export type ExistingMenu = {
   readonly dishGroups: ReadonlyArray<Pick<DishAddonGroupRow, 'id' | 'dish_id' | 'group_id' | 'position'>>;
   /** Every picture of the venue's dishes, whatever its state. */
   readonly assets: ReadonlyArray<Pick<AssetRow, 'id' | 'dish_id' | 'status'>>;
+  /** The rows the venue's last applied import wrote or kept, by its draft's keys (`menu_imports.applied_ids` of the
+   * venue's import with the latest `applied_at`, a column clients read too; absent when there is none, or when that
+   * import was applied before the column existed). */
+  readonly previous?: ImportedIds;
 };
+
+/**
+ * Which venue row each section and dish of an applied draft landed on, by draft key: the row it created, updated or
+ * kept (a node left out or merged has none). `apply_import` stores it with the import (`menu_imports.applied_ids`,
+ * `appliedIds`); the plan of the next import matches a node to that row first, while the row's name still matches
+ * the node's (`planApply`'s held rows), so the same draft imported again finds the same rows whatever a rename, a
+ * fill or a twin (`keep_both`) did (Hopa test 1). Another draft that happens to use the same keys can only hold a row
+ * whose name its node matches anyway.
+ */
+export type ImportedIds = { readonly sections: Readonly<Record<string, string>>; readonly dishes: Readonly<Record<string, string>> };
+
+/** `ImportedIds` of an applied plan: `createdId` gives the id `apply_import` made for a step it created. */
+export function appliedIds(plan: ImportPlan, createdId: (kind: 'section' | 'dish', key: string) => string | undefined): ImportedIds {
+  const out = { sections: {} as Record<string, string>, dishes: {} as Record<string, string> };
+  for (const s of plan.steps) {
+    if (s.kind !== 'section' && s.kind !== 'dish') continue;
+    const id = s.op === 'create' ? createdId(s.kind, s.key) : s.op === 'skip' ? undefined : s.id;
+    if (id !== undefined) (s.kind === 'section' ? out.sections : out.dishes)[s.key] = id;
+  }
+  return out;
+}
 
 export const EMPTY_MENU: ExistingMenu = { sections: [], dishes: [], groups: [], options: [], dishGroups: [], assets: [] };
 
@@ -932,6 +974,28 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
 }
 
 /**
+ * Provenance (`ExistingMenu.previous`): each node whose key the last applied import put on a row the venue still has,
+ * while that row's name still matches the node's (`scoreKeys` > 0), holds that row: node key → row id. A row that two
+ * nodes name is held by neither. A name that no longer matches (the owner renamed the row since) holds nothing.
+ */
+function heldRows<R extends { id: string; keys: Keys }>(
+  nodes: ReadonlyArray<{ key: string; keys: Keys }>, ids: Readonly<Record<string, string>> | undefined, byId: ReadonlyMap<string, R>,
+): Map<string, string> {
+  const held = new Map<string, string>();
+  if (ids === undefined || !isObject(ids)) return held;
+  const named = new Map<string, number>();
+  for (const n of nodes) {
+    const id = hasOwn(ids, n.key) ? ids[n.key] : undefined;
+    const r = typeof id === 'string' ? byId.get(id) : undefined;
+    if (r === undefined || scoreKeys(n.keys, r.keys) === 0) continue;
+    held.set(n.key, r.id);
+    named.set(r.id, (named.get(r.id) ?? 0) + 1);
+  }
+  for (const [key, id] of held) if (named.get(id)! > 1) held.delete(key);
+  return held;
+}
+
+/**
  * Turns a draft, the venue's menu and the owner's decisions into what `apply_import` will do: never a delete, never a
  * duplicate of what the venue has (Hopa test 1), and the same plan whatever the order of the draft. Errors (no plan):
  * `exception_unresolved` (a `fix` without an allowed answer), `choice_invalid`, `prices_unconfirmed`, `too_many` (with
@@ -955,10 +1019,15 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    the whole pass, since a skip may make another group unreachable. A draft-level `limits_unreachable` is not asked
  *    again. A group not asked for its global match and created all the same (`new_group`) has its minimum lowered to
  *    its kept capacity (rule 10).
+ *    **Held rows** (provenance, `ExistingMenu.previous`): a kept section or dish whose key the venue's last applied
+ *    import put on a row the venue still has, while that row's name still matches the node's (`nameScore > 0`), holds
+ *    that row; a row two nodes name is held by neither. Rules 3–7 match a held node to its row only, in whichever step
+ *    the row's section and kind put it, and never give a held row to another node. So re-importing the same draft
+ *    with the same answers finds what the last import wrote, whatever twins (`keep_both`) or fills say.
  * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes (left out with it:
  *    its dishes, their links and photos are `parent_skipped`, the section itself `merged`); the other kept
- *    sections claim existing ones in one pass (`assign`: best `nameScore`, then the row's position, id, then the draft
- *    key), so the result does not depend on the draft's order.
+ *    sections take their held row, and the rest claim existing ones in one pass (`assign`: best `nameScore`, then the
+ *    row's position, id, then the draft key), so the result does not depend on the draft's order.
  * 4. **Dishes in their section:** every kept dish whose section resolved, against the dishes of that existing section,
  *    in one pass over all of them (`assign`: best score, then the row's position, id, then the draft key).
  * 5. **Dishes elsewhere:** the dishes still unmatched against the existing dishes still free, only in a section of the
@@ -968,13 +1037,16 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    candidate of its family; the section with strictly the most votes, if there is one), then the one whose price
  *    equals the price read (after `price_zero`'s `no_price`; null equals null): rank 0 both, 1 the section only, 2 the
  *    price only, 3 neither; then position, id, draft key. A step-5 match is a **tie** when its dish has another free
- *    candidate, or its candidate another step-5 dish, at the same score and rank (only the position or the id decided).
+ *    candidate, or its candidate another step-5 dish, at the same score and rank (only the position or the id decided;
+ *    a held dish has one candidate, and a held row one dish, so a held match is never a tie).
  * 6. **Renamed sections:** a draft section with no name match, more than half of all whose kept dishes (its merged
  *    sections' included) are step-5 matches, ties not counted, in one existing section that no other draft section
  *    resolved to or proposes: `section_renamed` (`same_section`, the default, keeps the venue's name; `rename` takes
  *    the source's; `keep_both` makes a new section). With step 5's rank, two renamed sections that each hold a dish of
  *    the same name keep their own; when only a tie could tell them apart, neither is proposed, and their dishes ask
- *    `dish_elsewhere` (rule 8).
+ *    `dish_elsewhere` (rule 8). A section the last applied import left without a row (`previous` has no row for it)
+ *    while it holds a row for one of its dishes is not asked: its proposal still counts against another's, and it
+ *    stays without a row, as the last import left it.
  * 7. **Dishes of another kind:** the dishes still unmatched against the existing dishes still free, in a section of the
  *    other family, one pass: `dish_other_kind` (default `new_dish`).
  * 8. **Dish outcomes.** A step-4 match, or a step-5 match now in its own resolved section, updates or keeps the
@@ -1199,9 +1271,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
     mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
   });
-  // the other kept sections claim existing ones in one pass (best score, then position, id, draft key), whatever their order
-  const byName = assign(draft.sections.filter((s) => !out(s.key) && !mergedInto.has(s.key)).map((s) => ({ key: s.key, keys: sectionKeys.get(s.key)! })),
-    () => exSections, claimedSections);
+  // the other kept sections: first the one the last applied import put each on (`heldRows`), then the rest claim
+  // existing ones in one pass (best score, then position, id, draft key), whatever their order
+  const sectionNodes = draft.sections.filter((s) => !out(s.key) && !mergedInto.has(s.key)).map((s) => ({ key: s.key, keys: sectionKeys.get(s.key)! }));
+  const heldSections = heldRows(sectionNodes, existing.previous?.sections, sectionById);
+  for (const [key, id] of heldSections) { target.set(key, { id, ref: null }); nameMatched.add(key); claimedSections.add(id); }
+  const byName = assign(sectionNodes.filter((n) => !heldSections.has(n.key)), () => exSections, claimedSections);
   for (const [key, m] of byName) { target.set(key, { id: m.id, ref: null }); nameMatched.add(key); }
   const rootOf = (sectionKey: string): string => mergedInto.get(sectionKey) ?? sectionKey;
   for (const s of draft.sections) if (out(rootOf(s.key))) for (const d of s.dishes) if (!out(d.key)) gone.add(d.key);
@@ -1211,10 +1286,18 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const kept: DNode[] = [];
   for (const s of draft.sections) for (const d of s.dishes) if (!out(d.key) && !out(rootOf(s.key))) kept.push({ key: d.key, keys: keysOf(d.name), dish: d, section: s });
   const takenDishes = new Set<string>();
+  // a dish the last applied import put on a row that still matches its name has that row as its only candidate, in
+  // whichever step finds it, and no other dish has it (`heldRows`)
+  const heldDishes = heldRows(kept, existing.previous?.dishes, dishById);
+  const heldIds = new Set(heldDishes.values());
+  const rowsOf = (n: DNode): Array<(typeof exDishes)[number]> => {
+    const h = heldDishes.get(n.key);
+    return candidates(dishIndex, n.keys).filter((r) => (h === undefined ? !heldIds.has(r.id) : r.id === h));
+  };
   const homeOf = (n: DNode): string | null => target.get(rootOf(n.section.key))?.id ?? null;
-  const inSection = assign(kept.filter((n) => homeOf(n) !== null), (n) => candidates(dishIndex, n.keys).filter((r) => r.section_id === homeOf(n)), takenDishes);
+  const inSection = assign(kept.filter((n) => homeOf(n) !== null), (n) => rowsOf(n).filter((r) => r.section_id === homeOf(n)), takenDishes);
   const family = (n: DNode): string => KIND_FAMILY[draftSectionOf.get(n.key)!.kind];
-  const nearRows = (n: DNode) => candidates(dishIndex, n.keys).filter((r) => familyOfDish(r) === family(n));
+  const nearRows = (n: DNode) => rowsOf(n).filter((r) => familyOfDish(r) === family(n));
   // where the rest of a draft section went: each kept dish votes for the existing section of its step-4 match, or for
   // every existing section holding a free candidate of its family; the one section with the most votes, if any
   const votes = new Map<string, Map<string, number>>();
@@ -1238,7 +1321,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     (r.section_id === affinity.get(rootOf(n.section.key)) ? 0 : 2) + (priceRead(n.dish) === r.price ? 0 : 1);
   const fifth = kept.filter((n) => !inSection.has(n.key));
   // a tie: another free candidate of the dish, or another dish of the candidate, at the same score and rank (only the
-  // position or the id decided); a tie never counts toward a renamed section
+  // position or the id decided; a held row is a dish's only candidate, and no other dish's); a tie never counts toward
+  // a renamed section
   const pairsOf = (by: (n: DNode, r: (typeof exDishes)[number]) => string): Map<string, number> => {
     const m = new Map<string, number>();
     for (const n of fifth) for (const r of nearRows(n)) {
@@ -1257,6 +1341,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const elsewhere = assign(fifth, nearRows, takenDishes, rankElsewhere);
 
   const renamed = new Map<string, string>(); // draft section → the existing section it proposes
+  // a section the last applied import left without a row while it put some of the section's dishes on rows the venue
+  // still holds (it was this draft): its proposal still counts against another's, but it is not asked, so the same
+  // draft with the same answers leaves it without a row again
+  const prevSections = existing.previous !== undefined && isObject(existing.previous.sections) ? existing.previous.sections : undefined;
+  const leftOut = (key: string): boolean =>
+    prevSections !== undefined && !hasOwn(prevSections, key) && kept.some((n) => rootOf(n.section.key) === key && heldDishes.has(n.key));
   for (const s of draft.sections) {
     if (out(s.key) || mergedInto.has(s.key) || nameMatched.has(s.key)) continue;
     // more than half of all its kept dishes (its merged sections' included) matched, not by a tie, in one section
@@ -1271,6 +1361,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   }
   for (const [s, e] of renamed) {
     if ([...renamed.values()].filter((v) => v === e).length > 1) continue; // two sections propose the same one: neither
+    if (leftOut(s)) continue;
     const c = ask('section_renamed', s, sectionPath.get(s)!, `section:${s}`);
     if (c === 'same_section' || c === 'rename') { target.set(s, { id: e, ref: null }); claimedSections.add(e); }
   }
@@ -1278,7 +1369,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const sectionTarget = (sectionKey: string): Target => target.get(rootOf(sectionKey))!;
 
   const otherKind = assign(kept.filter((n) => !inSection.has(n.key) && !elsewhere.has(n.key)),
-    (n) => candidates(dishIndex, n.keys).filter((r) => familyOfDish(r) !== family(n)), takenDishes);
+    (n) => rowsOf(n).filter((r) => familyOfDish(r) !== family(n)), takenDishes);
 
   // ---- 8. dish outcomes
   const dishTarget = new Map<string, Target>();
@@ -1768,9 +1859,8 @@ export const IMPORT_CLIENT_COLUMNS = [
   'applied_at', 'created_at', 'updated_at',
 ] as const;
 type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at' | 'notes'>;
-/** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`), stored by
- * `save_import_draft` so the preview survives a reload ([] until then). The phase-1 migration adds the column
- * `menu_imports.notes`, and with it `MenuImportRow.notes` and `notes` in `IMPORT_CLIENT_COLUMNS`. */
+/** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`, the
+ * column `menu_imports.notes`), stored by `save_import_draft` so the preview survives a reload ([] until then). */
 export type MenuImportView = ImportViewBase & { readonly notes: readonly ReaderNote[] } & (
   | { readonly status: 'uploaded' | 'parsing'; readonly parsed: null; readonly exceptions: readonly []; readonly error_code: null; readonly applied_at: null }
   | { readonly status: 'parsed'; readonly parsed: ImportDraft; readonly exceptions: readonly ImportException[]; readonly error_code: null; readonly applied_at: null }
@@ -1875,9 +1965,12 @@ export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
 
 /** Where a page of `list_purgeable_imports` ends: the last row's `finishedAt` and `importId`, exactly as they came. */
 export type PurgeCursor = { readonly finishedAt: string; readonly importId: string };
-/** One image import whose screenshots may be deleted now: the scanner deletes exactly `<venueId>/imports/<importId>/…`
- * (its `paths`). `finishedAt`: when its retention started (applied, discarded or failed; or left waiting), at full
- * precision (microseconds, as `to_jsonb` writes a `timestamptz`), so it can be sent back in a `PurgeCursor`. */
+/** One image import whose screenshots may be deleted now. **The purge deletes exactly `paths`** (the import's
+ * `raw_paths`: the images the owner uploaded, each `<venueId>/imports/<importId>/<name>`), one object at a time, and
+ * never the folder, a prefix or a listing of it: the dish photos the scanner cropped live in the same folder
+ * (`DraftPhoto.path`, never one of `raw_paths`), and an applied one is its asset's original (`assets.original_path`).
+ * `finishedAt`: when its retention started (applied, discarded or failed; or left waiting), at full precision
+ * (microseconds, as `to_jsonb` writes a `timestamptz`), so it can be sent back in a `PurgeCursor`. */
 export type PurgeableImport = {
   readonly importId: string;
   readonly venueId: string;
@@ -2005,7 +2098,8 @@ export type ReaderNote = {
  * Codes: type, field_not_allowed, too_many, enum_invalid, key_invalid, ref_unknown (with `draft`: a key the draft does
  * not have), lines_invalid, count_invalid, rule_invalid. Paths `notes[i].<field>` under `prefix`.
  *
- * The bounds (`save_import_draft` checks the same): at most `NOTES_MAX` notes; exactly the six
+ * The bounds (`save_import_draft` checks the same): at most `NOTES_MAX` notes (past it, `too_many` alone: no note is
+ * looked at); exactly the six
  * fields; `code` one of `READER_NOTES` with its own `severity`; `key` null or a draft key (`DRAFT_KEY_RE`; with `draft`,
  * one the draft has, section, dish, group or option); `lines` an array of at most `NOTE_LINES_MAX` integers from 1 to
  * `NOTE_NUMBER_MAX`, strictly ascending (empty allowed); `count` an integer from 1 to `NOTE_NUMBER_MAX`; `rule` null or
@@ -2016,7 +2110,8 @@ export type ReaderNote = {
 export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix = 'notes'): Issue[] {
   const x = new Issues();
   if (!Array.isArray(raw)) return [{ code: 'type', path: prefix }];
-  if (raw.length > NOTES_MAX) x.add('too_many', prefix);
+  // past NOTES_MAX the notes are not walked (SEC-M1)
+  if (raw.length > NOTES_MAX) return [{ code: 'too_many', path: prefix }];
   let keys: Set<string> | null = null;
   let dishOrSection: Set<string> | null = null;
   if (draft) {
@@ -2057,6 +2152,24 @@ export type SaveDraftReply =
   | RpcOk<{ readonly exceptions: readonly ImportException[]; readonly counts: DraftCounts }>
   | RpcFail<'invalid_draft' | 'too_large' | 'source_mismatch' | 'rights_unconfirmed' | 'import_unknown' | 'import_busy' | 'import_closed'>;
 
+/** The notes' jsonb text (`draftBytes`), at most: what `NOTES_MAX` valid notes take at their longest (100 lines each). */
+export const NOTES_BYTES_MAX = 2_500_000;
+
+/**
+ * What `save_import_draft` answers on size alone, before it walks anything (SEC-M1; after the caller, the venue's
+ * import lock, the row and its status), or null: a draft missing (SQL null) or past `DRAFT_BYTES_MAX` is `too_large`;
+ * more than `NOTES_MAX` notes is `invalid_draft` with `too_many` at `notes` (the validator's own first issue); notes past
+ * `NOTES_BYTES_MAX` are `too_large`. Notes left out or null count as `[]`. Sizes are `draftBytes`, the database's
+ * `octet_length(v::text)`.
+ */
+export function saveDraftSizeFail(draft: unknown, notes: unknown = []): RpcFail<'too_large' | 'invalid_draft'> | null {
+  if (draft === undefined || draft === null || draftBytes(draft) > DRAFT_BYTES_MAX) return { ok: false, code: 'too_large' };
+  const n = notes ?? [];
+  if (Array.isArray(n) && n.length > NOTES_MAX) return { ok: false, code: 'invalid_draft', errors: [{ code: 'too_many', path: 'notes' }] };
+  if (draftBytes(n) > NOTES_BYTES_MAX) return { ok: false, code: 'too_large' };
+  return null;
+}
+
 /** Codes: those of `validateDraft` under `draft.`, and of `readerNoteIssues` under `notes`. */
 export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
   if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
@@ -2078,7 +2191,22 @@ export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
   | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'not_parsed' | 'import_closed'>;
 
-/** `discard_import(p_import)`: an import the owner gives up (`uploaded`, `failed` or `parsed`); twice is fine. */
+/**
+ * What `apply_import` answers on size alone, before it walks anything (SEC-M1; after the caller, the venue's import
+ * lock, the row and its status), or null: a draft missing (SQL null) or past `DRAFT_BYTES_MAX` cannot be the stored one,
+ * `draft_changed` (as is any draft that is not the stored one); decisions past `DECISIONS_BYTES_MAX` (null counts as
+ * `null`) are `invalid_decisions` with `too_large` at `''`. Sizes are `draftBytes`, the database's `octet_length(v::text)`.
+ */
+export function applyImportSizeFail(draft: unknown, decisions: unknown): RpcFail<'draft_changed' | 'invalid_decisions'> | null {
+  if (draft === undefined || draft === null || draftBytes(draft) > DRAFT_BYTES_MAX) return { ok: false, code: 'draft_changed' };
+  if (draftBytes(decisions ?? null) > DECISIONS_BYTES_MAX) return { ok: false, code: 'invalid_decisions', errors: [{ code: 'too_large', path: '' }] };
+  return null;
+}
+
+/** `discard_import(p_import)`: an import the owner gives up (`uploaded`, `failed` or `parsed`); twice is fine. Anyone
+ * but the venue's owners and managers, and an import that does not exist, get the same `import_unknown`, before any
+ * lock. (The import RPCs, `claim_import_scan`, `save_import_draft`, `apply_import` and this one, take one lock order:
+ * the venue's import lock, then the import's row.) */
 export type DiscardImportReply = RpcOk | RpcFail<'import_unknown' | 'import_busy' | 'import_closed'>;
 
 export function validateApplyImport(raw: unknown): Validation<ApplyImportInput> {
