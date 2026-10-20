@@ -7,7 +7,7 @@ import {
   appliedIds, mergePrevious, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
   SCAN_IMAGE_CAPS, type ClaimScanReply, validateDecisions, NOTES_MAX, NOTES_BYTES_MAX, DRAFT_BYTES_MAX, DECISIONS_BYTES_MAX, saveDraftSizeFail,
-  applyImportSizeFail, type ApplyImportReply, type ImportedIds,
+  applyImportSizeFail, type ApplyImportReply, type ImportedIds, type DraftOption,
 } from '../src/import.ts';
 import { BLOCKERS_MAX, onboardingProgress, validateSetStep, type SetStepReply } from '../src/onboarding.ts';
 import { addonGroupSizeFail, ADDON_GROUP_BYTES_MAX } from '../src/addons.ts';
@@ -770,4 +770,97 @@ test('round 10 (backend b9bc23c): a "doing" on a done step is kept; apply_import
   const halom: ActForOwnerReply = { ok: true, action: 'onboarding.set', result: { step: 'menu', state: 'done', kept: true, progress }, logId: 1 };
   const busy: ApplyImportReply = { ok: false, code: 'import_busy' };
   assert.ok(owner.ok && owner.kept && halom.ok && !busy.ok);
+});
+
+test('round 10 (fuzz seed -304226620): an option add_options adds opens its nested group, created for it, so the next import asks nothing', () => {
+  const draft = (salad: Partial<DraftOption>, kidsName = 'ראשונות') => draftOf([section('s0', kidsName, 'Starters', [dish('s0d0', 'שניצל', 'Schnitzel', 3000, { groups: [link('g0')] })])], [
+    group('g0', 'רוטב', 'Sauce', { selection: 'multiple', min: 2, max: 3, options: [opt('g0o0', 'אורז', 'Rice', 0), opt('g0o1', 'צ׳יפס', 'Fries', 0), opt('g0o2', 'סלט', 'Salad', null, salad)] }),
+    group('g1', 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 1, options: [opt('g1o1', 'איולי', 'Aioli', 300)] }),
+  ]);
+  // the first read: the Salad's price unreadable, left out; Side is used by nothing, so it is not created
+  const first = draft({ maxQty: 2 });
+  const m1 = applyPlan(EMPTY_MENU, plan(first, EMPTY_MENU, yes({ 'option_price_unreadable@g0o2': 'skip' })));
+  assert.deepEqual(m1.groups.map((g) => g.name_en), ['Sauce']);
+  // the re-read: the Salad has a price and opens Side; the owner adds it to the venue's Sauce
+  const reread = draft({ price: 500, opens: 'g1' });
+  const answers = yes({ 'group_changed@s0d0>g0': 'add_options' });
+  const p = plan(reread, m1, answers);
+  assert.deepEqual(changed(p).filter((s) => !s.startsWith('dish')), ['group:g1:create', 'option:g0o2:create', 'option:g1o1:create']);
+  assert.deepEqual(step(p, 'option', 'g0o2').refs, { opens_group_id: 'g1' }, 'the added Salad opens the Side this plan creates');
+  const m2 = applyPlan(m1, p);
+  assert.deepEqual(menuRuleBreaks(m2), []);
+  const salad = m2.options.find((o) => o.name_en === 'Salad')!;
+  assert.equal(m2.groups.find((g) => g.id === salad.opens_group_id)?.name_en, 'Side');
+  // the same re-read again: nothing new asked (before, opens_changed was, and new_group wrote), nothing written
+  const again = plan(reread, m2, yes({ ...answers.choices, 'opens_changed@g0o2>g1': 'new_group' }));
+  assertHopa(again, p, 'the re-read again');
+});
+
+test('round 10 (QA fuzz seed -427087555): the added option opens the venue\'s own nested group when it has one', () => {
+  const draft = (sauce: DraftOption[]) => draftOf([section('s-mains', 'עיקריות', 'Mains', [
+    dish('d-mains-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-sauce')] }),
+    dish('d-mains-salad', 'סלט', 'Salad', 4000, { groups: [link('g-extras')] }),
+  ])], [
+    group('g-sauce', 'רוטב', 'Sauce', { selection: 'multiple', min: 0, max: 2, options: sauce }),
+    group('g-extras', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: [opt('o-rice', 'אורז', 'Rice', 0), opt('o-fries', 'צ׳יפס', 'Fries', 0)] }),
+  ]);
+  const m1 = applyPlan(EMPTY_MENU, plan(draft([opt('o-ketchup', 'קטשופ', 'Ketchup', 0)]), EMPTY_MENU));
+  const extras = m1.groups.find((g) => g.name_en === 'Extras')!.id;
+  const reread = draft([opt('o-ketchup', 'קטשופ', 'Ketchup', 0), opt('o-aioli', 'איולי', 'Aioli', 0, { opens: 'g-extras' })]);
+  const answers = yes({ 'group_changed@d-mains-burger>g-sauce': 'add_options' });
+  const p = plan(reread, m1, answers);
+  assert.deepEqual(step(p, 'option', 'o-aioli').set, { position: 1, name_he: 'איולי', name_en: 'Aioli', price: 0, max_qty: 1, is_default: false,
+    group_id: m1.groups.find((g) => g.name_en === 'Sauce')!.id, opens_group_id: extras });
+  const m2 = applyPlan(m1, p);
+  assert.deepEqual(menuRuleBreaks(m2), []);
+  assertHopa(plan(reread, m2, yes({ ...answers.choices, 'opens_changed@o-aioli>g-extras': 'new_group' })), p, 'the re-read again');
+});
+
+test('round 10 (SEC-M4): a menu at the limits whose 200 groups share one name re-imports in bounded time, writing nothing', () => {
+  for (const shape of ['shared', 'same'] as const) {
+    // 40 sections × 10 dishes, 200 groups × 30 options, one link per dish; every group "Extras". `shared`: 29 option
+    // names every group has and one of its own; `same`: one option name throughout
+    const groups = Array.from({ length: 200 }, (_, g) => group(`g${g}`, 'תוספות', 'Extras', {
+      selection: 'multiple', min: 0, max: 3,
+      options: Array.from({ length: 30 }, (_, o) => {
+        const name = shape === 'same' ? 'Rice' : o < 29 ? `Shared ${o}` : `Own ${g}`;
+        return opt(`g${g}o${o}`, `${name} א`, name, 100);
+      }),
+    }));
+    const sections = Array.from({ length: 40 }, (_, s) => section(`s${s}`, `קטגוריה ${s}`, `Section ${s}`, Array.from({ length: 10 }, (_, d) =>
+      dish(`s${s}d${d}`, `מנה ${s} ${d}`, `Dish ${s} ${d}`, 5000, { groups: [link(`g${(s * 10 + d) % 200}`)] }))));
+    const d = draftOf(sections, groups);
+    const m = applyPlan(EMPTY_MENU, plan(d));
+    assert.equal(m.options.length, 6000);
+    const t0 = performance.now();
+    const again = plan(d, m);
+    const ms = performance.now() - t0;
+    assert.deepEqual(changed(again), [], shape);
+    // before the bound, `same` took about 9 s here (every candidate's full cover, 200 × 200 × 900 pairs)
+    assert.ok(ms < 6000, `${shape}: the re-import took ${ms.toFixed(0)} ms`);
+  }
+});
+
+test('round 10 (SEC-M4): candidates in order; those that cannot cover by count are passed over; after 8 failed covers, no match', () => {
+  // a venue group whose options pass the count checks for the draft's two options, yet the cover fails: the draft's
+  // אורז/Rice takes the venue's אורז/Rice (score 3) before ''/Rice can, and ''/Rice matches nothing else
+  const failing = (i: number) => ({ id: uuid(0x100 + i), options: [['אורז', 'Rice'], ['אורז', 'Pilaf']] as const });
+  const covering = { id: uuid(0x1ff), options: [['אורז', 'Rice'], ['אורז', 'Pilaf'], ['', 'Rice']] as const };
+  const tooFew = (i: number) => ({ id: uuid(0x80 + i), options: [['אורז', 'Rice']] as const });
+  const venue = (gs: ReadonlyArray<{ id: string; options: ReadonlyArray<readonly [string, string]> }>): ExistingMenu => ({
+    ...EMPTY_MENU,
+    groups: gs.map((g) => ({ id: g.id, name_he: 'תוספות', name_en: 'Extras', selection: 'multiple' as const, min_units: 0, max_units: 2 })),
+    options: gs.flatMap((g, gi) => g.options.map(([he, en], j) => ({
+      id: uuid(0x1000 + gi * 10 + j), group_id: g.id, position: j, name_he: he, name_en: en, price: 0, max_qty: 1, opens_group_id: null,
+    }))),
+  });
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 6000, { groups: [link('g')] })])], [
+    group('g', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: [opt('a', 'אורז', 'Rice', 0), opt('b', '', 'Rice', 0)] }),
+  ]);
+  const landing = (m: ExistingMenu) => { const s = step(plan(d, m), 'group', 'g'); return s.op === 'create' ? 'created' : s.id; };
+  // groups with fewer options come first in the order; a group that is too small is passed over without a try
+  const tooSmall = Array.from({ length: 20 }, (_, i) => tooFew(i));
+  assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 7 }, (_, i) => failing(i)), covering])), covering.id, '7 failed tries, the 8th covers');
+  assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 8 }, (_, i) => failing(i)), covering])), 'created',
+    'after 8 failed covers the group has no global match (without the bound, the covering group)');
 });

@@ -70,6 +70,9 @@ export const DRAFT_TEXT_MAX = {
 } as const;
 /** Hard bounds on a draft's shape: a reader that goes past them is broken, so the draft is refused (`too_large`).
  * Between `LIMITS` and these, the draft is kept and the extra nodes are `too_many` exceptions. */
+/** Rule 10: how many of a draft group's name candidates, at most, get the full cover check before it has no global
+ * match (the ones that cannot cover it by count are passed over without one; SEC-M4). */
+export const GLOBAL_COVER_TRIES = 8;
 export const DRAFT_CAPS = { sections: 80, dishes: 800, groups: 400, optionsPerGroup: 60, groupsPerDish: 16 } as const;
 
 export type DraftPhoto = {
@@ -1091,7 +1094,9 @@ function heldRows<R extends { id: string; keys: Keys }>(
  * 9. **New sections** (draft order) are created only when a dish is created in them; else `empty`.
  * 10. **Groups.** A group's global match: an existing group with the same `selection`, `nameScore > 0`, whose options
  *    cover its kept options (`assign` over the options); the best score, then the fewest existing options, then the
- *    smaller id. Each kept link of a matched dish whose dish already has a group with the same selection and a
+ *    smaller id. The candidates are tried in that order, and the first that covers is the match. One with fewer
+ *    options than the kept ones, or with fewer options matching some name than the kept options of that name, is
+ *    passed over untried (it cannot cover); after `GLOBAL_COVER_TRIES` tried covers that fail, there is none. Each kept link of a matched dish whose dish already has a group with the same selection and a
  *    matching name (the best score, then the link's position, then its id) **stays on that group**: if its options do
  *    not cover the draft's, `group_changed` keyed `<dish>><group>` (`keep_mine` by default; `add_options` adds the
  *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it); a link whose dish's
@@ -1121,13 +1126,19 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    `price_differs@<option key>` answers one option on all its targets; an `opens_changed`/`group_changed` answer
  *    `new_group` adds `refs.opens_group_id`)
  *    or is kept; an unmatched one is created when a link or option of this group answered `add_options` for that
- *    target (positions after the group's last, never a default, opening nothing), and is `skip` (`choice`) otherwise.
+ *    target (positions after the group's last, never a default), and is `skip` (`choice`) otherwise. An option so
+ *    added that opens a kept group N (`opensOf`) opens N's global target, so the next import finds it as the draft
+ *    says, unless that would nest deeper than the venue allows: when a venue option opens the target it is added to,
+ *    or N's global target is that same group or an existing group holding a venue option that opens a group, it opens
+ *    nothing. N then needs its global target (rule 10's `needsGlobal`), created when N has no global match: that
+ *    creation counts as a use (rule 12).
  * 12. **Links.** A dish never gets two links to one group, nor to two groups of one selection whose names match
  *    (`scoreKeys`; the venue's names for its group, the draft's for one this plan creates): in link order, a kept link
  *    that lands where an earlier link of the same dish landed, or on a group whose name matches that one's, is `merged`
  *    (decided once every target is known, before rule 10's limits and before the groups' steps). The group the plan
  *    would create for a draft group is created only when something uses it: a kept link that is not merged, a venue's
- *    option moved to open it (`new_group`), or an option created in a group that is created; otherwise that target is
+ *    option moved to open it (`new_group`), an option `add_options` adds that opens it (rule 11), or an option created
+ *    in a group that is created; otherwise that target is
  *    dropped, and a group left with no target is `unused` (the summary counts it, and the merged links, by reason).
  *    A link staying on the dish's own group is kept (its row's id), or
  *    under `new_group` updated with the draft's dish limits and `refs.group_id`; the others are created with the
@@ -1211,14 +1222,44 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   /** The existing options that `options` match in group `gid` (each at most once). */
   const matchOptions = (options: readonly DraftOption[], gid: string): Map<string, Row<ExistingMenu['options'][number]>> =>
     assign(options.map((o) => ({ key: o.key, keys: optionKeys.get(o.key)! })), () => optionsOf.get(gid) ?? [], new Set());
+  /** The venue's group's options, indexed by name, once. */
+  const optionIndexCache = new Map<string, ReturnType<typeof byIndex<ExistingMenu['options'][number]>>>();
+  const optionIndexOf = (gid: string) => {
+    let i = optionIndexCache.get(gid);
+    if (!i) { i = byIndex(optionsOf.get(gid) ?? []); optionIndexCache.set(gid, i); }
+    return i;
+  };
+  /** What a cover of `options` by group `gid` needs, checked without the cover (so it never changes one): no more
+   * options than the group has, and for each set of options with the same name keys, at least as many of the group's
+   * options that match that name. */
+  const mayCover = (options: readonly DraftOption[], gid: string): boolean => {
+    if (options.length > (optionsOf.get(gid)?.length ?? 0)) return false;
+    const same = new Map<string, { keys: Keys; n: number }>();
+    for (const o of options) {
+      const k = optionKeys.get(o.key)!;
+      const c = same.get(`${k.he}|${k.en}`);
+      if (c) c.n += 1;
+      else same.set(`${k.he}|${k.en}`, { keys: k, n: 1 });
+    }
+    for (const { keys, n } of same.values()) if (candidates(optionIndexOf(gid), keys).length < n) return false;
+    return true;
+  };
   /** The venue's groups a draft group lands on by itself (rule 10's global match): its selection, a name that matches,
-   * and options that cover `options`; the best score, then the fewest existing options, then the smaller id. */
+   * and options that cover `options`; the best score, then the fewest existing options, then the smaller id. The
+   * candidates are tried in that order and the first that covers is the match; one that `mayCover` rules out is passed
+   * over, and after `GLOBAL_COVER_TRIES` covers tried that fail, none is (SEC-M4: a menu of many groups of one name). */
   const globalMatchOf = (g: DraftGroup, options: readonly DraftOption[]): string | undefined => {
     const k = groupKeys.get(g.key)!;
-    return candidates(groupIndex, k)
-      .filter((e) => e.selection === g.selection && matchOptions(options, e.id).size === options.length)
+    const ordered = candidates(groupIndex, k).filter((e) => e.selection === g.selection)
       .sort((a, b) => scoreKeys(k, b.keys) - scoreKeys(k, a.keys) || (optionsOf.get(a.id)?.length ?? 0) - (optionsOf.get(b.id)?.length ?? 0) ||
-        compareIds(a.id, b.id))[0]?.id;
+        compareIds(a.id, b.id));
+    let tried = 0;
+    for (const e of ordered) {
+      if (!mayCover(options, e.id)) continue;
+      if (matchOptions(options, e.id).size === options.length) return e.id;
+      if (++tried === GLOBAL_COVER_TRIES) return undefined;
+    }
+    return undefined;
   };
 
   // ---- 2. what is left out
@@ -1608,14 +1649,46 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       });
     }
   });
-  const targetsOf = (g: DraftGroup): Target[] => {
-    const global = globalOf(g.key);
-    const list: Target[] = needsGlobal.has(g.key) && (global.id !== null || createdUsed.has(g.key)) ? [global] : [];
+  /** A group's targets after `first` (none, or its global one): the dishes' and options' own groups, by id. */
+  const withOwn = (first: Target[], g: DraftGroup): Target[] => {
     const own = new Set<string>(openerOwn.get(g.key) ?? []);
     for (const r of linksOfGroup(g)) if (r.kind === 'own' && r.answer !== 'new_group') own.add(r.groupId);
-    for (const id of [...own].sort(compareIds)) if (list[0]?.id !== id) list.push({ id, ref: null });
-    return list;
+    for (const id of [...own].sort(compareIds)) if (first[0]?.id !== id) first.push({ id, ref: null });
+    return first;
   };
+  const targetsOf = (g: DraftGroup): Target[] => {
+    const global = globalOf(g.key);
+    return withOwn(needsGlobal.has(g.key) && (global.id !== null || createdUsed.has(g.key)) ? [global] : [], g);
+  };
+  /** Rule 11 adds the options a target lacks when a link or an option of the group answered `add_options` for it. */
+  const addingTo = (g: DraftGroup, tid: string): boolean =>
+    linksOfGroup(g).some((r) => r.kind === 'own' && r.groupId === tid && r.answer === 'add_options') || (openerAdd.get(g.key)?.has(tid) ?? false);
+  const nestsAlready = (gid: string): boolean => (optionsOf.get(gid) ?? []).some((o) => o.opens_group_id !== null);
+  /** What an option rule 11 adds to the venue's group `tid` opens: its nested group's global target, while the venue
+   * keeps one nesting level (no venue option opens `tid`; the target is another group, holding no venue option that
+   * opens a group); otherwise nothing. */
+  const addedOpens = (tid: string, o: DraftOption): Target | null => {
+    const n = opensOf(o);
+    if (n === null || out(n) || existing.options.some((v) => v.opens_group_id === tid)) return null;
+    const ot = globalOf(n);
+    return ot.id !== null && (ot.id === tid || nestsAlready(ot.id)) ? null : ot;
+  };
+  // the nested group of such an option needs its global target, created (and so used) when it has no global match
+  const addedOpenerCreates = new Set<string>();
+  for (const g of draft.groups) {
+    if (out(g.key)) continue;
+    const global = globalOf(g.key);
+    for (const t of withOwn(needsGlobal.has(g.key) && global.id !== null ? [global] : [], g)) {
+      if (!addingTo(g, t.id!)) continue;
+      const cov = cover(g, t.id!);
+      for (const o of keptOptions(g)) {
+        const ot = cov.has(o.key) ? null : addedOpens(t.id!, o);
+        if (ot === null) continue;
+        needsGlobal.add(opensOf(o)!);
+        if (ot.id === null) addedOpenerCreates.add(opensOf(o)!);
+      }
+    }
+  }
   /** Where a kept link lands: the dish's own group, the group this plan creates (`new_group`), or the global target. */
   const landingOf = (d: DraftDish, a: DraftDishGroup): Target => {
     const res = linkRes.get(linkKey(d.key, a.group))!;
@@ -1638,9 +1711,10 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     }
   }
   // the group this plan would create for a draft group is created only when something uses it: a kept link that is not
-  // merged, a venue's option moved to open it, or an option created in a group that is itself created (until nothing
+  // merged, a venue's option moved to open it, an option added to a venue's group that opens it (`addedOpens`), or an
+  // option created in a group that is itself created (until nothing
   // changes); with its links all merged and no opener, the draft group loses that target (`unused` with no other)
-  const createdUsed = new Set<string>(openerMove.values());
+  const createdUsed = new Set<string>([...openerMove.values(), ...addedOpenerCreates]);
   for (const s of draft.sections) for (const d of s.dishes) for (const a of d.groups) {
     if (!linkOut(d, a) && !mergedLinks.has(linkKey(d.key, a.group)) && landingOf(d, a).id === null) createdUsed.add(a.group);
   }
@@ -1665,7 +1739,6 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
 
   const groupSteps: PlanStep[] = [];
   const optionSteps: PlanStep[] = [];
-  const nestsAlready = (gid: string): boolean => (optionsOf.get(gid) ?? []).some((o) => o.opens_group_id !== null);
   draft.groups.forEach((g, gi) => {
     const p = `groups[${gi}]`;
     const reason = skipped.get(g.key);
@@ -1716,8 +1789,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     for (const t of targets) {
       const isPrimary = t === primary;
       let position = t.id === null ? 0 : nextPosition(optionsOf.get(t.id) ?? []);
-      const adding = t.id !== null && (linksOfGroup(g).some((r) => r.kind === 'own' && r.groupId === t.id && r.answer === 'add_options') ||
-        (openerAdd.get(g.key)?.has(t.id) ?? false));
+      const adding = t.id !== null && addingTo(g, t.id);
       const matched = t.id === null ? new Map<string, Row<ExistingMenu['options'][number]>>() : cover(g, t.id);
       g.options.forEach((o) => {
         const key = tkey(o.key, t, primary);
@@ -1737,8 +1809,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         const set: OptionCreate = { position: position++, name_he: n.he, name_en: n.en, price: o.price ?? 0, max_qty: o.maxQty, is_default: t.id === null && o.default };
         const refs: { group_id?: string; opens_group_id?: string } = {};
         if (t.id === null) refs.group_id = g.key; else set.group_id = t.id;
-        const opens = t.id === null ? opensOf(o) : null;
-        const ot = opens !== null && !out(opens) ? globalOf(opens) : null;
+        // in a created group: its nested group's global target; added to the venue's: `addedOpens`
+        const opens = opensOf(o);
+        const ot = t.id !== null ? addedOpens(t.id, o) : opens !== null && !out(opens) ? globalOf(opens) : null;
         if (ot?.id) {
           if (nestsAlready(ot.id)) x.add('nesting_too_deep', o.key);
           set.opens_group_id = ot.id;
