@@ -9,7 +9,8 @@ import {
   ACTIVITY_ACTIONS, activityChanges, AUDITED_TABLES, auditOpsOf, configFlags, isActivityAction, isAutoStep, isUntilSpec, LIVE_REFRESH,
   NUDGE_CODES, onboardingProgress, OPS_WARNINGS, pollDelay, resolveUntil, timelineKind, validateActivityQuery, validateDashboardQuery,
   validateExportQuery, validateOpenCase, validateOpsAnalyticsQuery, validateOpsVenueQuery, validateOpsVenuesQuery, validateRestoreToday,
-  validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type Validation,
+  validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type OpenCaseReply,
+  type Validation,
 } from '../src/index.ts';
 
 const V = '00000000-0000-4000-8000-0000000000c1';
@@ -67,6 +68,26 @@ test('support: get help, and staff updates with a reason', () => {
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, reason: 'ok' })), ['nothing_to_change', 'reason_required']);
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'open' })), ['reason_required'], 'the reason may be left out of the call, never of the update');
   assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', body: null })), [], 'a null body is no body');
+});
+
+test('round 4: open_case takes the client\'s own id, so a retry opens no second case', () => {
+  const C = '00000000-0000-4000-8000-0000000000f1';
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: C })), []);
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: null })), [], 'null: the database makes one');
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: 'case-1' })), ['id_invalid']);
+  const again: OpenCaseReply = { ok: true, caseId: C, supportCanAct: false, reused: true };
+  const taken: OpenCaseReply = { ok: false, code: 'id_taken' };
+  assert.ok(again.ok && !taken.ok);
+});
+
+test('round 4: the Realtime publication is exactly LIVE_REFRESH.realtimeTables (venues stays out in phase 1)', () => {
+  assert.deepEqual([...LIVE_REFRESH.realtimeTables], ['rollups_minute', 'rollups_day', 'availability_overrides']);
+  const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../supabase/migrations');
+  if (!fs.existsSync(dir)) return;
+  const sql = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const added = [...sql.matchAll(/alter publication supabase_realtime add table ([^;]+);/g)].flatMap((m) => m[1]!.split(',').map((t) => t.trim().replace(/^public\./, '')));
+  assert.deepEqual(added.sort(), [...LIVE_REFRESH.realtimeTables].sort());
+  assert.ok(!added.includes('venues'));
 });
 
 test('activity: every action the database logs today is on the closed list; tables and named actions', () => {

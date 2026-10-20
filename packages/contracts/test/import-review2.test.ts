@@ -142,13 +142,13 @@ test('readers QA-H2: a stated minimum above the options read is the group\'s que
   assert.ok(draftExceptions(f).some((e) => e.code === 'limits_unreachable' && e.key === 'g-extras'));
 });
 
-test('L1 (p2dbg.ts): a dish link moved by new_group drops a minimum above the created group\'s kept capacity', () => {
+test('L1 (p2dbg.ts), round 4 L5: a dish link moved by new_group lowers a minimum above the created group\'s kept capacity to it', () => {
   const m = applyPlan(EMPTY_MENU, plan(bistroDraft()));
   const d: any = copy(bistroDraft());
   d.groups[2].options = [opt('o-cheese', 'גבינה', 'Cheese', 300), opt('o-avocado', 'אבוקדו', 'Avocado', 400), opt('o-bacon', 'בייקון', 'Bacon', 500)];
   d.sections[0].dishes[1].groups = [link('g-side'), link('g-extras', 3, null)];
   const answer = yes({ 'group_changed@d-burger>g-extras': 'new_group' }, ['o-bacon']);
-  assert.deepEqual(setOf(step(plan(d, m, answer), 'dish_group', linkKey('d-burger', 'g-extras'))), { min_units: null, max_units: null });
+  assert.deepEqual(setOf(step(plan(d, m, answer), 'dish_group', linkKey('d-burger', 'g-extras'))), { min_units: 2, max_units: null });
   const all = yes({ 'group_changed@d-burger>g-extras': 'new_group' });
   assert.deepEqual(setOf(step(plan(d, m, all), 'dish_group', linkKey('d-burger', 'g-extras'))), { min_units: 3, max_units: null }, 'reachable: kept');
   assert.deepEqual(changes(plan(d, m, all)).filter((c) => c.startsWith('group')), ['group:g-extras:create']);

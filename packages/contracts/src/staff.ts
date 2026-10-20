@@ -9,13 +9,14 @@ import {
   ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, PLANS, TAGS, TARGET_KINDS,
   type ActForOwnerAction, type CaseStatus, type EntitlementStatus, type OnboardingState, type OnboardingStep, type Plan, type TargetKind,
 } from './enums.ts';
-import { EVENT_TIME_RE } from './events.ts';
+import { instantMs } from './events.ts';
 import { BLOCKER_RE, BLOCKERS_MAX, isAutoStep } from './onboarding.ts';
 import { isReason, optionalText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 import { AVAILABILITY_NOTE_MAX } from './availability.ts';
 import { isUntilSpec, type UntilSpec } from './time.ts';
 
-const isInstant = (v: unknown): v is string => isString(v) && EVENT_TIME_RE.test(v) && !Number.isNaN(Date.parse(v));
+/** An ISO time with its offset that PostgreSQL reads as the same instant (`instantMs`: no 2026-02-30). */
+const isInstant = (v: unknown): v is string => !Number.isNaN(instantMs(v));
 
 // ---------------------------------------------------------------- act for owner (D25)
 
@@ -55,7 +56,8 @@ export type ActForOwnerInput = {
 export type ActForOwnerCode =
   | 'reason_required' | 'venue_unknown' | 'owner_declined' | 'action_unknown' | 'payload_invalid' | 'target_unknown' | 'until_invalid'
   | 'until_in_past' | 'step_automatic' | 'step_done';
-/** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). */
+/** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). Its
+ * `updated_at` (dish) and `updatedAt` (step) are at full precision, like every time a client sends back. */
 export type ActForOwnerStale =
   | { readonly ok: false; readonly code: 'stale'; readonly action: 'dish.update'; readonly current: Readonly<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number] | 'id' | 'updated_at'>> }
   | {
@@ -149,11 +151,18 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
 
 // ---------------------------------------------------------------- the first publish's approval, plans
 
+/** A revision number is a PostgreSQL `integer` (int4). */
+export const REVISION_MAX = 2_147_483_647;
+
 /**
  * `ops_approve_venue(p_venue, p_reason, p_expected_revision)`: staff approve a venue's first publish; guests see it
  * and the trial starts. **The only way a venue is approved** (`ops_set_plan` never approves). `expectedRevision` is the
- * revision number staff reviewed (`ops_revision`): when the venue's newest revision is another, the database answers
- * `revision_changed` with the newest number and approves nothing, so staff never approve a menu they did not read.
+ * revision guests will see once it is approved: the number of the venue's **published** revision
+ * (`venues.published_revision_id`'s `menu_revisions.number`), which may be older than its newest (a restore). Staff
+ * read it from `OpsVenueRow.menu.revision` (the clients list, and `OpsVenueDetail.venue`), the same number as the
+ * owner's `DashboardMenu.revision`, and review that revision with `ops_revision` (where it is `live`). When the
+ * published revision is another, the database answers `revision_changed` with its number (and approves nothing), so
+ * staff never approve a menu they did not read; with nothing published, `not_published`.
  */
 export type ApproveVenueInput = { readonly venueId: string; readonly reason: string; readonly expectedRevision: number };
 export type ApproveVenueReply =
@@ -161,12 +170,12 @@ export type ApproveVenueReply =
   | { readonly ok: false; readonly code: 'revision_changed'; readonly revision: number }
   | RpcFail<'reason_required' | 'venue_unknown' | 'already_approved' | 'not_published'>;
 
-/** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid. */
+/** Codes: type, field_not_allowed, id_invalid, reason_required, revision_invalid (an integer from 1 to `REVISION_MAX`). */
 export function validateApproveVenue(raw: unknown): Validation<ApproveVenueInput> {
   return validateInput<ApproveVenueInput>(raw, ['venueId', 'reason', 'expectedRevision'], (x, o) => {
     if (!isUuid(o.venueId)) x.add('id_invalid', 'venueId');
     if (!isReason(o.reason)) x.add('reason_required', 'reason');
-    if (!(isInt(o.expectedRevision) && o.expectedRevision >= 1)) x.add('revision_invalid', 'expectedRevision');
+    if (!(isInt(o.expectedRevision) && o.expectedRevision >= 1 && o.expectedRevision <= REVISION_MAX)) x.add('revision_invalid', 'expectedRevision');
   });
 }
 
@@ -196,7 +205,7 @@ export function validateSetPlan(raw: unknown, opts: { readonly now?: number } = 
     if (o.plan !== undefined && o.plan !== null && !oneOf(PLANS, o.plan)) x.add('plan_invalid', 'plan');
     if (o.until !== undefined && o.until !== null) {
       if (!isInstant(o.until)) x.add('time_invalid', 'until');
-      else if ((o.state === 'trialing' || o.state === 'active') && Date.parse(o.until) <= (opts.now ?? Date.now())) x.add('until_in_past', 'until');
+      else if ((o.state === 'trialing' || o.state === 'active') && instantMs(o.until) <= (opts.now ?? Date.now())) x.add('until_in_past', 'until');
     }
     if (!isReason(o.reason)) x.add('reason_required', 'reason');
   });
