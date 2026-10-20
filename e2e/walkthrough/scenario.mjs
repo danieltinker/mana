@@ -26,6 +26,7 @@ import { asAnon, asUser, HalomBot, OwnerBot, runRandom, signIn } from '@mana/sim
 import { DESK, launchBrowser, newPage, PHONE } from './browser.mjs';
 import { writePage } from './page.mjs';
 import { Walkthrough } from './record.mjs';
+import { secondStep } from './totp.mjs';
 
 /**
  * What a walkthrough runs on: the menu as an owner would paste it, and what the owner, a guest and Halom do with it.
@@ -176,19 +177,29 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
   const ownerPassword = 'Wk-' + crypto.randomBytes(12).toString('base64url');
   let ownerEmail = accounts.owner?.email ?? null, staffLogin = accounts.staff ?? null;
   if (env === 'local' && stack) {
-    ownerEmail = `owner.${runId}@walkthrough.example`;
-    const staffEmail = `staff.${runId}@walkthrough.example`;
-    await retried('making Halom\'s first admin on the local stack', () => HalomBot.firstAdmin(stack, stack, { email: staffEmail }));   // as supabase/README.md makes it
-    staffLogin = { email: staffEmail, password: 'sim-staff-pass-1' };
+    ownerEmail ??= `owner.${runId}@walkthrough.example`;
+    if (!staffLogin) {
+      const staffEmail = `staff.${runId}@walkthrough.example`;
+      await retried('making Halom\'s first admin on the local stack', () => HalomBot.firstAdmin(stack, stack, { email: staffEmail }));   // as supabase/README.md makes it
+      staffLogin = { email: staffEmail, password: 'sim-staff-pass-1' };
+    }
   }
   const { confirmByMail } = await preflight({ env, config, site, accounts: { ...accounts, owner: ownerEmail ? { email: ownerEmail } : null, staff: staffLogin }, stack, input });
   // Halom's account, checked before anything is written: it signs in and is an admin (the demo label is an admin's)
-  const staffSession = await retried('Halom\'s sign-in', () => signIn(target, staffLogin)).catch(() => null);
+  let staffSession = await retried('Halom\'s sign-in', () => signIn(target, staffLogin)).catch(() => null);
   must(staffSession, 'Halom\'s account did not sign in (steps 10, 15 and 16)');
+  if (staffLogin.totp) {
+    // the database may ask staff for a second step (staff_require_aal2): completed with the account's TOTP factor
+    const aal2 = await secondStep(target, staffSession.token, staffLogin.totp);
+    staffSession = { ...staffSession, token: aal2.access_token };
+  }
   const staffApi = asUser(target, staffSession);
   const [staffRow] = await staffApi.select('staff', { select: 'role', user_id: `eq.${staffSession.userId}` }).catch(() => []);
-  must(staffRow?.role === 'admin', 'Halom\'s account is not a Halom admin (the demo label and the approval are an admin\'s)');
-  await staffApi.rpc('ops_venues', { p_filters: {} }).catch((e) => { throw new Error(`the database lacks the back office's phase-1 functions (ops_venues: ${e.message})`); });
+  const aal2Hint = staffLogin.totp ? '' : '; if the database asks staff for a second step (staff_require_aal2), set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env';
+  must(staffRow?.role === 'admin', `Halom's account is not a Halom admin here (the demo label and the approval are an admin's)${aal2Hint}`);
+  await staffApi.rpc('ops_venues', { p_filters: {} }).catch((e) => {
+    throw new Error(e.status === 404 ? `the database lacks the back office's phase-1 functions (ops_venues: ${e.message})` : `the back office's functions refused Halom's account (${e.message})${aal2Hint}`);
+  });
 
   fs.mkdirSync(outDir, { recursive: true });
   if (env === 'demo') {
@@ -527,6 +538,19 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     // ---------------------------------------------------------------- Halom's desk
     const staff = await newPage(browser, DESK, { init: () => { window.__OPS_POLL_MS = 2000; window.__OPS_SAFETY_MS = 4000; } });
     const venuePage = staff.locator(`[data-page=venue][data-venue="${slug}"]`);
+    /** The back office has no second-step screen yet: the browser's password session (aal1) is completed with the TOTP
+     * code computed here, and the page reads the aal2 session from its own storage on reload. */
+    async function staffSecondStep() {
+      const stored = await staff.evaluate(() => {
+        const key = ['mana.ops.v2.auth', ...Object.keys(localStorage)].find((k) => { try { return !!JSON.parse(localStorage.getItem(k) ?? 'null')?.access_token; } catch { return false; } });
+        return key ? { key, session: JSON.parse(localStorage.getItem(key)) } : null;
+      });
+      must(stored, 'no back-office session to complete');
+      const s2 = await secondStep(target, stored.session.access_token, staffLogin.totp);
+      const session = { ...stored.session, ...s2, expires_at: s2.expires_at ?? Math.floor(Date.now() / 1000) + (s2.expires_in ?? 3600) };
+      await staff.evaluate(([key, value]) => localStorage.setItem(key, value), [stored.key, JSON.stringify(session)]);
+      await staff.reload();
+    }
     async function staffWrite(id, text) {
       const box = staff.locator(`[data-write=${id}]`);
       await box.locator('[data-reason]').fill(text);
@@ -545,6 +569,13 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       await staff.getByLabel('E-mail').fill(staffLogin.email);
       await staff.getByLabel('Password').fill(staffLogin.password);
       await staff.getByRole('button', { name: 'Sign in' }).click();
+      let second = '';
+      if ((await firstOf(staff, { in: '[data-page=clients]', refused: '[data-refused]' })) === 'refused') {
+        must(await staff.locator('[data-refused=aal1]').count(), 'the back office refused Halom\'s account: ' + plain(await staff.locator('[data-refused]').innerText()));
+        must(staffLogin.totp, 'the database asks Halom for a second step (staff_require_aal2): set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env');
+        await staffSecondStep();
+        second = ' with its second step (TOTP)';
+      }
       await staff.locator('[data-page=clients]').waitFor({ timeout: 30_000 });
       await staff.locator('[data-search]').fill(slug);
       const row = staff.locator(`[data-venue="${slug}"]`).first();
@@ -564,7 +595,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       const pub = await anon.rpc('public_menu', { p_slug: slug });
       must(pub.state === 'ok', `guests still see "${pub.state}" after the approval`);
       await staff.locator('[data-panel=approved]').scrollIntoViewIfNeeded().catch(() => {});
-      return `Found the venue in the clients list${waiting ? ' (waiting for review)' : ''}; ${labelled}; read version 1 and approved it with a reason: "${what}". Guests can open the menu now.`;
+      return `Signed in to the back office${second}. Found the venue in the clients list${waiting ? ' (waiting for review)' : ''}; ${labelled}; read version 1 and approved it with a reason: "${what}". Guests can open the menu now.`;
     });
 
     // ---------------------------------------------------------------- a guest's phone

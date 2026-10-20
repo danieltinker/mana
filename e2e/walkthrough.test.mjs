@@ -9,12 +9,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { asAnon } from '@mana/sim';
+import { asAnon, asUser, HalomBot, signIn } from '@mana/sim';
 import { localConfigText, readConfigText } from '../tools/env.mjs';
 import { walkthrough } from '../tools/demo-scenarios/client-walkthrough.mjs';
 import { demoAccounts } from './walkthrough/accounts.mjs';
 import { BUDGETS, runWalkthrough } from './walkthrough/scenario.mjs';
 import { PINA_SIM } from './fixtures/walkthrough-cafe.mjs';
+import { totp } from './walkthrough/totp.mjs';
 import { OUT, startE2E } from './helpers.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,3 +99,36 @@ test('demo without its accounts stops before anything is written, naming the ste
   await assert.rejects(runWalkthrough({ input: PINA_SIM, config: { ...config, env: 'production' }, origin, outDir, title: 't' }), /never on production/);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('staff asked for a second step (staff_require_aal2): Halom completes it with its TOTP factor, and the walkthrough passes', { timeout: 900_000 }, async (t) => {
+  // a Halom admin with a TOTP factor, enrolled and verified as an authenticator app would
+  const staff = { email: 'staff.totp@walkthrough.example', password: 'sim-staff-pass-1' };
+  await HalomBot.firstAdmin(e.stack, e.stack, staff);
+  const api = asUser(e.stack, await signIn(e.stack, staff));
+  const factor = await api.request('POST', '/auth/v1/factors', { body: { factor_type: 'totp', friendly_name: 'walkthrough' } });
+  const challenge = await api.request('POST', `/auth/v1/factors/${factor.id}/challenge`, { body: {} });
+  await api.request('POST', `/auth/v1/factors/${factor.id}/verify`, { body: { challenge_id: challenge.id, code: totp(factor.totp.secret) } });
+  await e.stack.setConfig('staff_require_aal2', true);
+  try {
+    // without the secret: stopped before anything is written, saying what to set
+    const before = (await e.stack.sql('select count(*)::int as n from public.venues'))[0].n;
+    await assert.rejects(runWalkthrough({ input: PINA_SIM, config, origin, outDir: path.join(DIR, 'no-second-step'), stack: e.stack, accounts: { staff }, title: 't' }),
+      /second step \(staff_require_aal2\), set MANA_DEMO_STAFF_TOTP_SECRET/);
+    assert.equal((await e.stack.sql('select count(*)::int as n from public.venues'))[0].n, before, 'no venue');
+    const outDir = path.join(DIR, 'second-step');
+    const r = await walkthroughWith(t, { outDir, accounts: { staff: { ...staff, totp: factor.totp.secret } } });
+    assert.match(r.steps.find((s) => s.id === 'staff-approve').caption, /with its second step \(TOTP\)/);
+    // neither the secret nor a code is anywhere in what the run wrote
+    for (const f of ['walkthrough.html', 'walkthrough.json']) assert.ok(!fs.readFileSync(path.join(outDir, f), 'utf8').includes(factor.totp.secret), f);
+  } finally {
+    await e.stack.setConfig('staff_require_aal2', false);
+  }
+});
+
+/** The walkthrough with given accounts (the second-step test), every step passed. */
+async function walkthroughWith(t, { outDir, accounts }) {
+  const r = await runWalkthrough({ input: PINA_SIM, config, origin, outDir, stack: e.stack, accounts, title: 'Client walkthrough: the second step' });
+  for (const s of r.steps) if (s.verdict !== 'pass') t.diagnostic(`${s.id}: ${s.verdict} ${s.reason}`);
+  assert.deepEqual(r.steps.filter((s) => s.verdict !== 'pass').map((s) => s.id), []);
+  return r;
+}
