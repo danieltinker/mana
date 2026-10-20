@@ -12,7 +12,7 @@
  * code here fetches a Wolt address (D33). stock = [{ id, label }]: the placeholder pictures the owner app has; the
  * model may propose one per dish. Every answer, an unexpected error's too, carries the CORS headers.
  */
-import { isUuid } from '@mana/contracts';
+import { isUuid, validateListPurgeableQuery, type PurgeCursor } from '@mana/contracts';
 import { SCAN_MODES, type ScanMode, type StockHint } from '@mana/import';
 import type { Deps } from './deps.ts';
 import { isServiceCaller, purge } from './purge.ts';
@@ -28,15 +28,26 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 /** The request is a few ids and a stock list; anything bigger is not ours (read up to this, whatever the request says its length is). */
 export const MAX_BODY = 64_000;
 
-/** The owner app's stock list, cleaned as v1 does: ids as stock ids, labels as short plain words. */
+/**
+ * The most characters the stock list takes in the prompt ("id (label), …"): every call carries it, so it is bounded on
+ * its own, whatever the entries (README: what one scan costs). The entries after it are left out.
+ */
+export const STOCK_LIST_MAX = 6_000;
+
+/** The owner app's stock list, cleaned as v1 does: ids as stock ids, labels as short plain words; `STOCK_LIST_MAX` in all. */
 export function cleanStock(v: unknown): StockHint[] {
   if (!Array.isArray(v)) return [];
   const out: StockHint[] = [];
+  let size = 0;
   for (const s of v.slice(0, 160)) {
     const o = (s && typeof s === 'object' ? s : {}) as Record<string, unknown>;
     const id = typeof o.id === 'string' ? o.id.trim() : '';
     const label = typeof o.label === 'string' ? o.label.slice(0, 200).replace(/[,;()\s]+/g, ' ').trim().slice(0, 60) : '';
-    if (/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) out.push({ id, label });
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) continue;
+    // as the prompt writes it: "id (label)", and ", " between entries
+    size += id.length + (label ? label.length + 3 : 0) + (out.length ? 2 : 0);
+    if (size > STOCK_LIST_MAX) break;
+    out.push({ id, label });
   }
   return out;
 }
@@ -71,8 +82,9 @@ async function route(req: Request, d: Deps): Promise<Response> {
   if (action === 'purge') {
     if (!isServiceCaller(authorization, d.env.serviceKey)) return json({ ok: false, code: 'not_allowed' }, 403);
     const id = body.import_id ?? null, after = body.after ?? null;
-    if ((id !== null && !isUuid(id)) || (after !== null && !isUuid(after))) return json({ ok: false, code: 'bad_request' }, 400);
-    return json(await purge(d, id === null ? null : id.toLowerCase(), after === null ? null : after.toLowerCase()));
+    // `after`: the `next` of the last call, the list's own cursor (the contracts' check)
+    if ((id !== null && !isUuid(id)) || !validateListPurgeableQuery({ after }).ok) return json({ ok: false, code: 'bad_request' }, 400);
+    return json(await purge(d, id === null ? null : id.toLowerCase(), after as PurgeCursor | null));
   }
 
   if (!(SCAN_MODES as readonly string[]).includes(action)) return json({ ok: false, code: 'bad_request' }, 400);

@@ -4,7 +4,7 @@
  * what the caller may read), and with the service role only where the scanner alone may act (saving the draft,
  * marking a failure, the purge) (ADR-006, ADR-008).
  */
-import type { ClaimScanReply, ImportDraft, ReaderNote, SaveDraftReply, ScanErrorCode } from '@mana/contracts';
+import type { ClaimScanReply, ImportDraft, ListPurgeableQuery, PurgeableImport, ReaderNote, SaveDraftReply, ScanErrorCode } from '@mana/contracts';
 import type { Deps } from './deps.ts';
 
 export const BUCKET = 'menu-private';
@@ -97,29 +97,28 @@ export async function download(d: Deps, path: string, auth: Auth, maxBytes: numb
 
 // ---------------------------------------------------------------- purge
 
-export type PurgeRow = { readonly id: string; readonly venue_id: string; readonly raw_paths: readonly string[] };
-
-/** `app_config.import_raw_retention_days` (ADR-008), 30 when it is not set. */
-export async function retentionDays(d: Deps): Promise<number> {
-  const r = await d.fetch(`${d.env.url}/rest/v1/app_config?key=eq.import_raw_retention_days&select=value`, { headers: service(d) });
-  const rows = r.ok ? await r.json().catch(() => []) as Array<{ value?: unknown }> : [];
-  const v = rows[0]?.value;
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 30;
-}
+const isPurgeRow = (x: unknown): x is PurgeableImport => {
+  const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+  return typeof o.importId === 'string' && typeof o.venueId === 'string' && typeof o.status === 'string' && Array.isArray(o.paths) &&
+    typeof o.finishedAt === 'string';
+};
 
 /**
- * Imports whose images may go: applied, discarded or failed before `before`, images still there, not purged yet; in
- * id order after `after` (keyset paging: a row that keeps failing never holds back the ones after it).
+ * `list_purgeable_imports(p_limit, p_after)` as the service role: one page of the image imports past the retention
+ * period whose screenshots are not purged yet, with their venue, paths and `finishedAt`, oldest first; `after`, the
+ * page after that row (`PurgeCursor`). The query is the contracts' (`validateListPurgeableQuery`). null: the call failed.
  */
-export async function purgeable(d: Deps, before: string, importId: string | null, after: string | null, limit: number): Promise<PurgeRow[] | null> {
-  const q = [
-    'select=id,venue_id,raw_paths', 'status=in.(applied,discarded,failed)', 'raw_purged_at=is.null', `raw_paths=neq.${encodeURIComponent('{}')}`,
-    `updated_at=lt.${encodeURIComponent(before)}`, 'order=id.asc', `limit=${limit}`, ...(importId ? [`id=eq.${importId}`] : []), ...(after ? [`id=gt.${after}`] : []),
-  ].join('&');
-  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?${q}`, { headers: service(d) });
-  if (!r.ok) return null;
-  return await r.json().catch(() => null) as PurgeRow[] | null;
+export async function purgeable(d: Deps, query: ListPurgeableQuery): Promise<PurgeableImport[] | null> {
+  const r = await d.fetch(`${d.env.url}/rest/v1/rpc/list_purgeable_imports`, {
+    method: 'POST', headers: { ...service(d), ...json }, body: JSON.stringify({ p_limit: query.limit ?? null, p_after: query.after ?? null }),
+  });
+  if (!r.ok) { await r.body?.cancel().catch(() => undefined); return null; }
+  const rows = await r.json().catch(() => null) as unknown;
+  return Array.isArray(rows) ? rows.filter(isPurgeRow) : null;
 }
+
+/** The statuses `list_purgeable_imports` may name (never `parsing`, an import being read). */
+export const PURGEABLE = ['applied', 'discarded', 'failed', 'uploaded', 'parsed'] as const;
 
 /** Deletes files through the Storage API (deleting `storage.objects` rows would orphan the files). */
 export async function removeFiles(d: Deps, paths: readonly string[]): Promise<boolean> {
@@ -128,11 +127,12 @@ export async function removeFiles(d: Deps, paths: readonly string[]): Promise<bo
 }
 
 /**
- * Records the purge (no paths left, and when), only on a row still closed and not purged yet (ADR-008: the service
- * role may update `raw_paths` and `raw_purged_at`). true = exactly that row was updated.
+ * Records the purge (no paths left, and when), only on a row not purged yet and not being read (ADR-008: the service
+ * role may update `raw_paths` and `raw_purged_at`; the table's guard lets it through only for an import that may be
+ * purged). true = exactly that row was updated.
  */
 export async function markPurged(d: Deps, importId: string, at: string): Promise<boolean> {
-  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?id=eq.${importId}&raw_purged_at=is.null&status=in.(applied,discarded,failed)&select=id`, {
+  const r = await d.fetch(`${d.env.url}/rest/v1/menu_imports?id=eq.${importId}&raw_purged_at=is.null&status=in.(${PURGEABLE.join(',')})&select=id`, {
     method: 'PATCH', headers: { ...service(d), ...json, Prefer: 'return=representation' }, body: JSON.stringify({ raw_paths: [], raw_purged_at: at }),
   });
   if (!r.ok) return false;

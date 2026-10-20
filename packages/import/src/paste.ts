@@ -8,18 +8,21 @@
  *   copied from a spreadsheet, split by tabs). A line with no price where a dish is expected is a dish with no price
  *   (the draft asks the owner about it: `price_missing`).
  * - **A number that may be the name's** (rule `price_ambiguous`): "Combo 1", "Tea for 2", "Pizza No. 5", "Serves 4",
- *   "since 1998", a phone number, "House red 38 140": no price is taken from inside a name. The line stays whole (a
- *   name, a description or a heading, by its neighbours) and a dish it names gets a note to check.
+ *   "since 1998", a phone number, "House red 38 140", or a bare number first ("64 Schnitzel"): no price is taken from
+ *   inside a name. The line stays whole (a name, a description or a heading, by its neighbours) and a dish it names
+ *   gets a note to check. A number first is a heading only after a blank line (or first) and over a priced dish
+ *   ("3 course lunch"); right under a heading it is a dish.
  * - **Descriptions**: a line right under a dish (no blank line between) that reads like a description, or a short
  *   line under a priced dish that the next dish or the end of the block follows.
  * - **Tags**: a line of tag words ("Vegan", "ללא גלוטן") right under its dish, with no blank line between. After a
  *   blank line, or with no dish above it, it is a heading ("Vegan" sections), never a tag.
  * - **Both languages**: "שניצל / Schnitzel 64", or the other language's name right under the dish ("שניצל 64" then
- *   "Schnitzel"), and the same for a heading.
+ *   "Schnitzel"), and the same for a heading. A common section name there ("פסטה 52" then "Pasta") is the dish's name
+ *   when the dishes around it are named that way too, checked (`layout_guessed`); otherwise a heading, checked.
  */
 import type { Lang, Tag } from '@mana/contracts';
 import { buildDraft, type ReadResult } from './build.ts';
-import { DEFAULT_SECTION_NAME, newDish, newSection, note, setPrice, type MDish, type MSection } from './model.ts';
+import { DEFAULT_SECTION_NAME, guessed, newDish, newSection, note, setPrice, type MDish, type MSection } from './model.ts';
 import { NoteBook } from './notes.ts';
 import { readPrice, splitPrice, type PriceRead, type SplitPrice } from './price.ts';
 import { guessKind, isCommonSection, nameMarkers, readAllergens, readLabel, readTags } from './rules.ts';
@@ -36,8 +39,9 @@ export type PasteToken =
   | { readonly k: 'allergens'; readonly text: string | null }
   | { readonly k: 'noise'; readonly rule: string }
   /** `number`: the line ends with a number no price was taken from (`price_ambiguous`): one that may be the name's
-   * (`name`), or two that may be two prices (`prices`: the line is a dish, never a description or a heading). */
-  | { readonly k: 'text'; readonly text: string; readonly number: 'name' | 'prices' | null };
+   * (`name`), or two that may be two prices (`prices`: the line is a dish, never a description or a heading); or it
+   * starts with a bare number that may be the price ("64 Schnitzel": `leading`). */
+  | { readonly k: 'text'; readonly text: string; readonly number: 'name' | 'prices' | 'leading' | null };
 
 /** Words before a number that make it the name's: "No. 5", "Tea for 2", "Serves 4", "since 1998", "שולחן 4". */
 const NUMBER_CUES = new Set([
@@ -70,6 +74,8 @@ function ambiguousBare(split: SplitPrice): 'name' | 'prices' | null {
 }
 
 const PHONE_RE = /^\+?\d[\d\- ]{6,18}\d$/u;
+/** A bare number first, then a word: "64 Schnitzel" (the number may be its price; "₪64 Schnitzel" is read as one). */
+const LEADING_NUMBER = /^\d{1,4}(?:[.,]\d{1,2})? \p{L}/u;
 
 /** "# Mains", "## Mains ##": the heading's text (null when the line is not one). Read by hand: no pattern backtracks. */
 function hashHeading(line: string): string | null {
@@ -114,6 +120,7 @@ export function classifyPasteLine(line: string): { readonly rule: string; readon
     if (doubt !== null) return { rule: 'price_ambiguous', token: { k: 'text', text: line, number: doubt } };
     return { rule: 'dish_inline', token: { k: 'dish', text: split.text, price: split.price, desc: '' } };
   }
+  if (LEADING_NUMBER.test(line)) return { rule: 'price_ambiguous', token: { k: 'text', text: line, number: 'leading' } };
   return { rule: 'text', token: { k: 'text', text: line, number: null } };
 }
 
@@ -173,6 +180,12 @@ export function parsePaste(text: string): ReadResult {
     const y = toks[i + 1];
     return x.t.k === 'text' && y !== undefined && y.t.k === 'price' && !y.blankBefore;
   };
+  /** A line in `script`, heading-shaped, right under the dish that starts at token i: its name in that language. */
+  const namedUnder = (i: number, script: Lang): boolean => {
+    if (!dishAt(i) || toks[i]!.blankBefore) return false;
+    const x = toks[toks[i]!.t.k === 'dish' ? i + 1 : i + 2];
+    return x !== undefined && !x.blankBefore && x.t.k === 'text' && scriptOf(x.t.text) === script && headingShaped(x.t.text);
+  };
 
   for (let i = 0; i < toks.length; i++) {
     const { n, blankBefore } = toks[i]!;
@@ -207,10 +220,21 @@ export function parsePaste(text: string): ReadResult {
         if (next?.t.k === 'price' && !next.blankBefore) { add(t.text, n, next.t.price); i++; break; }
         // "House red 38 140": a dish whose prices could not be told apart
         if (t.number === 'prices') { note(add(t.text, n, null), 'price_ambiguous', n); break; }
-        // rule `second_language`: the other language's name, right under a dish or a heading
-        if (contiguous && role === 'dish' && d && d.name[script] === '' && d.desc[script] === '' && headingShaped(t.text) && !isCommonSection(t.text)) {
-          d.name = { ...d.name, [script]: t.text };
+        // rule `second_language`: the other language's name, right under a dish or a heading. A common section name
+        // there ("פסטה 52", "Pasta") is the dish's when the dish before it, or the next one, is named in both languages
+        // the same way; either way the reading is checked (`other_language`)
+        const otherName = contiguous && role === 'dish' && d !== null && d.name[script] === '' && d.desc[script] === '' && headingShaped(t.text);
+        if (otherName && !isCommonSection(t.text)) {
+          d!.name = { ...d!.name, [script]: t.text };
           break;
+        }
+        if (otherName) {
+          const before = s?.dishes[s.dishes.length - 2];
+          if ((before !== undefined && before.name.he !== '' && before.name.en !== '') || namedUnder(i + 1, script)) {
+            d!.name = { ...d!.name, [script]: t.text };
+            guessed(d!, 'other_language', n);
+            break;
+          }
         }
         if (contiguous && role === 'heading' && s && s.name[script] === '' && headingShaped(t.text) && !dishAt(i)) {
           s.name = { ...s.name, [script]: t.text };
@@ -228,9 +252,16 @@ export function parsePaste(text: string): ReadResult {
           break;
         }
         // rule `heading`: a heading by its own look; or a short line followed by a dish (or by a heading: an empty
-        // section), when a blank line, the start or another heading comes before it (right under a dish it is a dish)
+        // section), when a blank line, the start or another heading comes before it (right under a dish it is a dish).
+        // A number first ("3 course lunch", "64 Schnitzel") is a heading only after a blank line or at the start and
+        // over a priced dish; right under a heading it is a dish whose number is checked
         const free = blankBefore || role === null || role === 'heading';
-        if (strongHeading(t.text) || (free && headingShaped(t.text) && (dishAt(i + 1) || next?.t.k === 'heading'))) { open(t.text, n); break; }
+        const numbered = t.number === 'leading' && !(blankBefore || role === null);
+        if (strongHeading(t.text) || (free && !numbered && headingShaped(t.text) && (dishAt(i + 1) || (t.number !== 'leading' && next?.t.k === 'heading')))) {
+          open(t.text, n);
+          if (otherName) guessed(section!, 'other_language', n);
+          break;
+        }
         const added = add(t.text, n, null);
         if (t.number !== null) note(added, 'price_ambiguous', n);
         break;

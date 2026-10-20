@@ -128,6 +128,8 @@ export function headingShaped(s: string): boolean {
 
 /** Words that open a description, not a name: "with tahini", "served with", "עם טחינה", "מוגש עם". */
 const DESC_START = /^(?:with|served|topped|comes with|עם|מוגש|מוגשת|מוגשים|בתוספת|ברוטב|לצד)\s/iu;
+/** Does the line open with a word only a description opens with ("with …", "עם …")? */
+export const descOpener = (s: string): boolean => DESC_START.test(s);
 
 /**
  * Rule `desc_shape`: a line that reads like a description: 4 words or more, or a comma, semicolon, colon or full stop
@@ -135,7 +137,16 @@ const DESC_START = /^(?:with|served|topped|comes with|עם|מוגש|מוגשת|�
  * with a word like "with" / "עם".
  */
 export function descShaped(s: string): boolean {
-  return wordCount(s) >= 4 || /[,;:،]|\.(?!\d)/u.test(s.replace(/[.!]$/u, '')) || /(…|\.\.\.)$/u.test(s) || s.length >= 40 || DESC_START.test(s);
+  return wordCount(s) >= 4 || s.length >= 40 || descMarked(s);
+}
+
+/**
+ * Rule `desc_mark`: a line marked as a description by its punctuation or its first word, not only by its length: a
+ * comma, semicolon, colon or full stop inside it, an ellipsis at its end, or "with" / "עם" first ("Filter coffee, free
+ * refill"; never "Chocolate cake with vanilla ice cream", which may be a long name).
+ */
+export function descMarked(s: string): boolean {
+  return /[,;:،]|\.(?!\d)/u.test(s.replace(/[.!]$/u, '')) || /(…|\.\.\.)$/u.test(s) || DESC_START.test(s);
 }
 
 /** Lowercase A–Z only (as the contracts' keys do); Hebrew has no case. */

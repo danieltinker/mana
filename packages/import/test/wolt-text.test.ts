@@ -184,19 +184,45 @@ test('tags only from explicit labels; other labels are noted and left out', () =
   assert.deepEqual(valid(parseWoltText('Mains\nTofu\n₪40.00\nVegan\nPrivacy statement\nBurger\n₪72.00')).sections[0]!.dishes[0]!.tags, ['vegan']);
 });
 
-test('QA-H1: a tag word with the next dish under it is a heading, never a diet tag on the dish before', () => {
+/** Each dish as `name price [tags] (desc) {notes on it}`, and each section as `# name {notes on it}`. */
+const placed = (r: ReturnType<typeof parseWoltText>): string[] => {
+  const on = (key: string) => r.notes.filter((n) => n.key === key).map((n) => `${n.code}${n.rule ? `:${n.rule}` : ''}@${n.lines.join(',')}`);
+  const tail = (key: string) => (on(key).length ? ` {${on(key).join(' ')}}` : '');
+  return valid(r).sections.flatMap((s) => [
+    `# ${s.name.he || s.name.en}${tail(s.key)}`,
+    ...s.dishes.map((x) => `${x.name.he || x.name.en} ${x.price}${x.tags.length ? ` [${x.tags.join(',')}]` : ''}${x.desc.he || x.desc.en ? ` (${x.desc.he || x.desc.en})` : ''}${tail(x.key)}`),
+  ]);
+};
+
+test('QA-H1 (round 2): a tag word between a price and the next dish is never a guessed tag or heading without a check', () => {
   const cases: Array<[string, string, string[]]> = [
-    ['no section list', 'Mains\nSteak\n₪120.00\nLamb chops\n₪110.00\nVegan\nTofu bowl\n₪50.00\nLentil stew\n₪45.00',
-      ['# Mains (food)', 'Steak 12000', 'Lamb chops 11000', '# Vegan (food)', 'Tofu bowl 5000', 'Lentil stew 4500']],
-    ["one of the page's own sections", 'Imaginary Bistro\nMains\nVegan\nDrinks\nMains\nSteak\nAged sirloin, butter\n₪120.00\nVegan\nTofu bowl\nRice and greens, sesame\n₪50.00\nDrinks\nCola\n₪12.00',
-      ['# Mains (food)', 'Steak 12000', '# Vegan (food)', 'Tofu bowl 5000', '# Drinks (drinks)', 'Cola 1200']],
-    ['Hebrew', 'עיקריות\nאנטריקוט\n120.00 ₪\nללא גלוטן\nסלט קינואה\n48.00 ₪',
-      ['# עיקריות (food)', 'אנטריקוט 12000', '# ללא גלוטן (food)', 'סלט קינואה 4800']],
+    // nothing tells a label of the dish before from one of the dish after, or from a heading: neither, checked
+    ['no section list', 'Grill\nPork belly\nSlow roasted, apple\n₪96.00\nVegetarian\nHalloumi steak\nGrilled, oregano\n₪58.00\nCorn ribs\n₪34.00',
+      ['# Grill', 'Pork belly 9600 (Slow roasted, apple) {layout_guessed:tag_or_heading@5}', 'Halloumi steak 5800 (Grilled, oregano)', 'Corn ribs 3400']],
+    ["the page's own list, without the word", 'Imaginary Diner\nGrill\nBowls\nGrill\nPork belly\nSlow roasted, apple\n₪96.00\nVegetarian\nHalloumi steak\nGrilled, oregano\n₪58.00\nBowls\nRice bowl\nEdamame, pickles\n₪52.00',
+      ['# Grill', 'Pork belly 9600 (Slow roasted, apple) {layout_guessed:tag_or_heading@8}', 'Halloumi steak 5800 (Grilled, oregano)', '# Bowls', 'Rice bowl 5200 (Edamame, pickles)']],
+    ['two tag lines', 'Grill\nPork belly\n₪96.00\nVegetarian\nGluten free\nHalloumi steak\n₪58.00',
+      ['# Grill', 'Pork belly 9600 {layout_guessed:tag_or_heading@4,5}', 'Halloumi steak 5800']],
+    // a common heading in the same lines wins: the tag word can only be the dish before's
+    ['a common heading after it', 'Grill\nPork belly\nSlow roasted, apple\n₪96.00\nVegetarian\nDesserts\nBaked apple\nCinnamon, cream\n₪36.00',
+      ['# Grill', 'Pork belly 9600 [vegetarian] (Slow roasted, apple) {layout_guessed:tag_or_heading@5}', '# Desserts', 'Baked apple 3600 (Cinnamon, cream)']],
+    ['the same in Hebrew', 'מהגריל\nחזה עוף\nצלוי, לימון\n‏88.00 ₪\nטבעוני\nקינוחים\nתפוח אפוי\nקינמון, שמנת\n‏36.00 ₪',
+      ['# מהגריל', 'חזה עוף 8800 [vegan] (צלוי, לימון) {layout_guessed:tag_or_heading@5}', '# קינוחים', 'תפוח אפוי 3600 (קינמון, שמנת)']],
+    ["with the page's own list", 'Imaginary Diner\nGrill\nDesserts\nGrill\nPork belly\n₪96.00\nVegetarian\nDesserts\nBaked apple\n₪36.00',
+      ['# Grill', 'Pork belly 9600 [vegetarian] {layout_guessed:tag_or_heading@7}', '# Desserts', 'Baked apple 3600']],
+    // a heading only where the evidence says so: the page's list names it, or nothing stands before it
+    ["one of the page's own sections", 'Imaginary Diner\nGrill\nVegetarian\nGrill\nPork belly\n₪96.00\nVegetarian\nHalloumi steak\n₪58.00',
+      ['# Grill', 'Pork belly 9600', '# Vegetarian', 'Halloumi steak 5800']],
+    ['first line of the copy', 'Vegetarian\nHalloumi steak\n₪58.00\nCorn ribs\n₪34.00', ['# Vegetarian', 'Halloumi steak 5800', 'Corn ribs 3400']],
+    // a dish's own: among its lines, or after its price with no dish after it
+    ['among its lines', 'Grill\nHalloumi steak\nVegetarian\n₪58.00\nCorn ribs\n₪34.00', ['# Grill', 'Halloumi steak 5800 [vegetarian]', 'Corn ribs 3400']],
+    ['after the last price', 'Grill\nPork belly\n₪96.00\nHalloumi steak\n₪58.00\nVegetarian', ['# Grill', 'Pork belly 9600', 'Halloumi steak 5800 [vegetarian]']],
   ];
   for (const [label, text, expected] of cases) {
-    const d = valid(parseWoltText(text));
-    assert.deepEqual(outline(d), expected, label);
-    assert.ok(d.sections.every((s) => s.dishes.every((x) => x.tags.length === 0)), `${label}: no dish gains a tag`);
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+    for (const n of r.notes.filter((x) => x.code === 'layout_guessed')) assert.equal(n.severity, 'check', label);
   }
 });
 
@@ -363,4 +389,93 @@ test('D33: the readers never fetch anything and name no Wolt address', () => {
     const src = readFileSync(new URL(f, dir), 'utf8');
     assert.ok(!/\bfetch\s*\(|XMLHttpRequest|wolt\.com/u.test(src), f);
   }
+});
+
+test('QA-M2 (round 2): a common name over a line marked as a description is the dish when the dishes around are described; checked', () => {
+  const cases: Array<[string, string, string[]]> = [
+    ['Coffee', 'Bakery\nCroissant\nButter, sea salt\n₪16.00\nCoffee\nDouble espresso, oat milk\n₪14.00\nTea\nMint, sage\n₪12.00',
+      ['# Bakery', 'Croissant 1600 (Butter, sea salt)', 'Coffee 1400 (Double espresso, oat milk) {layout_guessed:common_name@5}', 'Tea 1200 (Mint, sage)']],
+    ['Pasta', 'Mains\nRoast chicken\nHalf a chicken, potatoes\n₪78.00\nPasta\nFresh tagliatelle, sage butter\n₪56.00\nGnocchi\nPotato, brown butter\n₪54.00',
+      ['# Mains', 'Roast chicken 7800 (Half a chicken, potatoes)', 'Pasta 5600 (Fresh tagliatelle, sage butter) {layout_guessed:common_name@5}', 'Gnocchi 5400 (Potato, brown butter)']],
+    ['Breakfast, a description by its first word', 'Mornings\nGranola\nYoghurt, honey\n₪32.00\nBreakfast\nwith two eggs any style\n₪58.00',
+      ['# Mornings', 'Granola 3200 (Yoghurt, honey)', 'Breakfast 5800 (with two eggs any style) {layout_guessed:common_name@5}']],
+    ['Hebrew', 'מאפים\nקרואסון\nחמאה, מלח ים\n‏16.00 ₪\nקפה\nאספרסו כפול, חלב שיבולת\n‏14.00 ₪',
+      ['# מאפים', 'קרואסון 1600 (חמאה, מלח ים)', 'קפה 1400 (אספרסו כפול, חלב שיבולת) {layout_guessed:common_name@5}']],
+    ['the first lines of the copy', 'Pasta\nFresh tagliatelle, sage butter\n₪56.00\nGnocchi\nPotato, brown butter\n₪54.00',
+      ['# תפריט', 'Pasta 5600 (Fresh tagliatelle, sage butter) {layout_guessed:common_name@1}', 'Gnocchi 5400 (Potato, brown butter)']],
+    // a long name under a common heading, with nothing marking it as a description: the heading, checked
+    ['a heading over a long name', 'Mains\nRoast chicken\n₪78.00\nDesserts\nPear and almond tart with cream\n₪38.00',
+      ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Pear and almond tart with cream 3800 {layout_guessed:common_name@5}']],
+    // three lines: the common name with a description under it is the dish under the heading above it, checked
+    ['a heading, then the common name and its description', 'Mains\nRoast chicken\n₪78.00\nHot drinks\nCoffee\nDouble espresso, oat milk\n₪14.00',
+      ['# Mains', 'Roast chicken 7800', '# Hot drinks {layout_guessed:common_name@4}', 'Coffee 1400 (Double espresso, oat milk) {layout_guessed:common_name@5}']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+  }
+});
+
+test('QA-M4 (round 3): a common heading over a dish whose name has a comma, a full stop or an ellipsis stays the heading, checked', () => {
+  // the dishes around have no descriptions: the common name is the heading, the marked line the dish's name
+  const cases: Array<[string, string, string[]]> = [
+    ['a comma', 'Mains\nRoast chicken\n₪78.00\nKids\nSchnitzel strips, fries & juice\n₪46.00\nMini pizza\n₪36.00',
+      ['# Mains', 'Roast chicken 7800', '# Kids {layout_guessed:common_name@4}', 'Schnitzel strips, fries & juice 4600 {layout_guessed:common_name@5}', 'Mini pizza 3600']],
+    ['another comma', 'Bakery\nCroissant\n₪16.00\nBreakfast\nOmelette, salad & bread\n₪52.00\nGranola\n₪32.00',
+      ['# Bakery', 'Croissant 1600', '# Breakfast {layout_guessed:common_name@4}', 'Omelette, salad & bread 5200 {layout_guessed:common_name@5}', 'Granola 3200']],
+    ['a full stop', 'Mains\nRoast chicken\n₪78.00\nDesserts\nChoc. mousse\n₪34.00\nMalabi\n₪26.00',
+      ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Choc. mousse 3400 {layout_guessed:common_name@5}', 'Malabi 2600']],
+    ['an ellipsis', 'Mains\nRoast chicken\n₪78.00\nDesserts\nWarm apple crumble with…\n₪38.00\nMalabi\n₪26.00',
+      ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Warm apple crumble with… 3800 {layout_guessed:common_name@5}', 'Malabi 2600']],
+    ['Hebrew', 'סלטים\nסלט ירוק\n‏42.00 ₪\nארוחות בוקר\nחביתה, סלט ולחם\n‏52.00 ₪\nגרנולה\n‏32.00 ₪',
+      ['# סלטים', 'סלט ירוק 4200', '# ארוחות בוקר {layout_guessed:common_name@4}', 'חביתה, סלט ולחם 5200 {layout_guessed:common_name@5}', 'גרנולה 3200']],
+    ['the first lines of the copy', 'Coffee\nLatte, oat milk\n₪16.00\nEspresso\n₪10.00',
+      ['# Coffee {layout_guessed:common_name@1}', 'Latte, oat milk 1600 {layout_guessed:common_name@2}', 'Espresso 1000']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+  }
+  // the page's own list settles it: no guess
+  const listed = parseWoltText('Imaginary Diner\nMains\nKids\nMains\nRoast chicken\n₪78.00\nKids\nSchnitzel strips, fries & juice\n₪46.00\nMini pizza\n₪36.00');
+  assert.deepEqual(placed(listed), ['# Mains', 'Roast chicken 7800', '# Kids', 'Schnitzel strips, fries & juice 4600', 'Mini pizza 3600']);
+});
+
+test('QA-M3 (round 2): every reading rule desc_habit guesses is checked, on the dish and the section it decided', () => {
+  const cases: Array<[string, string, string[]]> = [
+    // the next dish has a description: these two lines are a name and its description, the dish checked
+    ['a name and its description', 'Mains\nRoast chicken\nHalf a chicken, potatoes\n₪78.00\nOn the coals\nSkewers\n₪64.00\nLamb chops\nRosemary, garlic, salt\n₪112.00',
+      ['# Mains', 'Roast chicken 7800 (Half a chicken, potatoes)', 'On the coals 6400 (Skewers) {layout_guessed:desc_habit@5}', 'Lamb chops 11200 (Rosemary, garlic, salt)']],
+    ['the same in Hebrew', 'עיקריות\nעוף צלוי\nחצי עוף, תפוחי אדמה\n‏78.00 ₪\nמהגריל\nשיפודים\n‏64.00 ₪\nצלעות טלה\nרוזמרין, שום, מלח\n‏112.00 ₪',
+      ['# עיקריות', 'עוף צלוי 7800 (חצי עוף, תפוחי אדמה)', 'מהגריל 6400 (שיפודים) {layout_guessed:desc_habit@5}', 'צלעות טלה 11200 (רוזמרין, שום, מלח)']],
+    // no dish around has a description: a heading and a name, the section and the dish checked
+    ['a heading and a name', 'Mains\nSoup\n₪30.00\nStew\n₪60.00\nFrom the oven\nFocaccia\n₪22.00\nFlatbread\n₪18.00',
+      ['# Mains', 'Soup 3000', 'Stew 6000', '# From the oven {layout_guessed:desc_habit@6}', 'Focaccia 2200 {layout_guessed:desc_habit@7}', 'Flatbread 1800']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.ok(r.notes.filter((n) => n.code === 'layout_guessed').every((n) => n.severity === 'check' && n.key !== null), label);
+  }
+});
+
+test('QA-M1 (round 2): words with the letters of NIS or ILS in them are words, never prices', () => {
+  const cases: Array<[string, string, string[]]> = [
+    ['a section', 'Bar\nHouse lemonade\nMint, lemon\n₪22.00\nSignature cocktails\nNegroni twist\nGin, bitter, vermouth\n₪48.00\nMocktails\nVirgin mojito\nMint, lime, soda\n₪26.00',
+      ['# Bar', 'House lemonade 2200 (Mint, lemon)', '# Signature cocktails', 'Negroni twist 4800 (Gin, bitter, vermouth)', '# Mocktails', 'Virgin mojito 2600 (Mint, lime, soda)']],
+    ['dishes', 'Starters\nSnails\nGarlic butter, parsley\n₪56.00\nQuails\nCharcoal grilled, figs\n₪72.00\nOxtails\nBraised, polenta\n₪88.00',
+      ['# Starters', 'Snails 5600 (Garlic butter, parsley)', 'Quails 7200 (Charcoal grilled, figs)', 'Oxtails 8800 (Braised, polenta)']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+  }
+  // an option named "Lentils" in a dish sheet is an option; the sheet goes on to its end
+  const sheet = valid(parseWoltText('Bowls\nRice bowl\nEdamame, pickles\n₪52.00\nChoose a base\nRequired\nChoose 1\nRice\nLentils\nGreens\n+₪3.00\nAdd to order'));
+  assert.deepEqual(outline(sheet).slice(1), ['Rice bowl 5200 groups:Choose a base', '[Choose a base] single 1-1: Rice, Lentils, Greens +300']);
+  for (const line of ['Cocktails', 'Lentils', 'Snails', 'Anis', 'Tennis', 'Nisan', 'COCKTAILS']) assert.equal(rule(line), 'text', line);
+  for (const line of ['NIS 42', '42 NIS', 'ILS 9.90']) assert.equal(rule(line), 'price', line);
 });
