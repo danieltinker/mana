@@ -63,6 +63,9 @@ export function toV2Error(e: unknown): V2Error {
   if (DB_CODES.has(msg) || /^limit_[a-z_]+$/.test(msg)) return as(msg);
   if (code === 'PGRST301' || status === 401 || /jwt expired|invalid jwt|jwt malformed/i.test(msg)) return as('signed_out');
   if (code === '42501' || status === 403 || /row-level security|permission denied/i.test(msg)) return as('forbidden');
+  // a transaction the database rolled back whole because another one held what it needed (a deadlock, a serialization
+  // failure): nothing was written, and the same call may simply go again (data/client.ts `rpc` does, twice)
+  if (code === '40P01' || code === '40001') return as('busy');
   if (code === '23505' || status === 409) return as('duplicate');
   if (code === '23503') return as('not_found');
   if (code === '22001') return as('too_long');

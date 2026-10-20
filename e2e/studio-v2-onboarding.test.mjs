@@ -46,12 +46,15 @@ const rowsOf = (owner, table, venueId, extra = {}) => owner.api.select(table, { 
 async function signInPage(email, { lang = 'he', ctx = null } = {}) {
   const page = ctx ? await ctx.newPage() : await e.page(e.webUrl + 'studio/');
   if (ctx) { page.problems = []; await page.goto(e.webUrl + 'studio/'); }
-  // a server error names its request (the browser's own console line does not)
+  // a server error names its request (the browser's own console line does not): its method and path, and the database's
+  // error code and message only; never a request body or a whole answer (an auth call carries a credential)
   page.on('response', async (r) => {
     if (r.status() < 500) return;
     const what = `http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`;
     page.problems.push(what);
-    console.log('# ' + what, (r.request().postData() ?? '').slice(0, 200), (await r.text().catch(() => '')).slice(0, 300));
+    let said = '';
+    try { const j = JSON.parse(await r.text()); said = [j.code, j.message].filter((x) => typeof x === 'string').join(' ').slice(0, 160); } catch { /* not JSON */ }
+    console.log('# ' + what, said);
   });
   await page.locator('[data-screen="start"]').waitFor();
   // the start screen's language switch names the other language (lang="en" while the page is Hebrew)
@@ -125,11 +128,10 @@ for (const lang of ['he', 'en']) {
     assert.equal(await page.locator('[data-source]').count(), 4, 'four ways in');
     assert.ok(await page.locator('[data-never-wolt]').isVisible());
     await shot(page, `${lang}-01-bring-the-menu`);
-    // the step the owner is on is saved (doing) before anything else
-    await assert.doesNotReject(async () => {
-      for (let i = 0; i < 50; i++) { const [r] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.menu' }); if (r?.state === 'doing') return; await new Promise((ok) => setTimeout(ok, 100)); }
-      throw new Error('menu step not marked doing');
-    });
+    // the database's own steps are never written by a visit (QA2-M1: a visit's write beside the database's deadlocked)
+    await page.waitForTimeout(500);
+    const [menuRow] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.menu' });
+    assert.ok(!menuRow || menuRow.state === 'todo', JSON.stringify(menuRow));
 
     // ---- 2. bring the menu: the text of the owner's own Wolt page
     const importId = await importWoltText(page);
@@ -153,6 +155,11 @@ for (const lang of ['he', 'en']) {
     // ---- 3. fix in place, confirm the prices, apply
     await fixAndApply(page);
     await step(page, 'addons');
+    // the owner's own step is saved as visited (doing), with what holds it back
+    await assert.doesNotReject(async () => {
+      for (let i = 0; i < 50; i++) { const [r] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.addons' }); if (r?.state === 'doing') return; await new Promise((ok) => setTimeout(ok, 100)); }
+      throw new Error('addons step not marked doing');
+    });
     let s = await stored(owner, venueId);
     assert.deepEqual(s.names, CAFE_DISHES, 'every dish once, "Most ordered" left out');
     assert.equal(s.dishes.find((d) => d.name_en === 'Seasonal cake').price, 2800, 'the typed price');
@@ -581,7 +588,16 @@ test('the owner leaves things out: a dish\'s 9th add-on group (too many) with it
   assert.match(await page.locator('[data-plan-line="skip:dish"][data-reason="parent_skipped"]').innerText(), /Left out: 2 dishes · with what they belong to/);
   const kept = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), `mana-import-answers:${owner.userId}:${imp}`);
   assert.deepEqual(kept.skip, ['d2', 's2'], 'kept for this account and this import');
+  // a group's button says it leaves the group out of every dish that has it
+  assert.equal((await page.locator('[data-leave="g0"]').innerText()).trim(), 'Leave out of every dish');
   await shot(page, 'qa-02-left-out');
+  // everything left out: said plainly, and applying waits (a menu with no dish is never marked done)
+  await page.locator('[data-leave="s1"]').click();
+  await page.locator('[data-plan-nothing="left-out"]').waitFor();
+  await page.locator('[data-apply-blocked="no-dish"]').waitFor();
+  assert.equal(await page.locator('[data-action="apply-import"]').isDisabled(), true);
+  await page.locator('[data-leave="s1"]').click();
+  await page.locator('[data-draft-section="s1"][data-out="no"]').waitFor();
   // giving up asks first: kept on "Cancel"
   await page.locator('[data-action="discard-import"]').click();
   const ask = page.locator('dialog[open]');
@@ -638,6 +654,33 @@ test('applying when the import changed on another device, or when the answer is 
   assert.equal(await page.locator('[data-ob-group]').count(), 3, 'the app reads the applied menu: its groups are on the add-ons step');
   assert.equal(await page.locator('[data-ob-group][data-confirmed="no"]').count(), 2);
   assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
+  await page.context().close();
+});
+
+test('a lost answer to "add" after this device stored a price itself: on as applied, never "changed on another device" (QA L1)', { timeout: 300000 }, async () => {
+  const email = 'onboard-lost-own@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'lost-own-sim', name: { he: '', en: 'Lost Own Sim' }, kind: 'cafe' });
+  owner.forVenue(made.id);
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const id = await importWoltText(page);
+  // this device types the cake's price, and stores the draft itself (the import's updated_at moves)
+  const saved = page.waitForResponse((r) => r.url().endsWith('/rest/v1/rpc/save_import_draft') && r.request().method() === 'POST');
+  const fix = page.locator('[data-exception^="price_unreadable@"]');
+  await fix.locator('input[data-field^="fix-price-"]').fill('28');
+  await fix.locator('[data-action="set-price"]').click();
+  await saved;
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  let lose = true;
+  const toApply = (u) => u.pathname.endsWith('/rest/v1/rpc/apply_import');
+  await page.route(toApply, async (r) => { const res = await r.fetch(); if (lose) { lose = false; return r.abort('internetdisconnected'); } return r.fulfill({ response: res }); });
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  await page.unroute(toApply);
+  assert.equal(lose, false, 'the answer was lost');
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 6);
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${id}` }))[0].status, 'applied');
   await page.context().close();
 });
 

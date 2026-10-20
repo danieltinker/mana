@@ -11,7 +11,7 @@
 //   exception is gone. An edited draft is saved again (save_import_draft) before it is applied: apply_import applies
 //   only the draft the database holds.
 import {
-  DRAFT_ROOT, draftCounts, draftExceptions, EXCEPTION_CHOICES, exceptionId, LIMITS, linkKey, planApply, SKIP_REASONS,
+  DRAFT_ROOT, draftCounts, draftExceptions, EXCEPTION_CHOICES, exceptionId, LIMITS, planApply, SKIP_REASONS,
   type ExistingMenu, type ImportChoice, type ImportDecisions, type ImportDraft, type ImportException, type ImportExceptionCode, type ImportPlan,
   type Issue, type Lang, type PlanKind, type PlanOp, type SkipReason, type Text,
 } from '@mana/contracts';
@@ -216,7 +216,7 @@ export function choose(d: ImportDecisions, id: string, c: ImportChoice | null): 
 export const confirmPrices = (d: ImportDecisions, on: boolean): ImportDecisions => ({ ...d, pricesConfirmed: on });
 
 /**
- * Leave a section, a dish, an add-on group or a choice (by its key; a dish's own group by `linkKey`) out of the import,
+ * Leave a section, a dish, an add-on group or a choice (by its key) out of the import,
  * or put it back (ADR-006 `ImportDecisions.skip`): the plan says it "left out, as you chose", and what is inside it goes
  * with it.
  */
@@ -227,17 +227,35 @@ export function leaveOut(d: ImportDecisions, key: string, out: boolean): ImportD
 }
 export const leftOut = (d: ImportDecisions): ReadonlySet<string> => new Set(d.skip ?? []);
 
-/** The answers that fit this draft: a key left out that the draft does not have (it changed meanwhile) is dropped. */
+/**
+ * The answers that fit this draft and this screen: a key left out is kept only when it is a section, dish, add-on group
+ * or choice the draft has. A key the draft no longer has (it changed meanwhile) is dropped, and so is a dish's own link
+ * (`<dish>><group>`): the screen never leaves one out, so one read back from storage would act unseen (SEC-L4).
+ */
 export function fitAnswers(d: ImportDecisions, draft: ImportDraft): ImportDecisions {
   const keys = new Set<string>();
-  for (const s of draft.sections) {
-    keys.add(s.key);
-    for (const x of s.dishes) { keys.add(x.key); for (const a of x.groups) keys.add(linkKey(x.key, a.group)); }
-  }
+  for (const s of draft.sections) { keys.add(s.key); for (const x of s.dishes) keys.add(x.key); }
   for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
   const skip = (d.skip ?? []).filter((k) => keys.has(k));
   return skip.length === (d.skip ?? []).length ? d : { ...d, skip };
 }
+
+/** Did applying do what the preview said (the same counts of every kind and op, and of what was left out and why)? */
+export function sameSummary(a: ImportPlan['summary'], b: ImportPlan['summary']): boolean {
+  return (Object.keys(a) as PlanKind[]).every((k) => (['create', 'update', 'keep', 'skip'] as const).every((op) => a[k][op] === b[k]?.[op])
+    && SKIP_REASONS.every((r) => a[k].skipped[r] === b[k]?.skipped[r]));
+}
+
+/**
+ * Applying would add no dish to a place that has none (everything left out, or nothing read): the menu step would be
+ * marked done with an empty menu, so applying waits and the screen says so (QA L2).
+ */
+export const addsNoDish = (plan: ImportPlan, existing: Pick<ExistingMenu, 'dishes'>): boolean =>
+  existing.dishes.length === 0 && plan.summary.dish.create === 0;
+
+/** Nothing of the import would reach the menu, and nothing of it is there already: everything is left out. */
+export const allLeftOut = (plan: ImportPlan): boolean =>
+  changesNothing(plan) && (['section', 'dish', 'group', 'option'] as const).every((k) => plan.summary[k].keep === 0);
 
 /** The venue has nothing yet (no section, dish or group): "too many" is then the draft's alone, not "with what you have". */
 export const isEmptyMenu = (m: Pick<ExistingMenu, 'sections' | 'dishes' | 'groups'>): boolean => !m.sections.length && !m.dishes.length && !m.groups.length;

@@ -15,6 +15,7 @@ import { answersKey, forgetAnswersBut, readAnswers, writeAnswers } from './answe
 import { cfg, q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
 import { asImportLine, IMAGE_BYTES_MAX, imagePath, imagesHash, importsApi, IMPORT_SELECT, type ImageSource, type ImportLine, type ScanReply } from './imports.ts';
+import { keptProgress, stepWriter } from './step-writes.ts';
 import type { ReaderNote } from '@mana/import';
 import { NO_DECISIONS } from './review.ts';
 import { mayWrite, menu, onReset, session } from './store.ts';
@@ -61,15 +62,32 @@ export async function loadProgress(): Promise<OnboardingProgress | null> {
   }
 }
 
-/** Mark a step (set_onboarding_step); the reply is the whole progress, which goes on screen. */
+/** This place's step writes, one step's after another (data/step-writes.ts); a new writer with every place. */
+function makeWriter() {
+  const gen = generation;
+  return stepWriter(async (step, state, blockers) => {
+    try {
+      const r = await rpc<{ ok: true; progress: OnboardingProgress }>('set_onboarding_step', { p_venue: vid(), p_step: step, p_state: state, p_blockers: blockers });
+      return r.progress;
+    } catch (e) {
+      // the database kept what it has (a late `doing` over `done` or `skipped`): its progress is the answer
+      const kept = keptProgress(toV2Error(e).detail);
+      if (kept) return kept;
+      throw e;
+    }
+  }, () => (gen === generation ? progress.value : null), (p) => { if (gen === generation) progress.value = p; });
+}
+let writeStep = makeWriter();
+onReset(() => { writeStep = makeWriter(); });
+
+/** Mark a step (set_onboarding_step), after that step's earlier writes; the reply is the whole progress, on screen. */
 export async function setStep(step: OnboardingStep, state: OnboardingState, blockers?: readonly string[]): Promise<OnboardingProgress> {
   mayWrite();
-  const gen = generation;
   const v = validateSetStep({ venueId: vid(), step, state, ...(blockers ? { blockers } : {}) });
   if (!v.ok) throw new V2Error(v.errors[0]!.code, v.errors);
-  const r = await rpc<{ ok: true; progress: OnboardingProgress }>('set_onboarding_step', { p_venue: v.value.venueId, p_step: step, p_state: state, p_blockers: blockers ?? null });
-  if (gen === generation) progress.value = r.progress;
-  return r.progress;
+  const p = await writeStep(step, state, blockers ?? null);
+  if (!p) throw new V2Error('not_found');
+  return p;
 }
 
 /** The place's imports, newest first, without the raw input. */

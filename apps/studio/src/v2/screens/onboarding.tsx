@@ -215,7 +215,7 @@ function MenuStep({ p, facts }: { p: OnboardingProgress; facts: PlaceFacts }) {
       <ImportsWaiting />
       {facts.dishes > 0 && (
         <section class="card" data-menu-has>
-          <p class="status"><span class="dot dot-on" aria-hidden="true" />{t('ob.menu.has', { dishes: tn('imp.n.dishes', facts.dishes), sections: tn('imp.n.sections', sections) })}</p>
+          <p class="status"><span class="dot dot-on" aria-hidden="true" />{t('ob.menu.has', { dishes: tn('imp.n.dishes', facts.dishes), inSections: tn('ob.menu.inSections', sections) })}</p>
           <p class="fine">{t('ob.menu.hasMore')}</p>
           <Actions><NextBtn step="menu" p={p} /></Actions>
         </section>
