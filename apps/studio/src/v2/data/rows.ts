@@ -1,18 +1,12 @@
 // Small helpers over stored rows, shared by the data layer and the screens. Pure.
+import { newUuid } from '@mana/contracts';
 
 /**
  * A new row's id, made here rather than by the database: the same try sent again (after a lost answer) names the same
- * row, so it is never stored twice.
+ * row, so it is never stored twice. The contracts' uuid (with its fallback where Safari and iOS before 15.4 have no
+ * `crypto.randomUUID`).
  */
-export function newId(): string {
-  const c = (globalThis as { crypto?: Crypto }).crypto;
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  const b = new Uint8Array(16);
-  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b); else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
-  b[6] = (b[6]! & 0x0f) | 0x40; b[8] = (b[8]! & 0x3f) | 0x80;                       // version 4, RFC 4122 variant
-  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
+export const newId: () => string = newUuid;
 
 type Ordered = { readonly position: number; readonly created_at: string; readonly id: string };
 
