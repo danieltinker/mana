@@ -399,7 +399,9 @@ test('lost answers never add a second dish, section, group or choice; a refused 
   await shot(page, '08-refused-halfway');
   // a new group whose choice opens that group: refused, nothing stored; saved again (the opener dropped): one group
   await page.goto(e.webUrl + 'studio/#/addons/new');
-  await ed.waitFor();
+  // the form above still holds the refused changes: a typed address asks before they are dropped
+  await page.getByRole('dialog', { name: 'לצאת בלי לשמור?' }).getByRole('button', { name: 'לצאת בלי לשמור' }).click();
+  await page.locator('[data-screen="group-editor"][data-group="new"]').waitFor();
   await owner.api.remove('addon_options', { id: `eq.${opener.id}` });
   await page.reload(); await ed.waitFor();
   await ed.locator('[data-field="group-name-he"]').fill('קומבו קצה');
