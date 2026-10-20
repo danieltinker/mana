@@ -9,11 +9,14 @@
 //   is sent for that row until the owner decides (keep theirs, or take the stored one) or retries; the decision shows
 //   the owner's latest values;
 // - a new failure joins the earlier failed patch; a later write that stored a column takes it out of the failed patch;
+// - no answer within `answerMs` is a failure like a lost answer (the owner can retry; signing out is not held forever);
 // - the owner's own write whose answer was lost is not "changed elsewhere": when every column that moved since this
-//   screen read the row holds what this screen sent, the row moved because of this screen, and what is still to send
-//   goes over it without a question;
+//   screen read the row holds a value this screen sent (any of them: answers can be lost twice in a row), the row moved
+//   because of this screen, and what is still to send goes over it without a question;
+// - a read of the row (`read`) never moves what this screen last read back to an older version;
 // - a write the database refuses (row-level security, a row this account can no longer read, a value it does not take)
 //   is handed to the host, which re-reads and says why; after a permission refusal nothing more is sent for that row.
+import { stampOrder } from './rows.ts';
 
 export type Rec = Record<string, unknown>;
 export type Row = { readonly id: string; readonly updated_at?: string } & Rec;
@@ -58,11 +61,22 @@ export type Conflict = {
 export type SaveStatus = 'saved' | 'saving' | 'failed' | 'conflict';
 
 /** Failures after which what was sent may or may not be stored: kept for a retry. */
-const TRANSIENT: ReadonlySet<string> = new Set(['network', 'unknown', 'signed_out', 'aborted', 'rate_limited']);
+export const TRANSIENT: ReadonlySet<string> = new Set(['network', 'timeout', 'unknown', 'signed_out', 'aborted', 'rate_limited']);
 const META: ReadonlySet<string> = new Set(['id', 'venue_id', 'created_at', 'updated_at']);
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const empty = (r: Rec | null | undefined) => !r || Object.keys(r).length === 0;
-const without = (r: Rec, cols: Iterable<string>): Rec => { const out = { ...r }; for (const c of cols) delete out[c]; return out; };
+const without = <T>(r: Record<string, T>, cols: Iterable<string>): Record<string, T> => { const out = { ...r }; for (const c of cols) delete out[c]; return out; };
+
+/** How long a write waits for its answer before it counts as failed (the owner can retry; the write may still land). */
+export const ANSWER_MS = 15000;
+/** No answer in time: what `within` rejects with (`name` 'TimeoutError', the app's code 'timeout'). */
+export const timedOut = () => Object.assign(new Error('no answer in time'), { name: 'TimeoutError' });
+/** `p`, or a rejection with `timedOut()` after `ms` (`p` itself goes on; its late answer is ignored by the caller). */
+export function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(timedOut()), ms); });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
 
 type State = {
   readonly key: string; readonly table: string; readonly id: string;
@@ -73,8 +87,8 @@ type State = {
   /** Did not reach the database, or its answer was lost: kept until a retry. */
   failed: Rec | null;
   conflict: Conflict | null;
-  /** Sent, answer lost: what the database may hold because of this screen. */
-  uncertain: Rec;
+  /** Sent, answer lost: every value of each column the database may hold because of this screen. */
+  uncertain: Record<string, unknown[]>;
   /** The row as last read from the database. */
   before: Row | null;
   timer: ReturnType<typeof setTimeout> | null;
@@ -82,7 +96,7 @@ type State = {
   queued: boolean;
 };
 
-export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } = {}) {
+export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600, answerMs = ANSWER_MS } = {}) {
   const rows = new Map<string, State>();
   const lanes = new Map<string, Promise<void>>();
   let problem = '';
@@ -100,8 +114,8 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     return s;
   }
 
-  /** One write after another on one row (autosave, a move, a group save: any write the row has). */
-  function lane<T>(key: string, run: () => Promise<T>): Promise<T> {
+  /** One write after another on one row (the autosave's sends: each bounds its own wait). */
+  function queue<T>(key: string, run: () => Promise<T>): Promise<T> {
     const prev = lanes.get(key) ?? Promise.resolve();
     const next = prev.then(run);
     const tail = next.then(() => {}, () => {});
@@ -110,9 +124,15 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     tail.then(() => { if (lanes.get(key) === tail) lanes.delete(key); host.changed(); });
     return next;
   }
+  /**
+   * Any other write of a row (a move, a group save, a dish's limits), in the same line as the autosave. With no answer
+   * within `answerMs` it rejects with `timedOut()` and the row's next write may go: a write that never answers blocks
+   * nothing (not a flush, not signing out).
+   */
+  const lane = <T>(key: string, run: () => Promise<T>): Promise<T> => queue(key, () => within(run(), answerMs));
 
   /** Columns typed into a row: saved shortly after (or at once), only over the version of the row this screen has. */
-  function patch(table: string, id: string, cols: Rec, now = false) {
+  function patch(table: string, id: string, cols: Rec, immediate = false) {
     if (empty(cols) || !host.row(table, id)) return;
     const s = stateOf(table, id);
     if (s.conflict) s.conflict = { ...s.conflict, mine: { ...s.conflict.mine, ...cols } };     // the decision shows the latest
@@ -120,7 +140,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     else {
       Object.assign(s.unsent, cols);
       stopTimer(s);
-      s.timer = setTimeout(() => { s.timer = null; pump(s); }, now ? 0 : debounceMs);
+      s.timer = setTimeout(() => { s.timer = null; pump(s); }, immediate ? 0 : debounceMs);
     }
     host.changed();
   }
@@ -131,7 +151,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     s.queued = true;
     const ep = epoch;
     const again = () => { if (ep === epoch && !s.timer) pump(s); };
-    lane(s.key, () => send(s, ep)).then(again, again);
+    queue(s.key, () => send(s, ep)).then(again, again);
   }
 
   async function send(s: State, ep: number): Promise<void> {
@@ -144,7 +164,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     host.changed();
     let r: Answer;
     try {
-      r = await api.updateIf(s.table, s.id, { updated_at: stamp }, sent);
+      r = await within(api.updateIf(s.table, s.id, { updated_at: stamp }, sent), answerMs);
     } catch (e) {
       if (ep !== epoch) return;
       s.inflight = null;
@@ -153,7 +173,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
         problem = code;
         s.failed = { ...(s.failed ?? {}), ...sent, ...s.unsent };
         s.unsent = {}; stopTimer(s);
-        s.uncertain = { ...s.uncertain, ...sent };
+        for (const [k, v] of Object.entries(sent)) s.uncertain[k] = [...(s.uncertain[k] ?? []), v];
         host.changed();
         if (code === 'signed_out') host.signedOut();
       } else {
@@ -166,7 +186,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     s.inflight = null;
     if (r.ok) {
       const cols = Object.keys(sent);
-      s.uncertain = without(s.uncertain, cols);
+      s.uncertain = {};                       // the row is now the version this write left: nothing earlier is in doubt
       if (s.failed) { s.failed = without(s.failed, cols); if (empty(s.failed)) s.failed = null; }
       host.stored(s.table, r.row);
       host.wrote();
@@ -184,7 +204,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     s.unsent = {}; stopTimer(s);
     const before = s.before;
     const moved = before ? Object.keys(stored).filter((k) => !META.has(k) && !same(before[k], stored[k])) : null;
-    const own = moved !== null && moved.every((k) => k in s.uncertain && same(s.uncertain[k], stored[k]));
+    const own = moved !== null && moved.every((k) => (s.uncertain[k] ?? []).some((v) => same(v, stored[k])));
     s.uncertain = {};
     const rest = Object.fromEntries(Object.entries(mine).filter(([k, v]) => !same(stored[k], v)));
     if (own || empty(rest)) {
@@ -239,10 +259,26 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
     host.changed();
   }
 
-  /** A row the database returned by another way (a read, a move): what this screen last read of it. */
+  /**
+   * The owner's "save" on one row: its failed patch (if any), what is typed, and `cols`, sent now; resolves when the row's
+   * lane is quiet. A row waiting for the owner's decision sends nothing (`cols` joins the decision).
+   */
+  async function now(table: string, id: string, cols: Rec): Promise<void> {
+    if (!host.row(table, id)) return;
+    const s = stateOf(table, id);
+    if (s.failed && !s.conflict) { s.unsent = { ...s.failed, ...s.unsent }; s.failed = null; }
+    if (!empty(cols)) patch(table, id, cols, true);
+    pump(s);
+    await drain(table, id);
+  }
+
+  /**
+   * A row the database returned by another way (a read, a move): what this screen last read of it. A read answered late,
+   * older than what this screen already had, changes nothing.
+   */
   function read(table: string, row: Row) {
     const s = rows.get(keyOf(table, row.id));
-    if (s) s.before = row;
+    if (s && !(s.before && stampOrder(s.before.updated_at, row.updated_at) > 0)) s.before = row;
   }
   /** Another write stored these columns of the row (a move's position): they are no longer failed or uncertain. */
   function settled(table: string, id: string, cols: readonly string[]) {
@@ -272,7 +308,7 @@ export function createSaves(api: SaveApi, host: SaveHost, { debounceMs = 600 } =
   }
 
   return {
-    patch, flush, drain, retry, resolve, read, settled, typed, status, lane, keyOf,
+    patch, now, flush, drain, retry, resolve, read, settled, typed, status, lane, keyOf,
     /** Changes waiting for the owner's decision, oldest first. */
     conflicts: (): Conflict[] => [...rows.values()].flatMap((s) => (s.conflict ? [s.conflict] : [])).sort((a, b) => a.at - b.at),
     conflictOf: (key: string) => rows.get(key)?.conflict ?? null,

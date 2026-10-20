@@ -12,7 +12,7 @@ import { canHoldOpeners, nestingProblem, openTargets } from '../../src/v2/data/n
 import { choose, clearGroup, guestModel, menuPrice, pricingOf, setQty, unitsIn } from '../../src/v2/data/guest.ts';
 import { menuChanges, standingOf, anyChange } from '../../src/v2/data/changes.ts';
 import { refusal, toV2Error, V2Error } from '../../src/v2/data/errors.ts';
-import { byPosition, newId, reorder } from '../../src/v2/data/rows.ts';
+import { byPosition, newId, reorder, rowsAfterRead, stampOrder } from '../../src/v2/data/rows.ts';
 
 // ---------------------------------------------------------------- an invented menu, as stored rows
 const V = '00000000-0000-4000-8000-0000000000aa';
@@ -264,6 +264,7 @@ test('errors come back in the app\'s codes', () => {
   assert.equal(code({ code: '42501', message: 'new row violates row-level security policy for table "dishes"' }), 'forbidden');
   assert.equal(code({ code: '23505', message: 'duplicate key value violates unique constraint "dish_relations_dish_id_related_dish_id_key"' }), 'duplicate');
   assert.equal(code({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), 'not_found');
+  assert.equal(code({ name: 'TimeoutError', message: 'no answer in time' }), 'timeout', 'no answer in time is its own code (not "no connection")');
   assert.equal(code({ code: 'PGRST301', message: 'JWT expired' }), 'signed_out');
   assert.equal(code({ name: 'AuthApiError', code: 'email_not_confirmed', status: 400, message: 'Email not confirmed' }), 'email_unconfirmed');
   assert.equal(code({ name: 'AuthApiError', code: 'invalid_credentials', status: 400, message: 'Invalid login credentials' }), 'bad_login');
@@ -294,4 +295,27 @@ test('a snapshot built from these rows passes the contracts\' validator (the pre
   };
   const v = validateSnapshotV2(s);
   assert.equal(v.ok, true, JSON.stringify(v.ok ? [] : v.errors));
+});
+
+test('versions in order at full precision; a read answered late never takes the screen back to an older state', () => {
+  assert.ok(stampOrder('2026-10-16T10:00:00.000002+00:00', '2026-10-16T10:00:00.000001+00:00') > 0, 'microseconds count');
+  assert.ok(stampOrder('2026-10-16T10:00:00.5+00:00', '2026-10-16T10:00:00.123456+00:00') > 0, 'fewer digits');
+  assert.equal(stampOrder('2026-10-16T10:00:00+00:00', '2026-10-16T10:00:00.000000Z'), 0);
+  assert.ok(stampOrder('2026-10-16T12:00:00+02:00', '2026-10-16T10:00:00.000001+00:00') < 0, 'time zones');
+  assert.equal(stampOrder(undefined, '2026-10-16T10:00:00+00:00'), 0, 'unknown: neither is later');
+
+  const v = (i) => `2026-10-16T10:00:00.${String(i).padStart(6, '0')}+00:00`;
+  const clock = (since, stored = {}, dropped = {}) => ({ since, storedAt: (x) => stored[x] ?? 0, droppedAt: (x) => dropped[x] ?? 0 });
+  const cola = { id: 'cola', name_he: 'קולה', updated_at: v(1) }, zero = { ...cola, name_he: 'קולה זירו', updated_at: v(2) };
+  const tea = { id: 'tea', name_he: 'תה', updated_at: v(1) }, teaThere = { ...tea, name_he: 'תה קר', updated_at: v(3) };
+  const added = { id: 'added', name_he: 'חדש כאן', updated_at: v(4) }, there = { id: 'there', name_he: 'חדש שם', updated_at: v(1) };
+  const gone = { id: 'gone', name_he: 'נמחק כאן', updated_at: v(1) };
+  // the read was sent when the clock was 4; since then this screen stored the cola's new name (5), added a row (6) and
+  // deleted one (7)
+  const { rows, taken } = rowsAfterRead([zero, tea, added], [cola, teaThere, there, gone], clock(4, { cola: 5, added: 6 }, { gone: 7 }));
+  assert.deepEqual(rows.map((r) => r.name_he), ['קולה זירו', 'תה קר', 'חדש שם', 'חדש כאן'], 'the later version stays; a change made elsewhere comes in; a row added here stays');
+  assert.deepEqual(taken.map((r) => r.id), ['tea', 'there']);
+  assert.equal(rows.some((r) => r.id === 'gone'), false, 'a row deleted here after the read was sent does not come back');
+  // a row on screen the read does not have, put there before the read was sent: deleted elsewhere, it goes
+  assert.deepEqual(rowsAfterRead([zero, tea], [zero], clock(9, { tea: 3 })).rows.map((r) => r.id), ['cola']);
 });

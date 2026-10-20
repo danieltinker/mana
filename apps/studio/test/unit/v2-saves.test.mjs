@@ -7,8 +7,12 @@ import { createSaves } from '../../src/v2/data/saves.ts';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T = 'dishes', ID = '00000000-0000-4000-8000-000000000001';
 
-/** A database of one table, a screen over it, and the queue between them. `next(...)` says how the next writes behave. */
-function setup() {
+/**
+ * A database of one table, a screen over it, and the queue between them. `next(...)` says how the next writes behave:
+ * `delay` ms, `fail` (never reaches the database), `lose` (stored, the answer lost), `loseStale` (refused as stale there,
+ * the answer lost), `hang` (no answer, ever), `forbid`, `gone`, `refuse` (a code).
+ */
+function setup({ answerMs } = {}) {
   const db = new Map();
   let version = 0;
   const stamp = () => `2026-10-16T10:00:00.${String(++version).padStart(6, '0')}+00:00`;
@@ -21,13 +25,17 @@ function setup() {
       calls.push({ expected: { ...expected }, patch: { ...patch } });
       inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
       try {
+        if (b.hang) await new Promise(() => {});
         if (b.delay) await sleep(b.delay);
         if (b.fail) throw new Error('Failed to fetch');
         if (b.refuse) throw Object.assign(new Error('value refused'), { code: b.refuse });
         const row = db.get(id);
         if (!row || b.gone) return { ok: false, why: 'gone' };
         if (b.forbid) return { ok: false, why: 'forbidden' };
-        if (!Object.entries(expected).every(([k, v]) => row[k] === v)) return { ok: false, why: 'stale', row: { ...row } };
+        if (!Object.entries(expected).every(([k, v]) => row[k] === v)) {
+          if (b.loseStale) throw new Error('Failed to fetch');
+          return { ok: false, why: 'stale', row: { ...row } };
+        }
         const next = { ...row, ...patch, updated_at: stamp() };
         db.set(id, next);
         if (b.lose) throw new Error('Failed to fetch');                  // stored, but the answer never comes back
@@ -43,15 +51,15 @@ function setup() {
     refused: async (t, id, why) => { log.refused.push(why); const r = db.get(id); if (r) host.stored(t, { ...r }); },
     resync: () => { log.resync++; },
     changed: () => {},
-    codeOf: (e) => (e?.code ? e.code : /fetch/i.test(e?.message ?? '') ? 'network' : 'unknown'),
+    codeOf: (e) => (e?.name === 'TimeoutError' ? 'timeout' : e?.code ? e.code : /fetch/i.test(e?.message ?? '') ? 'network' : 'unknown'),
     signedOut: () => { log.signedOut++; },
   };
-  const saves = createSaves(api, host, { debounceMs: 20 });
+  const saves = createSaves(api, host, { debounceMs: 20, ...(answerMs ? { answerMs } : {}) });
   /** The owner types: on screen at once, saved shortly after (as patchRow does). */
   const type = (cols, now = false) => { saves.patch(T, ID, cols, now); screen.set(ID, { ...screen.get(ID), ...cols }); };
   /** Another device changes the row. */
   const elsewhere = (cols) => db.set(ID, { ...db.get(ID), ...cols, updated_at: stamp() });
-  return { db, screen, calls, log, saves, type, elsewhere, next: (...b) => plan.push(...b), maxInFlight: () => maxInFlight, key: T + ':' + ID };
+  return { db, screen, calls, log, saves, host, type, elsewhere, next: (...b) => plan.push(...b), maxInFlight: () => maxInFlight, key: T + ':' + ID };
 }
 
 test('one write in flight per row; what is typed meanwhile goes next, as one patch with the latest values', async () => {
@@ -269,4 +277,91 @@ test('drain waits for one row; clear drops the answers on their way', async () =
   await sleep(120);
   assert.equal(s.log.stored, stored, 'an answer for the place before is dropped');
   assert.equal(s.saves.hasUnsaved(), false);
+});
+
+// ---------------------------------------------------------------- round 3
+test('two lost answers in a row (the first stored, the retry refused as stale there), the column retyped between: still the owner\'s own', async () => {
+  const s = setup();
+  s.next({ lose: true });
+  s.type({ price: 1000 }, true);                          // stored; the answer is lost
+  await sleep(30); await s.saves.flush();
+  assert.equal(s.db.get(ID).price, 1000);
+  s.type({ price: 1100 });                                // retyped: joins the failed patch
+  s.next({ loseStale: true });                            // the retry is refused as stale there, and that answer is lost too
+  await s.saves.retry();
+  assert.equal(s.saves.status(), 'failed');
+  await s.saves.retry();                                  // the network is back
+  assert.deepEqual(s.saves.conflicts(), [], 'only this screen ever changed the row: no "changed elsewhere"');
+  assert.equal(s.db.get(ID).price, 1100, 'the latest value');
+  assert.equal(s.saves.status(), 'saved');
+});
+
+test('a read sent before this screen\'s write and answered after it never moves the queue\'s baseline back: the next edit is no question', async () => {
+  const s = setup();
+  const old = { ...s.db.get(ID) };                         // a whole-menu read executed now…
+  s.type({ name_he: 'שם חדש' }, true);                     // …this screen's write is stored meanwhile…
+  await sleep(30); await s.saves.flush();
+  s.host.stored(T, old);                                   // …and the read's answer arrives last (a screen that even shows it)
+  s.type({ price: 1200 }, true);                           // the next edit, another column
+  await sleep(30); await s.saves.flush();
+  assert.deepEqual(s.saves.conflicts(), [], 'nobody else changed the row');
+  assert.deepEqual([s.db.get(ID).name_he, s.db.get(ID).price], ['שם חדש', 1200]);
+  assert.equal(s.saves.status(), 'saved');
+});
+
+test('a write that never answers is a failure after the wait: flushing (signing out, switching place) is not held, the retry stores the latest', async () => {
+  const s = setup({ answerMs: 80 });
+  s.next({ hang: true });
+  s.type({ price: 1000 }, true);
+  await sleep(20);
+  s.type({ price: 1100 });                                // typed while the write hangs
+  const t0 = Date.now();
+  await s.saves.flush();
+  assert.ok(Date.now() - t0 < 1000, 'the flush ends');
+  assert.equal(s.saves.status(), 'failed');
+  assert.equal(s.saves.problem(), 'timeout');
+  assert.deepEqual(s.saves.failedOf(s.key), { price: 1100 });
+  await s.saves.retry();
+  assert.equal(s.db.get(ID).price, 1100);
+  assert.equal(s.saves.status(), 'saved');
+});
+
+test('any other write of a row (a move, a group save) with no answer rejects after the wait and frees the row', async () => {
+  const s = setup({ answerMs: 60 });
+  const stuck = s.saves.lane(s.key, () => new Promise(() => {}));
+  s.type({ price: 1300 }, true);                          // waits behind it
+  await assert.rejects(stuck, { name: 'TimeoutError' });
+  await s.saves.flush();
+  assert.equal(s.db.get(ID).price, 1300);
+  assert.equal(s.saves.status(), 'saved');
+});
+
+test('the owner\'s "save" (saveNow) on a row whose earlier change failed: both go now, as one write', async () => {
+  const s = setup();
+  s.next({ fail: true });
+  s.type({ price: 1300 }, true);
+  await sleep(30); await s.saves.flush();
+  assert.equal(s.saves.status(), 'failed');
+  await s.saves.now(T, ID, { desc_he: 'נשמר עכשיו' });
+  assert.equal(s.calls.length, 2);
+  assert.deepEqual(s.calls[1].patch, { price: 1300, desc_he: 'נשמר עכשיו' });
+  assert.deepEqual([s.db.get(ID).price, s.db.get(ID).desc_he], [1300, 'נשמר עכשיו']);
+  assert.equal(s.saves.status(), 'saved');
+  s.next({ fail: true });
+  s.type({ price: 1400 }, true);
+  await sleep(30); await s.saves.flush();
+  await s.saves.now(T, ID, {});                           // nothing new: the failed patch alone goes
+  assert.deepEqual(s.calls.at(-1).patch, { price: 1400 });
+  assert.equal(s.db.get(ID).price, 1400);
+});
+
+test('"save" on a row waiting for the owner\'s decision sends nothing: the change joins the question', async () => {
+  const s = setup();
+  s.elsewhere({ price: 1500 });
+  s.type({ price: 1000 }, true);
+  await sleep(30); await s.saves.flush();
+  await s.saves.now(T, ID, { desc_he: 'גם זה' });
+  assert.equal(s.calls.length, 1);
+  assert.deepEqual(s.saves.conflictOf(s.key).mine, { price: 1000, desc_he: 'גם זה' });
+  assert.equal(s.saves.status(), 'conflict');
 });

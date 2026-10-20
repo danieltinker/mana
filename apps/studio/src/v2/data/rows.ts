@@ -39,6 +39,49 @@ export function reorder(rows: readonly { id: string; position: number }[], from:
   return out;
 }
 
+/** An `updated_at` in microseconds since 1970 (the database keeps six fractional digits; Date keeps three), or null. */
+function micros(stamp: string | null | undefined): number | null {
+  const m = stamp ? /^(.+T\d\d:\d\d:\d\d)(?:\.(\d+))?(.*)$/.exec(stamp) : null;
+  if (!m) return null;
+  const ms = Date.parse(m[1] + (m[3] || 'Z'));
+  return Number.isNaN(ms) ? null : ms * 1000 + Number(((m[2] ?? '') + '000000').slice(0, 6));
+}
+
+/** Two versions of a row (`updated_at`) in order, at full precision: negative, 0 or positive. Unknown counts as equal. */
+export function stampOrder(a: string | null | undefined, b: string | null | undefined): number {
+  const x = micros(a), y = micros(b);
+  return x === null || y === null ? 0 : Math.sign(x - y);
+}
+
+/**
+ * When a read was sent, and what this screen did to rows since: a clock that counts what it put on screen
+ * (`since` is its value when the read was sent), when it last put each row on screen, when it deleted one.
+ */
+export type ReadClock = { readonly since: number; storedAt(id: string): number; droppedAt(id: string): number };
+
+/**
+ * A table's rows on screen after a read of the whole table answered, which may be late (a slow link): it never takes a
+ * screen back to an older state of the database.
+ * - a row read replaces the one on screen, unless the one on screen is a later version (its `updated_at`);
+ * - a row read that this screen deleted after the read was sent does not come back;
+ * - a row on screen the read does not have stays only when this screen put it there after the read was sent (a row it
+ *   just added); otherwise it was deleted elsewhere and goes.
+ * `taken` are the rows read that replaced or joined the screen's.
+ */
+export function rowsAfterRead<T extends { readonly id: string; readonly updated_at?: string }>(screen: readonly T[], read: readonly T[], clock: ReadClock): { rows: T[]; taken: T[] } {
+  const on = new Map(screen.map((r) => [r.id, r] as const)), seen = new Set<string>();
+  const rows: T[] = [], taken: T[] = [];
+  for (const r of read) {
+    seen.add(r.id);
+    if (clock.droppedAt(r.id) > clock.since) continue;
+    const mine = on.get(r.id);
+    if (mine && stampOrder(mine.updated_at, r.updated_at) > 0) { rows.push(mine); continue; }
+    rows.push(r); taken.push(r);
+  }
+  for (const r of screen) if (!seen.has(r.id) && clock.storedAt(r.id) > clock.since) rows.push(r);
+  return { rows, taken };
+}
+
 /** A bilingual name in the language asked for, else the other one. */
 export function named(row: { name_he: string; name_en: string } | null | undefined, lang: 'he' | 'en'): string {
   if (!row) return '';
