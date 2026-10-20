@@ -91,7 +91,34 @@ export const MAX_COUNT = 1_000_000;
 const PERSONAL = new Set<string>(PERSONAL_KEYS.map((k) => k.toLowerCase()));
 const TOP = new Set(['id', 'name', 'venueId', 'at', 'props']);
 /** An instant with an explicit offset: `Z` or `±HH:MM`. A time without one would be read in the reader's own zone. */
-export const EVENT_TIME_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d{1,6})?)?(Z|[+-]\d\d:\d\d)$/;
+export const EVENT_TIME_RE = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.(\d{1,6}))?)?(Z|([+-])(\d\d):(\d\d))$/;
+
+/**
+ * The instant an `EVENT_TIME_RE` string names, in milliseconds since the epoch (microseconds as the fraction), exactly
+ * when PostgreSQL's `timestamptz` reads it; NaN otherwise. PostgreSQL 16 reads: years 0001–9999; a real date of the
+ * Gregorian calendar (2026-02-29 and 2026-02-30 are not); hours 00–24, minutes 00–59, seconds 00–60, and a time of
+ * day of at most 24:00:00 (24:00 is the next midnight; :60 the next minute; 23:59:60.5 is refused); an offset of at
+ * most ±15:59 (minutes 00–59).
+ */
+export function instantMs(v: unknown): number {
+  const m = isString(v) ? EVENT_TIME_RE.exec(v) : null;
+  if (!m) return NaN;
+  const [y, mo, d, h, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number) as [number, number, number, number, number];
+  const s = Number(m[6] ?? 0);
+  const micros = Number((m[7] ?? '').padEnd(6, '0'));
+  if (y < 1 || mo < 1 || mo > 12 || d < 1 || h > 24 || mi > 59 || s > 60) return NaN;
+  if ((h * 3600 + mi * 60 + s) * 1_000_000 + micros > 86_400_000_000) return NaN;
+  const day = new Date(0);
+  day.setUTCFullYear(y, mo - 1, d); // years below 100 as they are (Date.UTC would add 1900)
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return NaN;
+  let offset = 0;
+  if (m[8] !== 'Z') {
+    const oh = Number(m[10]), om = Number(m[11]);
+    if (oh > 15 || om > 59) return NaN;
+    offset = (m[9] === '-' ? -1 : 1) * (oh * 60 + om) * 60_000;
+  }
+  return day.getTime() + (h * 3600 + mi * 60 + s) * 1000 + micros / 1000 - offset;
+}
 
 function propOk(kind: PropKind, v: unknown): boolean {
   switch (kind) {
@@ -127,7 +154,7 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   }
   if (!names.includes(raw.name)) x.add('name_not_allowed', 'name');
   const now = opts.now ?? Date.now();
-  const at = isString(raw.at) && EVENT_TIME_RE.test(raw.at) ? Date.parse(raw.at) : NaN;
+  const at = instantMs(raw.at);
   if (Number.isNaN(at)) x.add('time_invalid', 'at');
   else if (at < now - MAX_AGE_MS || at > now + MAX_SKEW_MS) x.add('time_out_of_range', 'at');
 

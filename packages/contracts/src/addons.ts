@@ -104,6 +104,8 @@ export type SaveAddonGroupStoredCode =
   | 'venue_unknown' | 'not_allowed' | 'group_unknown' | 'limits_loosened' | 'limits_invalid' | 'nesting_too_deep'
   | 'limit_options_per_group' | 'limit_addon_groups' | 'conflict' | 'invalid';
 
+/** The stored rows as `to_jsonb` gives them (the reply on success, and `current` when `stale`): `group.updated_at` is
+ * at full precision, the string the editor sends back as `expectedUpdatedAt`. */
 export type StoredAddonGroup = { readonly group: AddonGroupRow; readonly options: readonly AddonOptionRow[] };
 
 export type SaveAddonGroupReply =

@@ -29,6 +29,9 @@ export type OnboardingStepView = {
   readonly blockers: readonly string[];
   /** The database marks this step done by itself. */
   readonly auto: boolean;
+  /** The step row's `updated_at` at **full precision** (microseconds, as `to_jsonb` writes a `timestamptz`; never
+   * `app.iso`, which drops the fraction), null when the step was never written. Staff send it back unchanged as
+   * `onboarding.set`'s `expectedUpdatedAt` (one of ADR-008's exceptions to the `app.iso` rule). */
   readonly updatedAt: string | null;
 };
 

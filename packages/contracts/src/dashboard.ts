@@ -83,6 +83,8 @@ export type Nudge = { readonly code: NudgeCode; readonly count: number; readonly
 
 export type DashboardMenu = {
   readonly live: boolean;
+  /** The published revision's number (`venues.published_revision_id`'s), null when nothing is published: what guests
+   * see, or will see once Halom approves the first publish (`ApproveVenueInput.expectedRevision`). */
   readonly revision: number | null;
   readonly lastPublishedAt: string | null;
   readonly review: ReviewState;
@@ -142,6 +144,8 @@ export function validateDashboardQuery(raw: unknown): Validation<DashboardQuery>
  * server), they poll every `pollMs`. Never while the page is hidden; after a failure, `pollDelay`'s backoff.
  */
 export const LIVE_REFRESH = {
+  /** The whole `supabase_realtime` publication in phase 1. `venues` stays out of it (an approval, a plan or a publish
+   * reaches the pages through `safetyMs`' poll). */
   realtimeTables: ['rollups_minute', 'rollups_day', 'availability_overrides'],
   debounceMs: 1500,
   pollMs: { owner: 15_000, ops: 30_000 },
