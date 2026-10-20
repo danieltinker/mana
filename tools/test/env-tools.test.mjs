@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
-import { localConfigText, ROOT } from '../env.mjs';
+import { DEMO, localConfigText, PRODUCTION, readConfig, ROOT } from '../env.mjs';
 import { JWT_SECRET, signJwt } from '../../sim/stack/jwt.mjs';
 import { serveSite } from '../serve-site.mjs';
 import { findScenario, runScenario, scenarios } from '../demo.mjs';
@@ -170,9 +170,92 @@ test('the settings are judged on every request: a rebuild under a running server
     fs.writeFileSync(path.join(dir, 'config.js'), localConfigText({ apiUrl: 'http://127.0.0.1:57521', anonKey: anonJwt() }));
     assert.match(await cfgAt('/mana/config.js'), /^409 refused: _site\/ was rebuilt for local, not demo/);
     fs.writeFileSync(path.join(dir, 'config.js'), 'not a config');
-    assert.match(await cfgAt('/mana/config.js'), /^409 refused: config\.js is unreadable/);
+    assert.match(await cfgAt('/mana/config.js'), /^409 refused: config\.js assigns the settings but cannot be read/);
     assert.equal(warnings.length, 3);
   } finally { await srv.close(); }
+});
+
+const PROD_CFG = readConfig(path.join(ROOT, 'config.js')), DEMO_TEXT = fs.readFileSync(path.join(ROOT, 'config/demo.js'), 'utf8');
+/** What an answer carries: production's settings (halom-studio's address or production's key), the demo's, or neither. */
+const carries = (b) => (b.includes(PRODUCTION.supabaseUrl.slice(8, 28)) || b.includes(PROD_CFG.supabaseKey) ? 'production' : b.includes(DEMO.supabaseUrl.slice(8, 28)) ? 'demo' : 'neither');
+
+test('the settings are judged by what they hold, not their label: labelled demo but pointing at halom-studio, refused or withheld', async () => {
+  /* a demo build with a wrong config/demo.js leaves this in _site/ when site-env then stops the build */
+  const wrong = DEMO_TEXT.replace(/supabaseUrl: '[^']+'/, `supabaseUrl: '${PRODUCTION.supabaseUrl}'`).replace(/supabaseKey: '[^']+'/, `supabaseKey: '${PROD_CFG.supabaseKey}'`);
+  assert.equal(carries(wrong), 'production');
+  const dir = path.join(tmp, 'label'), warnings = [];
+  writeSite(dir, DEMO_TEXT);
+  const answer = async (srv, p = '/mana/config.js') => { const r = await fetch(srv.origin + p); const b = await r.text(); return `${r.status} ${carries(b)}`; };
+  const demo = await serveSite({ site: dir, port: 0, settings: { expected: 'demo', warn: (l) => warnings.push(l) } });
+  const plain = await serveSite({ site: dir, port: 0 });
+  const live = await serveSite({ site: dir, port: 0, settings: { live: true } });
+  try {
+    assert.deepEqual([await answer(demo), await answer(plain)], ['200 demo', '200 demo']);
+    fs.writeFileSync(path.join(dir, 'config.js'), wrong);
+    assert.equal(await answer(demo), '409 neither', 'a demo server: refused, and not one byte of it');
+    assert.deepEqual(warnings, ['! _site/config.js says demo, but demo points at halom-studio: refused; restart the server after a rebuild']);
+    assert.equal(await answer(plain), '404 neither', 'by default: withheld, as production\'s are');
+    assert.equal(await answer(live), '200 production', 'only --live serves it');
+  } finally { await Promise.all([demo.close(), plain.close(), live.close()]); }
+  /* a local server checks the stack it runs on, key and address */
+  const stack = { apiUrl: 'http://127.0.0.1:57521', anonKey: anonJwt() }, local = path.join(tmp, 'label-local');
+  writeSite(local, localConfigText(stack));
+  const srv = await serveSite({ site: local, port: 0, settings: { expected: 'local', stack, warn: () => {} } });
+  try {
+    assert.equal((await fetch(srv.origin + '/mana/config.js')).status, 200);
+    fs.writeFileSync(path.join(local, 'config.js'), localConfigText({ ...stack, apiUrl: 'http://127.0.0.1:57522' }));
+    assert.equal((await fetch(srv.origin + '/mana/config.js')).status, 409, 'another stack\'s settings');
+  } finally { await srv.close(); }
+});
+
+test('the bytes judged are the bytes sent: config.js replaced in a tight loop under a stream of requests never yields production\'s', async () => {
+  const writer = `const fs = require('node:fs'), path = require('node:path'); const [dir, mode, ms] = process.argv.slice(1);
+    const P = fs.readFileSync(${JSON.stringify(path.join(ROOT, 'config.js'))}), D = fs.readFileSync(${JSON.stringify(path.join(ROOT, 'config/demo.js'))});
+    const c = path.join(dir, 'config.js'), end = Date.now() + Number(ms); let i = 0;
+    while (Date.now() < end) {
+      if (mode === 'rmrf') { fs.rmSync(dir, { recursive: true, force: true }); fs.mkdirSync(dir); fs.writeFileSync(path.join(dir, 'index.html'), 'x'); }
+      else { try { fs.unlinkSync(c); } catch {} }
+      fs.writeFileSync(c, i++ % 2 ? P : D);
+    }`;
+  for (const mode of ['unlink', 'rmrf']) {
+    const dir = path.join(tmp, 'hammer-' + mode); writeSite(dir, DEMO_TEXT);
+    const srv = await serveSite({ site: dir, port: 0, settings: { expected: 'demo', warn: () => {} } });
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 16 }), seen = {};
+    const one = () => new Promise((done) => http.get({ host: '127.0.0.1', port: srv.port, path: '/mana/config.js', agent }, (r) => {
+      let b = ''; r.on('data', (d) => { b += d; });
+      r.on('end', () => { const k = `${r.statusCode} ${carries(b)}`; seen[k] = (seen[k] || 0) + 1; done(); });
+    }).on('error', () => done()));
+    const child = spawn(process.execPath, ['-e', writer, dir, mode, '1500'], { stdio: 'ignore' });
+    const exited = new Promise((ok) => child.on('exit', ok));
+    let running = true; exited.then(() => { running = false; });
+    await Promise.all(Array.from({ length: 16 }, async () => { while (running) await one(); }));
+    agent.destroy(); await srv.close();
+    assert.ok(!Object.keys(seen).some((k) => k.endsWith('production')), `${mode}: ${JSON.stringify(seen)}`);
+    assert.ok(seen['200 demo'] > 0 && seen['409 neither'] > 0, `${mode}: both settings were met: ${JSON.stringify(seen)}`);
+  }
+});
+
+test('a file that holds the settings is judged whatever its name, with config.js gone; small files are sent as read, large ones streamed', async () => {
+  const dir = path.join(tmp, 'names'); writeSite(dir, DEMO_TEXT);
+  const PROD = fs.readFileSync(path.join(ROOT, 'config.js'));
+  const demo = await serveSite({ site: dir, port: 0, settings: { expected: 'demo', warn: () => {} } }), plain = await serveSite({ site: dir, port: 0 });
+  const answer = async (srv, p) => { const r = await fetch(srv.origin + '/mana/' + p); const b = await r.text(); return `${r.status} ${carries(b)}`; };
+  try {
+    fs.rmSync(path.join(dir, 'config.js'));                                     // between a rebuild's rm and its copy
+    fs.writeFileSync(path.join(dir, 'settings.txt'), PROD);
+    fs.writeFileSync(path.join(dir, 'view/settings.json'), PROD);
+    fs.writeFileSync(path.join(dir, 'inline.html'), `<!doctype html><script>${PROD}</script>`);
+    for (const p of ['settings.txt', 'view/settings.json', 'inline.html']) {
+      assert.equal(await answer(demo, p), '409 neither', `demo server: ${p}`);
+      assert.match(await answer(plain, p), /^(404|409) neither$/, `default server: ${p}`);
+    }
+    assert.equal(await answer(plain, 'config.js'), '404 neither');
+    assert.equal(await answer(demo, 'view/index.html'), '200 neither', 'a page that assigns no settings is served');
+    const big = Buffer.alloc(300 * 1024, 7); big.write('the end', big.length - 7);
+    fs.writeFileSync(path.join(dir, 'img/big.mp4'), big);
+    const r = await fetch(demo.origin + '/mana/img/big.mp4', { headers: { range: 'bytes=-7' } });
+    assert.deepEqual([r.status, await r.text()], [206, 'the end'], 'a large film: streamed, with ranges');
+  } finally { await Promise.all([demo.close(), plain.close()]); }
 });
 
 const siteEnv = (dir, env) => spawnSync(process.execPath, [path.join(ROOT, 'tools/site-env.mjs'), dir, env], { encoding: 'utf8' });

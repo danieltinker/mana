@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { envOf, readConfig, readConfigText, ROOT, schemaOf } from './env.mjs';
+import { configProblems, envOf, PRODUCTION, readConfig, readConfigText, ROOT, schemaOf } from './env.mjs';
 
 export const DEFAULT_PORT = 4180;
 const TYPES = {
@@ -34,42 +34,64 @@ const TYPES = {
 /* halom.io's vercel.json sets these for every path, /mana/ and /m/ included */
 const HALOM_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()' };
 
+/* every file this small is read whole, judged and sent from that one reading: a file that assigns the settings is
+   judged whatever its name (a copy of config.js, a page that inlines them, config.js itself between a rebuild's unlink
+   and write). Larger files (films, images) are streamed. */
+const SMALL_FILE = 256 * 1024, ASSIGNS_SETTINGS = /HALOM_MENUS_CONFIG\s*=(?!=)/;
+const sameOrigin = (a, b) => { try { return new URL(a).origin === new URL(b).origin; } catch { return false; } };
+
 /** The settings guard, decided on every request, never once at start: `_site/` can be rebuilt under a running server.
-    A file is the site's settings when it is config.js, a hard link to it (the same inode) or a copy (the same content);
-    it is identified by what it holds now:
-      production's settings  withheld (404), unless `live` (npm run serve -- --live);
-      another environment's than `expected` (the one checked at start)  refused (409), and `warn` says so once.
-    Returns, for a request of `file` (stat `st`): null (not the settings), { code, body } (not served) or { body }. */
-function settingsGuard(root, { expected = null, live = false, warn = (line) => console.error(line) } = {}) {
+    A file is the site's settings when it is config.js, a hard link to it (the same inode), a copy (the same content) or
+    holds a script that assigns HALOM_MENUS_CONFIG; it is identified by what it holds now, read through the very handle
+    the answer is sent from, so the bytes judged are the bytes sent:
+      settings that are not `expected`'s (the environment checked at start: its label, and every check configProblems
+        makes, address and key included)  refused (409), and `warn` says so once;
+      production's settings, by their label or by halom-studio's address  withheld (404), unless `live`;
+      settings it cannot read  refused (409).
+    Returns, for a request of `file` opened as `fd` (fstat `st`): null (a large file that is not the settings: stream
+    it), { code, body } (not served) or { body } (send exactly these bytes). It throws when it cannot tell: fail closed. */
+function settingsGuard(root, { expected = null, live = false, stack = null, warn = (line) => console.error(line) } = {}) {
   const settings = path.join(root, 'config.js'), verdicts = new Map(), warned = new Set();
   const digest = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
-  const judge = (text) => {
-    let env = null; try { env = envOf(readConfigText(text)); } catch { /* unreadable */ }
-    if (!env) return { code: 409, body: 'refused: config.js is unreadable', warn: '! _site/config.js is unreadable: refused' };
+  const withheld = { code: 404, body: 'withheld: a production build\'s settings are served only with --live' };
+  const judge = (text, name) => {
+    let cfg = null; try { cfg = readConfigText(text); } catch { /* unreadable */ }
+    if (!cfg) return { code: 409, body: `refused: ${name} assigns the settings but cannot be read`, warn: `! _site/${name} assigns the settings but cannot be read: refused` };
+    const env = envOf(cfg), production = env === 'production' || sameOrigin(cfg.supabaseUrl, PRODUCTION.supabaseUrl);
     if (expected && env !== expected) {
       return { code: 409, body: `refused: _site/ was rebuilt for ${env}, not ${expected}; restart the server`,
-        warn: `! _site/config.js is now ${env}'s${env === 'production' ? ' (halom-studio, the live database)' : ''}, not the ${expected} build this server checked at start: refused; restart it after a rebuild` };
+        warn: `! _site/${name} is now ${env}'s${env === 'production' ? ' (halom-studio, the live database)' : ''}, not the ${expected} build this server checked at start: refused; restart it after a rebuild` };
     }
-    if (env === 'production' && !live) return { code: 404, body: 'withheld: a production build\'s settings are served only with --live' };
-    return null;
+    const problems = expected ? configProblems(expected, cfg, { stack }) : [];
+    if (problems.length) {
+      return { code: 409, body: `refused: ${name} does not hold the ${expected} settings; restart the server after a rebuild`,
+        warn: `! _site/${name} says ${expected}, but ${problems[0]}: refused; restart the server after a rebuild` };
+    }
+    return production && !live ? withheld : null;
   };
-  return (file, st) => {
-    let cur = null; try { cur = fs.statSync(settings); } catch { /* none now */ }
-    if (!cur) return null;
-    const linked = file === settings || (st.dev === cur.dev && st.ino === cur.ino);
-    if (!linked && st.size !== cur.size) return null;
-    const body = fs.readFileSync(file), id = digest(body);
-    if (!linked && id !== digest(fs.readFileSync(settings))) return null;
-    if (!verdicts.has(id)) verdicts.set(id, judge(body.toString('utf8')));
+  const readAll = (fd, size) => {
+    const buf = Buffer.alloc(size); let got = 0;
+    while (got < size) { const n = fs.readSync(fd, buf, got, size - got, got); if (!n) break; got += n; }
+    return buf.subarray(0, got);
+  };
+  return (file, fd, st) => {
+    let cur = null; try { cur = fs.statSync(settings); } catch { /* none now: a rebuild in progress */ }
+    const named = file === settings, linked = !!cur && st.dev === cur.dev && st.ino === cur.ino;
+    if (!named && !linked && st.size > SMALL_FILE) return null;
+    const body = readAll(fd, st.size), id = digest(body);
+    let copy = false;
+    if (!named && !linked && cur && body.length === cur.size) { try { copy = digest(fs.readFileSync(settings)) === id; } catch { /* gone */ } }
+    if (!named && !linked && !copy && !ASSIGNS_SETTINGS.test(body.toString('latin1'))) return { body };
+    if (!verdicts.has(id)) verdicts.set(id, judge(body.toString('utf8'), path.relative(root, file).split(path.sep).join('/')));
     const v = verdicts.get(id);
-    if (v?.warn && !warned.has(id)) { warned.add(id); warn(v.warn); }
+    if (v?.warn && !warned.has(v.warn)) { warned.add(v.warn); warn(v.warn); }       // each line once, however many versions
     return v ? { code: v.code, body: v.body } : { body };
   };
 }
 
 /** An http.Server for `site`, routed as halom.io routes Mana. It never serves a file whose real path (symbolic links
     resolved) is outside `site`, and a request it cannot make sense of gets a 4xx, never a crash. `settings` configures
-    the settings guard above ({ expected, live, warn }); by default production's settings are withheld. */
+    the settings guard above ({ expected, live, stack, warn }); by default production's settings are withheld. */
 export function createSiteServer({ site, settings = {} }) {
   const root = fs.realpathSync(path.resolve(site));
   const inside = (f) => f === root || f.startsWith(root + path.sep);
@@ -105,27 +127,41 @@ export function createSiteServer({ site, settings = {} }) {
       if (st?.isDirectory()) {
         if (!p.endsWith('/')) return redirect(url.pathname + '/');
         const index = look(path.join(file, 'index.html'));
-        return index?.isFile() ? send(path.join(file, 'index.html'), index) : text(404, 'not found');
+        return index?.isFile() ? send(path.join(file, 'index.html')) : text(404, 'not found');
       }
-      return st?.isFile() ? send(file, st) : text(404, 'not found');
+      return st?.isFile() ? send(file) : text(404, 'not found');
     }
 
-    function send(f, s) {
-      const type = TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream';
-      const held = guard(f, s);
-      if (held?.code) return text(held.code, held.body);
-      if (held) { head(200, { 'Content-Type': type, 'Content-Length': held.body.length }); return res.end(req.method === 'HEAD' ? undefined : held.body); }   // the bytes that were checked
+    /* the file is opened once; its stat, the guard's reading and what is sent all go through that one handle */
+    function send(f) {
+      let fd; try { fd = fs.openSync(f, 'r'); } catch { return text(404, 'not found'); }
+      let streaming = false;
+      try {
+        const s = fs.fstatSync(fd);
+        if (!s.isFile()) return text(404, 'not found');
+        let held;
+        try { held = guard(f, fd, s); } catch { return text(409, 'refused: the settings could not be checked'); }    // fail closed
+        if (held?.code) return text(held.code, held.body);
+        const type = TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream';
+        streaming = deliver(type, held ? { body: held.body } : { fd, size: s.size });    // a body read by the guard: the bytes it checked
+      } finally { if (!streaming) fs.closeSync(fd); }
+    }
+
+    /** Sends `body`, or streams the opened `fd` of `size` bytes, with byte ranges; true when a stream now owns `fd`. */
+    function deliver(type, { body = null, fd, size = body.length }) {
       const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
-      let start = 0, end = s.size - 1, code = 200;
+      let start = 0, end = size - 1, code = 200;
       if (range && (range[1] || range[2])) {
-        if (range[1] === '') start = Math.max(0, s.size - Number(range[2]));
+        if (range[1] === '') start = Math.max(0, size - Number(range[2]));
         else { start = Number(range[1]); if (range[2] !== '') end = Math.min(end, Number(range[2])); }
-        if (start > end || start >= s.size) { head(416, { 'Content-Range': `bytes */${s.size}` }); return res.end(); }
+        if (start > end || start >= size) { head(416, { 'Content-Range': `bytes */${size}` }); res.end(); return false; }
         code = 206;
       }
-      head(code, { 'Content-Type': type, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', ...(code === 206 ? { 'Content-Range': `bytes ${start}-${end}/${s.size}` } : {}) });
-      if (req.method === 'HEAD' || s.size === 0) return res.end();
-      fs.createReadStream(f, { start, end }).on('error', () => res.destroy()).pipe(res);
+      head(code, { 'Content-Type': type, 'Content-Length': end - start + 1, 'Accept-Ranges': 'bytes', ...(code === 206 ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}) });
+      if (req.method === 'HEAD' || size === 0) { res.end(); return false; }
+      if (body) { res.end(body.subarray(start, end + 1)); return false; }
+      fs.createReadStream(null, { fd, start, end, autoClose: true }).on('error', () => res.destroy()).pipe(res);
+      return true;
     }
   });
 }
@@ -185,6 +221,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const s = await serveSite({ site, port: a.port ? Number(a.port) : DEFAULT_PORT, host: a.host || '127.0.0.1', settings: { expected: envOf(cfg), live: !!a.live } });
     console.log(`serving ${path.relative(ROOT, site) || '.'} as halom.io would; Ctrl-C stops it`);
     console.log(`settings: ${envOf(cfg)} (${cfg.supabaseUrl}, schema ${schemaOf(cfg)})`);
+    const problems = configProblems(envOf(cfg), cfg);
+    if (problems.length) console.log(`! config.js says ${envOf(cfg)}, but ${problems.join('; ')}: it is refused, so pages run without settings. Rebuild (bash tools/build-site.sh).`);
     if (guarded) {
       console.log('! a production build: its settings point at halom-studio, the live database. config.js is withheld, so no page');
       console.log('  can reach it; only the in-build demo works. --live serves the build whole (never as an agent).');
