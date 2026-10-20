@@ -6,34 +6,25 @@
 //   const page = await e.page();                         // a phone-sized page on the web server
 //   … await e.stop();
 //
-// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, with a generated config.js that
-// points the apps at the local stack; without a build it serves only /mana/e2e/blank.html (enough for the smoke test).
+// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, and /m/<slug> as the guest menu
+// (the short links the apps make), with a generated config.js that points the apps at the local stack; without a
+// build it serves only /mana/e2e/blank.html (enough for the smoke test).
 // The browser may reach 127.0.0.1 only (no proxy; every other host fails to resolve).
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { loadSeed, readSeed, SEEDS } from '@mana/sim';
 import { startStack } from '@mana/sim/stack';
 import { startStatic } from '@mana/sim/stack/gateway';
+import { localConfigText } from '../tools/env.mjs';
+import { ARGS, CHROME, playwright } from '../tools/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 export const OUT = path.join(HERE, '.out');
-export const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+export { CHROME, playwright };
 export const PHONE = { width: 390, height: 844 };
 export const PREFIX = '/mana/';
-const ARGS = ['--no-sandbox', '--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost',
-  '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-pings'];
-
-/** playwright-core, found the way the apps' browser tests find it: this workspace, the apps' installs, the machine's tools. */
-export function playwright() {
-  const tries = [import.meta.url, path.join(ROOT, 'apps/ops/package.json'), path.join(ROOT, 'apps/studio/package.json'), '/opt/npm-tools/node_modules/'];
-  for (const from of tries) {
-    try { return createRequire(from)('playwright-core'); } catch { /* next */ }
-  }
-  throw new Error('playwright-core not found (npm ci at the root installs it for apps/ops and apps/studio)');
-}
 
 export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site') } = {}) {
   const stack = await startStack({ ports: 'auto' });
@@ -45,10 +36,9 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
   };
   try {
     const venue = seed ? await loadSeed(stack, readSeed(path.join(SEEDS, `${seed}.json`)).seed) : null;
-    const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ supabaseUrl: stack.apiUrl, supabaseKey: stack.anonKey, shortBase: `http://127.0.0.1:${stack.ports.web}/m/`,
-      shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false } }, null, 2)};\n`;
+    const config = localConfigText({ apiUrl: stack.apiUrl, anonKey: stack.anonKey });      // the local settings, as npm run dev:local writes them
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
-    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {},
+    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {}, shortLinks: true,
       virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>' } });
     browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: ARGS });
     fs.mkdirSync(OUT, { recursive: true });

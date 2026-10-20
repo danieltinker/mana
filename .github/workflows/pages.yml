@@ -2,6 +2,7 @@
 # https://danieltinker.github.io/mana/, which halom.io serves at /mana/ and /m/<name>.
 # A push to main is therefore a release: it changes every restaurant's menu.
 # Repository settings: Pages → Build and deployment → Source: "GitHub Actions". Custom domain: empty.
+# Each action is pinned to the commit its release tag named on 16 Oct 2026 (the tag is in the comment).
 name: Publish Mana
 
 on:
@@ -23,16 +24,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: package-lock.json
+      # production's settings only (config.js: halom-studio); demo and local builds are never published, and the build
+      # refuses them under GitHub Actions (docs/environments.md)
       - name: Build the site
         run: bash tools/build-site.sh
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+        env:
+          MANA_ENV: production
+      - name: Check that what is published is production's
+        run: node tools/site-env.mjs _site production
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: _site
 
@@ -48,4 +55,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

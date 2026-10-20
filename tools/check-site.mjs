@@ -12,13 +12,18 @@
        instagram.com, tiktok.com, x.com, facebook.com, github.com/danieltinker, mailto:, tel:. Scripts are covered at run
        time by brand/tools/test-site.mjs (the page asks only its own host and Supabase).
    (c) Secrets: no sb_secret_, service_role, -----BEGIN (a private key) or .env content (a file named .env*, or a line
-       that assigns a SUPABASE_/HALOM_/…_SECRET/…_KEY variable) anywhere in _site.
+       that assigns a SUPABASE_/HALOM_/…_SECRET/…_KEY variable) anywhere in _site. Every JWT is decoded: the only one a
+       site may hold is the simulator's anon key (verified with its local-only secret), on config.js's key line of a
+       local build (config.js says env 'local' and points at this machine); any other JWT anywhere is a breach.
    (d) gitleaks: when `gitleaks` is on PATH (or $GITLEAKS names it), `gitleaks dir _site` runs with the repository's
-       .gitleaksignore; absent (as in CI) it is skipped and said so. */
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+       .gitleaks.toml and .gitleaksignore (plus that one line of a local build); absent (as in CI) it is skipped and
+       said so. */
+import { readFileSync, existsSync, statSync, readdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, dirname, join, relative, basename } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { envOf, isLocalAnonKey, isLoopback, jwtRole, keyLine, readConfig } from './env.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = resolve(process.argv[2] || '_site');
@@ -95,11 +100,25 @@ function css(f, s, base) {
 notes.push('(b) ' + loads + ' loads and ' + links + ' links read in HTML and CSS' + (supabase ? '; Supabase origin ' + supabase : ''));
 
 /* (c) secrets */
+/* a local build (npm run dev:local) carries the simulator's anon key, a JWT signed with its local-only secret, on
+   config.js's key line: allowed there only, and only while config.js says local, points at this machine and holds that key */
+const localKeyLine = (() => {
+  const f = join(SITE, 'config.js'); if (!existsSync(f)) return 0;
+  let cfg; try { cfg = readConfig(f); } catch (e) { return 0; }
+  return envOf(cfg) === 'local' && isLoopback(cfg.supabaseUrl) && isLocalAnonKey(cfg.supabaseKey) ? keyLine(readFileSync(f, 'utf8')) : 0;
+})();
 for (const f of files) if (/^\.env($|\.)/.test(basename(f))) breaches.push('(c) a .env file is in the site: ' + rel(f));
 for (const f of text) {
   const s = readFileSync(f).toString();
   for (const [re, what] of [[/sb_secret_[A-Za-z0-9_-]+/, 'a Supabase secret key'], [/service_role/, 'service_role'], [/-----BEGIN [A-Z ]*(PRIVATE|RSA|EC|OPENSSH|PGP)[A-Z ]*-----/, 'a private key block'], [/^\s*(export\s+)?(SUPABASE|HALOM|MENUS|MANA|GROW|PAYPLUS|OPENAI|GEMINI|ANTHROPIC|AWS|GCP|GOOGLE)_[A-Z0-9_]*(SECRET|KEY|TOKEN|PASSWORD)[A-Z0-9_]*\s*=\s*\S+/m, '.env-style secret assignment']]) {
     const m = s.match(re); if (m) breaches.push('(c) ' + what + ' in ' + rel(f) + ':' + lineOf(s, m.index));
+  }
+  /* every JWT: the only one a site may hold is the simulator's anon key (a local build), verified with its local secret */
+  for (const m of s.matchAll(/eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g)) {
+    const role = jwtRole(m[0]), at = lineOf(s, m.index), where = `${rel(f)}:${at}`;
+    if (role !== 'anon') breaches.push(`(c) a JWT with the role ${role ?? '(none)'} in ${where}`);
+    else if (!isLocalAnonKey(m[0])) breaches.push(`(c) an anon JWT that is not the simulator's local key in ${where}`);
+    else if (!(rel(f) === 'config.js' && at === localKeyLine)) breaches.push(`(c) the simulator's local key outside config.js's key line of a local build, in ${where}`);
   }
 }
 
@@ -108,11 +127,19 @@ for (const f of text) {
   const which = process.env.GITLEAKS || (spawnSync('which', ['gitleaks']).stdout || '').toString().trim();
   if (!which || !existsSync(which)) notes.push('(d) gitleaks is not on PATH: skipped (run it locally before a hand-off)');
   else {
-    /* run from inside _site on ".", so a finding's fingerprint is "config.js:generic-api-key:4", the form .gitleaksignore
-       names for the publishable key (an absolute path would not match the ignore file) */
-    const ignore = join(ROOT, '.gitleaksignore'), args = ['dir', '.', '--no-banner', '--exit-code', '1', '--redact', '-v'];
-    if (existsSync(ignore)) args.push('--gitleaks-ignore-path', ROOT);
+    /* the repository's .gitleaks.toml (the default rules; publishable keys allowed by their value); run from inside _site
+       on ".", so a finding's fingerprint is "config.js:<rule>:<line>", the form an ignore file names */
+    const ignore = join(ROOT, '.gitleaksignore'), toml = join(ROOT, '.gitleaks.toml'), args = ['dir', '.', '--no-banner', '--exit-code', '1', '--redact', '-v'];
+    if (existsSync(toml)) args.push('--config', toml);
+    let ignoreDir = existsSync(ignore) ? ROOT : null;
+    if (localKeyLine) {                                    // the simulator's key on config.js's key line of a local build, as (c)
+      ignoreDir = mkdtempSync(join(tmpdir(), 'mana-gitleaks-'));
+      writeFileSync(join(ignoreDir, '.gitleaksignore'), (existsSync(ignore) ? readFileSync(ignore, 'utf8') : '') + `\nconfig.js:jwt:${localKeyLine}\n`);
+      notes.push('(d) a local build: the simulator\'s local key on config.js\'s key line is allowed');
+    }
+    if (ignoreDir) args.push('--gitleaks-ignore-path', ignoreDir);
     const r = spawnSync(which, args, { encoding: 'utf8', cwd: SITE });
+    if (ignoreDir && ignoreDir !== ROOT) rmSync(ignoreDir, { recursive: true, force: true });
     const out = (r.stdout || '') + (r.stderr || '');
     if (r.status === 0) notes.push('(d) gitleaks dir: no leaks (' + (out.match(/scanned[^\n]*/) || [''])[0].trim() + ')');
     else if (r.status === 1) { breaches.push('(d) gitleaks found leaks in _site:'); out.split('\n').filter((l) => /Finding|File:|Line:|RuleID|Fingerprint/.test(l)).forEach((l) => breaches.push('    ' + l.trim())); }

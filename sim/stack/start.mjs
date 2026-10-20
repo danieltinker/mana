@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { locateBinaries, ROOT } from './binaries.mjs';
 import { startGateway } from './gateway.mjs';
-import { signJwt } from './jwt.mjs';
+import { JWT_SECRET, signJwt } from './jwt.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS = path.join(ROOT, 'supabase/migrations');
@@ -31,8 +31,9 @@ const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const asPg = (cmd, args) => (isRoot ? ['runuser', ['-u', OSUSER, '--', cmd, ...args]] : [cmd, args]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// LOCAL ONLY. Never a project's secret: it signs the stack's own anon and service keys and GoTrue's sessions.
-export const JWT_SECRET = 'sim-local-only-secret-not-for-any-project-0123456789';
+// The stack's local-only JWT secret lives in jwt.mjs (no dependencies, so the site tools can check the local key
+// without loading the stack); it is exported from here too, as before.
+export { JWT_SECRET };
 // The demo caps the architect's schema gives demo venues (app_config.event_caps_demo); used locally when the
 // migrations on this branch do not have that key yet (stack.notes says so).
 const DEMO_CAPS = { per_source_hour: 100000, per_venue_source_day: 1000000, per_venue_day: 1000000 };

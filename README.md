@@ -45,7 +45,8 @@ apps moved into `apps/` (15 Oct 2026): the build still serves them at `/mana/vie
 | `packages/` | Shared packages: `packages/contracts` (`@mana/contracts`: the domain types, the menu snapshot v2, the events contract, their validators, pricing, availability and upsell) | `cd packages/contracts && npm test` |
 | `supabase/` | The clean schema for the Supabase project `mana`: migrations, the synthetic seed, database tests on a throwaway PostgreSQL 16 | `cd supabase && npm test` |
 | `brand/site/` | The product page, the photo guide, privacy and terms, with their pictures, films and fonts | `/mana/`, `/mana/guide/`, `/mana/privacy/`, `/mana/terms/` |
-| `config.js` | The published settings | `/mana/config.js` |
+| `config.js` | The published settings (production) | `/mana/config.js` |
+| `config/` | The demo's settings (`demo.js`); on a machine, the generated local ones (`local.js`, git-ignored) | `/mana/config.js` of a demo or local build |
 | `brand/` | The mark, print, social frames, and the film and poster tools (`brand/tools/`, including The Lift) | build-time only |
 | `gen/` | The relief generator that runs in the owner's browser (two Apache-2.0 models), with its models and runtime | `/mana/gen/` |
 | `stock/` | The placeholder picture library, its pictures and its tools | `/mana/stock/` |
@@ -57,7 +58,8 @@ apps moved into `apps/` (15 Oct 2026): the build still serves them at `/mana/vie
 | `db/` | SQL migrations for the Supabase project; `db/proposed/` holds changes Daniel has not applied | — |
 | `functions/` | Supabase edge functions: `menus-ai` (the menu scanner) and `menus-signup` (an owner's sign-up) | — |
 | `base/`, `base-artifact/` | The first hologram-menu engine, kept for reference | — |
-| `tools/` | The site build (`build-site.sh`), its budgets and checks, and `test-all.mjs` (every suite in turn) | — |
+| `tools/` | The site build (`build-site.sh`), its budgets and checks, `test-all.mjs` (every suite in turn), the environments (`env.mjs`, `demo.mjs`, `dev-local.mjs`, `serve-site.mjs`) and their guard (`check-config.mjs`) | — |
+| `docs/` | The environments, and the separation checklist | — |
 
 ### To move later
 
@@ -87,6 +89,9 @@ npm run test:fast           # types, units, contracts, the schema's database tes
 npm test                    # every suite, one at a time, browser ones included (about 40 min); logs in test-results/
 npm run check               # type checks, every workspace that has a `check` script
 npm run build               # = bash tools/build-site.sh
+npm run demo                # the site with the demo settings (the database `mana`), served at 127.0.0.1:4180/mana/
+npm run dev:local           # Linux x64: the simulator's stack with Café Demo, the site built against it and served
+                            # (the environments, and what never to do in each: docs/environments.md)
 
 cd apps/view   && npm test && npm run test:browser   # npm run serve → http://localhost:8787/m/olea
 cd apps/studio && npm run check && npm run test:unit # npm run stack starts a local backend; then npm run test:e2e
@@ -110,11 +115,15 @@ no halom.io deploy. To see the result first:
 
 ```bash
 bash tools/build-site.sh       # builds the whole site into _site/, exactly as the workflow does
-npx serve _site                # then open /view/?demo=olea, /studio/, /ops/ (paths without the /mana prefix)
+npm run serve                  # serves _site/ as halom.io does: 127.0.0.1:4180/mana/, /m/<name>
 ```
 
-`config.js` at the root holds the Supabase address, the publishable key, the short-link base and the feature
-switches. It is shipped as it is.
+A production build talks to halom-studio, so `npm run serve` withholds its `config.js` and offers only the in-build
+demo (`/mana/view/?demo=olea`); `npm run serve -- --live` serves it whole (`docs/environments.md`).
+
+`config.js` at the root holds production's Supabase address, the publishable key, the short-link base and the feature
+switches. It is shipped as it is. The demo's settings are `config/demo.js`; `MANA_ENV` picks them
+(`docs/environments.md`). What Mana depends on outside this repository is `docs/separation-checklist.md`.
 
 The `pages` branch is the copy that was served on 12–13 Oct, before the workflow existed. Nothing updates it any more.
 It stays as a fallback: Pages → Source "Deploy from a branch" → `pages`.
