@@ -244,7 +244,7 @@ function Timeline({ detail, nameOf }: { detail: OpsVenueDetail; nameOf: NameOf }
   const [fail, setFail] = useState<Fail | null>(null);
   const t = useMemo(() => timeline([...detail.activity, ...(older?.entries ?? [])]), [detail.activity, older]);
   const days = timelineDays(t.items, kind);
-  const oldest = t.items.at(-1)?.id ?? null;
+  const oldest = t.items[t.items.length - 1]?.id ?? null;      // not .at(-1): iOS before 15.4 has no Array.prototype.at
   const more = older ? older.next !== null : detail.activity.length >= ACTIVITY_PAGE_MAX;
   const showOlder = async () => {
     if (oldest === null || busy) return;

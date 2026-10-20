@@ -314,7 +314,8 @@ export function describe(e: ActivityEntry, nameOf: NameOf = () => null): Said {
     case 'menu.read': return { title: 'Halom read a stored menu', detail: num(d.revision) !== null ? `Revision ${num(d.revision)}` : null };
     case 'support.act_for_owner': {
       const a = str(d.action);
-      return { title: 'Halom acted for the owner', detail: a && Object.hasOwn(ACT_LABEL, a) ? ACT_LABEL[a as keyof typeof ACT_LABEL] : a };
+      // hasOwnProperty, not Object.hasOwn: iOS before 15.4 has no Object.hasOwn
+      return { title: 'Halom acted for the owner', detail: a && Object.prototype.hasOwnProperty.call(ACT_LABEL, a) ? ACT_LABEL[a as keyof typeof ACT_LABEL] : a };
     }
     case 'upsell_rules.deactivated': return { title: `Suggestion rule${e.n > 1 ? 's' : ''} switched off${many}`, detail: 'Its dish or section is gone' };
     case 'venue.set_demo': return { title: d.demo === true ? 'Marked as a demo venue' : d.demo === false ? 'Marked as a real venue' : 'Demo label changed', detail: null };
