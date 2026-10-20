@@ -61,7 +61,9 @@ describe('the inputs\' validators', () => {
         body: [...ANY, 'x'.repeat(4000), 'x'.repeat(4001)], allowAct: ANY, id: [...ANY, V, V.toUpperCase(), 'a'.repeat(36)] }));
     await compareValidator(w.admin, 'app.validate_update_case', validateUpdateCase, inputs(
       { caseId: D, status: 'resolved', topic: 'menu', reason: 'Prices fixed with the owner' },
-      { caseId: ids, status: [...ANY, 'closed', 'open', 'waiting_owner'], topic: [...ANY, 'billing', 'photos'], reason: reasons }));
+      { caseId: ids, status: [...ANY, 'closed', 'open', 'waiting_owner'], topic: [...ANY, 'billing', 'photos'], reason: reasons,
+        expectedUpdatedAt: [...ANY, '2026-10-20T08:00:00.123456+00:00', '2026-10-20T08:00:00Z', '2026-02-30T08:00:00Z', '2026-10-20 08:00:00',
+          '2026-10-20T24:00:00Z', '2026-10-20T08:00:00.1234567Z', '2026-10-20T08:00:00+16:00'] }));
   });
 
   test('venue_activity, my_dashboard, ops_set_demo', async () => {

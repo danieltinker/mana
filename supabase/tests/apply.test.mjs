@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
 import { planApply } from '../../packages/contracts/src/index.ts';
-import { bistroDraft, copy, dish } from '../../packages/contracts/test/import-fixtures.ts';
+import { bistroDraft, copy, dish, draftOf, group, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
 let V;
@@ -197,6 +197,39 @@ describe('apply_import', () => {
     const no = await apply(O2, await parsed(third, O2, at), third, { ...DEC, choices: { 'opens_changed@o-cheese>g-sauce': 'new_group' } });
     assert.deepEqual([no.code, no.errors], ['plan_invalid', [{ code: 'opener_qty', path: 'o-cheese>g-sauce', message: 'opens_changed' }]]);
     assert.deepEqual(await counts(V2), before);
+  });
+
+  test('QA r6-hopa: an owner\'s skip holds on re-import; the same draft with the same answers, applied twice, changes nothing the second time', async () => {
+    const O3 = '55555555-5555-4555-8555-5555555555a3';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-owner-3@example.invalid', now())`, [O3]);
+    const V3 = (await rpc(w.url, O3, 'create_venue', { p_slug: 'apply-hopa', p_name_he: 'מסעדה', p_name_en: 'Apply Hopa' })).id;
+    // two groups named Extras; the owner leaves Rice out of the second, which can then no longer reach its stated
+    // minimum of 2, and answers limits_unreachable: skip
+    const d = draftOf([section('s', 'עיקריות', 'Mains', [
+      dish('d-burger', 'המבורגר', 'Burger', 6200, { groups: [link('g-a')] }),
+      dish('d-steak', 'סטייק', 'Steak', 9800, { groups: [link('g-b')] }),
+    ])], [
+      group('g-a', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
+      group('g-b', 'תוספות', 'Extras', { selection: 'multiple', min: 2, max: 2, options: [opt('b1', 'אורז', 'Rice', 0), opt('b2', 'סלט', 'Salad', 0)] }),
+    ]);
+    const answers = { v: 1, pricesConfirmed: true, choices: { 'limits_unreachable@g-b': 'skip' }, skip: ['b1'] };
+    const linksOf = async (name) => (await w.admin.query(`select g.name_en, (select string_agg(o.name_en, '/' order by o.position) from public.addon_options o where o.group_id = g.id) as opts
+      from public.dish_addon_groups l join public.dishes x on x.id = l.dish_id join public.addon_groups g on g.id = l.group_id where l.venue_id = $1 and x.name_en = $2`, [V3, name])).rows;
+    for (const round of [1, 2]) {
+      const want = planApply(d, await existingOf(V3), answers);
+      assert.equal(want.ok, true, JSON.stringify(want.errors));
+      const before = await counts(V3);
+      const r = await apply(O3, await parsed(d, O3, () => V3), d, answers);
+      assert.equal(r.ok, true, JSON.stringify(r));
+      assert.deepEqual(r.plan, JSON.parse(JSON.stringify(want.value)), `round ${round}: the database plans what the contracts plan`);
+      assert.ok(r.plan.exceptions.some((e) => e.code === 'limits_unreachable' && e.key === 'g-b' && e.choice === 'skip'), `round ${round}: the skip is asked and kept`);
+      if (round === 2) {
+        assert.deepEqual(r.plan.steps.filter((x) => x.op === 'create' || x.op === 'update').map((x) => `${x.kind}:${x.key}`), [], 'nothing created or changed');
+        assert.deepEqual(await counts(V3), before);
+      }
+      assert.deepEqual(await linksOf('Steak'), [], `round ${round}: the steak's Extras stays out`);
+      assert.deepEqual(await linksOf('Burger'), [{ name_en: 'Extras', opts: 'Fries/Salad' }]);
+    }
   });
 
   test('the summary counts the skipped steps by reason, every reason present', async () => {

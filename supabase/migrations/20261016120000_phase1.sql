@@ -711,7 +711,11 @@ create function app.validate_update_case(p jsonb) returns jsonb language plpgsql
 declare errs jsonb;
 begin
   if jsonb_typeof(p) is distinct from 'object' then return app.issue('type', ''); end if;
-  errs := app.v_only_keys(p, array['caseId', 'status', 'topic', 'reason']) || app.v_uuid_at(p->'caseId', 'caseId');
+  errs := app.v_only_keys(p, array['caseId', 'status', 'topic', 'reason', 'expectedUpdatedAt']) || app.v_uuid_at(p->'caseId', 'caseId');
+  -- the case's version as staff read it (absent or null: no check), a time PostgreSQL reads
+  if p ? 'expectedUpdatedAt' and not app.js_null(p->'expectedUpdatedAt') and app.js_instant_exact(p->'expectedUpdatedAt') is null then
+    errs := errs || app.issue('time_invalid', 'expectedUpdatedAt');
+  end if;
   if p ? 'status' and not app.one_of(p->'status', array['open', 'waiting_owner', 'waiting_halom', 'resolved']) then errs := errs || app.issue('enum_invalid', 'status'); end if;
   if p ? 'topic' and not app.one_of(p->'topic', array['onboarding', 'import', 'menu', 'photos', 'account', 'other']) then errs := errs || app.issue('enum_invalid', 'topic'); end if;
   if not (p ? 'status') and not (p ? 'topic') then errs := errs || app.issue('nothing_to_change', ''); end if;
@@ -1709,7 +1713,7 @@ declare
   v_key text; v_lk text; v_tk text; v_nested text; v_ok text; v_ek text; v_path text; v_q text; v_reason text; v_top text; v_first text;
   v_gk text; v_root text; v_cur text; v_group_price text; v_adding boolean; v_at_upload boolean; v_at text; v_landed jsonb;
   v_link_list jsonb[] := '{}'; v_pass jsonb; v_tie jsonb := '{}'; v_merged_links jsonb := '{}'; v_lkeys jsonb; v_sel jsonb; v_new boolean;
-  v_created_used jsonb := '{}';
+  v_created_used jsonb := '{}'; v_claimed_rows jsonb := '{}'; v_claimed_row boolean;
 begin
   -- ---- 1. the draft's answers, in one pass (as plan_ask answers each: a fix without an answer, or an answer the
   -- exception does not allow, is an error at its key, in the exceptions' order)
@@ -1796,7 +1800,10 @@ begin
       select coalesce(jsonb_agg(x order by i), '[]') into v_kept_opts from jsonb_array_elements(v_g->'options') with ordinality t(x, i) where not v_skipped ? (x->>'key');
       v_lim := app.draft_group_limits(v_g->>'selection', v_g->'min', v_g->'max', v_kept_opts);
       continue when (v_lim->>'min')::integer <= (v_lim->>'capacity')::integer;
-      continue when app.plan_global_match(v_group_keys->v_gk, v_g->'selection',
+      -- the owner's skip counts whatever the venue has (the same draft and answers leave the same groups out on a
+      -- re-import that finds the group the first import made); otherwise only a group with no global match is asked
+      continue when (p_decisions->'choices'->('limits_unreachable@' || v_gk)) is distinct from '"skip"'::jsonb
+        and app.plan_global_match(v_group_keys->v_gk, v_g->'selection',
         (select coalesce(jsonb_agg(jsonb_build_object('key', x->>'key', 'keys', app.keys_of(x->'name'->>'he', x->'name'->>'en'))), '[]')
          from jsonb_array_elements(v_kept_opts) x), v_ex_groups, v_options_of) is not null;
       v_pass := v_pass || to_jsonb(v_gi);
@@ -2106,8 +2113,11 @@ begin
         end if;
         if v_own is not null then
           v_c := null;
-          if not v_cover ? (v_gk || '|' || (v_own->'y'->>'id')) then v_cover := v_cover || jsonb_build_object(v_gk || '|' || (v_own->'y'->>'id'), app.plan_cover(v_option_nodes->v_gk, v_options_of->(v_own->'y'->>'id'))); end if;
-          if (select count(*) from jsonb_object_keys(v_cover->(v_gk || '|' || (v_own->'y'->>'id')))) <> jsonb_array_length(v_option_nodes->v_gk) then
+          -- a dish's link row that an earlier link of the same dish already stays on: asked nothing (merged in rule 12)
+          v_claimed_row := v_claimed_rows ? ((v_d->>'key') || '|' || (v_own->'l'->>'id'));
+          v_claimed_rows := v_claimed_rows || jsonb_build_object((v_d->>'key') || '|' || (v_own->'l'->>'id'), true);
+          if not v_claimed_row and not v_cover ? (v_gk || '|' || (v_own->'y'->>'id')) then v_cover := v_cover || jsonb_build_object(v_gk || '|' || (v_own->'y'->>'id'), app.plan_cover(v_option_nodes->v_gk, v_options_of->(v_own->'y'->>'id'))); end if;
+          if not v_claimed_row and (select count(*) from jsonb_object_keys(v_cover->(v_gk || '|' || (v_own->'y'->>'id')))) <> jsonb_array_length(v_option_nodes->v_gk) then
             select a.c, a.choice, a.errs, a.rec into v_c, v_choice, v_errs, v_rec
             from app.plan_ask(v_choice, v_errs, 'group_changed', v_lk, format('%s.groups[%s]', v_dish_path->>(v_d->>'key'), v_ak), 1, p_decisions) a;
             if v_rec is not null then v_plan_asked := v_plan_asked || jsonb_build_array(jsonb_build_object('e', v_rec, 'step', 'dish_group:' || v_lk)); end if;
@@ -2675,7 +2685,11 @@ declare after_at timestamptz; after_id uuid;
 begin
   if not app.is_service() then raise exception 'not_allowed' using errcode = '42501'; end if;
   if p_after is not null and p_after <> 'null'::jsonb then
-    if jsonb_typeof(p_after) <> 'object' or not app.uuid_ok(p_after->'importId') then raise exception 'cursor_invalid' using errcode = '22023'; end if;
+    -- exactly {finishedAt, importId} (the contracts' PurgeCursor)
+    if jsonb_typeof(p_after) <> 'object' or not app.uuid_ok(p_after->'importId') or not p_after ? 'finishedAt'
+       or (select count(*) from jsonb_object_keys(p_after)) <> 2 then
+      raise exception 'cursor_invalid' using errcode = '22023';
+    end if;
     after_at := app.js_instant_exact(p_after->'finishedAt');
     if after_at is null then raise exception 'cursor_invalid' using errcode = '22023'; end if;
     after_id := (p_after->>'importId')::uuid;
