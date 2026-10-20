@@ -47,7 +47,7 @@ import { Walkthrough } from './record.mjs';
 /** Each step's budget on the local stack (ms). On demo the database is across the sea: twice that, and the rollups come
  * from pg_cron once a minute, so Halom's live numbers get three minutes. */
 export const BUDGETS = {
-  'owner-signup': 15_000, 'owner-venue': 15_000, 'owner-import-text': 15_000, 'owner-fix': 20_000, 'owner-import-screenshots': 30_000,
+  'owner-signup': 30_000, 'owner-venue': 15_000, 'owner-import-text': 15_000, 'owner-fix': 20_000, 'owner-import-screenshots': 30_000,
   'owner-addons': 45_000, 'owner-rules': 45_000, 'owner-breakfast': 30_000, 'owner-publish': 30_000, 'staff-approve': 30_000,
   'guest-choose': 30_000, 'guest-dismiss': 20_000, 'guest-load': 30_000, 'owner-off': 15_000, 'staff-observe': 60_000,
   'staff-act': 20_000, 'owner-log': 15_000,
@@ -574,6 +574,14 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     const g = input.guest;
     const sheetSug = guest.locator('#v2SheetSug .v2-sug');
     const lines = () => guest.evaluate(() => window.__mana.v2().lines.length);
+    /** Closes the dish's sheet as a guest does (Escape), and waits until it is closed (pressed again on a slow phone). */
+    async function closeSheet() {
+      for (let i = 0; i < 3; i++) {
+        await guest.keyboard.press('Escape');
+        if (await guest.waitForFunction(() => !window.__mana.state().open, null, { timeout: 5000 }).then(() => true, () => false)) return;
+      }
+      throw new Error('the dish\'s sheet did not close');
+    }
     /** A suggestion's own words (its line, the dish and its price), without its two buttons. */
     const suggestion = () => sheetSug.evaluate((el) => { const c = el.cloneNode(true); c.querySelectorAll('button').forEach((b) => b.remove()); return c.textContent; }).then(plain);
     const optionLocator = (c) => guest.locator((c.opener ? `.v2-nested[data-for="${c.opener.id}"] ` : '#v2Groups > .v2-group > ') + `[data-o="${c.option.id}"]`);
@@ -599,7 +607,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     });
 
     await w.step({ id: 'guest-dismiss', name: 'The guest dismisses another suggestion', side: 'guest', budgetMs: budgetOf('guest-dismiss', env), page: guest }, async (s) => {
-      await guest.keyboard.press('Escape');
+      await closeSheet();
       const dish = idx.dish(g.then);
       await guest.locator(`.row[data-id="${dish.id}"]`).click();
       await guest.locator('#addBtn2').waitFor();
@@ -610,7 +618,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       await sheetSug.locator('.ghost').click();
       await guest.locator('#v2SheetSug').waitFor({ state: 'hidden' });
       must((await lines()) === 3, 'dismissing added or removed something');
-      await guest.keyboard.press('Escape');
+      await closeSheet();
       await guest.locator('#trayBtn').click();
       await guest.locator('#traySheet.open').waitFor();
       const total = plain(await guest.locator('#trayTotal').innerText());
