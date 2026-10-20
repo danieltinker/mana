@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
+  SCAN_IMAGE_CAPS, type ClaimScanReply,
 } from '../src/import.ts';
 import { instantMs } from '../src/events.ts';
 import { REVISION_MAX, validateActForOwner, validateApproveVenue } from '../src/staff.ts';
@@ -397,4 +398,30 @@ test('QA-M2 (r6-hopa.ts, fuzz6 seed 615767102): the owner\'s skip of an unreacha
   const c1 = applyPlan(EMPTY_MENU, plan(d, EMPTY_MENU, clamp));
   const c2 = plan(d, c1, clamp);
   assert.deepEqual(c2.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), []);
+});
+
+// ---------------------------------------------------------------- round 8 (the backend's report on 6f43be7)
+
+test('round 8: a section merged into a section left out takes its dishes, their links and photos with it (no throw)', () => {
+  const d = draftOf([
+    section('s1', 'עיקריות', 'Mains', [dish('d1', 'סטייק', 'Steak', 9000)]),
+    section('s2', 'עיקריות', 'Mains', [dish('d2', 'המבורגר', 'Burger', 7000, { groups: [link('g')], photo: { path: 'v/imports/i/burger.jpg', rights: 'confirmed' } })]),
+  ], [group('g', 'תוספת', 'Side', { options: [opt('o1', 'צ׳יפס', 'Fries', 0)] })], { source: 'wolt_screenshots' });
+  for (const m of [EMPTY_MENU, applyPlan(EMPTY_MENU, plan(d, EMPTY_MENU, yes({ 'section_duplicate@s2': 'merge' })))]) {
+    const p = plan(d, m, yes({ 'section_duplicate@s2': 'merge' }, ['s1']));
+    assert.deepEqual(p.steps.filter((s) => s.kind !== 'group' && s.kind !== 'option').map(brief),
+      ['section:s1:skip(choice)', 'section:s2:skip(merged)', 'dish:d1:skip(parent_skipped)', 'dish:d2:skip(parent_skipped)',
+        'dish_group:d2>g:skip(parent_skipped)', 'photo:d2:skip(parent_skipped)']);
+    assert.equal(brief(step(p, 'group', 'g')), 'group:g:skip(unused)');
+  }
+});
+
+test('round 8: claim_import_scan as built: the images it charged, and the cap a refusal names', () => {
+  assert.deepEqual([...SCAN_IMAGE_CAPS], ['scan_images_per_venue_day', 'scan_images_per_user_day', 'scan_images_per_day']);
+  const ok: ClaimScanReply = {
+    ok: true, importId: '00000000-0000-4000-8000-0000000000e9', venueId: '00000000-0000-4000-8000-0000000000c1', source: 'scan',
+    paths: ['00000000-0000-4000-8000-0000000000c1/imports/00000000-0000-4000-8000-0000000000e9/1.jpg'], images: 1, rightsConfirmed: false, langs: ['he', 'en'],
+  };
+  const capped: ClaimScanReply = { ok: false, code: 'rate_limited', cap: 'scan_images_per_user_day' };
+  assert.ok(ok.ok && ok.images === ok.paths.length && !capped.ok);
 });
