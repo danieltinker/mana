@@ -84,10 +84,12 @@ export function planProblems(plan: ImportPlan): string[] {
 
 /**
  * What the database would refuse in a menu, or a guest could never meet, as TypeScript: `addon_groups`' checks (min
- * 0–30, max 1–30, min ≤ max, a single choice's max 1), `dish_addon_groups`' checks and `app.guard_dish_addon` (a link's
- * own limits only tighten its group's; its effective min, its own else the group's, at most its effective max; a single
- * choice's effective max 1), and the reach: a group with an option, and a group's and a link's effective minimum
- * within the group's capacity (its options' `max_qty`).
+ * 0–30, max 1–30, min ≤ max, a single choice's max 1); `addon_options`' checks (a name, `max_qty` 1–10, an opener's
+ * `max_qty` 1, never opening its own group, opening a group the venue has) and `app.guard_nesting` (one level: no group
+ * is both opened by an option and holds an option that opens a group); `dish_addon_groups`' checks and
+ * `app.guard_dish_addon` (a link's own limits only tighten its group's; its effective min, its own else the group's, at
+ * most its effective max; a single choice's effective max 1); and the reach: a group with an option, and a group's and
+ * a link's effective minimum within the group's capacity (its options' `max_qty`).
  */
 export function menuRuleBreaks(m: ExistingMenu): string[] {
   const out: string[] = [];
@@ -100,6 +102,18 @@ export function menuRuleBreaks(m: ExistingMenu): string[] {
     if (g.selection === 'single' && g.max_units !== 1) out.push(`group ${name}: single with max ${g.max_units}`);
     if (!capacity.has(g.id)) out.push(`group ${name}: no option`);
     else if (g.min_units > capacity.get(g.id)!) out.push(`group ${name}: min ${g.min_units} above capacity ${capacity.get(g.id)}`);
+  }
+  const groupIds = new Set(m.groups.map((g) => g.id));
+  const opened = new Set(m.options.filter((o) => o.opens_group_id !== null).map((o) => o.opens_group_id!));
+  for (const o of m.options) {
+    const name = o.name_en || o.name_he;
+    if (o.name_he === '' && o.name_en === '') out.push(`option ${o.id}: no name`);
+    if (!between(o.max_qty, 1, 10)) out.push(`option ${name}: max_qty ${o.max_qty}`);
+    if (o.opens_group_id === null) continue;
+    if (o.max_qty !== 1) out.push(`option ${name}: opens a group with max_qty ${o.max_qty}`);
+    if (o.opens_group_id === o.group_id) out.push(`option ${name}: opens its own group`);
+    if (!groupIds.has(o.opens_group_id)) out.push(`option ${name}: opens a group the venue does not have`);
+    if (opened.has(o.group_id)) out.push(`option ${name}: nesting_too_deep (its group is opened by another option)`);
   }
   for (const l of m.dishGroups as ReadonlyArray<ExistingMenu['dishGroups'][number] & { min_units?: number | null; max_units?: number | null }>) {
     const g = m.groups.find((x) => x.id === l.group_id)!;

@@ -1,5 +1,9 @@
 // Safari and iOS 15 run the contracts (the live owner app's entry loads config.ts): no regular-expression lookbehind
-// (Safari before 16.4), no `Object.hasOwn` and no `crypto.randomUUID` (before 15.4). Old Safari's limits are a test.
+// (Safari before 16.4); no `Object.hasOwn`, `crypto.randomUUID`, `Array.prototype.at` / `findLast` / `findLastIndex`,
+// `String.prototype.at` or `structuredClone` (before 15.4). Old Safari's limits are a test, in two parts: the source text
+// (the only check that sees a lookbehind written as a regular-expression literal, which the engine compiles without
+// calling `RegExp`), and a child process that loads and runs every module with those built-ins removed and `RegExp`
+// refusing a lookbehind pattern given to it as a string (as `new RegExp('…')` does).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -13,17 +17,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, '../src');
 const sources = fs.readdirSync(src).filter((n) => n.endsWith('.ts')).map((n) => [n, fs.readFileSync(path.join(src, n), 'utf8')] as const);
 
-test('old Safari: no lookbehind, no Object.hasOwn, no bare crypto.randomUUID anywhere in src; config.ts imports nothing at run time', () => {
+test('old Safari, the text: no lookbehind (literal or string), Object.hasOwn, at(), findLast, structuredClone or bare randomUUID in src; config.ts imports nothing at run time', () => {
   for (const [name, text] of sources) {
     assert.ok(!/\(\?<[=!]/.test(text), `${name}: a lookbehind`);
     assert.ok(!/Object\.hasOwn\b/.test(text), `${name}: Object.hasOwn`);
+    assert.ok(!/\.at\(/.test(text), `${name}: .at()`);
+    assert.ok(!/\bfindLast(Index)?\b/.test(text), `${name}: findLast`);
+    assert.ok(!/\bstructuredClone\b/.test(text), `${name}: structuredClone`);
     if (name !== 'common.ts') assert.ok(!/randomUUID\(\)/.test(text.replace(/^\s*\/?\*.*$/gm, '')), `${name}: crypto.randomUUID without the fallback`);
   }
   const config = sources.find(([n]) => n === 'config.ts')![1];
   assert.deepEqual(config.split('\n').filter((l) => /^\s*import\s/.test(l) && !/^\s*import\s+type\s/.test(l)), [], 'config.ts: only type imports');
 });
 
-test('old Safari: every module loads and runs without lookbehind, Object.hasOwn, randomUUID, at() or structuredClone', () => {
+test('old Safari, at run time: every module loads and runs with RegExp refusing a lookbehind string, and without Object.hasOwn, randomUUID, at(), findLast or structuredClone', () => {
   const r = spawnSync(process.execPath, [path.join(here, 'old-safari.child.ts')], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout.trim().split('\n').pop()!);
