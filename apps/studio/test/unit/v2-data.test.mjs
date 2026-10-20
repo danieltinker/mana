@@ -236,7 +236,7 @@ test('errors come back in the app\'s codes', () => {
   assert.equal(code({ code: 'P0001', message: 'nesting_too_deep', details: 'the group it opens already opens another group' }), 'nesting_too_deep');
   assert.equal(code({ code: 'P0001', message: 'limits_loosened' }), 'limits_loosened');
   assert.equal(code({ code: 'P0001', message: 'limit_dishes' }), 'limit_dishes');
-  assert.equal(code({ code: '42501', message: 'not_allowed' }), 'not_allowed');
+  assert.equal(code({ code: '42501', message: 'not_allowed' }), 'forbidden', 'the schema\'s permission refusal is the same code as row-level security\'s');
   assert.equal(code({ code: '42501', message: 'new row violates row-level security policy for table "dishes"' }), 'forbidden');
   assert.equal(code({ code: '23505', message: 'duplicate key value violates unique constraint "dish_relations_dish_id_related_dish_id_key"' }), 'duplicate');
   assert.equal(code({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), 'not_found');
