@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX } from '../../packages/contracts/src/index.ts';
+import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, validateListPurgeableQuery } from '../../packages/contracts/src/index.ts';
 import { dish, draftOf, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
@@ -491,9 +491,13 @@ describe('the raw input: written once, read by nobody, purged after the retentio
       after = { finishedAt: page[0].finishedAt, importId: page[0].importId };
     }
     assert.deepEqual(pages, list.map((x) => x.importId), 'one page at a time, every row once');
-    for (const bad of [5, { importId: 'x', finishedAt: list[0].finishedAt }, { importId: list[0].importId }, { importId: list[0].importId, finishedAt: '2026-02-30T00:00:00Z' }]) {
+    // a cursor is exactly {finishedAt, importId}, as the contracts' validateListPurgeableQuery says
+    for (const bad of [5, [], { importId: 'x', finishedAt: list[0].finishedAt }, { importId: list[0].importId }, { importId: list[0].importId, finishedAt: '2026-02-30T00:00:00Z' },
+      { importId: list[0].importId, finishedAt: list[0].finishedAt, page: 2 }]) {
       assert.equal((await rpc(w.url, 'service', 'list_purgeable_imports', { p_after: bad })).error?.code, '22023', JSON.stringify(bad));
+      assert.deepEqual(validateListPurgeableQuery({ after: bad }).errors, [{ code: 'cursor_invalid', path: 'after' }], JSON.stringify(bad));
     }
+    assert.equal(validateListPurgeableQuery({ limit: 1, after: { finishedAt: list[0].finishedAt, importId: list[0].importId } }).ok, true);
     for (const x of list) await as(w.url, 'service', (c) => c.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null`, [x.importId]));
     assert.deepEqual(await rpc(w.url, 'service', 'list_purgeable_imports', {}), []);
     assert.equal((await row(fresh.importId)).raw_purged_at, null);
