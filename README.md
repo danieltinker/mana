@@ -42,8 +42,8 @@ apps moved into `apps/` (15 Oct 2026): the build still serves them at `/mana/vie
 | `apps/view/` | The guest menu: the table, the glide, the bar (three.js, built with esbuild into `app.js` and `chunks/`) | `/mana/view/`, `/m/<name>` |
 | `apps/studio/` | The owner app (Vite, Preact, TypeScript); built into `apps/studio/dist/` | `/mana/studio/` |
 | `apps/ops/` | The back office (Preact, esbuild); built into `apps/ops/dist/` | `/mana/ops/` |
-| `packages/` | Shared packages: `packages/contracts` (`@mana/contracts`: the domain types, the menu snapshot v2, the events contract, their validators, pricing, availability and upsell) | `cd packages/contracts && npm test` |
-| `supabase/` | The clean schema for the Supabase project `mana`: migrations, the synthetic seed, database tests on a throwaway PostgreSQL 16 | `cd supabase && npm test` |
+| `packages/` | Shared packages: `packages/contracts` (`@mana/contracts`: the domain types, the menu snapshot v2, the events contract, their validators, pricing, availability and upsell); `packages/import` (`@mana/import`: the menu readers, paste, Wolt text, the scanner's answers, into an import draft) | `cd packages/contracts && npm test`, `cd packages/import && npm test` |
+| `supabase/` | The clean schema for the Supabase project `mana`: migrations, the synthetic seed, database tests on a throwaway PostgreSQL 16; and the v2 scanner, `functions/menus-ai` (its README says what deploying it needs) | `cd supabase && npm test`, `npm run test:functions` |
 | `brand/site/` | The product page, the photo guide, privacy and terms, with their pictures, films and fonts | `/mana/`, `/mana/guide/`, `/mana/privacy/`, `/mana/terms/` |
 | `config.js` | The published settings (production) | `/mana/config.js` |
 | `config/` | The demo's settings (`demo.js`); on a machine, the generated local ones (`local.js`, git-ignored) | `/mana/config.js` of a demo or local build |

@@ -1,0 +1,6 @@
+{
+  "//": "Node-side type check of the Deno entry (index.ts), with the few Deno names it uses declared in types/deno-entry.d.ts.",
+  "extends": "./tsconfig.json",
+  "include": ["index.ts", "types/deno-entry.d.ts"],
+  "exclude": []
+}
