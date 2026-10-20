@@ -3,11 +3,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  draftBytes, draftExceptions, EMPTY_MENU, EXCEPTIONS_MAX, jsonbNumberText, linkKey, NOTES_MAX, planApply, READER_NOTE_CODES, readerNoteIssues,
+  draftBytes, draftExceptions, DRAFT_TEXT_MAX, EMPTY_MENU, EXCEPTIONS_MAX, jsonbNumberText, linkKey, NOTES_MAX, planApply, READER_NOTE_CODES, READER_NOTES, readerNoteIssues,
   validateDraft, validateSaveDraft, type DiscardImportReply, type ExistingMenu, type ImportChoice, type ImportDecisions, type ImportDraft,
   type ImportPlan, type PlanStep, type ReaderNote,
 } from '../src/import.ts';
 import { LIMITS } from '../src/enums.ts';
+import { STOCK_RE } from '../src/index.ts';
 import { applyPlan, bistroDraft, copy, dish, draftOf, group, link, opt, planProblems, section, tx } from './import-fixtures.ts';
 
 const yes = (choices: Record<string, ImportChoice> = {}, skip?: string[]): ImportDecisions => ({ v: 1, pricesConfirmed: true, choices, ...(skip ? { skip } : {}) });
@@ -224,6 +225,21 @@ test('L8 and B22: discard_import\'s reply; what the reader said is saved with th
   assert.deepEqual(errs({ importId: id, draft: bistroDraft(), notes: Array.from({ length: NOTES_MAX + 1 }, () => note()) }), ['too_many@notes']);
   assert.ok(READER_NOTE_CODES.includes('caps_reached') && READER_NOTE_CODES.includes('popular_dropped') && READER_NOTE_CODES.includes('popular_only'));
   assert.deepEqual(readerNoteIssues([note({ key: 'd-elsewhere' })], null), [], 'without the draft, keys are only checked for shape');
+});
+
+test('for the readers: price_ambiguous, the stock id pattern and the draft text limits come from the contracts', () => {
+  assert.equal(READER_NOTES.price_ambiguous, 'check');
+  assert.ok(STOCK_RE.test('croissant') && !STOCK_RE.test('Croissant') && !STOCK_RE.test('-x'));
+  assert.deepEqual(DRAFT_TEXT_MAX, { section: 60, group: 60, option: 60, dish: 90, desc: 600, priceNote: 80, allergens: 300, priceText: 40 });
+  assert.deepEqual([LIMITS.shortNameLength, LIMITS.allergensLength], [60, 300]);
+  const d: any = copy(bistroDraft());
+  d.sections[0].name.en = 'x'.repeat(DRAFT_TEXT_MAX.section);
+  d.sections[0].dishes[0].allergens.en = 'y'.repeat(DRAFT_TEXT_MAX.allergens);
+  assert.ok(validateDraft(d).ok);
+  d.sections[0].name.en += 'x';
+  d.sections[0].dishes[0].allergens.en += 'y';
+  assert.deepEqual((validateDraft(d) as any).errors.map((e: any) => `${e.code}@${e.path}`),
+    ['text_too_long@sections[0].name.en', 'text_too_long@sections[0].dishes[0].allergens.en']);
 });
 
 test('L10 (rr2.ts P6): when the Hebrew names differ, an English match does not make them the same', () => {

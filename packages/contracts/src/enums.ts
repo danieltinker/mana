@@ -123,9 +123,14 @@ export const LIMITS = {
   optionQuantity: 10,
   price: 10_000_000,
   ruleCap: 5,
+  /** A dish's name. */
   nameLength: 90,
+  /** A section's, group's or option's name, and a group's label (the schema's 60). */
+  shortNameLength: 60,
   descLength: 600,
   noteLength: 80,
+  /** A dish's allergen text, in the source's or the owner's words. */
+  allergensLength: 300,
   ruleLine: 120,
   detailsBytes: 6000,
 } as const;
