@@ -8,8 +8,8 @@ import { startCluster } from './harness/cluster.mjs';
 import { recordContractCalls } from './harness/import-corpus.mjs';
 import { ABSENT, compareValidator, inputs, storable } from './harness/parity.mjs';
 import {
-  ACT_FOR_OWNER_ACTIONS, draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_CHOICES, IMPORT_EXCEPTION_CODES, IMPORT_EXCEPTIONS, importKey, planApply,
-  READER_NOTES, readerNoteIssues, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
+  ACT_FOR_OWNER_ACTIONS, draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_CHOICES, IMPORT_EXCEPTION_CODES, IMPORT_EXCEPTIONS, importKey,
+  LAYOUT_GUESS_RULES, planApply, READER_NOTES, readerNoteIssues, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
 } from '../../packages/contracts/src/index.ts';
 import { applyPlan, bistroDraft, copy, dish, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
@@ -19,6 +19,12 @@ before(async () => { db = await startCluster({ seed: false }); calls = recordCon
 after(async () => { await db?.stop(); });
 
 const cp = (...c) => String.fromCodePoint(...c);
+/** Each input once (the fuzz makes the same call many times). */
+const distinct = (list) => {
+  const seen = new Set();
+  return list.filter((a) => { const k = JSON.stringify(a); if (seen.has(k)) return false; seen.add(k); return true; });
+};
+
 /** The SQL function on every input, in order (a few inputs per query: large drafts take a while each). */
 async function sqlAll(fn, list, per = 10) {
   const out = [];
@@ -59,7 +65,7 @@ describe('the matching key', () => {
 
 describe('the draft', () => {
   test('app.validate_import_draft is validateDraft on every draft the contracts check', async () => {
-    const list = (calls.validateDraft ?? []).map((a) => a[0]);
+    const list = distinct((calls.validateDraft ?? []).map((a) => a[0]));
     assert.ok(list.length > 30);
     await compareValidator(db.admin, 'app.validate_import_draft', validateDraft, list);
   });
@@ -102,7 +108,7 @@ describe('the draft', () => {
   test('app.import_exceptions is draftExceptions: every draft the contracts list, in their languages and in each one', async () => {
     const recorded = (calls.draftExceptions ?? []).map(([d, o]) => [d, o?.langs ?? ['he', 'en']]);
     const fromValid = (calls.validateDraft ?? []).map((a) => a[0]).filter((d) => validateDraft(d).ok).flatMap((d) => [[d, ['he', 'en']], [d, ['he']], [d, ['en']]]);
-    const list = [...recorded, ...fromValid].filter(([d]) => storable(d));
+    const list = distinct([...recorded, ...fromValid].filter(([d]) => storable(d)));
     assert.ok(list.length > 20);
     const sql = await sqlAll(`app.import_exceptions(x->0, array(select jsonb_array_elements_text(x->1)))`, list);
     list.forEach(([d, langs], i) => assert.deepEqual(sql[i], draftExceptions(d, { langs }), `draft ${i} in ${langs}`));
@@ -110,8 +116,9 @@ describe('the draft', () => {
 });
 
 describe('the closed lists', () => {
-  test('IMPORT_EXCEPTIONS (order and severity), IMPORT_CHOICES, EXCEPTION_CHOICES, READER_NOTES, ACT_FOR_OWNER_ACTIONS', async () => {
+  test('IMPORT_EXCEPTIONS (order and severity), IMPORT_CHOICES, EXCEPTION_CHOICES, READER_NOTES, LAYOUT_GUESS_RULES, ACT_FOR_OWNER_ACTIONS', async () => {
     const { rows } = await db.admin.query(`select app.import_exception_codes() c, app.import_choice_list() l, app.import_choices() x, app.reader_notes() n,
+      app.layout_guess_rules() g,
       (select jsonb_object_agg(c, app.import_exception_severity(c)) from unnest(app.import_exception_codes()) c) s,
       pg_get_functiondef('public.act_for_owner(uuid,text,text,jsonb)'::regprocedure) a`);
     assert.deepEqual(rows[0].c, [...IMPORT_EXCEPTION_CODES]);
@@ -119,6 +126,7 @@ describe('the closed lists', () => {
     assert.deepEqual(new Set(rows[0].l), new Set(IMPORT_CHOICES));
     assert.deepEqual(rows[0].x, JSON.parse(JSON.stringify(EXCEPTION_CHOICES)));
     assert.deepEqual(rows[0].n, { ...READER_NOTES });
+    assert.deepEqual(rows[0].g, [...LAYOUT_GUESS_RULES]);
     const listed = /not in \(([^)]*)\) then\s+return app\.fail\('action_unknown'\)/.exec(rows[0].a)[1].match(/'([a-z_.]+)'/g).map((v) => v.slice(1, -1));
     assert.deepEqual(listed, [...ACT_FOR_OWNER_ACTIONS]);
   });
@@ -141,6 +149,53 @@ describe('the reader\'s notes', () => {
     // (as JSON carries them: a hole in an array is a null)
     list.forEach(([n, d, prefix], i) => assert.deepEqual(sql[i], readerNoteIssues(JSON.parse(JSON.stringify(n)), d, prefix), JSON.stringify([n, prefix]).slice(0, 200)));
     assert.ok(list.length > 300, String(list.length));
+  });
+
+  test('layout_guessed: a rule of LAYOUT_GUESS_RULES, a key, a section or dish of the draft; every other code as before', async () => {
+    const base = bistroDraft();
+    const layout = { code: 'layout_guessed', severity: 'check', key: 'd-burger', lines: [3, 4], count: 2, rule: 'desc_habit' };
+    const noise = { code: 'noise', severity: 'info', key: null, lines: [1], count: 1, rule: 'header' };
+    // each case, with the issues both sides must give (with the draft, and without it)
+    const cases = [
+      [{ ...layout }, [], []],
+      ...LAYOUT_GUESS_RULES.map((rule) => [{ ...layout, rule }, [], []]),
+      [{ ...layout, key: 's-mains' }, [], []],
+      [{ ...layout, rule: null }, ['rule_invalid@notes[0].rule'], ['rule_invalid@notes[0].rule']],
+      [{ ...layout, rule: 'header' }, ['rule_invalid@notes[0].rule'], ['rule_invalid@notes[0].rule']],
+      [{ ...layout, rule: 'Desc_habit' }, ['rule_invalid@notes[0].rule'], ['rule_invalid@notes[0].rule']],
+      [{ ...layout, key: null }, ['key_invalid@notes[0].key'], ['key_invalid@notes[0].key']],
+      [{ ...layout, key: 'g-side' }, ['ref_unknown@notes[0].key'], []],
+      [{ ...layout, key: 'o-fries' }, ['ref_unknown@notes[0].key'], []],
+      [{ ...layout, key: 'd-nope' }, ['ref_unknown@notes[0].key'], []],
+      [{ ...layout, key: 'D' }, ['key_invalid@notes[0].key'], ['key_invalid@notes[0].key']],
+      [{ ...layout, key: null, rule: null, count: 0, severity: 'info' },
+        ['enum_invalid@notes[0].severity', 'key_invalid@notes[0].key', 'count_invalid@notes[0].count', 'rule_invalid@notes[0].rule'],
+        ['enum_invalid@notes[0].severity', 'key_invalid@notes[0].key', 'count_invalid@notes[0].count', 'rule_invalid@notes[0].rule']],
+      // the other codes: a null key, any node of the draft, a rule word or null
+      [{ ...noise }, [], []],
+      [{ ...noise, key: 'g-side', rule: null }, [], []],
+      [{ ...noise, key: 'o-fries', rule: 'tag_or_heading' }, [], []],
+      [{ ...noise, rule: 'Header' }, ['rule_invalid@notes[0].rule'], ['rule_invalid@notes[0].rule']],
+    ];
+    const list = cases.flatMap(([n]) => [[[n], base, 'notes'], [[n], null, 'notes']]);
+    const sql = await sqlAll(`app.validate_reader_notes(x->0, case when x->1 = 'null'::jsonb then null else x->1 end, x->>2)`, list);
+    const codes = (issues) => issues.map((e) => `${e.code}@${e.path}`);
+    cases.forEach(([n, withDraft, without], i) => {
+      assert.deepEqual(codes(readerNoteIssues([n], base)), withDraft, `contracts, with the draft: ${JSON.stringify(n)}`);
+      assert.deepEqual(codes(readerNoteIssues([n], null)), without, `contracts, without: ${JSON.stringify(n)}`);
+      assert.deepEqual(codes(sql[2 * i]), withDraft, `SQL, with the draft: ${JSON.stringify(n)}`);
+      assert.deepEqual(codes(sql[2 * i + 1]), without, `SQL, without: ${JSON.stringify(n)}`);
+    });
+    // and generated: every key and rule against each code, with and without the draft
+    const generated = inputs([layout], {
+      '0.code': ['noise', 'popular_only', 'nope'], '0.severity': [ABSENT, 'info', 'check'],
+      '0.rule': [ABSENT, null, ...LAYOUT_GUESS_RULES, 'header', 'Desc_habit', 5, '', 'x'.repeat(41)],
+      '0.key': [ABSENT, null, 'd-burger', 's-mains', 'g-side', 'o-fries', 'd-nope', 'D', 5], '0.count': [0, 1000001], '0.lines': [[2, 1], []],
+    }, { random: 150, seed: 21 }).filter((n) => storable(n));
+    const more = generated.flatMap((n) => [[n, base, 'notes'], [n, null, 'notes']]);
+    const sql2 = await sqlAll(`app.validate_reader_notes(x->0, case when x->1 = 'null'::jsonb then null else x->1 end, x->>2)`, more);
+    more.forEach(([n, d, prefix], i) => assert.deepEqual(sql2[i], readerNoteIssues(JSON.parse(JSON.stringify(n)), d, prefix), JSON.stringify(n).slice(0, 200)));
+    assert.ok(more.length > 300, String(more.length));
   });
 });
 
@@ -183,8 +238,9 @@ describe('the plan', () => {
     return list.length;
   }
 
+  // (the fuzz's seeds whole, its large runs one call in FUZZ_EVERY: harness/import-corpus.mjs; MANA_TWINS_FULL=1 for all)
   test('app.plan_import_on is planApply on every plan the contracts make (steps, summary, exceptions, fromDraft, errors)', async () => {
-    const list = (calls.planApply ?? []).filter((a) => storable(a));
+    const list = distinct((calls.planApply ?? []).filter((a) => storable(a)));
     assert.ok(list.length > 50, String(list.length));
     await comparePlans(list, 'recorded');
   });

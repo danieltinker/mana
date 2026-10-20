@@ -444,27 +444,56 @@ describe('the raw input: written once, read by nobody, purged after the retentio
     await clearImports();
   });
 
-  test('list_purgeable_imports (the scanner\'s purge mode): image imports whose images may go, with their venue and paths', async () => {
+  test('list_purgeable_imports (the scanner\'s purge mode): image imports past the retention period, with their venue, paths and finishedAt', async () => {
     await clearImports();
     await clearCounters();
     const fresh = await scan(U.ownerA, A, 1);
     const stale = await scan(U.ownerA, A, 2);
     const done = await scan(U.ownerB, w.B, 1);
+    const failed = await scan(U.ownerA, A, 1);
     const reading = await scan(U.ownerA, A, 1);
     await paste(U.ownerA, A, 'Text is purged by the daily job');
     await rpc(w.url, U.ownerB, 'discard_import', { p_import: done.importId });
+    assert.equal((await claim(U.ownerA, failed.importId)).ok, true);
+    await as(w.url, 'service', (c) => c.query(`update public.menu_imports set status = 'failed', error_code = 'model_failed' where id = $1`, [failed.importId]));
     assert.equal((await claim(U.ownerA, reading.importId)).ok, true);
     await raw(`update public.menu_imports set updated_at = now() - interval '31 days' where id in ($1, $2)`, [stale.importId, reading.importId]);
     await raw(`update public.menu_imports set status = 'parsing', updated_at = now() where id = $1`, [reading.importId]);
     for (const who of ['anon', U.ownerA, U.support, U.admin]) {
       assert.equal((await rpc(w.url, who, 'list_purgeable_imports', {})).error?.code, '42501', String(who));
     }
+    const ids = async (args = {}) => (await rpc(w.url, 'service', 'list_purgeable_imports', args)).map((x) => x.importId);
+    // finished today (discarded, failed) waits for the retention period like the daily job: the owner may try a failed
+    // scan again; one left uploaded that long goes; never one being read, never a text
+    assert.deepEqual(await ids(), [stale.importId]);
+    assert.equal((await claim(U.ownerA, failed.importId)).ok, true, 'a failed scan can be read again: its screenshots are still there');
+    await as(w.url, 'service', (c) => c.query(`update public.menu_imports set status = 'failed', error_code = 'model_failed' where id = $1`, [failed.importId]));
+    // past it: failed 32 days ago, discarded 31 days ago; an applied import counts from applied_at, not its last change
+    await raw(`update public.menu_imports set updated_at = now() - interval '32 days' where id = $1`, [failed.importId]);
+    await raw(`update public.menu_imports set updated_at = now() - interval '31 days' where id = $1`, [done.importId]);
+    const applied = await scan(U.ownerA, A, 1);
+    await raw(`update public.menu_imports set status = 'applied', applied_at = now() - interval '40 days', updated_at = now() where id = $1`, [applied.importId]);
     const list = await rpc(w.url, 'service', 'list_purgeable_imports', {});
-    assert.deepEqual(new Set(list.map((x) => x.importId)), new Set([stale.importId, done.importId]), 'not a fresh one, not one being read, not text');
+    assert.deepEqual(list.map((x) => x.importId), [applied.importId, failed.importId, stale.importId, done.importId], 'oldest first');
+    const finished = Object.fromEntries((await w.admin.query(`select id, to_jsonb(coalesce(applied_at, updated_at)) as f from public.menu_imports where id = any($1::uuid[])`,
+      [pgArray(list.map((x) => x.importId))])).rows.map((r) => [r.id, r.f]));
+    assert.ok(list.every((x) => x.finishedAt === finished[x.importId]), 'finishedAt to the microsecond, as to_jsonb writes it');
     const st = list.find((x) => x.importId === stale.importId);
-    assert.deepEqual(st, { importId: stale.importId, venueId: A, status: 'uploaded', paths: (await row(stale.importId)).raw_paths });
+    assert.deepEqual(st, { importId: stale.importId, venueId: A, status: 'uploaded', paths: (await row(stale.importId)).raw_paths, finishedAt: finished[stale.importId] });
     assert.ok(st.paths.every((x) => x.startsWith(`${A}/imports/${stale.importId}/`)));
-    assert.equal((await rpc(w.url, 'service', 'list_purgeable_imports', { p_limit: 1 })).length, 1);
+    // a keyset cursor: the last row as it came gives the page after it, whatever the first page's rows became
+    const pages = [];
+    let after = null;
+    for (let i = 0; i < 6; i++) {
+      const page = await rpc(w.url, 'service', 'list_purgeable_imports', { p_limit: 1, ...(after ? { p_after: after } : {}) });
+      if (page.length === 0) break;
+      pages.push(page[0].importId);
+      after = { finishedAt: page[0].finishedAt, importId: page[0].importId };
+    }
+    assert.deepEqual(pages, list.map((x) => x.importId), 'one page at a time, every row once');
+    for (const bad of [5, { importId: 'x', finishedAt: list[0].finishedAt }, { importId: list[0].importId }, { importId: list[0].importId, finishedAt: '2026-02-30T00:00:00Z' }]) {
+      assert.equal((await rpc(w.url, 'service', 'list_purgeable_imports', { p_after: bad })).error?.code, '22023', JSON.stringify(bad));
+    }
     for (const x of list) await as(w.url, 'service', (c) => c.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null`, [x.importId]));
     assert.deepEqual(await rpc(w.url, 'service', 'list_purgeable_imports', {}), []);
     assert.equal((await row(fresh.importId)).raw_purged_at, null);
