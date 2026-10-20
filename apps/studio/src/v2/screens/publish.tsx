@@ -2,7 +2,9 @@
 // Halom's approval, live, offline), what publishing would change, what would stop it and what only warns (preview_menu,
 // with lintSnapshotV2's warnings), then publishes. A place's first publish waits for Halom when
 // publish_requires_approval holds: the menu is stored and guests see it once Halom approves. Each publish is a version
-// that can be put back.
+// that can be put back. Once the place has published, the QR code and the table card (screens/qr.tsx; outside
+// production marked "demo", backlog B5). The setup flow shows this same screen as its last step (`inFlow`: the flow's
+// own heading, and the QR card under it).
 import { useEffect, useState } from 'preact/hooks';
 import type { SnapshotV2 } from '@mana/contracts';
 import { Btn, Confirm, CopyBtn, Icon, Ltr, Note, PageHead } from '../../ui.tsx';
@@ -14,8 +16,9 @@ import { toV2Error } from '../data/errors.ts';
 import * as api from '../data/menu.ts';
 import { canEdit, flushSaves, hasUnsaved, menu, refreshVenue, saveState } from '../data/store.ts';
 import { errText, fmtDate, fmtDateTime, lang, t, tn } from '../i18n.ts';
+import { QrCard } from './qr.tsx';
 
-export function PublishScreen() {
+export function PublishScreen({ inFlow = false }: { inFlow?: boolean }) {
   const d = menu.value!;
   const v = d.venue;
   const dr = draft.value;
@@ -72,8 +75,8 @@ export function PublishScreen() {
   }
 
   return (
-    <div class="page page-publish" data-screen="publish" data-standing={standing}>
-      <PageHead title={t('pub.title')} />
+    <div class={inFlow ? 'page-publish' : 'page page-publish'} data-screen={inFlow ? undefined : 'publish'} data-publish data-standing={standing}>
+      {!inFlow && <PageHead title={t('pub.title')} />}
 
       <section class="card standing" aria-labelledby="standing-h" data-standing-card={standing}>
         <h2 id="standing-h" class="status"><span class={'dot ' + (standing === 'live' ? 'dot-on' : 'dot-off')} aria-hidden="true" />{t('pub2.standing.' + standing)}</h2>
@@ -95,6 +98,8 @@ export function PublishScreen() {
       </section>
 
       {blockedPlan && <Note kind="error">{t('pub.e.plan_' + blockedPlan)}</Note>}
+
+      {!inFlow && standing !== 'never' && <QrCard venue={v} />}
 
       {canEdit() && <section class="card" aria-labelledby="draft-h" data-draft>
         <h2 id="draft-h">{t('pub.changes')}</h2>

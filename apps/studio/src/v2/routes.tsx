@@ -11,6 +11,7 @@ import { HelpScreen } from './screens/help.tsx';
 import { HomeScreen } from './screens/home.tsx';
 import { HoursScreen } from './screens/hours.tsx';
 import { MenuScreen } from './screens/menu.tsx';
+import { OnboardingScreen } from './screens/onboarding.tsx';
 import { PublishScreen } from './screens/publish.tsx';
 import { RulesScreen } from './screens/rules.tsx';
 
@@ -27,16 +28,19 @@ export const SCREENS: readonly ScreenDef[] = [
   { path: 'rules', render: (rest) => <RulesScreen rest={rest} />, nav: { key: 'rules', icon: 'sparkle', label: 'nav2.rules', order: 50 } },
   { path: 'activity', render: () => <ActivityScreen />, nav: { key: 'activity', icon: 'history', label: 'nav2.activity', order: 80 } },
   { path: 'publish', render: () => <PublishScreen />, nav: { key: 'publish', icon: 'send', label: 'pub.title', order: 90, dot: () => hasChanges.value } },
-  { path: 'help', render: () => <HelpScreen /> },
+  { path: 'help', render: (rest) => <HelpScreen rest={rest} /> },
+  { path: 'onboarding', render: (rest) => <OnboardingScreen rest={rest} /> },
 ];
 
 /**
- * Where a place opens, and where an address that leads nowhere goes: Home once the place has published, else the menu.
+ * Where a place opens, and where an address that leads nowhere goes: Home once the place has published, else the setup
+ * flow (its steps are open until the first publish, which only the database marks done), which opens at the step its
+ * owner left off. The flow is for owners and managers: any other account is taken on to the menu.
  * `venue` is the place being opened when it is not the open one yet (switching places; null: a place just created).
  */
 export function landing(venue?: Pick<VenueRow, 'published_revision_id' | 'first_published_at' | 'approved_at'> | null): string {
   const v = venue === undefined ? menu.value?.venue ?? null : venue;
-  return v && standingOf(v) !== 'never' ? 'home' : 'menu';
+  return v && standingOf(v) !== 'never' ? 'home' : 'onboarding';
 }
 
 export const screenAt = (path: string): ScreenDef | undefined => SCREENS.find((s) => s.path === path);

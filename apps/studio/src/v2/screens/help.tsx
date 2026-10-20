@@ -2,9 +2,10 @@
 // (open_case); Halom sees the request in the back office. The owner can let Halom make changes for them in the same
 // step (support_can_act, D25; the owner's alone), and every such change shows in the activity log with its reason. The
 // screen says plainly what happens next, lists the place's requests that are not resolved, and keeps a person one tap
-// away (WhatsApp). The shell's help button leads here from every screen.
+// away (WhatsApp). The shell's help button leads here from every screen; `#/help/<topic>` opens it on a topic (each step
+// of the setup flow asks on its own).
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, stripBlank, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, oneOf, stripBlank, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
@@ -21,12 +22,14 @@ export function HelpButton() {
 
 const TOPIC_ICON: Readonly<Record<CaseTopic, string>> = { onboarding: 'list', import: 'paste', menu: 'menu', photos: 'camera', account: 'user', other: 'chat' };
 
-export function HelpScreen() {
+export function HelpScreen({ rest = [] }: { rest?: string[] }) {
   const d = menu.value!;
   const v = d.venue;
   const records = canEdit();
   const owner = d.role === 'owner';
-  const [topic, setTopic] = useState<CaseTopic>('menu');
+  const asked = rest[0];
+  const [topic, setTopic] = useState<CaseTopic>(() => (oneOf(CASE_TOPICS, asked) ? asked : 'menu'));
+  useEffect(() => { if (oneOf(CASE_TOPICS, asked)) setTopic(asked); }, [asked]);
   const [subject, setSubject] = useState(''), [body, setBody] = useState('');
   const [allow, setAllow] = useState(v.support_can_act);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [subjectErr, setSubjectErr] = useState('');

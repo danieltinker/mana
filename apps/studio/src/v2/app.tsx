@@ -13,6 +13,7 @@ import { flushSaves, hasUnsaved, initAuth, loadError, loadMemberships, loadState
 import { errText, lang, setLang, t } from './i18n.ts';
 import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
 import { HelpButton } from './screens/help.tsx';
+import { BackToSetup } from './screens/onboarding.tsx';
 import { StartScreen } from './screens/start.tsx';
 import { VenueNewScreen } from './screens/venue-new.tsx';
 import { ErrorLine, Icon2 } from './ui.tsx';
@@ -81,6 +82,7 @@ function Shell() {
       <BottomNav here={here} />
       <main class="main" id="main" tabIndex={-1}>
         {saveState.value === 'failed' && <SaveFailed problem={saveProblem.value} onRetry={() => retrySaves()} />}
+        <BackToSetup />
         {screen ? screen.render(r.slice(1)) : <Loading />}
       </main>
       <AccountSheet open={account} onClose={() => setAccount(false)} />

@@ -555,19 +555,21 @@ export type GroupSave =
 
 /**
  * Save a group and its options as one (save_addon_group). `id` is the group's (made by the screen for a new one, and
- * kept across retries); `expected` the group's `updated_at` when the form was read (null for a new group). Refused
+ * kept across retries); `expected` the group's `updated_at` when the form was read (null for a new group);
+ * `confirmLimits`: the owner confirms limits an import guessed (`limits_confirmed`), whether or not they changed. Refused
  * before any write, as the database would refuse it: the form's rules (`form_invalid`, the field errors in the detail;
  * the contracts' `validateAddonGroupInput`), and against the loaded menu (`addonGroupMenuIssues`) a second nesting level
  * (`nesting_too_deep`) or a dish whose own limits the change breaks (`dish_limits`). Any other refusal changed nothing,
  * and is thrown.
  */
-export async function saveGroupForm(id: string, form: GroupForm, expected: string | null, { confirmRules = false } = {}): Promise<GroupSave> {
+export async function saveGroupForm(id: string, form: GroupForm, expected: string | null, { confirmRules = false, confirmLimits = false } = {}): Promise<GroupSave> {
   mayWrite();
   const d = menu.value!;
   // the form's rules (the contracts' validateAddonGroup, at the form's fields), then the input as the RPC checks it
   const mapped = groupFromForm(form, id);
   if (!mapped.ok) throw new V2Error('form_invalid', mapped.errors);
-  const input: SaveAddonGroupInput = { venueId: d.venue.id, group: { id, ...mapped.value.group }, options: mapped.value.options, expectedUpdatedAt: expected, confirmRuleRemoval: confirmRules };
+  const group = { id, ...mapped.value.group, ...(confirmLimits ? { limits_confirmed: true } : {}) };
+  const input: SaveAddonGroupInput = { venueId: d.venue.id, group, options: mapped.value.options, expectedUpdatedAt: expected, confirmRuleRemoval: confirmRules };
   const valid = validateAddonGroupInput({ venueId: input.venueId, group: input.group, options: input.options });
   if (!valid.ok) throw new V2Error('form_invalid', valid.errors.map((e) => groupFieldError(e, form)));
   // what the RPC would refuse against the stored rows, on the copy this screen has: nesting, and the dishes' own limits
