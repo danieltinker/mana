@@ -3,7 +3,7 @@
  * venue's menu), the first publish's approval, plans, and Mana's own leads. Every one of these is logged with a reason
  * the owner sees (leads: every read is logged, never with the contact).
  */
-import { isBlank, isInt, isObject, isString, isUuid, oneOf, type Validation } from './common.ts';
+import { isBlank, isInt, isObject, isString, isUuid, oneOf, STOCK_RE, type Validation } from './common.ts';
 import type { DishRow } from './domain.ts';
 import {
   ACT_FOR_OWNER_ACTIONS, CASE_STATUSES, ENTITLEMENT_STATUSES, LIMITS, ONBOARDING_STATES, ONBOARDING_STEPS, PLANS, TAGS, TARGET_KINDS,
@@ -30,7 +30,9 @@ export type DishPatch = Partial<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number
  * What each `act_for_owner` action takes. An action that changes a value the owner may be editing too carries the
  * `updated_at` staff read (`expectedUpdatedAt`): when the row changed since, the database answers `stale` with what
  * it holds now, and writes nothing, so staff never overwrite a change of the owner's they did not see. It is compared
- * in whole seconds (`app.iso`, the precision of every staff read): `app.iso(updated_at) = app.iso(expectedUpdatedAt)`.
+ * at full precision: the client sends back exactly the string it read (an ISO time with up to 6 fractional digits and
+ * its offset), and the database compares `updated_at = expectedUpdatedAt::timestamptz`. The read it comes from must
+ * therefore give the full precision (a row's `to_jsonb`, not `app.iso`, which drops the fraction).
  */
 export type ActForOwnerPayloads = {
   'availability.set': { readonly targetKind: TargetKind; readonly targetId: string; readonly until: UntilSpec; readonly note?: string | null };
@@ -38,7 +40,6 @@ export type ActForOwnerPayloads = {
   /** `expectedUpdatedAt`: the dish's `updated_at` as staff read it. Both names may not end up blank (`name_missing`;
    * the database also refuses a patch that blanks the one name the dish has, as `payload_invalid`). */
   'dish.update': { readonly dishId: string; readonly patch: DishPatch; readonly expectedUpdatedAt: string };
-  'menu.publish': { readonly note?: string | null };
   /** `expectedUpdatedAt`: the step's `updatedAt` as staff read it; null = the step was never written. */
   'onboarding.set': {
     readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers?: readonly string[]; readonly expectedUpdatedAt: string | null;
@@ -53,7 +54,7 @@ export type ActForOwnerInput = {
 
 export type ActForOwnerCode =
   | 'reason_required' | 'venue_unknown' | 'owner_declined' | 'action_unknown' | 'payload_invalid' | 'target_unknown' | 'until_invalid'
-  | 'until_in_past' | 'step_automatic' | 'step_done' | 'plan_expired' | 'plan_suspended' | 'empty_menu' | 'invalid_menu';
+  | 'until_in_past' | 'step_automatic' | 'step_done';
 /** What a `stale` answer carries: the row as it is now (the patchable columns of the dish; the step's state). */
 export type ActForOwnerStale =
   | { readonly ok: false; readonly code: 'stale'; readonly action: 'dish.update'; readonly current: Readonly<Pick<DishRow, (typeof DISH_PATCH_COLUMNS)[number] | 'id' | 'updated_at'>> }
@@ -71,11 +72,9 @@ const PAYLOAD_KEYS: Readonly<Record<ActForOwnerAction, readonly string[]>> = {
   'availability.set': ['targetKind', 'targetId', 'until', 'note'],
   'availability.restore': ['targetKind', 'targetId'],
   'dish.update': ['dishId', 'patch', 'expectedUpdatedAt'],
-  'menu.publish': ['note'],
   'onboarding.set': ['step', 'state', 'blockers', 'expectedUpdatedAt'],
   'support_case.update': ['caseId', 'status'],
 };
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /**
  * Codes: type, field_not_allowed, id_invalid, reason_required, action_unknown, enum_invalid, until_invalid,
@@ -109,7 +108,7 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         for (const k of Object.keys(patch)) if (!(DISH_PATCH_COLUMNS as readonly string[]).includes(k)) x.add('field_not_allowed', `payload.patch.${k}`);
         const max: Record<string, number> = {
           name_he: LIMITS.nameLength, name_en: LIMITS.nameLength, desc_he: LIMITS.descLength, desc_en: LIMITS.descLength,
-          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: 300, allergens_en: 300,
+          price_note_he: LIMITS.noteLength, price_note_en: LIMITS.noteLength, allergens_he: LIMITS.allergensLength, allergens_en: LIMITS.allergensLength,
         };
         for (const [k, v] of Object.entries(patch)) {
           const path = `payload.patch.${k}`;
@@ -125,9 +124,6 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         if (isString(patch.name_he) && isString(patch.name_en) && isBlank(patch.name_he) && isBlank(patch.name_en)) x.add('name_missing', 'payload.patch');
         break;
       }
-      case 'menu.publish':
-        optionalText(x, p.note, 'payload.note', 200);
-        break;
       case 'onboarding.set':
         if (!oneOf(ONBOARDING_STEPS, p.step)) x.add('enum_invalid', 'payload.step');
         if (p.expectedUpdatedAt !== null && !isInstant(p.expectedUpdatedAt)) x.add('time_invalid', 'payload.expectedUpdatedAt');
