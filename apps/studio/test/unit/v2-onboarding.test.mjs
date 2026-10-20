@@ -5,9 +5,12 @@
 // QR codes outside production (B5). Invented data only: the café of e2e/fixtures/wolt-text-cafe.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
-  BLOCKER_RE, EMPTY_MENU, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, validateSetStep,
+  BLOCKER_RE, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, READER_NOTE_CODES, SKIP_REASONS,
+  validateSetStep,
 } from '@mana/contracts';
+import { applyPlan, dish, draftOf, group, link, opt, section } from '../../../../packages/contracts/test/import-fixtures.ts';
 import { parsePaste, parseWoltText } from '@mana/import';
 import { DEMO_MARK, marksDemo, withDemoBand } from '../../src/v2/data/demo-mark.ts';
 import { blockersOf, endWrite, nextOpenAfter, openStep, resumeStep, stepEnd, visitWrite } from '../../src/v2/data/flow.ts';
@@ -289,6 +292,49 @@ test('what the reader said: one line per kind, counts added, lines merged in ord
   assert.equal(one.count, noise.reduce((n, x) => n + x.count, 0));
   assert.deepEqual(one.lines, [...new Set(noise.flatMap((x) => x.lines))].sort((a, b) => a - b));
   assert.deepEqual(noteLines([]), []);
+});
+
+test('what is left out says why: the repeated espresso as the owner chose, "Most ordered" with nothing left in it', () => {
+  const g = gate(withDishPrice(cafe(), dishNamed(cafe(), 'Seasonal cake').key, 2800), EMPTY_MENU, confirmPrices(NO_DECISIONS, true), LANGS);
+  assert.deepEqual(planLines(g.plan).filter((x) => x.op === 'skip').map((x) => `${x.kind}:${x.reason}:${x.n}`), ['section:empty:1', 'dish:choice:1']);
+  assert.ok(planLines(g.plan).filter((x) => x.op !== 'skip').every((x) => x.reason === null));
+});
+
+test('an answer the plan refuses is said at its question, which stays on screen: "a new group" on an add-on taken more than once', () => {
+  // the venue (invented): Burger with Extras, Cheese up to 2 times; the new read has Cheese opening "Cheese type"
+  const extras = (cheese) => group('g', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 4, options: [opt('c', 'גבינה', 'Cheese', 300, cheese), opt('e', 'ביצה', 'Egg', 400)] });
+  const burger = () => [section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 7000, { groups: [link('g')] })])];
+  const venue = applyPlan(EMPTY_MENU, gate(draftOf(burger(), [extras({ maxQty: 2 })]), EMPTY_MENU, confirmPrices(NO_DECISIONS, true), LANGS).plan);
+  const draft = draftOf(burger(), [extras({ opens: 'n' }),
+    group('n', 'סוג גבינה', 'Cheese type', { selection: 'single', min: 1, max: 1, options: [opt('n1', 'צהובה', 'Yellow', 0), opt('n2', 'עיזים', 'Goat', 0)] })]);
+  const id = 'opens_changed@c>n';
+  const kept = confirmPrices(NO_DECISIONS, true);
+  assert.equal(preview(draft, venue, kept, LANGS).rows.find((r) => r.id === id).effective, 'keep_mine', 'the default: the venue\'s Cheese as it is');
+  assert.equal(gate(draft, venue, kept, LANGS).ok, true);
+
+  const moved = choose(kept, id, 'new_group');
+  const pv = preview(draft, venue, moved, LANGS);
+  assert.equal(pv.plan, null, 'no plan to show: applying would be refused');
+  const r = pv.rows.find((x) => x.id === id);
+  assert.ok(r, 'the question is still listed, so the answer can be changed back');
+  assert.deepEqual([r.choice, r.refused], ['new_group', 'opener_qty']);
+  assert.deepEqual(pv.planErrors, [], 'said at the question, not again under the plan');
+  const g = gate(draft, venue, moved, LANGS);
+  assert.deepEqual([g.ok, g.errors.map((e) => e.code)], [false, ['opener_qty']]);
+  assert.equal(preview(draft, venue, choose(moved, id, 'keep_mine'), LANGS).rows.find((x) => x.id === id).refused, null);
+});
+
+test('every note, question, answer, reason and refusal the contracts can send has words in both languages', () => {
+  const src = fs.readFileSync(new URL('../../src/v2/i18n.ts', import.meta.url), 'utf8');
+  const words = new Map([...src.matchAll(/^\s*'([a-zA-Z0-9_.]+)':\s*\[\s*'((?:[^'\\]|\\.)*)',\s*'((?:[^'\\]|\\.)*)'\s*\]/gm)].map((m) => [m[1], [m[2], m[3]]]));
+  const want = [
+    ...READER_NOTE_CODES.map((c) => 'note.' + c),
+    ...Object.keys(EXCEPTION_CHOICES).map((c) => 'imp.x.' + c),
+    ...[...new Set(Object.values(EXCEPTION_CHOICES).flat())].map((c) => 'imp.c.' + c),
+    ...SKIP_REASONS.map((r) => 'imp.why.' + r),
+    'imp.refused.opener_qty',
+  ];
+  assert.deepEqual(want.filter((k) => !(words.get(k)?.[0].trim() && words.get(k)?.[1].trim())), []);
 });
 
 // ---------------------------------------------------------------- the import calls

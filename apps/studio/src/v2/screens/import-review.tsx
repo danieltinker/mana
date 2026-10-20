@@ -240,7 +240,11 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
         <h2 id="plan-h">{t('imp.plan.title')}</h2>
         {pv.plan ? (changesNothing(pv.plan)
           ? <p data-plan-nothing>{t('imp.plan.nothing')}</p>
-          : <ul class="planlist">{planLines(pv.plan).map((x) => <li key={x.op + x.kind} data-plan-line={x.op + ':' + x.kind} data-n={x.n}>{t('imp.op.' + x.op, { what: tn(KIND_WORDS[x.kind], x.n) })}</li>)}</ul>)
+          : <ul class="planlist">{planLines(pv.plan).map((x) => (
+            <li key={x.op + x.kind + (x.reason ?? '')} data-plan-line={x.op + ':' + x.kind} data-n={x.n} data-reason={x.reason ?? undefined}>
+              {t('imp.op.' + x.op, { what: tn(KIND_WORDS[x.kind], x.n) })}{x.reason && <span class="fine"> · {t('imp.why.' + x.reason)}</span>}
+            </li>
+          ))}</ul>)
           : <p class="muted">{t('imp.plan.none')}</p>}
         {pv.plan && openN > 0 && <p class="fine">{t('imp.plan.provisional')}</p>}
         {pv.planErrors.map((e, i) => <p key={i} class="ferr" data-plan-error={e.code}>{errText(e.code, 'imp.e')}</p>)}
@@ -294,6 +298,7 @@ function Exception({ r, draft, editable, diffs, onChoose, onEdit }: {
         </div>
       )}
       {r.choices.length === 1 && r.e.severity === 'check' && <p class="fine">{label(r.choices[0]!)}</p>}
+      {r.refused && <p class="ferr" role="alert" data-refused={r.refused}>{t('imp.refused.' + r.refused)}</p>}
     </li>
   );
 }

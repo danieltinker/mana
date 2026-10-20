@@ -11,9 +11,9 @@
 //   exception is gone. An edited draft is saved again (save_import_draft) before it is applied: apply_import applies
 //   only the draft the database holds.
 import {
-  DRAFT_ROOT, draftCounts, draftExceptions, EXCEPTION_CHOICES, exceptionId, LIMITS, planApply,
+  DRAFT_ROOT, draftCounts, draftExceptions, EXCEPTION_CHOICES, exceptionId, LIMITS, planApply, SKIP_REASONS,
   type ExistingMenu, type ImportChoice, type ImportDecisions, type ImportDraft, type ImportException, type ImportExceptionCode, type ImportPlan,
-  type Issue, type Lang, type PlanKind, type PlanOp, type Text,
+  type Issue, type Lang, type PlanKind, type PlanOp, type SkipReason, type Text,
 } from '@mana/contracts';
 
 export const NO_DECISIONS: ImportDecisions = { v: 1, pricesConfirmed: false, choices: {}, skip: [] };
@@ -46,6 +46,8 @@ export type ExceptionRow = {
   readonly plan: boolean;
   /** Can be fixed by typing the missing value in place. */
   readonly edit: 'dish_price' | 'option_price' | null;
+  /** The plan refuses the owner's answer here, and why (`opener_qty`: `new_group` on a choice taken more than once). */
+  readonly refused: string | null;
 };
 
 const PATH = /^sections\[(\d+)\](?:\.dishes\[(\d+)\](?:\.groups\[(\d+)\])?)?$|^groups\[(\d+)\](?:\.options\[(\d+)\])?$/;
@@ -101,13 +103,13 @@ const EDITS: Partial<Record<ImportExceptionCode, ExceptionRow['edit']>> = {
   price_missing: 'dish_price', price_unreadable: 'dish_price', price_zero: 'dish_price', option_price_unreadable: 'option_price',
 };
 
-function row(draft: ImportDraft, e: ImportException, decisions: ImportDecisions, plan: boolean, existing?: Pick<ExistingMenu, 'groups'>): ExceptionRow {
+function row(draft: ImportDraft, e: ImportException, decisions: ImportDecisions, plan: boolean, existing?: Pick<ExistingMenu, 'groups'>, refused: string | null = null): ExceptionRow {
   const id = exceptionId(e);
   const choices = EXCEPTION_CHOICES[e.code];
   const own = decisions.choices[id];
   const choice = own !== undefined && choices.includes(own) ? own : null;
   const effective = choice ?? (e.severity === 'check' ? choices[0]! : null);
-  return { id, e, about: aboutOf(draft, e, existing), choices, choice, effective, open: effective === null, plan, edit: EDITS[e.code] ?? null };
+  return { id, e, about: aboutOf(draft, e, existing), choices, choice, effective, open: effective === null, plan, edit: EDITS[e.code] ?? null, refused };
 }
 
 /**
@@ -133,27 +135,43 @@ export type Preview = {
 /**
  * The preview: the draft's exceptions, then the plan's own (which need the venue's menu), each with the owner's answer
  * or its default, and the plan that would run. Open `fix` questions (the draft's or the plan's) take their first answer
- * here, so the plan and its questions show before every answer is in.
+ * here, so the plan and its questions show before every answer is in. When the plan refuses (an answer it cannot carry
+ * out, too many for the venue's limits), its questions still show, from the plan with only the draft's own answers, so
+ * the owner can change the answer that stops it; a refusal tied to one question (`opener_qty`) is said at that question.
  */
 export function preview(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[]): Preview {
   const own = draftExceptions(draft, { langs });
+  const { plan, errors } = provisionalPlan(draft, existing, decisions, own, langs);
+  let questions = plan;
+  const refused = new Map<string, string>();
+  if (!plan && errors.some((x) => x.code !== 'exception_unresolved')) {
+    for (const x of errors) if (x.code === 'opener_qty' && x.message) refused.set(`${x.message}@${x.path}`, x.code);
+    const ownIds = new Set(own.map(exceptionId));
+    const choices = Object.fromEntries(Object.entries(decisions.choices).filter(([id]) => ownIds.has(id)));
+    questions = provisionalPlan(draft, existing, { ...decisions, choices }, own, langs).plan;
+  }
+  const rows: ExceptionRow[] = own.map((e) => row(draft, e, decisions, false, existing));
+  if (questions) for (const e of questions.exceptions.slice(questions.fromDraft)) rows.push(row(draft, e, decisions, true, existing, refused.get(exceptionId(e)) ?? null));
+  const said = new Set(rows.filter((r) => r.refused).map((r) => r.id));
+  return { rows, plan, planErrors: errors.filter((x) => x.code !== 'exception_unresolved' && !(x.code === 'opener_qty' && said.has(`${x.message}@${x.path}`))) };
+}
+
+/** The plan with every open `fix` given its first answer (the draft's and the plan's own), or why there is none. */
+function provisionalPlan(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, own: readonly ImportException[], langs: readonly Lang[]): { plan: ImportPlan | null; errors: readonly Issue[] } {
   const open = new Map<string, ImportExceptionCode>();
   for (const e of own) if (e.severity === 'fix') open.set(exceptionId(e), e.code);
-  let plan: ImportPlan | null = null;
   let errors: readonly Issue[] = [];
   // the plan's own `fix` questions come out as `exception_unresolved` (path = the key, message = the code): give them their
   // first answer too and plan again, until no new one appears (each round adds at least one, so this ends)
   for (let round = 0; round < 8; round++) {
     const r = planApply(draft, existing, provisional(decisions, open), { langs });
-    if (r.ok) { plan = r.value; errors = []; break; }
+    if (r.ok) return { plan: r.value, errors: [] };
     const more = r.errors.filter((x) => x.code === 'exception_unresolved' && x.message && !open.has(`${x.message}@${x.path}`));
     errors = r.errors;
     if (!more.length) break;
     for (const x of more) open.set(`${x.message}@${x.path}`, x.message as ImportExceptionCode);
   }
-  const rows: ExceptionRow[] = own.map((e) => row(draft, e, decisions, false, existing));
-  if (plan) for (const e of plan.exceptions.slice(plan.fromDraft)) rows.push(row(draft, e, decisions, true, existing));
-  return { rows, plan, planErrors: errors.filter((x) => x.code !== 'exception_unresolved') };
+  return { plan: null, errors };
 }
 
 export type Gate =
@@ -253,15 +271,20 @@ export function noteLines(notes: ReadonlyArray<{ readonly code: string; readonly
 }
 
 // ---------------------------------------------------------------- the plan in words
-export type PlanCount = { readonly kind: PlanKind; readonly op: PlanOp; readonly n: number };
+export type PlanCount = { readonly kind: PlanKind; readonly op: PlanOp; readonly n: number; readonly reason: SkipReason | null };
 
-/** The plan's summary as the lines the preview says: what is added, updated, already there, left out (zeros dropped). */
+/**
+ * The plan's summary as the lines the preview says: what is added, updated, already there, and left out, each left-out
+ * line with its reason (the owner's answer, nothing in it, with what it belongs to, nothing uses it); zeros dropped. The
+ * links (dish_group) are not said: a dish's add-ons show under the dish.
+ */
 export function planLines(plan: ImportPlan): PlanCount[] {
   const out: PlanCount[] = [];
   for (const op of ['create', 'update', 'keep', 'skip'] as const) {
-    for (const kind of ['section', 'dish', 'group', 'option', 'dish_group', 'photo'] as const) {
-      const n = plan.summary[kind][op];
-      if (n > 0 && kind !== 'dish_group') out.push({ kind, op, n });
+    for (const kind of ['section', 'dish', 'group', 'option', 'photo'] as const) {
+      const s = plan.summary[kind];
+      if (op !== 'skip') { if (s[op] > 0) out.push({ kind, op, n: s[op], reason: null }); continue; }
+      for (const reason of SKIP_REASONS) if (s.skipped[reason] > 0) out.push({ kind, op, n: s.skipped[reason], reason });
     }
   }
   return out;
