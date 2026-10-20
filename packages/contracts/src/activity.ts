@@ -56,8 +56,11 @@ export type ActivityEntry = {
   readonly targetIds: readonly string[];
   /** How many rows the statement touched (a bulk import of 200 dishes is one entry, n = 200). */
   readonly n: number;
-  /** The name of the one row the entry is about (a section, dish, group, option or rule), read from that row now;
-   * null for several rows, for other tables, or when the row is gone. */
+  /** The name of the one row the entry is about, read from that row now: a section, dish, add-on group or option, or a
+   * schedule (its names); an upsell rule (its label, in both languages); an availability override (the name of what it
+   * took off: its section, dish, option or group). For Halom's `support.act_for_owner` row, what the action names first
+   * (the target taken off or brought back, the dish changed). Null for several rows, for other tables, or when the row
+   * is gone. */
   readonly targetName: Text | null;
   /** Shown to the owner when Halom acted (`act_for_owner`, approvals, plans, cases, demo). */
   readonly reason: string | null;
