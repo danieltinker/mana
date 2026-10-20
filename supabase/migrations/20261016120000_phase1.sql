@@ -2462,6 +2462,8 @@ begin
   if i.source not in ('scan', 'wolt_screenshots') or p_mode is distinct from i.source then
     return app.fail('not_scannable');
   end if;
+  -- IMPORT_IMAGES_MAX by source (create_import holds new imports to it; an older row with more is never read)
+  if cardinality(i.raw_paths) > (case i.source when 'scan' then 8 else 24 end) then return app.fail('not_scannable'); end if;
   if i.raw_purged_at is not null or i.status in ('parsed', 'applied', 'discarded') then return app.fail('import_closed'); end if;
   if i.status = 'parsing' and i.updated_at > now() - interval '10 minutes' then return app.fail('import_busy'); end if;
   perform pg_advisory_xact_lock(hashtext('mana:import:' || i.venue_id::text));

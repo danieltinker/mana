@@ -47,9 +47,10 @@ describe('apply_import', () => {
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(r.plan, JSON.parse(JSON.stringify(want.value)), 'the database planned what the contracts plan');
     assert.deepEqual(await counts(), { sections: 2, dishes: 3, groups: 3, options: 6, links: 3, assets: 0 });
-    const imp = (await w.admin.query(`select status, applied_at, exceptions from public.menu_imports where id = $1`, [id])).rows[0];
+    const imp = (await w.admin.query(`select status, applied_at, updated_at, exceptions from public.menu_imports where id = $1`, [id])).rows[0];
     assert.equal(imp.status, 'applied');
     assert.ok(imp.applied_at);
+    assert.equal(imp.updated_at.getTime(), imp.applied_at.getTime(), 'closing moves updated_at (the purge counts its days from it)');
     assert.deepEqual(imp.exceptions, r.plan.exceptions.slice(0, r.plan.fromDraft), 'the draft\'s own exceptions, with the answers used');
     assert.ok(imp.exceptions.every((e) => typeof e.choice === 'string'));
     const log = (await w.admin.query(`select actor_kind, via, target_table, target_ids, detail from public.activity_log where venue_id = $1 and action = 'import.apply'`, [V])).rows;

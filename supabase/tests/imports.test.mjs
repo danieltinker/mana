@@ -127,7 +127,7 @@ describe('create_import', () => {
     assert.equal(await img([`${dir}/../a.jpg`]), 'path_invalid');
     // exactly <venue>/imports/<import>/<name>: a name of letters, digits, dot, dash or underscore, 1 to 100 of them
     for (const bad of [`${dir}/sub/a.jpg`, `${dir}/..`, `${dir}/.`, `${dir}/a b.jpg`, `${dir}/${'n'.repeat(101)}`, `${dir}/`, `${dir}/a%2Fb.jpg`,
-      `${dir}/שם.jpg`, `${dir.toUpperCase()}/a.jpg`]) {
+      `${dir}/%2e%2e`, `${dir}/..%2fa.jpg`, `/${dir}/a.jpg`, `menu-private/${dir}/a.jpg`, `${dir}/../../${w.B}/a.jpg`, `${dir}/שם.jpg`, `${dir.toUpperCase()}/a.jpg`]) {
       assert.equal(await img([bad]), 'path_invalid', bad);
     }
     assert.equal(await img([`${dir}/${'n'.repeat(100)}`]), undefined, 'a 100-character name');
@@ -192,6 +192,18 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
     const cw = await claim(U.ownerA, wolt.importId, 'wolt_screenshots');
     assert.deepEqual([cw.ok, cw.source, cw.images, cw.rightsConfirmed], [true, 'wolt_screenshots', 3, true]);
     await clearCounters();
+  });
+
+  test('an older image import with more images than IMPORT_IMAGES_MAX is never read (not_scannable, nothing charged)', async () => {
+    await clearImports();
+    await clearCounters();
+    const id = randomUUID();
+    await w.admin.query(`insert into public.menu_imports (id, venue_id, source, raw_paths, input_sha256) values ($1, $2, 'scan', $3, $4)`,
+      [id, A, Array.from({ length: 9 }, (_, i) => `${A}/imports/${id}/${i}.jpg`), sha()]);
+    assert.deepEqual(await claim(U.ownerA, id), { ok: false, code: 'not_scannable' });
+    assert.deepEqual(await counters(), {});
+    assert.equal((await row(id)).status, 'uploaded');
+    await clearImports();
   });
 
   test('the mode must be the import\'s source; a mismatch is not_scannable and costs nothing', async () => {
@@ -362,9 +374,11 @@ describe('discard_import', () => {
     const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerA: U.ownerA, support: U.support, admin: U.admin };
     assert.deepEqual(await whoMay('discard_import', { p_import: p.importId }, roles),
       { anon: '42501', stranger: '42501', counterA: '42501', ownerA: '42501', support: '42501', admin: '42501' });
+    const opened = (await row(p.importId)).updated_at;
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: p.importId }), { ok: true });
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: p.importId }), { ok: true });
     assert.equal((await row(p.importId)).status, 'discarded');
+    assert.ok((await row(p.importId)).updated_at > opened, 'closing moves updated_at (the purge counts its days from it)');
     const log = (await w.admin.query(`select actor_kind, via, detail from public.activity_log where venue_id = $1 and action = 'menu_imports.update' order by id desc limit 1`, [w.B])).rows[0];
     assert.deepEqual([log.actor_kind, log.via, log.detail.changes.status], ['owner', 'rpc', ['uploaded', 'discarded']]);
     const x = await paste(U.ownerB, w.B, 'Bread 12');
