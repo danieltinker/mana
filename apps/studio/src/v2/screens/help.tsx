@@ -5,12 +5,13 @@
 // the activity log with its reason. The screen says plainly what happens next, lists the place's requests that are not
 // resolved, and keeps a person one tap away (WhatsApp). The shell's help button leads here from every screen.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, newUuid, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
 import { toV2Error } from '../data/errors.ts';
 import { openCase, openCases, type CaseLine } from '../data/records.ts';
+import { requestIds } from '../data/request-id.ts';
 import { canEdit, mayWrite, menu, refreshVenue, setSupportCanAct } from '../data/store.ts';
 import { errText, fmtDate, t } from '../i18n.ts';
 import { ErrorLine } from '../ui.tsx';
@@ -47,21 +48,27 @@ export function HelpScreen() {
     setSent(caseId);
     await Promise.all([loadCases(), refreshVenue().catch(() => {})]);
   }
-  // the request's id, made here and kept until an answer arrives: sent again after a lost answer, it is the same
-  // request (open_case answers the stored one, `reused`), never a second
-  const requestId = useRef(newUuid());
+  // the request's own id (data/request-id.ts): the same for a resend of the same words after a lost answer (open_case
+  // answers the stored request, `reused`), a new one as soon as the topic, the line or the details change, and after
+  // a request is stored
+  const ids = useRef(requestIds());
+  /** An answer lost on the way back: is the request stored? Its own id among the place's open requests says. */
+  const storedAs = async (id: string): Promise<CaseLine | null> => (await openCases(v.id)).find((c) => c.id === id) ?? null;
   async function send(e: Event) {
     e.preventDefault();
     if (busy) return;
     setError(''); setSubjectErr('');
     setBusy(true);
+    const id = ids.current.forContent({ topic, subject, body });
     try {
       mayWrite();
-      const r = await openCase({ venueId: v.id, topic, subject, body, id: requestId.current });
-      requestId.current = newUuid();
+      const r = await openCase({ venueId: v.id, topic, subject, body, id });
+      ids.current.sent();
       await done(r.caseId);
     } catch (err) {
       const code = toV2Error(err).code;
+      const found = code === 'network' ? await storedAs(id).catch(() => null) : null;
+      if (found) { ids.current.sent(); await done(found.id); return; }
       if (code === 'text_missing' || code === 'text_too_long' || code === 'text_invalid') { setSubjectErr(errText(code, 'help.e')); subjectRef.current?.focus(); }
       else setError(errText(code, 'help.e'));
     } finally { setBusy(false); }

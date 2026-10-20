@@ -446,32 +446,63 @@ test('get help: a case the back office sees (ops_venues); Halom\'s answer is a n
   await help.locator(`[data-case="${caseId}"][data-status="waiting_owner"]`).waitFor();
   assert.match(await help.locator(`[data-case="${caseId}"]`).innerText(), /מחכה לכם/);
 
-  // an answer lost on the way back: the same tap again sends the same request (its id is made here, SEC-N6), and
-  // open_case answers the one stored the first time; one request, not two
-  const subject = 'e2e: a request whose answer is lost';
-  await help.locator('[data-topic="menu"]').click();
-  await help.locator('[data-field="help-subject"]').fill(subject);
-  let armed = true;
-  const sentIds = [];
+  // lost answers (SEC-N6): each request carries its own id, made here; the database stores the first try (we lose
+  // its answer on the way back) and answers a resend of the same id with that stored request
   const match = (u) => u.pathname.endsWith('/rest/v1/rpc/open_case');
+  const sentIds = [];
+  let lose = null;                                                                 // how the next answer is lost
   await page.route(match, async (r) => {
     sentIds.push(r.request().postDataJSON().p_id);
-    if (armed) { armed = false; await r.fetch(); return r.abort('internetdisconnected'); }
+    const how = lose; lose = null;
+    if (how === 'network') { await r.fetch(); return r.abort('internetdisconnected'); }
+    if (how === 'server') { await r.fetch(); return r.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"e2e: the answer is lost"}' }); }
     return r.continue();
   });
+  const casesSaying = async (subject) => owner.api.select('support_cases', { select: 'id,subject', venue_id: `eq.${owner.venueId}`, subject: `eq.${subject}` });
+  const ask = async (subject) => {
+    if (await help.locator('[data-case-sent]').count()) await help.getByRole('button', { name: 'פנייה נוספת' }).click();
+    await help.locator('[data-topic="menu"]').click();
+    await help.locator('[data-field="help-subject"]').fill(subject);
+  };
+  const sentCard = help.locator('[data-case-sent]');
+
+  // 1. the connection drops on the way back: the screen finds its own request by its id; one request
+  await ask('e2e: a request whose answer is lost');
+  lose = 'network';
+  await help.locator('[data-action="send-help"]').click();
+  await sentCard.waitFor();
+  const [lost] = await casesSaying('e2e: a request whose answer is lost');
+  assert.equal(await sentCard.getAttribute('data-case-sent'), lost.id);
+  assert.equal(lost.id, sentIds.at(-1), 'the case is the id this phone made');
+
+  // 2. the server's answer is lost (a 5xx) and the owner sends the same words again: the same id, the stored request
+  await ask('e2e: the same words, sent again');
+  lose = 'server';
   await help.locator('[data-action="send-help"]').click();
   await help.locator('[data-help-form] .note-error').waitFor();
   const reply = page.waitForResponse((r) => match(new URL(r.url())));
   await help.locator('[data-action="send-help"]').click();
-  const again = help.locator('[data-case-sent]');
-  await again.waitFor();
-  await page.unroute(match);
-  assert.equal(sentIds.length, 2);
-  assert.equal(sentIds[0], sentIds[1], 'the same id both times');
+  await sentCard.waitFor();
+  assert.equal(sentIds.at(-1), sentIds.at(-2), 'the same id both times');
   assert.equal((await (await reply).json()).reused, true, 'the database answers the request stored the first time');
-  const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${owner.venueId}`, subject: `eq.${subject}` });
-  assert.equal(stored.length, 1, 'one request, not two');
-  assert.deepEqual([await again.getAttribute('data-case-sent'), stored[0].id], [sentIds[0], sentIds[0]]);
+  assert.equal((await casesSaying('e2e: the same words, sent again')).length, 1, 'one request, not two');
+
+  // 3. the answer is lost, then the owner changes the words: a new request with a new id, so Halom sees the new words
+  await ask('e2e: the first words');
+  lose = 'server';
+  await help.locator('[data-action="send-help"]').click();
+  await help.locator('[data-help-form] .note-error').waitFor();
+  await help.locator('[data-field="help-subject"]').fill('e2e: the words the owner changed');
+  await help.locator('[data-action="send-help"]').click();
+  await sentCard.waitFor();
+  assert.notEqual(sentIds.at(-1), sentIds.at(-2), 'changed words, a new id');
+  const [changed] = await casesSaying('e2e: the words the owner changed');
+  assert.ok(changed, 'the new words reached Halom');
+  assert.equal(await sentCard.getAttribute('data-case-sent'), changed.id);
+  assert.equal((await casesSaying('e2e: the first words')).length, 1, 'the first try was stored too (its answer was lost)');
+  await page.unroute(match);
+  // the 5xx answers this test makes on purpose are the browser's own console lines
+  page.problems = page.problems.filter((p) => !/status of 500/.test(p));
   assert.deepEqual(problems(), []);
 });
 

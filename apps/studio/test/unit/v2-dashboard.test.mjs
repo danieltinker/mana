@@ -14,6 +14,7 @@ import { activityWords, dayTitle, menuNames, oneLinePerApproval, whoOf } from '.
 import { axisTop, dayBars, hasVisits, labelledBars, minuteBars, nudgeHref, share } from '../../src/v2/data/dashboard.ts';
 import { csvCell, exportFileName, menuCsv, menuJson, shekelCell } from '../../src/v2/data/export.ts';
 import { refresher } from '../../src/v2/data/refresher.ts';
+import { requestIds } from '../../src/v2/data/request-id.ts';
 import { newSpecialForm, specialFromForm } from '../../src/v2/data/special.ts';
 import { ruleLine } from '../../src/v2/format.ts';
 
@@ -393,6 +394,28 @@ test('a special from one form: a schedule of kind special named after the dish, 
   assert.deepEqual(codes({ from: '25:00' }), ['time:time_invalid']);
   assert.deepEqual(codes({ nameHe: '', nameEn: '', price: '', days: [] }), ['name:name_missing', 'price:price_missing', 'days:days_empty'], 'every mistake at once');
   assert.deepEqual(newSpecialForm(sec, 5).days, [5], 'today\'s weekday first');
+});
+
+// ---------------------------------------------------------------- a help request's own id (SEC-N6, SEC-L3)
+test('a help request keeps its id only for the same words: an edit after a failure is a new request, a stored one too', () => {
+  let made = 0;
+  const ids = requestIds(() => 'id-' + ++made);
+  const a = { topic: 'menu', subject: 'How do I add a photo?', body: '' };
+  const first = ids.forContent(a);
+  assert.equal(ids.forContent({ ...a }), first, 'a resend of the same words (a lost answer): the same request');
+  assert.equal(ids.forContent(a), first, 'and again');
+  const edited = ids.forContent({ ...a, subject: 'How do I add a photo to a dish?' });
+  assert.notEqual(edited, first, 'the line changed: a new request, so Halom sees the new words');
+  assert.equal(ids.forContent({ ...a, subject: 'How do I add a photo to a dish?' }), edited, 'its own resend keeps it');
+  assert.notEqual(ids.forContent({ ...a, subject: 'How do I add a photo to a dish?', body: 'More' }), edited, 'the details changed');
+  const t2 = ids.forContent({ ...a, topic: 'photos', subject: 'x', body: '' });
+  assert.notEqual(ids.forContent({ ...a, topic: 'account', subject: 'x', body: '' }), t2, 'the topic changed');
+  const s = ids.forContent({ topic: 'other', subject: 'y', body: '', allowAct: true });
+  assert.notEqual(ids.forContent({ topic: 'other', subject: 'y', body: '', allowAct: false }), s, 'the switch sent with it changed');
+  const before = ids.forContent(a);
+  ids.sent();
+  assert.notEqual(ids.forContent(a), before, 'once stored, the same words again are a new request');
+  assert.equal(new Set([first, edited, t2, s, before]).size, 5);
 });
 
 // ---------------------------------------------------------------- the live timer
