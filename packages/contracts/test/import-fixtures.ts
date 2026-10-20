@@ -82,6 +82,55 @@ export function planProblems(plan: ImportPlan): string[] {
   return out;
 }
 
+/**
+ * What the database would refuse in a menu, or a guest could never meet, as TypeScript: `addon_groups`' checks (min
+ * 0–30, max 1–30, min ≤ max, a single choice's max 1); `addon_options`' checks (a name, `max_qty` 1–10, an opener's
+ * `max_qty` 1, never opening its own group, opening a group the venue has) and `app.guard_nesting` (one level: no group
+ * is both opened by an option and holds an option that opens a group); `dish_addon_groups`' checks and
+ * `app.guard_dish_addon` (a link's own limits only tighten its group's; its effective min, its own else the group's, at
+ * most its effective max; a single choice's effective max 1); and the reach: a group with an option, and a group's and
+ * a link's effective minimum within the group's capacity (its options' `max_qty`).
+ */
+export function menuRuleBreaks(m: ExistingMenu): string[] {
+  const out: string[] = [];
+  const capacity = new Map<string, number>();
+  for (const o of m.options) capacity.set(o.group_id, (capacity.get(o.group_id) ?? 0) + o.max_qty);
+  const between = (v: number, lo: number, hi: number) => Number.isInteger(v) && v >= lo && v <= hi;
+  for (const g of m.groups) {
+    const name = g.name_en || g.name_he;
+    if (!between(g.min_units, 0, 30) || !between(g.max_units, 1, 30) || g.min_units > g.max_units) out.push(`group ${name}: limits ${g.min_units}-${g.max_units}`);
+    if (g.selection === 'single' && g.max_units !== 1) out.push(`group ${name}: single with max ${g.max_units}`);
+    if (!capacity.has(g.id)) out.push(`group ${name}: no option`);
+    else if (g.min_units > capacity.get(g.id)!) out.push(`group ${name}: min ${g.min_units} above capacity ${capacity.get(g.id)}`);
+  }
+  const groupIds = new Set(m.groups.map((g) => g.id));
+  const opened = new Set(m.options.filter((o) => o.opens_group_id !== null).map((o) => o.opens_group_id!));
+  for (const o of m.options) {
+    const name = o.name_en || o.name_he;
+    if (o.name_he === '' && o.name_en === '') out.push(`option ${o.id}: no name`);
+    if (!between(o.max_qty, 1, 10)) out.push(`option ${name}: max_qty ${o.max_qty}`);
+    if (o.opens_group_id === null) continue;
+    if (o.max_qty !== 1) out.push(`option ${name}: opens a group with max_qty ${o.max_qty}`);
+    if (o.opens_group_id === o.group_id) out.push(`option ${name}: opens its own group`);
+    if (!groupIds.has(o.opens_group_id)) out.push(`option ${name}: opens a group the venue does not have`);
+    if (opened.has(o.group_id)) out.push(`option ${name}: nesting_too_deep (its group is opened by another option)`);
+  }
+  for (const l of m.dishGroups as ReadonlyArray<ExistingMenu['dishGroups'][number] & { min_units?: number | null; max_units?: number | null }>) {
+    const g = m.groups.find((x) => x.id === l.group_id)!;
+    const name = g.name_en || g.name_he;
+    const min = l.min_units ?? null, max = l.max_units ?? null;
+    if ((min !== null && !between(min, 0, 30)) || (max !== null && !between(max, 1, 30)) || (min !== null && max !== null && min > max)) {
+      out.push(`link to ${name}: limits ${min}-${max}`);
+    }
+    const lo = min ?? g.min_units, hi = max ?? g.max_units;
+    if (g.selection === 'single' && hi !== 1) out.push(`link to ${name}: single_max (${hi})`);
+    if (lo > hi) out.push(`link to ${name}: limits_invalid (${lo} > ${hi})`);
+    if ((min !== null && min < g.min_units) || (max !== null && max > g.max_units)) out.push(`link to ${name}: limits_loosened (${min}-${max} under ${g.min_units}-${g.max_units})`);
+    if (lo > (capacity.get(g.id) ?? 0)) out.push(`link to ${name}: min ${lo} above capacity ${capacity.get(g.id) ?? 0}`);
+  }
+  return out;
+}
+
 let nextId = 0xa00000000000;
 const freshId = (): string => `00000000-0000-4000-8000-${(nextId++).toString(16).padStart(12, '0')}`;
 

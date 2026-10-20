@@ -9,7 +9,9 @@ import {
   ACTIVITY_ACTIONS, activityChanges, AUDITED_TABLES, auditOpsOf, configFlags, isActivityAction, isAutoStep, isUntilSpec, LIVE_REFRESH,
   NUDGE_CODES, onboardingProgress, OPS_WARNINGS, pollDelay, resolveUntil, timelineKind, validateActivityQuery, validateDashboardQuery,
   validateExportQuery, validateOpenCase, validateOpsAnalyticsQuery, validateOpsVenueQuery, validateOpsVenuesQuery, validateRestoreToday,
-  validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type Validation,
+  validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type OpenCaseReply,
+  validateListPurgeableQuery, type ApproveVenueReply, type ListPurgeable, type SetDemoReply, type SetPlanReply, type SupportCase, type UpdateCaseReply,
+  type Validation,
 } from '../src/index.ts';
 
 const V = '00000000-0000-4000-8000-0000000000c1';
@@ -67,6 +69,26 @@ test('support: get help, and staff updates with a reason', () => {
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, reason: 'ok' })), ['nothing_to_change', 'reason_required']);
   assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'open' })), ['reason_required'], 'the reason may be left out of the call, never of the update');
   assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', body: null })), [], 'a null body is no body');
+});
+
+test('round 4: open_case takes the client\'s own id, so a retry opens no second case', () => {
+  const C = '00000000-0000-4000-8000-0000000000f1';
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: C })), []);
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: null })), [], 'null: the database makes one');
+  assert.deepEqual(errs(validateOpenCase({ venueId: V, topic: 'menu', subject: 'Help', id: 'case-1' })), ['id_invalid']);
+  const again: OpenCaseReply = { ok: true, caseId: C, supportCanAct: false, reused: true };
+  const taken: OpenCaseReply = { ok: false, code: 'id_taken' };
+  assert.ok(again.ok && !taken.ok);
+});
+
+test('round 4: the Realtime publication is exactly LIVE_REFRESH.realtimeTables (venues stays out in phase 1)', () => {
+  assert.deepEqual([...LIVE_REFRESH.realtimeTables], ['rollups_minute', 'rollups_day', 'availability_overrides']);
+  const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../supabase/migrations');
+  if (!fs.existsSync(dir)) return;
+  const sql = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const added = [...sql.matchAll(/alter publication supabase_realtime add table ([^;]+);/g)].flatMap((m) => m[1]!.split(',').map((t) => t.trim().replace(/^public\./, '')));
+  assert.deepEqual(added.sort(), [...LIVE_REFRESH.realtimeTables].sort());
+  assert.ok(!added.includes('venues'));
 });
 
 test('activity: every action the database logs today is on the closed list; tables and named actions', () => {
@@ -165,4 +187,40 @@ test('config flags: absent means production, v1, realtime; a broken value is rep
     env: 'production', schema: 1, realtime: true,
     issues: [{ code: 'env_invalid', path: 'env' }, { code: 'schema_invalid', path: 'schema' }, { code: 'realtime_invalid', path: 'realtime' }],
   });
+});
+
+test('round 7: ops_update_case checks the case\'s version (full precision), and answers stale with the case', () => {
+  const at = '2026-10-20T09:41:07.123456+00:00';
+  assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: at })), []);
+  assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: null })), [], 'null: no check');
+  for (const bad of ['2026-02-30T09:41:07Z', '2026-10-20 09:41', 'yesterday', 7]) {
+    assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: bad })), ['time_invalid'], String(bad));
+  }
+  const current: SupportCase = {
+    id: D, venueId: V, topic: 'menu', status: 'open', subject: 'Help', body: '', openedBy: 'owner', openedAt: '2026-10-20T09:00:00Z', updatedAt: at,
+    resolvedAt: null, supportCanAct: true,
+  };
+  const stale: UpdateCaseReply = { ok: false, code: 'stale', current };
+  assert.equal(stale.ok, false);
+});
+
+test('round 7: a staff member who belongs to a venue never approves it, sets its plan or its demo label (own_venue)', () => {
+  const replies: Array<ApproveVenueReply | SetPlanReply | SetDemoReply> = [{ ok: false, code: 'own_venue' }, { ok: false, code: 'own_venue' }, { ok: false, code: 'own_venue' }];
+  assert.ok(replies.every((r) => !r.ok && r.code === 'own_venue'));
+});
+
+test('round 7: list_purgeable_imports pages by a keyset cursor (the last row\'s finishedAt and importId, as they came)', () => {
+  const I = '00000000-0000-4000-8000-0000000000e9';
+  const page: ListPurgeable = [{ importId: I, venueId: V, status: 'applied', paths: [`${V}/imports/${I}/1.jpg`], finishedAt: '2026-09-20T08:00:00.123456+00:00' }];
+  const last = page[page.length - 1]!;
+  assert.deepEqual(errs(validateListPurgeableQuery({})), []);
+  assert.deepEqual(errs(validateListPurgeableQuery({ limit: 1, after: { finishedAt: last.finishedAt, importId: last.importId } })), []);
+  assert.deepEqual(errs(validateListPurgeableQuery({ limit: null, after: null })), []);
+  for (const limit of [0, 501, 1.5, '10']) assert.deepEqual(errs(validateListPurgeableQuery({ limit })), ['limit_invalid'], String(limit));
+  for (const after of [last, [last.finishedAt, last.importId], { finishedAt: last.finishedAt }, { finishedAt: '2026-02-30T08:00:00Z', importId: I },
+    { finishedAt: last.finishedAt, importId: 'import-1' }, 'cursor']) {
+    assert.deepEqual(errs(validateListPurgeableQuery({ after })), ['cursor_invalid'], JSON.stringify(after));
+  }
+  assert.deepEqual(errs(validateListPurgeableQuery({ cursor: null })), ['field_not_allowed']);
+  assert.deepEqual(errs(validateListPurgeableQuery(null)), ['type']);
 });
