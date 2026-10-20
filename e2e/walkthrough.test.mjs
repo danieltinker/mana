@@ -32,7 +32,10 @@ after(async () => { await e?.stop(); });
 async function runOnce(t, outDir) {
   const lines = [];
   const r = await walkthrough({ config, origin, root: ROOT, outDir, stack: e.stack, log: (l) => lines.push(l) });
-  for (const s of r.steps) t.diagnostic(`${String(s.n).padStart(2)} ${s.side.padEnd(5)} ${s.id.padEnd(25)} ${(s.ms / 1000).toFixed(1).padStart(5)} s / ${(s.budgetMs / 1000).toFixed(0)} s  ${s.verdict}${s.reason ? ': ' + s.reason : ''}`);
+  for (const s of r.steps) {
+    t.diagnostic(`${String(s.n).padStart(2)} ${s.side.padEnd(5)} ${s.id.padEnd(25)} ${(s.ms / 1000).toFixed(1).padStart(5)} s / ${(s.budgetMs / 1000).toFixed(0)} s  ${s.verdict}${s.reason ? ': ' + s.reason : ''}`);
+    if (s.detail) t.diagnostic(s.detail.replace(/\x1b\[\d+m/g, '').split('\n').slice(0, 8).join(' | '));
+  }
   t.diagnostic(`total ${(r.summary.ms / 1000).toFixed(1)} s; page ${path.relative(ROOT, r.file)}`);
   assert.deepEqual(r.steps.map((s) => s.id), STEPS, 'every step of the script, in order');
   assert.deepEqual(r.steps.filter((s) => s.verdict !== 'pass').map((s) => `${s.id}: ${s.verdict} ${s.reason}`), [], 'every step passed');

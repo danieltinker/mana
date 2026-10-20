@@ -337,6 +337,14 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       const groupRow = (name) => owner.locator('[data-ob-group]').filter({ has: owner.locator('.row-name', { hasText: name }) }).first();
       const editor = owner.locator('[data-screen="group-editor"]');
       const backToFlow = async () => { await owner.locator('[data-back-to-setup="addons"]').click(); await onStep('addons'); };
+      // a save that changed the minimum or the maximum confirms the limits (the database does); else the owner confirms
+      // them as they are
+      const settleLimits = async () => {
+        const asked = editor.locator('[data-limits-unconfirmed]');
+        if (await asked.waitFor({ state: 'detached', timeout: 4000 }).then(() => true, () => false)) return;
+        await editor.locator('[data-action="confirm-limits"]:not([disabled])').click();
+        await asked.waitFor({ state: 'detached' });
+      };
       // the sauce: one required choice (its limits were a guess)
       must(await groupRow(a.sauce).count(), `no add-on group "${a.sauce}" after the import`);
       const sauceId = await groupRow(a.sauce).getAttribute('data-ob-group');
@@ -350,8 +358,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       }
       const save = editor.locator('[data-action="save-group"]');
       if (await save.isEnabled()) { await save.click(); await editor.locator('[data-action="save-group"][disabled]').waitFor(); done.push(`made "${a.sauce}" ${plain(await editor.locator('[data-rule]').innerText())}`); }
-      if (await editor.locator('[data-action="confirm-limits"]').count()) await editor.locator('[data-action="confirm-limits"]').click();
-      await editor.locator('[data-limits-unconfirmed]').waitFor({ state: 'detached' });
+      await settleLimits();
       await backToFlow();
       // the side of choice: the opener opens the sauce (set here unless the import already did)
       must(await groupRow(a.side).count(), `no add-on group "${a.side}" after the import`);
@@ -367,8 +374,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
         await editor.locator('[data-action="save-group"][disabled]').waitFor();
         done.push(`made "${a.opener}" open "${a.sauce}"`);
       } else done.push(`"${a.opener}" opens "${a.sauce}" as imported`);
-      if (await editor.locator('[data-action="confirm-limits"]').count()) await editor.locator('[data-action="confirm-limits"]').click();
-      await editor.locator('[data-limits-unconfirmed]').waitFor({ state: 'detached' });
+      await settleLimits();
       await backToFlow();
       // every other group's limits, as imported
       for (let k = 0; k < 20 && (await owner.locator('[data-ob-group][data-confirmed="no"]').count()); k++) {

@@ -62,7 +62,7 @@ export class Walkthrough {
       this.log(`  ${String(rec.n).padStart(2, '0')} ${side.padEnd(5)} ${name} · not run`);
       return null;
     }
-    const file = `${String(rec.n).padStart(2, '0')}-${id}.jpg`;
+    const file = `${String(rec.n).padStart(2, '0')}-${id}.jpg`, shotsDir = this.shotsDir;
     /** @type {StepContext} */
     const s = {
       page,
@@ -71,7 +71,7 @@ export class Walkthrough {
       /** The screenshot, now (by default it is taken when the step ends). */
       async shot(p = s.page) {
         if (!p) return;
-        await p.screenshot({ path: path.join(this.shotsDir, file), type: 'jpeg', quality: 78, animations: 'disabled', caret: 'hide' });
+        await p.screenshot({ path: path.join(shotsDir, file), type: 'jpeg', quality: 78, animations: 'disabled', caret: 'hide' });
         rec.shot = 'shots/' + file;
         rec.frame = (p.viewportSize()?.width ?? 0) < 700 ? 'phone' : 'desk';
         s.shotTaken = true;
@@ -100,6 +100,7 @@ export class Walkthrough {
       rec.ms = Math.round(performance.now() - t0);
       rec.verdict = 'fail';
       rec.reason = reasonOf(e);
+      rec.detail = String(e instanceof Error ? e.message : e).slice(0, 4000);   // walkthrough.json only: Playwright's call log
       this.failed = rec;
       await s.shot().catch(() => {});
     }
