@@ -52,6 +52,9 @@ const S: Record<string, [string, string]> = {
   'venue.unsaved.title': ['יש שינויים שלא נשמרו', 'Some changes are not saved'],
   'venue.unsaved.body': ['השינויים האחרונים במקום הזה לא נשמרו. אם תעברו עכשיו למקום אחר, הם יאבדו.', 'The latest changes in this place did not save. If you switch now, they are lost.'],
   'venue.unsaved.go': ['לעבור בלי לשמור', 'Switch without saving'],
+  'signout.unsaved.body': ['השינויים האחרונים לא נשמרו. אם תצאו עכשיו מהחשבון, הם יאבדו.', 'Your latest changes did not save. If you sign out now, they are lost.'],
+  'signout.unsaved.go': ['לצאת בלי לשמור', 'Sign out without saving'],
+  'save2.failedLong': ['השינויים האחרונים לא הגיעו אלינו, או שלא קיבלנו אישור שהם נשמרו. מה שהקלדתם עדיין כאן, ו"לנסות שוב" שולח אותו שוב.', 'Your latest changes did not reach us, or we never heard back that they were saved. What you typed is still here, and "Try again" sends it again.'],
 
   // ---- the menu
   'menu2.empty.title': ['התפריט עוד ריק', 'The menu is empty'],

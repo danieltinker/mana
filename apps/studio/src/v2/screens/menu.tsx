@@ -13,6 +13,7 @@ import { addDish, addSection, canEdit, menu, moveRow, patchRow, removeRows } fro
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
+import { SaveFailedLine } from '../saving.tsx';
 import { DishSheet } from './dish.tsx';
 
 export function MenuScreen({ rest }: { rest: string[] }) {
@@ -190,6 +191,7 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
     <Sheet open onClose={onClose} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
       foot={<>{row && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-section">{t('app.delete')}</Btn>}
         <Btn kind="primary" busy={busy} onClick={save} data-action="save-section">{row ? t('app.save') : t('menu.cat.add')}</Btn></>}>
+      <SaveFailedLine />
       <Field label={t('menu.cat.name') + ' · ' + t('app.' + L)} error={nameErr}>{(p) => (
         <input {...p} type="text" dir="auto" lang={L} maxLength={60} value={form[nameField]} data-field={'section-name-' + L}
           onInput={(e) => set({ [nameField]: (e.target as HTMLInputElement).value } as Partial<SectionForm>)} />
