@@ -23,7 +23,7 @@
  * then by draft key, never by the order of the draft.
  */
 import {
-  BLANK_CLASS, cleanText, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, stripBlank, textLength,
+  BLANK_CLASS, cleanText, Issues, isBlank, isInt, isObject, isStorableText, isString, isUuid, LANGS, oneOf, STOCK_RE, stripBlank, textLength,
   type Issue, type Lang, type Text, type Validation,
 } from './common.ts';
 import type {
@@ -45,7 +45,6 @@ export type PhotoRights = (typeof PHOTO_RIGHTS)[number];
 export const DRAFT_KEY_RE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 /** The key of an exception about the whole draft (no node key starts with `_`). */
 export const DRAFT_ROOT = '_draft';
-const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 /** A group's units, as the database bounds them (`addon_groups.min_units` 0–30, `max_units` 1–30). */
 export const GROUP_UNITS_MAX = 30;
 /** What a price looked like in the source when it could not be read as a number ("₪ 4O", "market price"). */
@@ -59,6 +58,12 @@ export const DRAFT_BYTES_MAX = 1_500_000;
 /** At most this many exceptions per draft (`menu_imports.exceptions` holds no more); a draft with more is refused. What
  * `apply_import` stores there is the draft's own exceptions with their answers (`ImportPlan.fromDraft`), so it fits too. */
 export const EXCEPTIONS_MAX = 2000;
+/** A draft's text fields, in code points once blank edges are stripped (what `validateDraft` checks; readers clip to
+ * these). */
+export const DRAFT_TEXT_MAX = {
+  section: LIMITS.shortNameLength, group: LIMITS.shortNameLength, option: LIMITS.shortNameLength, dish: LIMITS.nameLength,
+  desc: LIMITS.descLength, priceNote: LIMITS.noteLength, allergens: LIMITS.allergensLength, priceText: PRICE_TEXT_MAX,
+} as const;
 /** Hard bounds on a draft's shape: a reader that goes past them is broken, so the draft is refused (`too_large`).
  * Between `LIMITS` and these, the draft is kept and the extra nodes are `too_many` exceptions. */
 export const DRAFT_CAPS = { sections: 80, dishes: 800, groups: 400, optionsPerGroup: 60, groupsPerDish: 16 } as const;
@@ -372,7 +377,7 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
     only(x, g, KEYS.group, p);
     key(g.key, `${p}.key`);
     if (isString(g.key) && !groupByKey.has(g.key)) groupByKey.set(g.key, g);
-    text(x, g.name, `${p}.name`, 60, true);
+    text(x, g.name, `${p}.name`, DRAFT_TEXT_MAX.group, true);
     translated(x, g.translated, `${p}.translated`, [g.name]);
     if (!oneOf(SELECTIONS, g.selection)) x.add('enum_invalid', `${p}.selection`);
     const limits = limitOk(g.min, 0) && limitOk(g.max, 1) && !(isInt(g.min) && isInt(g.max) && g.min > g.max) &&
@@ -388,7 +393,7 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
       if (!isObject(o)) { quantitiesOk = false; return void x.add('type', q); }
       only(x, o, KEYS.option, q);
       key(o.key, `${q}.key`);
-      text(x, o.name, `${q}.name`, 60, true);
+      text(x, o.name, `${q}.name`, DRAFT_TEXT_MAX.option, true);
       translated(x, o.translated, `${q}.translated`, [o.name]);
       if (!priceOk(o.price)) x.add('price_invalid', `${q}.price`);
       if (o.priceText !== null) str(x, o.priceText, `${q}.priceText`, PRICE_TEXT_MAX);
@@ -425,7 +430,7 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
     if (!isObject(s)) return void x.add('type', p);
     only(x, s, KEYS.section, p);
     key(s.key, `${p}.key`);
-    text(x, s.name, `${p}.name`, 60, true);
+    text(x, s.name, `${p}.name`, DRAFT_TEXT_MAX.section, true);
     translated(x, s.translated, `${p}.translated`, [s.name]);
     if (!oneOf(SECTION_KINDS, s.kind)) x.add('enum_invalid', `${p}.kind`);
     if (s.room !== null && !oneOf(ROOMS, s.room)) x.add('enum_invalid', `${p}.room`);
@@ -436,14 +441,14 @@ export function validateDraft(raw: unknown): Validation<ImportDraft> {
       if (!isObject(d)) return void x.add('type', q);
       only(x, d, KEYS.dish, q);
       key(d.key, `${q}.key`);
-      text(x, d.name, `${q}.name`, LIMITS.nameLength, true);
-      text(x, d.desc, `${q}.desc`, LIMITS.descLength);
+      text(x, d.name, `${q}.name`, DRAFT_TEXT_MAX.dish, true);
+      text(x, d.desc, `${q}.desc`, DRAFT_TEXT_MAX.desc);
       translated(x, d.translated, `${q}.translated`, [d.name, d.desc]);
       if (!priceOk(d.price)) x.add('price_invalid', `${q}.price`);
       if (d.priceText !== null) str(x, d.priceText, `${q}.priceText`, PRICE_TEXT_MAX);
-      text(x, d.priceNote, `${q}.priceNote`, LIMITS.noteLength);
+      text(x, d.priceNote, `${q}.priceNote`, DRAFT_TEXT_MAX.priceNote);
       if (!Array.isArray(d.tags) || !d.tags.every((t) => oneOf(TAGS, t)) || new Set(d.tags).size !== d.tags.length) x.add('enum_invalid', `${q}.tags`);
-      text(x, d.allergens, `${q}.allergens`, 300);
+      text(x, d.allergens, `${q}.allergens`, DRAFT_TEXT_MAX.allergens);
       if (d.photo !== null) {
         if (!isObject(d.photo)) x.add('type', `${q}.photo`);
         else {
@@ -1602,10 +1607,10 @@ function summarize(steps: readonly PlanStep[]): PlanSummary {
 // ---------------------------------------------------------------- the import RPCs' inputs (ADR-008)
 
 /** The columns of `menu_imports` a client may read: everything except the raw text, which nobody reads back. The
- * phase-1 migration adds `raw_purged_at` to the table and to this list. */
+ * phase-1 migration adds `raw_purged_at` and `notes` to the table and to this list. */
 export const IMPORT_CLIENT_COLUMNS = [
   'id', 'venue_id', 'source', 'status', 'raw_paths', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by',
-  'applied_at', 'created_at', 'updated_at', 'raw_purged_at',
+  'applied_at', 'created_at', 'updated_at', 'raw_purged_at', 'notes',
 ] as const;
 type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at' | 'notes'>;
 /** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`), stored by
@@ -1753,6 +1758,8 @@ export const READER_NOTES = {
   page_truncated: 'check',
   /** The scanner found no menu on a page, or could not read it. */
   page_unreadable: 'check',
+  /** A number that may belong to the name ("Tea for 2", "Combo 1"): the name was kept whole; check the price. */
+  price_ambiguous: 'check',
 } as const;
 export type ReaderNoteCode = keyof typeof READER_NOTES;
 export const READER_NOTE_CODES = Object.keys(READER_NOTES) as ReaderNoteCode[];
