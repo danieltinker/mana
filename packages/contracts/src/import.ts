@@ -1853,10 +1853,10 @@ function summarize(steps: readonly PlanStep[]): PlanSummary {
 // ---------------------------------------------------------------- the import RPCs' inputs (ADR-008)
 
 /** The columns of `menu_imports` a client may read: everything except the raw text, which nobody reads back. The
- * phase-1 migration adds `raw_purged_at` and `notes` to the table and to this list. */
+ * phase-1 migration adds `raw_purged_at`, `notes` and `applied_ids` to the table and to this list. */
 export const IMPORT_CLIENT_COLUMNS = [
   'id', 'venue_id', 'source', 'status', 'raw_paths', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by',
-  'applied_at', 'created_at', 'updated_at', 'raw_purged_at', 'notes',
+  'applied_at', 'created_at', 'updated_at', 'raw_purged_at', 'notes', 'applied_ids',
 ] as const;
 type ImportViewBase = Omit<Pick<MenuImportRow, (typeof IMPORT_CLIENT_COLUMNS)[number]>, 'status' | 'parsed' | 'exceptions' | 'error_code' | 'applied_at' | 'notes'>;
 /** An import as a client reads it, by status. `notes`: what the reader said about the source (`ReaderNote`, the

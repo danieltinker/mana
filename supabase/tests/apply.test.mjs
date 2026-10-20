@@ -5,9 +5,10 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { rpc } from './harness/cluster.mjs';
+import pg from 'pg';
+import { q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { planApply } from '../../packages/contracts/src/index.ts';
+import { appliedIds, planApply } from '../../packages/contracts/src/index.ts';
 import { bistroDraft, copy, dish, draftOf, group, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
@@ -79,6 +80,97 @@ describe('apply_import', () => {
     assert.deepEqual(r.plan.steps.filter((x) => x.op === 'create' || x.op === 'update'), []);
     assert.deepEqual(await counts(), before);
     assert.deepEqual(await existingOf(), menu, 'every row as it was');
+  });
+
+  test('applied_ids: the row each section and dish landed on, stored with the import; the next plan reads it as previous and holds those rows (QA-M2)', async () => {
+    // a venue of its own (rows renamed below)
+    const OP = '55555555-5555-4555-8555-5555555555a8';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-previous@example.invalid', now())`, [OP]);
+    const VP = (await rpc(w.url, OP, 'create_venue', { p_slug: 'apply-previous', p_name_he: 'קודם', p_name_en: 'Apply Previous' })).id;
+    const draft = bistroDraft();
+    assert.equal((await existingOf(VP)).previous, undefined, 'no import applied yet');
+    const first = await parsed(draft, OP, () => VP);
+    const r1 = await apply(OP, first, draft, DEC);
+    assert.equal(r1.ok, true, JSON.stringify(r1).slice(0, 300));
+    const stored1 = (await w.admin.query(`select applied_ids from public.menu_imports where id = $1`, [first])).rows[0].applied_ids;
+    // appliedIds(plan, createdId): the ids apply_import made, read back from the rows by name
+    const rows = (await w.admin.query(`select 'section' as kind, id, name_en from public.sections where venue_id = $1
+                                       union all select 'dish', id, name_en from public.dishes where venue_id = $1`, [VP])).rows;
+    const nameOf = new Map(draft.sections.flatMap((s) => [[`section:${s.key}`, s.name.en], ...s.dishes.map((d) => [`dish:${d.key}`, d.name.en])]));
+    assert.deepEqual(stored1, appliedIds(r1.plan, (kind, key) => rows.find((x) => x.kind === kind && x.name_en === nameOf.get(`${kind}:${key}`))?.id));
+    assert.deepEqual((await existingOf(VP)).previous, stored1, 'existing_menu reads the latest applied import\'s');
+    const seen = await q(w.url, OP, `select applied_ids from public.menu_imports where id = $1`, [first]);
+    assert.deepEqual(seen[0].applied_ids, stored1, 'a client reads it');
+    // the same draft again: every row held, nothing written, the same rows stored
+    const menu = await existingOf(VP);
+    const second = await parsed(draft, OP, () => VP);
+    const r2 = await apply(OP, second, draft, DEC);
+    assert.deepEqual(r2.plan, JSON.parse(JSON.stringify(planApply(draft, menu, DEC).value)), 'planned with previous, as the contracts plan');
+    assert.deepEqual(r2.plan.steps.filter((x) => x.op === 'create' || x.op === 'update'), []);
+    assert.deepEqual((await w.admin.query(`select applied_ids from public.menu_imports where id = $1`, [second])).rows[0].applied_ids, stored1);
+    // the owner renames a dish: its name no longer matches, so its row is no longer held; still the contracts' plan
+    const key = draft.sections[0].dishes[0].key;
+    await w.admin.query(`update public.dishes set name_he = 'אחר', name_en = 'Something else' where id = $1`, [stored1.dishes[key]]);
+    const renamed = await existingOf(VP);
+    const want = planApply(draft, renamed, DEC);
+    const third = await parsed(draft, OP, () => VP);
+    const r3 = await apply(OP, third, draft, DEC);
+    assert.equal(r3.ok, want.ok, JSON.stringify(r3).slice(0, 300));
+    if (want.ok) {
+      assert.deepEqual(r3.plan, JSON.parse(JSON.stringify(want.value)));
+      assert.notEqual(r3.plan.steps.find((s) => s.kind === 'dish' && s.key === key).id, stored1.dishes[key], 'the renamed row is not held');
+    }
+  });
+
+  test('previous is every applied import\'s rows: A, its re-read R, an unrelated B, then R again writes no row (R9 QA-M3)', async () => {
+    const OP = '55555555-5555-4555-8555-5555555555a9';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-union@example.invalid', now())`, [OP]);
+    const VP = (await rpc(w.url, OP, 'create_venue', { p_slug: 'apply-union', p_name_he: 'איחוד', p_name_en: 'Apply Union' })).id;
+    const yes = (choices) => ({ v: 1, pricesConfirmed: true, choices });
+    // the contracts' round-9 case (db fuzz seed 307537388, shrunk): a Salad in each of two merged sections, kept apart
+    const a = draftOf([section('s0', 'ראשונות', 'Starters', [dish('s0d0', 'סלט', 'Salad', 4200)]), section('s1', 'ראשונות', 'Starters', [dish('s1d1', 'סלט', 'Salad', 4200)])]);
+    const first = yes({ 'section_duplicate@s1': 'merge', 'dish_duplicate@s1d1': 'keep_both' });
+    const r = copy(a);
+    for (const s of r.sections) s.name = { he: `${s.name.he} חדש`, en: `${s.name.en} new` };
+    const again = yes({ ...first.choices, 'dish_elsewhere@s1d1': 'new_dish' });
+    const b = draftOf([section('w0', 'יינות', 'Wines', [dish('w0d0', 'מרלו', 'Merlot', 5200)], { kind: 'drinks' })]);
+    const step = async (draft, decisions, label) => {
+      const menu = await existingOf(VP);
+      const want = planApply(draft, menu, decisions);
+      assert.equal(want.ok, true, `${label}: ${JSON.stringify(want).slice(0, 300)}`);
+      const res = await apply(OP, await parsed(draft, OP, () => VP), draft, decisions);
+      assert.equal(res.ok, true, `${label}: ${JSON.stringify(res).slice(0, 300)}`);
+      assert.deepEqual(res.plan, JSON.parse(JSON.stringify(want.value)), `${label}: the contracts' plan`);
+      return res.plan;
+    };
+    await step(a, first, 'A');
+    await step(r, again, 'R');
+    const before = await counts(VP);
+    await step(b, yes({}), 'B');
+    const prev = (await existingOf(VP)).previous;
+    assert.deepEqual(Object.keys(prev.dishes).sort(), ['s0d0', 's1d1', 'w0d0'], 'R\'s rows are still there after B');
+    const p = await step(r, again, 'R again');
+    assert.deepEqual(p.steps.filter((x) => x.op === 'create' || x.op === 'update'), [], 'R again writes no row');
+    const after = await counts(VP);
+    assert.deepEqual({ ...after, sections: after.sections - 1, dishes: after.dishes - 1 }, before, 'only B\'s section and dish were added');
+  });
+
+  test('a second apply of the venue while one runs answers import_busy at once (the import lock is tried, not waited for)', async () => {
+    const draft = bistroDraft();
+    const id = await parsed(draft);
+    const hold = new pg.Client({ connectionString: w.url });
+    await hold.connect();
+    try {
+      await hold.query('begin');
+      await hold.query(`select pg_advisory_xact_lock(hashtext('mana:import:' || $1::text))`, [V]);
+      const t0 = Date.now();
+      assert.deepEqual(await apply(O, id, draft, DEC), { ok: false, code: 'import_busy' });
+      assert.ok(Date.now() - t0 < 5000, 'at once');
+      await hold.query('rollback');
+      assert.equal((await apply(O, id, draft, DEC)).ok, true, 'and applies once the other is done');
+    } finally {
+      await hold.end();
+    }
   });
 
   test('a price that differs: one question per section; the owner\'s answer and a per-dish override', async () => {
