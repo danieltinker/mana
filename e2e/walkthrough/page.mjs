@@ -45,14 +45,17 @@ header.top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; 
 header.top svg { width: 40px; height: 40px; flex: none; }
 .kicker { margin: 0; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
 h1 { margin: 0; font-size: clamp(1.4rem, 4.5vw, 2rem); line-height: 1.2; font-weight: 650; }
-.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; margin: 20px 0 12px; padding: 0; list-style: none; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); align-items: start; gap: 8px; margin: 20px 0 12px; padding: 0; list-style: none; }
 .meta li { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; box-shadow: var(--shadow); }
 .meta b { display: block; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
 .result { font-size: 1.05rem; font-weight: 600; }
 .result.ok { color: var(--ok); } .result.bad { color: var(--bad); }
-.lanes { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 28px; padding: 0; list-style: none; }
-.lanes a { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line);
-  background: var(--card); color: var(--ink); text-decoration: none; font-size: .85rem; }
+.lanes { display: grid; gap: 8px; margin: 16px 0 28px; padding: 14px; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.lane { display: grid; grid-template-columns: 112px 1fr; align-items: center; gap: 8px; }
+.lane-name { display: inline-flex; align-items: center; gap: 8px; font-size: .88rem; font-weight: 600; }
+.lane-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.lanes a { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 36px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); text-decoration: none; font-size: .88rem; font-variant-numeric: tabular-nums; }
 .lanes a:focus-visible, .shot a:focus-visible { outline: 2px solid var(--staff); outline-offset: 2px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .side-owner .dot, .badge.side-owner { background: var(--owner); } .side-staff .dot, .badge.side-staff { background: var(--staff); } .side-guest .dot, .badge.side-guest { background: var(--guest); }
@@ -93,7 +96,13 @@ export function writePage(w, { file, title, env, invented, about = '' }) {
   const img = (rel) => {
     try { return 'data:image/jpeg;base64,' + fs.readFileSync(path.join(w.outDir, rel)).toString('base64'); } catch { return null; }
   };
-  const lanes = w.steps.map((s) => `<li class="side-${s.side}"><a href="#step-${s.n}"><span class="dot" aria-hidden="true"></span>${s.n}. ${esc(s.name)} <span class="v v-${s.verdict}" aria-label="${VERDICT[s.verdict]}">${{ pass: '✓', fail: '✗', skip: '–', not_run: '·' }[s.verdict]}</span></a></li>`).join('');
+  // the three sides as lanes: each side's steps in order, by number, with its verdict (the names are in the links' labels)
+  const MARK = { pass: '✓', fail: '✗', skip: '–', not_run: '·' };
+  const lanes = Object.entries(SIDES).map(([side, label]) => {
+    const mine = w.steps.filter((s) => s.side === side);
+    return `<li class="lane side-${side}"><span class="lane-name"><span class="dot" aria-hidden="true"></span>${label}</span><ol class="lane-steps">${mine.map((s) =>
+      `<li><a href="#step-${s.n}" title="${esc(s.name)}" aria-label="Step ${s.n}: ${esc(s.name)}, ${VERDICT[s.verdict]}">${s.n}<span class="v v-${s.verdict}" aria-hidden="true">${MARK[s.verdict]}</span></a></li>`).join('')}</ol></li>`;
+  }).join('');
   const steps = w.steps.map((s) => {
     const src = s.shot ? img(s.shot) : null;
     const shot = src
@@ -132,7 +141,7 @@ export function writePage(w, { file, title, env, invented, about = '' }) {
     <li><b>Menu</b>${invented ? 'Invented for this walkthrough (a stand-in, not a real menu)' : 'The owner’s own'}${about ? `<br><span class="none">${esc(about)}</span>` : ''}</li>
     <li><b>Result</b><span class="result ${ok ? 'ok' : 'bad'}">${sum.passed} of ${sum.total} steps passed</span><br>${sum.skipped ? `${sum.skipped} not available here · ` : ''}${sum.failed ? `${sum.failed} failed · ` : ''}${sum.notRun ? `${sum.notRun} not run · ` : ''}total ${secs(sum.ms)}</li>
   </ul>
-  <nav aria-label="Steps"><ol class="lanes">${lanes}</ol></nav>
+  <nav aria-label="The steps, by side"><ul class="lanes">${lanes}</ul></nav>
   <ol class="steps">${steps}</ol>
   <footer>Written by the client walkthrough (e2e/walkthrough). Every step went through the apps in a browser as a person would (the owner and a guest on a 390 × 844 phone, Halom at a desk), except the extra guests the run calls bots. This page is private: it is never published.</footer>
 </main>

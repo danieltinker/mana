@@ -47,10 +47,10 @@ import { Walkthrough } from './record.mjs';
 /** Each step's budget on the local stack (ms). On demo the database is across the sea: twice that, and the rollups come
  * from pg_cron once a minute, so Halom's live numbers get three minutes. */
 export const BUDGETS = {
-  'owner-signup': 20_000, 'owner-venue': 20_000, 'owner-import-text': 25_000, 'owner-fix': 30_000, 'owner-import-screenshots': 45_000,
-  'owner-addons': 90_000, 'owner-rules': 90_000, 'owner-breakfast': 60_000, 'owner-publish': 60_000, 'staff-approve': 60_000,
-  'guest-choose': 45_000, 'guest-dismiss': 45_000, 'guest-load': 60_000, 'owner-off': 30_000, 'staff-observe': 60_000,
-  'staff-act': 45_000, 'owner-log': 30_000,
+  'owner-signup': 15_000, 'owner-venue': 15_000, 'owner-import-text': 15_000, 'owner-fix': 20_000, 'owner-import-screenshots': 30_000,
+  'owner-addons': 45_000, 'owner-rules': 45_000, 'owner-breakfast': 30_000, 'owner-publish': 30_000, 'staff-approve': 30_000,
+  'guest-choose': 30_000, 'guest-dismiss': 20_000, 'guest-load': 30_000, 'owner-off': 15_000, 'staff-observe': 60_000,
+  'staff-act': 20_000, 'owner-log': 15_000,
 };
 const DEMO_BUDGETS = { 'staff-observe': 180_000 };
 export const budgetOf = (id, env) => (env === 'demo' ? DEMO_BUDGETS[id] ?? 2 * BUDGETS[id] : BUDGETS[id]);
@@ -357,7 +357,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
         if ((await req.getAttribute('aria-checked')) !== 'true') await req.click();
       }
       const save = editor.locator('[data-action="save-group"]');
-      if (await save.isEnabled()) { await save.click(); await editor.locator('[data-action="save-group"][disabled]').waitFor(); done.push(`made "${a.sauce}" ${plain(await editor.locator('[data-rule]').innerText())}`); }
+      if (await save.isEnabled()) { await save.click(); await editor.locator('[data-action="save-group"][disabled]').waitFor(); done.push(`Made "${a.sauce}" ${a.sauceRequired ? 'one required choice' : 'as the owner wants it'} (${plain(await editor.locator('[data-rule]').innerText())})`); }
       await settleLimits();
       await backToFlow();
       // the side of choice: the opener opens the sauce (set here unless the import already did)
@@ -463,15 +463,40 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       return `Breakfast, a day part every day ${from}–${to}, on the section "${b.section}": "${shown}". The place itself stays open all day.`;
     });
 
-    await w.step({ id: 'owner-publish', name: 'The owner finishes the setup and publishes', side: 'owner', budgetMs: budgetOf('owner-publish', env), page: owner }, async (s) => {
+    /** The setup's "try it on a phone": the guest's dish in the phone frame, with the guest's choices, priced. */
+    async function tryOnPhone() {
+      const g = input.guest;
+      const [dish] = await rows('dishes', { name_he: `eq.${g.dish}` });
+      must(dish, `no dish "${g.dish}"`);
+      const links = await rows('dish_addon_groups', { dish_id: `eq.${dish.id}` });
+      const options = await rows('addon_options');
+      const reach = new Set(links.map((l) => l.group_id));
+      for (const o of options) if (reach.has(o.group_id) && o.opens_group_id) reach.add(o.opens_group_id);
+      await owner.locator(`[data-phone-dish="${dish.id}"]`).click();
+      const gp = owner.locator('[data-phone-frame] [data-guest-preview]');
+      await gp.waitFor();
+      for (const name of g.choose) {
+        const o = options.find((x) => x.name_he === name && reach.has(x.group_id));
+        must(o, `"${g.dish}" offers no choice "${name}"`);
+        await gp.locator(`[data-preview-option="${o.id}"] input`).check();
+      }
+      const total = Number(await gp.locator('.gp-total').getAttribute('data-total'));
+      must(Number.isInteger(total) && total > 0, 'the phone frame shows no total');
+      await owner.locator('[data-action="phone-back"]').click();
+      return `${g.dish} with ${g.choose.join(' and ')}: ${nis(total)}`;
+    }
+
+    await w.step({ id: 'owner-publish', name: 'The owner tries the menu on a phone and publishes', side: 'owner', budgetMs: budgetOf('owner-publish', env), page: owner }, async (s) => {
       await go('onboarding');
       const later = [];
+      let tried = '';
       for (let k = 0; k < 12; k++) {
         await owner.locator('[data-screen="onboarding"]').waitFor();
         const step = await owner.locator('[data-screen="onboarding"]').getAttribute('data-step');
         if (step === 'publish') break;
         if (step === 'hours' || step === 'addons') await owner.locator('[data-action="flow-done"]').click();
-        else if (step === 'photos' || step === 'style' || step === 'test') { await owner.locator('[data-action="flow-later"]').click(); later.push(step); }
+        else if (step === 'photos' || step === 'style') { await owner.locator('[data-action="flow-later"]').click(); later.push(step); }
+        else if (step === 'test') { tried = await tryOnPhone(); await owner.locator('[data-action="flow-done"]').click(); }
         else throw new Error(`the setup stopped at "${step}"`);
         await owner.locator(`[data-screen="onboarding"]:not([data-step="${step}"])`).waitFor();
       }
@@ -484,7 +509,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       const pub = await anon.rpc('public_menu', { p_slug: slug });
       must(pub.state === 'unavailable', `guests see "${pub.state}" before Halom approves`);
       await owner.locator('[data-standing-card]').scrollIntoViewIfNeeded();
-      return `Left ${later.join(', ') || 'nothing'} for later, kept the place open all day, and published version 1: it waits for Halom's approval, so guests see "not available yet"; the QR code and the table card carry the demo mark.`;
+      return `Tried the menu in the phone frame (${tried}); left ${later.join(' and ') || 'nothing'} for later; kept the place open all day; published version 1: it waits for Halom's approval, so guests see "not available yet". The QR code and the table card carry the demo mark.`;
     });
 
     // ---------------------------------------------------------------- Halom's desk
@@ -537,6 +562,8 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     const g = input.guest;
     const sheetSug = guest.locator('#v2SheetSug .v2-sug');
     const lines = () => guest.evaluate(() => window.__mana.v2().lines.length);
+    /** A suggestion's own words (its line, the dish and its price), without its two buttons. */
+    const suggestion = () => sheetSug.evaluate((el) => { const c = el.cloneNode(true); c.querySelectorAll('button').forEach((b) => b.remove()); return c.textContent; }).then(plain);
     const optionLocator = (c) => guest.locator((c.opener ? `.v2-nested[data-for="${c.opener.id}"] ` : '#v2Groups > .v2-group > ') + `[data-o="${c.option.id}"]`);
 
     await w.step({ id: 'guest-choose', name: 'A guest chooses add-ons and accepts a suggestion', side: 'guest', budgetMs: budgetOf('guest-choose', env), page: guest }, async (s) => {
@@ -551,7 +578,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       const priced = plain(await guest.locator('#addBtn2').innerText());
       await guest.locator('#addBtn2').click();
       await sheetSug.waitFor({ timeout: 15_000 });
-      const offered = plain(await sheetSug.innerText());
+      const offered = await suggestion();
       must(offered.includes(g.accepts), `the suggestion offered was not "${g.accepts}": ${offered}`);
       await s.shot();
       await sheetSug.locator('.primary').click();
@@ -566,7 +593,7 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       await guest.locator('#addBtn2').waitFor();
       await guest.locator('#addBtn2').click();
       await sheetSug.waitFor({ timeout: 15_000 });
-      const offered = plain(await sheetSug.innerText());
+      const offered = await suggestion();
       must(offered.includes(g.dismisses), `the suggestion offered was not "${g.dismisses}": ${offered}`);
       await sheetSug.locator('.ghost').click();
       await guest.locator('#v2SheetSug').waitFor({ state: 'hidden' });
