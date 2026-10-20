@@ -268,9 +268,10 @@ const daysBetween = (a: LocalDate, b: LocalDate): number => Math.round((Date.par
 // ---------------------------------------------------------------- the demo switch
 
 /** `ops_set_demo` (admins): label a venue as demo or real. Logged with the reason. Stored events and rollups keep the
- * label they were counted with (records are append-only); the switch applies from the next event. */
+ * label they were counted with (records are append-only); the switch applies from the next event. A staff member who
+ * belongs to the venue never labels it (`own_venue`). */
 export type SetDemoInput = { readonly venueId: string; readonly demo: boolean; readonly reason: string };
-export type SetDemoReply = RpcOk<{ readonly demo: boolean }> | RpcFail<'reason_required' | 'venue_unknown'>;
+export type SetDemoReply = RpcOk<{ readonly demo: boolean }> | RpcFail<'reason_required' | 'venue_unknown' | 'own_venue'>;
 
 /** Codes: type, field_not_allowed, id_invalid, reason_required. */
 export function validateSetDemo(raw: unknown): Validation<SetDemoInput> {
