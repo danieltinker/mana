@@ -767,9 +767,9 @@ test('production (schema 1) never comes near the v2 module or its reload', { tim
     let loads = 0;
     page.on('request', (r) => { if (/\/v2-[A-Z0-9]+\.js/.test(r.url())) asked.push(r.url()); if (r.isNavigationRequest() && r.frame() === page.mainFrame()) loads += 1; });
     await ctx.route(/\/config\.js$/, async (route) => {                                      // production's flags (or none) on this stack's config
-      const body = await (await route.fetch()).text(), cfg = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1));
-      delete cfg.env; delete cfg.schema; delete cfg.realtime;
-      return route.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.HALOM_MENUS_CONFIG = ' + JSON.stringify(Object.assign(cfg, flags)) + ';\n' });
+      const body = await (await route.fetch()).text();
+      return route.fulfill({ status: 200, contentType: 'application/javascript',
+        body: body + `(function (c) { delete c.env; delete c.schema; delete c.realtime; Object.assign(c, ${JSON.stringify(flags)}); })(window.HALOM_MENUS_CONFIG);\n` });
     });
     loads = 0;
     await page.goto(e.webUrl + 'view/?m=bistro-check&lang=en&gl=off&test=1');

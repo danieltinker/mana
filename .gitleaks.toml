@@ -1,0 +1,20 @@
+# gitleaks for this repository: its default rules, one rule of ours and one allowance.
+# - The rule: a Supabase secret key (sb_secret_…) is a finding wherever it is, whole or inside anything else.
+# - The allowance: a Supabase publishable key is made for browsers (it is served publicly at /mana/config.js, and
+#   row-level security does the guarding), so the generic-api-key rule's finding on one is a false positive. It matches
+#   only a publishable key's exact shape, whole: sb_publishable_, 22 characters, "_", 8 characters (base64url). A secret
+#   key, a service_role JWT or anything longer on the same line is still a finding.
+# Run it over the commits of a branch before a push (RULES): gitleaks detect --source . --log-opts="<base>..HEAD"
+[extend]
+useDefault = true
+
+[[rules]]
+id = "supabase-secret-key"
+description = "A Supabase secret key (sb_secret_…): never in this repository"
+regex = '''sb_secret_[A-Za-z0-9_-]{8,}'''
+keywords = ["sb_secret_"]
+
+[allowlist]
+description = "Supabase publishable keys: public by design"
+regexTarget = "secret"
+regexes = ['''^sb_publishable_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}$''']

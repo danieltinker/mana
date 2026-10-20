@@ -7,8 +7,9 @@
 
 **This repository is public.**
 - Never commit secrets, `.env` files, keys or tokens.
-- `config.js` and `CONTRACT.md` hold Supabase's publishable key. It is public by design; `.gitleaksignore` names those
-  lines. A secret key (`sb_secret_…`, `service_role`) must never appear anywhere.
+- `config.js`, `config/demo.js` and `CONTRACT.md` hold Supabase publishable keys. They are public by design;
+  `.gitleaks.toml` allows a publishable key by its value, and nothing else. A secret key (`sb_secret_…`,
+  `service_role`) must never appear anywhere.
 - Never commit personal data, lead lists, client data or business documents. Business documents (brand, campaign,
   sales playbooks, overview) live in the Halom Project, under `ventures/mana/`.
 
