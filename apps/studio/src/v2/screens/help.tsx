@@ -2,9 +2,10 @@
 // (open_case); Halom sees the request in the back office. The owner can let Halom make changes for them in the same
 // step (support_can_act, D25; the owner's alone), and every such change shows in the activity log with its reason. The
 // screen says plainly what happens next, lists the place's requests that are not resolved, and keeps a person one tap
-// away (WhatsApp). The shell's help button leads here from every screen.
+// away (WhatsApp). The shell's help button leads here from every screen; `#/help/<topic>` opens it on a topic (each step
+// of the setup flow asks on its own).
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, stripBlank, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, newUuid, oneOf, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
@@ -21,18 +22,22 @@ export function HelpButton() {
 
 const TOPIC_ICON: Readonly<Record<CaseTopic, string>> = { onboarding: 'list', import: 'paste', menu: 'menu', photos: 'camera', account: 'user', other: 'chat' };
 
-export function HelpScreen() {
+export function HelpScreen({ rest = [] }: { rest?: string[] }) {
   const d = menu.value!;
   const v = d.venue;
   const records = canEdit();
   const owner = d.role === 'owner';
-  const [topic, setTopic] = useState<CaseTopic>('menu');
+  const asked = rest[0];
+  const [topic, setTopic] = useState<CaseTopic>(() => (oneOf(CASE_TOPICS, asked) ? asked : 'menu'));
+  useEffect(() => { if (oneOf(CASE_TOPICS, asked)) setTopic(asked); }, [asked]);
   const [subject, setSubject] = useState(''), [body, setBody] = useState('');
   const [allow, setAllow] = useState(v.support_can_act);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [subjectErr, setSubjectErr] = useState('');
   const [sent, setSent] = useState<{ caseId: string; supportCanAct: boolean } | null>(null);
   const [cases, setCases] = useState<{ list: CaseLine[]; error: string; loading: boolean }>({ list: [], error: '', loading: true });
   const subjectRef = useRef<HTMLInputElement>(null);
+  /** This request's own id: the same on every retry (open_case opens no second case for it), a new one once sent. */
+  const requestId = useRef(newUuid());
 
   async function loadCases() {
     setCases((c) => ({ ...c, loading: true }));
@@ -44,6 +49,7 @@ export function HelpScreen() {
 
   /** Sent: say what happens next. `supportCanAct` null = as the place says once read again (the reply was lost). */
   async function done(caseId: string, supportCanAct: boolean | null) {
+    requestId.current = newUuid();
     setSubject(''); setBody('');
     toast(t('help.sent'));
     if (supportCanAct !== null) setSent({ caseId, supportCanAct });
@@ -51,27 +57,25 @@ export function HelpScreen() {
     if (supportCanAct === null) setSent({ caseId, supportCanAct: menu.value?.venue.support_can_act ?? v.support_can_act });
   }
   /**
-   * open_case takes no id of ours, so an answer lost on the way back cannot be told from a request never sent: before
-   * offering to send it again, look for it among the place's open requests (same topic and line, opened just now).
+   * An answer lost on the way back cannot be told from a request never sent: look for the request's own id among the
+   * place's open requests. Not there, sending again sends the same id, so it never opens a second case either.
    */
-  async function sentMeanwhile(started: number): Promise<CaseLine | null> {
-    const line = stripBlank(subject);
+  async function sentMeanwhile(): Promise<CaseLine | null> {
     const list = await openCases(v.id);
-    return list.find((c) => c.topic === topic && c.subject === line && Date.parse(c.created_at) >= started - 120_000) ?? null;
+    return list.find((c) => c.id === requestId.current) ?? null;
   }
   async function send(e: Event) {
     e.preventDefault();
     if (busy) return;
     setError(''); setSubjectErr('');
-    const started = Date.now();
     setBusy(true);
     try {
       mayWrite();
-      const r = await openCase({ venueId: v.id, topic, subject, body, ...(owner && allow !== v.support_can_act ? { allowAct: allow } : {}) });
+      const r = await openCase({ venueId: v.id, topic, subject, body, id: requestId.current, ...(owner && allow !== v.support_can_act ? { allowAct: allow } : {}) });
       await done(r.caseId, r.supportCanAct);
     } catch (err) {
       const code = toV2Error(err).code;
-      const found = code === 'network' ? await sentMeanwhile(started).catch(() => null) : null;
+      const found = code === 'network' ? await sentMeanwhile().catch(() => null) : null;
       if (found) { await done(found.id, null); return; }
       if (code === 'text_missing' || code === 'text_too_long' || code === 'text_invalid') { setSubjectErr(errText(code, 'help.e')); subjectRef.current?.focus(); }
       else setError(errText(code, 'help.e'));

@@ -153,6 +153,14 @@ counter and a manager made counter, sign-up, right to left, keyboard, accessible
 nested sauce, "from" prices, suggestions accepted and dismissed, the vegan filter, an owner taking a dish off mid-visit,
 the basket's total, day parts on a pinned clock, the table and the list offering the same choices, and the events,
 which after `stack.buildRollups()` must be exactly the owner's dashboard.
+`e2e/studio-v2-onboarding.test.mjs` is the setup flow (F03): the whole path in Hebrew and English on an invented café's
+Wolt text (`e2e/fixtures/wolt-text-cafe.mjs`), resuming on another device, a re-import that adds nothing, help, a counter,
+and the scanner's path through `e2e/scan-stub.mjs`: the stack has no Storage service and no edge functions, so the real
+`menus-ai` handler runs in the test's own process against the stack's PostgREST, the pictures the page uploads are held
+in memory, and the model call answers a recorded reply (nothing paid, nothing leaves the machine).
+`e2e/studio-v2-saving.test.mjs`: saving on a slow, failing or forgetful network (two edits in flight, a stale or lost
+answer, retries inside an open sheet and when the connection returns), two tabs on a section and a group, links and
+quick adds tried again, a manager made counter or removed, a counter on eleven addresses, and the ways out that ask.
 `node tools/test-all.mjs e2e` builds the site first; `cd e2e && npm test` uses the last build; screenshots in `e2e/.out/`.
 
 ## Not yet

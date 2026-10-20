@@ -81,11 +81,26 @@ export function insertRows<T>(table: MenuTable, rows: object[]): Promise<T[]> {
  * same id answers with that row instead of adding a second one.
  */
 export async function insertOnce<T extends { id: string }>(table: MenuTable, row: { id: string; [column: string]: unknown }): Promise<T> {
+  return (await insertOnceInfo<T>(table, row)).row;
+}
+/**
+ * The same, saying whether the row was there already (an earlier try reached the database). `uniqueBy` names the
+ * columns of another unique key (a dish's link to a group): a row already stored under them is that row.
+ */
+export async function insertOnceInfo<T extends { id: string }>(table: MenuTable, row: { id: string; [column: string]: unknown }, uniqueBy: readonly string[] = []): Promise<{ row: T; existed: boolean }> {
   try {
-    return (await insertRows<T>(table, [row]))[0]!;
+    return { row: (await insertRows<T>(table, [row]))[0]!, existed: false };
   } catch (e) {
     const err = toV2Error(e);
-    if (err.code === 'duplicate') { const [had] = await rowsById<T>(table, [row.id]); if (had) return had; }
+    if (err.code !== 'duplicate') throw err;
+    const [had] = await rowsById<T>(table, [row.id]);
+    if (had) return { row: had, existed: true };
+    if (uniqueBy.length) {
+      let query = sb.from(table).select('*');
+      for (const c of uniqueBy) query = query.eq(c, row[c] as string);
+      const [same] = await q<T[]>(query.limit(1));
+      if (same) return { row: same, existed: true };
+    }
     throw err;
   }
 }

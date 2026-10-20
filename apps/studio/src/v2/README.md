@@ -18,7 +18,9 @@ makes this the app.
 | `data/client.ts` | The supabase-js client and sign-in shared with v1 (`lib/api.ts`), `q()` and `rpc()` (an RPC's `{ok:false, code}` is thrown), the config's `env`, `schema`, `realtime` (`runtime`, read with the contracts' `configFlags`, as `src/main.tsx` reads `schema`) |
 | `data/errors.ts` | Every failure as one code (`V2Error`): the schema's raised words (`nesting_too_deep`, `limits_loosened`, `limit_*` …), PostgREST and Auth codes |
 | `data/menu.ts` | The tables and RPCs, stateless, typed with `@mana/contracts`' row types; direct table access under RLS (as `sim/src/owner.mjs`): guarded updates (`updateIf`), inserts with the client's id (`insertOnce`), `save_addon_group` |
-| `data/store.ts` | The state: session, places, the open place's whole menu (the draft), saving (autosave of the changed columns, guarded, one queue per row; conflicts; writes that put the stored rows on screen) |
+| `data/store.ts` | The state: session, places, the open place's whole menu (the draft), saving (autosave of the changed columns, guarded; conflicts; writes that put the stored rows on screen) |
+| `data/saves.ts` | The rows' save queue (pure, unit-tested): one write in flight per row, typing merged, failures and conflicts held for the owner |
+| `saving.tsx`, `leave.ts` | The "not saved" line with its retry (on the page and in a sheet); the guard that asks before leaving a screen with changes |
 | `data/forms.ts` | Rows ↔ forms, ₪ ↔ agorot, and the validators' rules before any write (same codes) |
 | `data/nesting.ts` | The one nesting level as the editor applies it: what an option may open, never a second level |
 | `data/guest.ts` | A dish as the guest gets it (as `app.build_snapshot_full` builds it) and the guest's choices, priced with `priceDish` |
@@ -36,12 +38,18 @@ makes this the app.
 | `data/activity.ts` | The activity log in plain words (pure): who (you, someone on your team, Halom, automatically), what (from the action, the name the RPC sent and the numbers the log kept), when on the venue's clock, Halom's reason; no verb agrees with the actor, so Hebrew needs no person or gender |
 | `data/special.ts` | A special in one sheet (Hopa H53, pure): the dish's names and price, its section, the days and hours → a schedule of kind special named after the dish and the dish linked to it, each mistake at its field |
 | `data/export.ts` | `export_menu`'s reply as the JSON file it is, and as a readable CSV (pure): a row per dish and per add-on choice (a nested group's choices under their opener), both languages, prices in shekels, RFC 4180 quoting, formulas kept as text, a byte order mark for Excel |
+| `data/flow.ts` | The setup flow (F03), pure: the steps in journey order, where a place opens and comes back to on any device (`openStep`: the first step neither done nor skipped; an import waiting for its check first), what holds a step back (`blockersOf`, machine words), how each step ends (`stepEnd`, `endWrite`: never an automatic step done by hand; a menu built by hand skips its review; photos and style only "later") |
+| `data/onboarding.ts` | The flow's state: the place's progress (`onboarding_progress` under its RLS, `set_onboarding_step`), its imports (the client columns, never the raw text), the scanner's availability (`features.scan` and the function's `status`), the pictures prepared and uploaded to the import's private folder, the scan call, the reader's notes kept for the session, and where "back to setup" leads (`returnTo`); `onReset` drops it with the place |
+| `data/imports.ts` | The import's calls, stateless (`importsApi(rpc)`: `create_import`, `save_import_draft`, `apply_import`, `discard_import`, each input checked with the contracts' validator first), the text readers on the phone (`readText`: @mana/import's paste and Wolt-text readers; D33, nothing fetched), the pictures' paths and input hash, the place's menu as the plan reads it (`existingMenu`) |
+| `data/review.ts` | The import preview, pure: every exception (the draft's own, then the plan's) with what it is about, its answers, the owner's or the default; the plan while questions are open (`preview`: open ones take their first answer, said so); what still stops applying (`gate`: a fix unanswered, the prices not confirmed, the plan's own refusals); a price typed in place (`withDishPrice`, `withOptionPrice`); the prices that differ from the venue's (`priceDiffs`); the plan in words (`planLines`, `changesNothing`) |
+| `data/demo-mark.ts` | Backlog B5, pure: outside production every QR code and print carries a "demo" mark (`withDemoBand`: a band under the code, which still scans) |
 | `chart.tsx` | A column chart by hand in SVG: one series, a clean axis top, the highest and the latest value written on it, each value a tap or hover away; the table under it lists them all |
 | `words.ts` | A rule in one plain line ("After Coffee, suggest Croissant, 7–11"), days, times, dates and "until" moments in the venue's time zone; ranges are isolated left to right inside Hebrew |
-| `screens/` | home (nudges, quick actions, what is off now, at a glance, recent changes, the export), special (the one-sheet special: schedule, dish and publish through the store, client ids, the approval said before the tap), activity (the log, filters, pages), help ("get help", the open requests; the shell's help button), start, new place, menu (with each row's availability one tap away, the red marker, "bring back everything taken off today"), dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, availability sheet (`off.tsx`), hours (week, closed dates, what guests see of something unavailable, day parts and specials), suggestion rules (list and editor with its live preview), publish |
+| `screens/` | home (nudges, quick actions, what is off now, at a glance, recent changes, the export), special (the one-sheet special: schedule, dish and publish through the store, client ids, the approval said before the tap), activity (the log, filters, pages), help ("get help", the open requests; the shell's help button), start, new place, menu (with each row's availability one tap away, the red marker, "bring back everything taken off today"), dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, availability sheet (`off.tsx`), hours (week, closed dates, what guests see of something unavailable, day parts and specials), suggestion rules (list and editor with its live preview), publish (with the QR code and the table card once published: `qr.tsx`, marked "demo" outside production), the setup flow (`onboarding.tsx`: the steps, their progress, help on each step's topic, "back to setup" in the shell; `import-source.tsx`: bringing the menu four ways; `import-review.tsx`: the import preview) |
 
 **Shared with v1 and kept at the cutover** (not schema-specific): `lib/api.ts` (the client, `cfg`, `sibling`),
 `lib/i18n.ts` (language, dates, the base dictionary), `lib/money.ts`, `lib/slug.ts`, `lib/email.ts`, `lib/links.ts`,
+`lib/images.ts` (what a picture really is, opening and shrinking it: the import's pictures),
 `ui.tsx`, `brand.tsx`, `product.ts`, `mark-shapes.ts`, `app.css`. From `lib/store.ts` v2 uses only `toast()` (the
 `Toasts` in `ui.tsx` read it) and `planOf()`; at the cutover they move into `ui.tsx` and `v2/format.ts`.
 
@@ -49,29 +57,47 @@ makes this the app.
 
 - **Every write goes through `data/store.ts`**, which puts the rows the database returned on screen (names come back
   stripped, positions as stored) and bumps `edits`, which the draft preview follows.
-- **A form sends only what its owner changed.** `patchRow(table, id, patch)` (autosave, 600 ms) takes the columns of one
-  edit (`dishEdit` for a dish, the section sheet's own diff), never a whole row.
+- **A form sends only what its owner changed.** `patchRow(table, id, patch)` (autosave, 600 ms) and `saveNow(table, id,
+  patch)` (at once; answers 'saved' or 'conflict') take the columns of one edit (`dishEdit` for a dish, the section
+  sheet's own diff), never a whole row.
+- **One queue for the rows' writes** (`data/saves.ts`, unit-tested with a fake API in `test/unit/v2-saves.test.mjs`):
+  - one write in flight per row; what is typed meanwhile waits as one patch (the latest value of each column) and goes
+    when that write is answered, over the version it left; moves, dish limits and group saves wait in the same lane;
+  - a failure (no connection, or an answer that never came) takes in everything typed after it for that row; nothing
+    more is sent for that row until the owner retries (the "not saved" line, on the page and inside an open sheet) or
+    the connection comes back (`online`); the retry sends all of it as one patch, so a later value always wins;
+  - a write that stored a column takes it out of the failed patch.
 - **Every change of a row is guarded** (`api.updateIf`): it is written only while the row still has the `updated_at` this
   screen read (a move: the position it started from; a dish's limits: the limits it read). Zero rows back is read again:
-  - changed elsewhere (`stale`): nothing is written; `conflicts` holds the owner's values beside the stored row and
-    `conflict.tsx` asks (no close button): keep mine (sent again over the stored version) or take the stored one. A
-    stored row that already holds the owner's values (their own answer was lost) needs no question;
-  - not there any more: dropped, "no longer exists";
-  - still there, unchanged: row-level security said no, so it is "not allowed" (`forbidden`), the field shows what is
-    stored, and the role is read again (a manager made counter turns read-only on the spot).
-- **The writes to one row run one after another** (`onRow`), each with the version the one before left.
+  - changed elsewhere (`stale`): nothing of it is written, and nothing typed after it is sent; `conflicts` holds the
+    owner's latest values beside the stored row and `conflict.tsx` asks (no close button): keep mine (sent over the
+    stored version; asked again if it moved once more) or take the stored one. Two cases are not "changed elsewhere":
+    the row already holds what was typed, and the row moved only because of this screen's own write whose answer was
+    lost (every column that moved holds what this screen sent): then what is still to send goes, unasked;
+  - still there, unchanged: row-level security said no, so it is "not allowed" (`forbidden`);
+  - not readable any more: the membership is read again; "not allowed" when the account may no longer edit here (the
+    place stays on screen, read-only), "no longer exists" only when someone who may edit deleted the row (the menu is
+    read again). A row is never just dropped from the screen.
+  Every permission refusal, on every write path (autosave, moves, limits, new rows, deletions, group saves), reads the
+  role again: a manager made counter turns read-only on the spot.
 - **An add-on group is saved as one** (`save_addon_group`, `saveGroupForm`): the group and every option in one
   transaction, with the client's own ids, sent with the group's `updated_at` as the form read it. Before it is sent, the
   form is checked with the contracts' `validateAddonGroup` / `validateAddonGroupInput` (the database's twin: the same
   codes, shown at the form's fields by `groupFieldError`) and the loaded menu with `addonGroupMenuIssues` (a second
   nesting level; a dish whose own limits the change would break, named: `dish_limits`). Answers: saved; `stale` with the
-  stored group (the editor shows it: save mine over it, or take it); `option_in_rules` (the editor names the rules and
-  asks before sending again with `confirmRules`); or a refusal that changed nothing. The same input sent twice is
-  answered "saved", so a retry after a lost answer is safe.
-- **New rows carry ids made here** (`newId`; `insertOnce`): quick-add of a dish, a new section, a new group and its
-  choices keep their id until stored, so trying again after a lost answer never stores a second row.
-- **A refusal is a code, said in plain words**: `toV2Error` maps it, `errText` (v2 `i18n.ts`) says it (`refused`, and
-  `resync` makes a form read its row again). A network failure keeps what was typed and offers to retry.
+  stored group (the editor shows it, and "save my changes over it" sends the stored group with only what the owner
+  changed in this form put over it, field by field and choice by choice: `mergeGroupForms`; or take it);
+  `option_in_rules` (the editor names the rules and asks before sending again with `confirmRules`); or a refusal that
+  changed nothing. The same input sent twice is answered "saved", so a retry after a lost answer is safe.
+- **New rows carry ids made here** (`newId`; `insertOnceInfo`): quick-add of a dish, a new section, a new group and its
+  choices keep their id until stored, so trying again after a lost answer never stores a second row; when the owner
+  retyped it meanwhile, what they typed last goes over the stored one. A link (a group on a dish, "goes well with") tried
+  again finds the one already stored by its pair.
+- **A refusal is a code, said in plain words**: `toV2Error` maps it (the schema's `not_allowed` and row-level security's
+  refusal are one code, `forbidden`), `errText` (v2 `i18n.ts`) says it (`refused`, and `resync` makes a form read its
+  row again).
+- **Ways out ask first**: signing out or switching place with a change that did not save, and leaving a group form with
+  changes (its back link, the bottom bar, the brand, the account sheet: `leave.ts`).
 - **Publishing waits for saving**: while a change is on its way, failed, or waiting for a decision, the publish button
   is off and the screen says which.
 - **Prices are agorot**, typed in shekels (`agorotOf`, `shekelsOf`), never floats.
@@ -110,8 +136,9 @@ makes this the app.
 (`{ key, icon, label, order, dot? }`) puts it in the bottom bar in `order` (home 10, menu 20, add-ons 30, hours 40, rules 50,
 activity 80, publish 90); past five
 tabs the fifth becomes "More" with the rest in a sheet, so no lane has to fight for room. `landing(venue?)` is where a place
-opens and where an address that leads nowhere goes: Home once the place has published, else the menu (the onboarding
-lane makes it return `onboarding` while steps are open). It is used after `create_venue` (`landing(null)`), after
+opens and where an address that leads nowhere goes: Home once the place has published, else the setup flow
+(`onboarding`, which opens at the step its owner left off; an account that does not edit is taken on to the menu). It is
+used after `create_venue` (`landing(null)`), after
 switching place (`landing(<the place being opened>)`), and by the shell for an unknown address; a reload keeps the
 address it was on. A screen without `nav` is reachable by address only.
 
@@ -119,7 +146,7 @@ The "today" column says what exists on this branch; the "to do" column is the la
 
 | Lane | Screens (to do) | Data (to do) | Today |
 |---|---|---|---|
-| **F03 onboarding and import** | `onboarding/<step>` (no nav); the import preview with its exceptions; make `landing()` return `onboarding` while steps are open | `onboarding_progress`, `menu_imports` in a new `data/onboarding.ts` (with `onReset`); imported dishes through `addDish(section, cols, id)`, imported option groups through `saveGroupForm(id, form, null)` (so the form rules, the nesting guard and the one-transaction save apply) | the empty menu's `Empty` in `screens/menu.tsx` is where "bring your menu" goes; `venue-new.tsx` goes to `landing()` after `create_venue` |
+| **F03 onboarding and import** (built) | `onboarding` (no nav; `onboarding/<step>`, `onboarding/menu/<source>`, `onboarding/review/<import>`, `onboarding/done`); `landing()` returns it until the first publish; `help/<topic>` opens help on a topic | `onboarding_progress`, `menu_imports` in `data/onboarding.ts` (with `onReset`); the import applied by the database in one transaction (`apply_import`, ADR-006), never table by table; an imported group's guessed limits confirmed through `saveGroupForm(…, { confirmLimits })` | the flow reuses the app's screens (menu, group editor, hours, help, publish, the dish's guest preview) and the shell offers the way back (`BackToSetup`, through the leave guard); Home's nudges open `onboarding/<step>` and `onboarding/review` |
 | **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
 | **F06 upsell rules** (built) | `rules` (nav, order 50; `rules/<id>`, `rules/new`) | `upsell_rules` in `MenuTable` | publishing lists the builder's `rule_left_out` warnings and `lintSnapshotV2`'s, in words (`issue.*` in `i18n.ts`); the group editor asks before deleting a choice a rule suggests, and the rule leaves the list with it |
 | **F08 dashboard, activity, export; F03's "get help"** (built) | `home` (nav, order 10; `landing()` returns it once the place has published), `activity` (nav, order 80), `help` (no nav; the shell's help button) | `my_dashboard` in `data/dashboard-live.ts`, `venue_activity`, `export_menu`, `open_case` in `data/records.ts` | `nudgeHref` opens `onboarding/<step>` as soon as that screen exists, and the screens that exist until then; the dashboard's `nudges` already carry `import_waiting` for the import preview |
@@ -132,12 +159,18 @@ they are. Browser tests live in `e2e/` (`startE2E()` serves the built `_site` wi
 simulator's stack): `e2e/studio-v2.test.mjs` is the whole scenario (the pattern), `e2e/studio-v2-edges.test.mjs` the
 edges (production boot, price parity with `public_menu`, two tabs, lost answers, offline, a counter, sign-up, RTL,
 keyboard, names, text never HTML), `e2e/studio-v2-operate.test.mjs` the operating screens (suggestion rules, hours and day
-parts, the availability quick actions, and a counter: operates, edits nothing).
+parts, the availability quick actions, and a counter: operates, edits nothing), `e2e/studio-v2-saving.test.mjs` saving on
+a slow, failing or forgetful network (two edits in flight, retries, roles that change, the ways out),
+`e2e/studio-v2-onboarding.test.mjs` the setup flow (the whole path in Hebrew and English, timed; resuming on another device;
+re-importing without duplicates; help; the scanner through `e2e/scan-stub.mjs`, the real handler with a recorded reply
+and nothing paid; a counter).
 
 ## Not here yet
 
-Pictures and reliefs on v2 dishes (the dish has no picture slot yet, so the "no photo" nudge opens the dish), the
-place's style and contact settings, team members, the "pause ordering now" switch (with ordering, phase 2), a note on
-an availability override (the RPC takes one; the sheet does not ask yet), confirming an imported group's limits
-without changing them (the "limits not confirmed" nudge opens the group editor, which has no such control yet), and
-everything listed above for the next lanes.
+Pictures and reliefs on v2 dishes (the dish has no picture slot yet, so the "no photo" nudge opens the dish, and the
+flow's photo step can only be left for later), the place's style and contact settings (the flow's style step says what
+the place has: its languages), team members, the "pause ordering now" switch (with ordering, phase 2), a note on an
+availability override (the RPC takes one; the sheet does not ask yet), the owner's answers in an import preview kept
+anywhere but on this device until applying (no column holds them; a price typed in place is stored with the draft),
+illustrations proposed by the scanner (the app sends it no list of stock pictures yet), the real guest page as the
+flow's phone test (backlog B11: `?preview=1` takes v1 only), and everything listed above for the next lanes.
