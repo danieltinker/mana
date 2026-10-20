@@ -42,7 +42,9 @@ export const IMPORT_DRAFT_VERSION = 1 as const;
 export const PHOTO_RIGHTS = ['confirmed', 'unknown'] as const;
 export type PhotoRights = (typeof PHOTO_RIGHTS)[number];
 
-/** A node's key: stable inside one draft, unique across it. Lowercase letters, digits, `_`, `.`, `-`; at most 64. */
+/** A node's key: unique across its draft, and made from the node's content (its name, its section's, its price), as
+ * the readers make them, so that a re-read gives the same node the same key and never gives it to another node
+ * (provenance, `ImportedIds`). Lowercase letters, digits, `_`, `.`, `-`; at most 64. */
 export const DRAFT_KEY_RE = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
 /** The key of an exception about the whole draft (no node key starts with `_`). */
 export const DRAFT_ROOT = '_draft';
@@ -820,21 +822,46 @@ export type ExistingMenu = {
   readonly dishGroups: ReadonlyArray<Pick<DishAddonGroupRow, 'id' | 'dish_id' | 'group_id' | 'position'>>;
   /** Every picture of the venue's dishes, whatever its state. */
   readonly assets: ReadonlyArray<Pick<AssetRow, 'id' | 'dish_id' | 'status'>>;
-  /** The rows the venue's last applied import wrote or kept, by its draft's keys (`menu_imports.applied_ids` of the
-   * venue's import with the latest `applied_at`, a column clients read too; absent when there is none, or when that
-   * import was applied before the column existed). */
+  /** The rows the venue's applied imports wrote or kept, by their drafts' keys: `mergePrevious` over every applied
+   * import of the venue (`menu_imports.applied_ids`, a column clients read too). Absent when no applied import has
+   * `applied_ids` (none, or only imports applied before the column existed). */
   readonly previous?: ImportedIds;
 };
 
 /**
  * Which venue row each section and dish of an applied draft landed on, by draft key: the row it created, updated or
  * kept (a node left out or merged has none). `apply_import` stores it with the import (`menu_imports.applied_ids`,
- * `appliedIds`); the plan of the next import matches a node to that row first, while the row's name still matches
- * the node's (`planApply`'s held rows), so the same draft imported again finds the same rows whatever a rename, a
- * fill or a twin (`keep_both`) did (Hopa test 1). Another draft that happens to use the same keys can only hold a row
- * whose name its node matches anyway.
+ * `appliedIds`); the plan of a later import matches a node to that row first, while the row's name still matches the
+ * node's (`planApply`'s held rows), so the same draft imported again finds the same rows whatever a rename, a fill, a
+ * twin (`keep_both`) or another import of the venue's did since (Hopa test 1). A draft's keys must therefore name its
+ * nodes by their content, as the readers' do (`packages/import/src/keys.ts`): the same node in a re-read keeps its key,
+ * and a key never moves to another node (a key by position would, when sections reorder). A row is only ever held by a
+ * node whose name matches it.
  */
 export type ImportedIds = { readonly sections: Readonly<Record<string, string>>; readonly dishes: Readonly<Record<string, string>> };
+
+/** One import of the venue's as `mergePrevious` reads it: `menu_imports.id`, `applied_at` (as the database writes a
+ * `timestamptz`; null when not applied) and `applied_ids` (null for an import not applied, or applied before the
+ * column existed). */
+export type AppliedImport = { readonly id: string; readonly appliedAt: string | null; readonly appliedIds: ImportedIds | null };
+
+/**
+ * `ExistingMenu.previous` from a venue's imports, the reference for `app.existing_menu`: the imports that count are
+ * those with both `applied_at` and `applied_ids`; with none, `undefined`. Otherwise, for each section key and each
+ * dish key, the row id from the most recently applied of them whose `applied_ids` holds that key: the latest
+ * `applied_at` (to the microsecond), then the greater import id (uuid order: lowercase text). A key a later import has
+ * not mentioned keeps an earlier import's row, so an import of another menu of the venue's (its wines) loses nothing.
+ */
+export function mergePrevious(imports: readonly AppliedImport[]): ImportedIds | undefined {
+  const applied = imports.filter((i) => i.appliedAt !== null && i.appliedIds !== null);
+  if (applied.length === 0) return undefined;
+  const order = [...applied].sort((a, b) => instantMs(a.appliedAt!) - instantMs(b.appliedAt!) || compareIds(a.id.toLowerCase(), b.id.toLowerCase()));
+  const sections = new Map<string, string>();
+  const dishes = new Map<string, string>();
+  const fold = (into: Map<string, string>, ids: unknown) => { if (isObject(ids)) for (const [k, v] of Object.entries(ids)) into.set(k, v as string); };
+  for (const i of order) { fold(sections, i.appliedIds!.sections); fold(dishes, i.appliedIds!.dishes); }
+  return { sections: Object.fromEntries(sections), dishes: Object.fromEntries(dishes) };
+}
 
 /** `ImportedIds` of an applied plan: `createdId` gives the id `apply_import` made for a step it created. */
 export function appliedIds(plan: ImportPlan, createdId: (kind: 'section' | 'dish', key: string) => string | undefined): ImportedIds {
@@ -974,7 +1001,7 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
 }
 
 /**
- * Provenance (`ExistingMenu.previous`): each node whose key the last applied import put on a row the venue still has,
+ * Provenance (`ExistingMenu.previous`): each node whose key an applied import put on a row the venue still has,
  * while that row's name still matches the node's (`scoreKeys` > 0), holds that row: node key → row id. A row that two
  * nodes name is held by neither. A name that no longer matches (the owner renamed the row since) holds nothing.
  */
@@ -1019,11 +1046,14 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    the whole pass, since a skip may make another group unreachable. A draft-level `limits_unreachable` is not asked
  *    again. A group not asked for its global match and created all the same (`new_group`) has its minimum lowered to
  *    its kept capacity (rule 10).
- *    **Held rows** (provenance, `ExistingMenu.previous`): a kept section or dish whose key the venue's last applied
- *    import put on a row the venue still has, while that row's name still matches the node's (`nameScore > 0`), holds
- *    that row; a row two nodes name is held by neither. Rules 3–7 match a held node to its row only, in whichever step
- *    the row's section and kind put it, and never give a held row to another node. So re-importing the same draft
- *    with the same answers finds what the last import wrote, whatever twins (`keep_both`) or fills say.
+ *    **Held rows** (provenance, `ExistingMenu.previous`, `mergePrevious` over all of the venue's applied imports): a
+ *    kept section or dish whose key an applied import put on a row the venue still has, while that row's name still
+ *    matches the node's (`nameScore > 0`), holds that row; a row two nodes name is held by neither. Rules 3–7 match a
+ *    held node to its row only, in whichever step the row's section and kind put it, and never give a held row to
+ *    another node. A dish holds nothing when its (root) section's key has moved: `previous` puts that key on a row
+ *    another draft section takes in rule 3 (held, or by name), as keys by position do when sections reorder. So
+ *    re-importing the same draft with the same answers finds what the imports wrote, whatever twins (`keep_both`),
+ *    fills or other imports of the venue's did.
  * 3. **Sections by name:** a section merged into an earlier one (`merge`) goes where that one goes (left out with it:
  *    its dishes, their links and photos are `parent_skipped`, the section itself `merged`); the other kept
  *    sections take their held row, and the rest claim existing ones in one pass (`assign`: best `nameScore`, then the
@@ -1044,9 +1074,9 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    resolved to or proposes: `section_renamed` (`same_section`, the default, keeps the venue's name; `rename` takes
  *    the source's; `keep_both` makes a new section). With step 5's rank, two renamed sections that each hold a dish of
  *    the same name keep their own; when only a tie could tell them apart, neither is proposed, and their dishes ask
- *    `dish_elsewhere` (rule 8). A section the last applied import left without a row (`previous` has no row for it)
- *    while it holds a row for one of its dishes is not asked: its proposal still counts against another's, and it
- *    stays without a row, as the last import left it.
+ *    `dish_elsewhere` (rule 8). A section no applied import gave a row (`previous` has none for it) while it holds a row
+ *    for one of its dishes is not asked: its proposal still counts against another's, and it stays without a row, as
+ *    the imports left it.
  * 7. **Dishes of another kind:** the dishes still unmatched against the existing dishes still free, in a section of the
  *    other family, one pass: `dish_other_kind` (default `new_dish`).
  * 8. **Dish outcomes.** A step-4 match, or a step-5 match now in its own resolved section, updates or keeps the
@@ -1075,10 +1105,12 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option, and as
  *    `opener_qty` when the venue's option has a `max_qty` other than 1). A group's
  *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
- *    group's key, the others by `targetKey`. A group with no target is `unused`. A created group's limits, each on its
- *    own: a stated one as stated; an unstated one is the guess over its kept options and yields to what the group's
- *    new links state (kept, not merged by rule 12, landing on the created group): an unstated min goes down to their
- *    smallest min; for a multiple choice, an unstated max goes up to their largest max. A minimum still above the kept
+ *    group's key, the others by `targetKey`. An option's `group_changed` or `opens_changed` on an existing target
+ *    takes the answer stored under the key that names the target (`<option>@<group id>><G>`) first, then its own: the
+ *    first target can change between imports, and with it the form of its key. A group with no target is `unused`. A
+ *    created group's limits, each on its own: a stated one as stated; an unstated one is the guess over its kept
+ *    options and yields to what the group's new links state (kept, not merged by rule 12, landing on the created
+ *    group): an unstated min goes down to their smallest min; for a multiple choice, an unstated max goes up to their largest max. A minimum still above the kept
  *    capacity is lowered to it (as `clamp`), so the plan never creates a group whose minimum its options cannot reach.
  *    Its limits are confirmed only when the source stated one (`limits_confirmed`).
  * 11. **Options**, per target (draft option order): a left-out option has one `skip` step, under the first target only;
@@ -1118,9 +1150,10 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const x = new Issues();
   const answered: AnsweredException[] = [];
   const planAsked: Array<{ e: AnsweredException; step: `${PlanKind}:${string}` }> = [];
-  const answer = (e: ImportException): ImportChoice | undefined => {
+  // `first`: an answer stored under that id comes before the exception's own (an option's question on a target, rule 10)
+  const answer = (e: ImportException, first?: string): ImportChoice | undefined => {
     const allowed = EXCEPTION_CHOICES[e.code];
-    const c = decisions.choices[exceptionId(e)];
+    const c = (first === undefined ? undefined : decisions.choices[first]) ?? decisions.choices[exceptionId(e)];
     if (c === undefined) {
       if (e.severity === 'fix') return void x.add('exception_unresolved', e.key, e.code);
       return allowed[0];
@@ -1137,9 +1170,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   }
   const chosen = (code: ImportExceptionCode, key: string): ImportChoice | undefined => choice.get(`${code}@${key}`);
   /** A plan exception: asked once, answered like the draft's, filed against the step it concerns. */
-  const ask = (code: ImportExceptionCode, key: string, path: string, step: `${PlanKind}:${string}`, count = 1): ImportChoice | undefined => {
+  const ask = (code: ImportExceptionCode, key: string, path: string, step: `${PlanKind}:${string}`, count = 1, first?: string): ImportChoice | undefined => {
     const e: ImportException = { code, severity: IMPORT_EXCEPTIONS[code], key, path, count };
-    const c = answer(e);
+    const c = answer(e, first);
     if (c !== undefined) { choice.set(exceptionId(e), c); planAsked.push({ e: { ...e, choice: c }, step }); }
     return c;
   };
@@ -1271,7 +1304,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     const first = draft.sections.slice(0, i).find((t) => scoreKeys(sectionKeys.get(s.key)!, sectionKeys.get(t.key)!) > 0)!;
     mergedInto.set(s.key, mergedInto.get(first.key) ?? first.key);
   });
-  // the other kept sections: first the one the last applied import put each on (`heldRows`), then the rest claim
+  // the other kept sections: first the one an applied import put each on (`heldRows`), then the rest claim
   // existing ones in one pass (best score, then position, id, draft key), whatever their order
   const sectionNodes = draft.sections.filter((s) => !out(s.key) && !mergedInto.has(s.key)).map((s) => ({ key: s.key, keys: sectionKeys.get(s.key)! }));
   const heldSections = heldRows(sectionNodes, existing.previous?.sections, sectionById);
@@ -1279,6 +1312,14 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const byName = assign(sectionNodes.filter((n) => !heldSections.has(n.key)), () => exSections, claimedSections);
   for (const [key, m] of byName) { target.set(key, { id: m.id, ref: null }); nameMatched.add(key); }
   const rootOf = (sectionKey: string): string => mergedInto.get(sectionKey) ?? sectionKey;
+  // a section key whose row from the imports another draft section now holds or claims by name has moved to
+  // another section (keys by position, the sections reordered): its dishes hold nothing (`heldRows` below)
+  const prevSections = existing.previous !== undefined && isObject(existing.previous.sections) ? existing.previous.sections : undefined;
+  const moved = new Set<string>();
+  if (prevSections !== undefined) for (const n of sectionNodes) {
+    const id = hasOwn(prevSections, n.key) ? prevSections[n.key] : undefined;
+    if (typeof id === 'string' && [...target].some(([k, t]) => k !== n.key && t.id === id)) moved.add(n.key);
+  }
   for (const s of draft.sections) if (out(rootOf(s.key))) for (const d of s.dishes) if (!out(d.key)) gone.add(d.key);
 
   // ---- 4–7. dishes: in their section, elsewhere in the family, renamed sections, another kind
@@ -1286,9 +1327,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const kept: DNode[] = [];
   for (const s of draft.sections) for (const d of s.dishes) if (!out(d.key) && !out(rootOf(s.key))) kept.push({ key: d.key, keys: keysOf(d.name), dish: d, section: s });
   const takenDishes = new Set<string>();
-  // a dish the last applied import put on a row that still matches its name has that row as its only candidate, in
-  // whichever step finds it, and no other dish has it (`heldRows`)
-  const heldDishes = heldRows(kept, existing.previous?.dishes, dishById);
+  // a dish the imports put on a row that still matches its name has that row as its only candidate, in
+  // whichever step finds it, and no other dish has it (`heldRows`); not when its section's key moved
+  const heldDishes = heldRows(kept.filter((n) => !moved.has(rootOf(n.section.key))), existing.previous?.dishes, dishById);
   const heldIds = new Set(heldDishes.values());
   const rowsOf = (n: DNode): Array<(typeof exDishes)[number]> => {
     const h = heldDishes.get(n.key);
@@ -1341,10 +1382,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const elsewhere = assign(fifth, nearRows, takenDishes, rankElsewhere);
 
   const renamed = new Map<string, string>(); // draft section → the existing section it proposes
-  // a section the last applied import left without a row while it put some of the section's dishes on rows the venue
+  // a section the applied imports left without a row while they put some of the section's dishes on rows the venue
   // still holds (it was this draft): its proposal still counts against another's, but it is not asked, so the same
   // draft with the same answers leaves it without a row again
-  const prevSections = existing.previous !== undefined && isObject(existing.previous.sections) ? existing.previous.sections : undefined;
   const leftOut = (key: string): boolean =>
     prevSections !== undefined && !hasOwn(prevSections, key) && kept.some((n) => rootOf(n.section.key) === key && heldDishes.has(n.key));
   for (const s of draft.sections) {
@@ -1545,14 +1585,17 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         const ng = groupOf.get(nested)!;
         const ok = tkey(o.key, t, targets[0]!);
         const ek = linkKey(ok, nested);
+        // the answer given for this target by its own name (`<option>@<group id>`, as when it was not the first) comes
+        // first: the first target's question drops the id, and which target is first can change between imports
+        const named = (code: ImportExceptionCode): string => `${code}@${linkKey(targetKey(o.key, t.id!), nested)}`;
         const path = `groups[${gi}].options[${oi}]`;
         const y = e.opens_group_id ? groupById.get(e.opens_group_id) : undefined;
         let answer: ImportChoice | undefined;
         if (y && y.selection === ng.selection && scoreKeys(groupKeys.get(nested)!, y.keys) > 0) {
-          answer = covers(ng, y.id) ? undefined : ask('group_changed', ek, path, `option:${ok}`);
+          answer = covers(ng, y.id) ? undefined : ask('group_changed', ek, path, `option:${ok}`, 1, named('group_changed'));
           if (answer !== 'new_group') openerOwn.set(nested, (openerOwn.get(nested) ?? new Set()).add(y.id));
           if (answer === 'add_options') openerAdd.set(nested, (openerAdd.get(nested) ?? new Set()).add(y.id));
-        } else answer = ask('opens_changed', ek, path, `option:${ok}`);
+        } else answer = ask('opens_changed', ek, path, `option:${ok}`, 1, named('opens_changed'));
         // an option that opens a group is taken once (the table's check): the plan never lowers the venue's quantity
         // (an update takes nothing away), so `new_group` on an option guests may take more than once is refused
         if (answer === 'new_group' && e.max_qty !== 1) return void x.add('opener_qty', ek, 'opens_changed');
@@ -2184,12 +2227,14 @@ export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
 
 /**
  * `apply_import`: `draft` is the one the owner looked at (the database refuses with `draft_changed` when the stored
- * draft is another), `decisions` their answers. The reply carries the plan that was applied.
+ * draft is another), `decisions` their answers. The reply carries the plan that was applied. `import_busy`: another
+ * import RPC of the venue holds its import lock (the apply tries it and does not wait); nothing was done, so the client
+ * retries after a moment.
  */
 export type ApplyImportInput = { readonly importId: string; readonly draft: ImportDraft; readonly decisions: ImportDecisions };
 export type ApplyImportReply =
   | RpcOk<{ readonly plan: ImportPlan }>
-  | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'not_parsed' | 'import_closed'>;
+  | RpcFail<'draft_changed' | 'invalid_decisions' | 'plan_invalid' | 'apply_failed' | 'import_unknown' | 'import_busy' | 'not_parsed' | 'import_closed'>;
 
 /**
  * What `apply_import` answers on size alone, before it walks anything (SEC-M1; after the caller, the venue's import
