@@ -86,7 +86,8 @@ export function startStatic({ port, prefix = '/', mounts, virtual = {}, shortLin
     if (shortLinks && /^\/m\/[^/]+\/?$/.test(p)) p = prefix + 'view/index.html';
     if (!p.startsWith(prefix)) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('not under ' + prefix); }
     const rel = p.slice(prefix.length);
-    if (virtual[rel] !== undefined) { res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] || 'text/plain', 'cache-control': 'no-store' }); return res.end(virtual[rel]); }
+    // a virtual folder ("ops/") is its index page
+    if (virtual[rel] !== undefined) { res.writeHead(200, { 'content-type': TYPES[rel.endsWith('/') ? '.html' : path.extname(rel)] || 'text/plain', 'cache-control': 'no-store' }); return res.end(virtual[rel]); }
     const first = rel.split('/')[0];
     const [root, inner] = mounts[first] !== undefined && first !== '' ? [mounts[first], rel.slice(first.length + 1)] : [mounts[''], rel];
     if (!root) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('not found'); }

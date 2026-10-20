@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { loadSeed, readSeed, SEEDS } from '@mana/sim';
 import { startStack } from '@mana/sim/stack';
 import { startStatic } from '@mana/sim/stack/gateway';
-import { localConfigText } from '../tools/env.mjs';
+import { localConfigText, PRODUCTION, retargetCsp } from '../tools/env.mjs';
 import { ARGS, CHROME, playwright } from '../tools/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,9 +35,10 @@ export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-u
  * @param o.mounts  more folders by first path segment, e.g. { view: 'apps/view', stock: 'stock' } (a built app without the whole site)
  * @param o.config  more fields for the generated config.js
  * @param o.gl      true: the browser draws WebGL in software (without it, a page that needs WebGL falls back as a phone would)
+ * @param o.signup  'open': the stack's public sign-up is on, every address confirmed at once (sim/stack/start.mjs)
  */
-export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site'), mounts = {}, config: extra = {}, gl = false } = {}) {
-  const stack = await startStack({ ports: 'auto' });
+export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site'), mounts = {}, config: extra = {}, gl = false, signup = 'closed' } = {}) {
+  const stack = await startStack({ ports: 'auto', signup });
   let web = null, browser = null;
   const stop = async () => {
     if (browser) await browser.close().catch(() => {});
@@ -50,8 +51,12 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
     const config = localConfigText({ apiUrl: stack.apiUrl, anonKey: stack.anonKey })
       + (Object.keys(extra).length ? `Object.assign(window.HALOM_MENUS_CONFIG, ${JSON.stringify(extra)});\n` : '');
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
+    // the back office's Content-Security-Policy allows exactly the local stack, as a local build writes it (tools/site-env.mjs)
+    const opsIndex = path.join(site, 'ops/index.html');
+    const ops = fs.existsSync(opsIndex) ? retargetCsp(fs.readFileSync(opsIndex, 'utf8'), new URL(PRODUCTION.supabaseUrl).origin, new URL(stack.apiUrl).origin) : null;
     web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: { ...(hasSite ? { '': site } : {}), ...mounts }, shortLinks: true,
-      virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>' } });
+      virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>',
+        ...(ops ? { 'ops/': ops, 'ops/index.html': ops } : {}) } });
     browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: gl ? ARGS.concat(GL_ARGS) : ARGS });
     fs.mkdirSync(OUT, { recursive: true });
     const webUrl = `http://127.0.0.1:${stack.ports.web}${PREFIX}`;

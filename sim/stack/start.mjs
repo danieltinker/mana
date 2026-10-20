@@ -98,9 +98,12 @@ export async function resolvePorts(ports = process.env.SIM_PORT_BASE || 57500) {
  *   eventCaps   'auto' (default: demo caps from the schema, or raised locally when the schema has none) | 'schema'
  *   approval    true (default: the schema's publish_requires_approval) | false (turned off locally)
  *   simClientIp honour x-sim-client-ip (default true; see gateway.mjs)
+ *   signup      'closed' (default: accounts only through the admin API) | 'open' (public sign-up, the address confirmed
+ *               at once: what a project with Auth's "Confirm email" off does, so an owner can sign up in the browser)
  *   quiet       no progress lines (default true)
  */
-export async function startStack({ ports, dir, keep = false, eventCaps = 'auto', approval = true, simClientIp = true, quiet = true } = {}) {
+export async function startStack({ ports, dir, keep = false, eventCaps = 'auto', approval = true, simClientIp = true, signup = 'closed', quiet = true } = {}) {
+  if (signup !== 'closed' && signup !== 'open') throw new Error(`signup: 'closed' or 'open', not ${JSON.stringify(signup)}`);
   const log = (...a) => { if (!quiet) console.error('[sim]', ...a); };
   const P = await resolvePorts(ports);
   // keep without a dir: the database lives on in a fixed folder per port base, and the next keep start reuses it
@@ -168,7 +171,8 @@ export async function startStack({ ports, dir, keep = false, eventCaps = 'auto',
     };
 
     // ---- GoTrue: real Supabase Auth. Public sign-up is off locally (no mail service); accounts are made through the
-    // admin API with a confirmed e-mail, as the simulator's bots do.
+    // admin API with a confirmed e-mail, as the simulator's bots do. `signup: 'open'` opens it with every address
+    // confirmed at once (no mail is sent), for a walkthrough whose owner signs up in the browser.
     const noProxy = { HTTPS_PROXY: '', HTTP_PROXY: '', https_proxy: '', http_proxy: '', NO_PROXY: '*', no_proxy: '*' };
     const authEnv = {
       PATH: process.env.PATH, ...noProxy,
@@ -177,7 +181,7 @@ export async function startStack({ ports, dir, keep = false, eventCaps = 'auto',
       DATABASE_URL: `postgres://supabase_auth_admin:local@127.0.0.1:${P.pg}/postgres`,
       GOTRUE_SITE_URL: `http://127.0.0.1:${P.web}/`, API_EXTERNAL_URL: API_URL + '/auth/v1',
       GOTRUE_JWT_SECRET: JWT_SECRET, GOTRUE_JWT_EXP: '3600', GOTRUE_JWT_AUD: 'authenticated', GOTRUE_JWT_DEFAULT_GROUP_NAME: 'authenticated',
-      GOTRUE_JWT_ADMIN_ROLES: 'service_role', GOTRUE_DISABLE_SIGNUP: 'true', GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true', GOTRUE_MAILER_AUTOCONFIRM: 'false',
+      GOTRUE_JWT_ADMIN_ROLES: 'service_role', GOTRUE_DISABLE_SIGNUP: String(signup === 'closed'), GOTRUE_EXTERNAL_EMAIL_ENABLED: 'true', GOTRUE_MAILER_AUTOCONFIRM: String(signup === 'open'),
       GOTRUE_RATE_LIMIT_TOKEN_REFRESH: '100000', GOTRUE_RATE_LIMIT_VERIFY: '100000', GOTRUE_RATE_LIMIT_EMAIL_SENT: '100000', GOTRUE_LOG_LEVEL: 'warn',
     };
     const gotrueDir = path.join(bin, 'gotrue');
@@ -210,6 +214,7 @@ export async function startStack({ ports, dir, keep = false, eventCaps = 'auto',
         notes.push('publish_requires_approval = false (local)');
       }
     }
+    if (signup === 'open') notes.push('public sign-up open, every address confirmed at once (no mail service)');
 
     // ---- PostgREST: the real binary, the same JWT secret, so RLS, triggers and RPCs answer exactly as written
     spawnLogged('postgrest', path.join(bin, 'postgrest'), [], { env: { PATH: process.env.PATH, ...noProxy,

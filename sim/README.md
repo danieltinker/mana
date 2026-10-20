@@ -55,7 +55,7 @@ once from the GitHub releases with curl into `sim/.stack/bin` (git-ignored), che
 | pg_cron runs `app.build_rollups()` every minute | Nothing is scheduled: the simulator calls `stack.buildRollups()` when it wants the dashboards current |
 | Storage serves `menu-public` | The tables and policies exist; no storage service runs. `public_base` points at a local address nothing answers (no scenario loads a picture yet) |
 | Realtime streams the rollups | The publication exists; no Realtime server |
-| Sign-up by e-mail, confirmed by mail | No mail service: public sign-up is off; accounts are made through GoTrue's admin API with a confirmed e-mail (the owner and staff bots' "sign up") |
+| Sign-up by e-mail, confirmed by mail | No mail service: public sign-up is off; accounts are made through GoTrue's admin API with a confirmed e-mail (the owner and staff bots' "sign up"). `startStack({ signup: 'open' })` opens it with every address confirmed at once, as a project with "Confirm email" off does (the client walkthrough's owner signs up in the browser) |
 | Cloudflare sets `cf-connecting-ip` | The gateway sets it from the connection, and drops a caller's own `cf-connecting-ip` / `x-real-ip`; a guest bot's `x-sim-client-ip` gives it an address of its own (local only), so per-source caps behave as with real phones |
 | `event_caps` as the schema sets them | When the schema has no `event_caps_demo` yet (this branch, before the architect's change), `event_caps` is raised locally so a demo can send many events; with `event_caps_demo` nothing is changed |
 | PostgreSQL 15 or 17 | PostgreSQL 16 |
