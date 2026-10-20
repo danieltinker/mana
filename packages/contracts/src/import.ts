@@ -866,7 +866,9 @@ export type PlanStep = {
     | { readonly kind: K; readonly key: string; readonly op: 'skip'; readonly id: null; readonly set: NoColumns; readonly refs: NoColumns; readonly reason: SkipReason };
 }[PlanKind];
 
-export type PlanSummary = Readonly<Record<PlanKind, Readonly<Record<PlanOp, number>>>>;
+/** Per kind, how many steps of each op, and of the skipped ones how many for each reason (every reason, zeros
+ * included; `skip` is their sum): a link `merged` and a group `unused` are said here, not only in the steps. */
+export type PlanSummary = Readonly<Record<PlanKind, Readonly<Record<PlanOp, number>> & { readonly skipped: Readonly<Record<SkipReason, number>> }>>;
 export type ImportPlan = {
   readonly v: 1;
   readonly steps: readonly PlanStep[];
@@ -933,7 +935,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * duplicate of what the venue has (Hopa test 1), and the same plan whatever the order of the draft. Errors (no plan):
  * `exception_unresolved` (a `fix` without an allowed answer), `choice_invalid`, `prices_unconfirmed`, `too_many` (with
  * what the venue has, past `LIMITS`), `nesting_too_deep` (a new choice would open an existing group that has choices
- * opening groups of their own).
+ * opening groups of their own), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
+ * that guests may take more than once open a group: an option that opens a group is taken once, and the plan never
+ * lowers the venue's quantity, so the owner keeps the venue's option or sets its quantity to 1 first).
  *
  * The rules, in the order the database's `app.plan_import` applies them:
  * 1. **Answers.** Each exception takes its answer, or its first choice when it is a `check`.
@@ -992,7 +996,8 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    there) that opens a kept group G: when the venue's option opens a group with G's selection and a matching name,
  *    that group is a target of G (`group_changed` keyed `<option step key>><G>` when it does not cover G's options);
  *    otherwise `opens_changed` (same key; `keep_mine`, or `new_group`: G is created and the venue's option is updated
- *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option). A group's
+ *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option, and as
+ *    `opener_qty` when the venue's option has a `max_qty` other than 1). A group's
  *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
  *    group's key, the others by `targetKey`. A group with no target is `unused`. A created group's limits, each on its
  *    own: a stated one as stated; an unstated one is the guess over its kept options and yields to what the group's
@@ -1012,8 +1017,11 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * 12. **Links.** A dish never gets two links to one group, nor to two groups of one selection whose names match
  *    (`scoreKeys`; the venue's names for its group, the draft's for one this plan creates): in link order, a kept link
  *    that lands where an earlier link of the same dish landed, or on a group whose name matches that one's, is `merged`
- *    (decided once every target is known, before rule 10's limits; a group created only for merged links is still
- *    created, unlinked, in the venue's library). A link staying on the dish's own group is kept (its row's id), or
+ *    (decided once every target is known, before rule 10's limits and before the groups' steps). The group the plan
+ *    would create for a draft group is created only when something uses it: a kept link that is not merged, a venue's
+ *    option moved to open it (`new_group`), or an option created in a group that is created; otherwise that target is
+ *    dropped, and a group left with no target is `unused` (the summary counts it, and the merged links, by reason).
+ *    A link staying on the dish's own group is kept (its row's id), or
  *    under `new_group` updated with the draft's dish limits and `refs.group_id`; the others are created with the
  *    draft's dish limits: for an existing group only those within its own limits (else null). Then, for every link
  *    written, a minimum above the capacity of the group it lands on (the `max_qty` of its options, the venue's and those
@@ -1439,6 +1447,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
           if (answer !== 'new_group') openerOwn.set(nested, (openerOwn.get(nested) ?? new Set()).add(y.id));
           if (answer === 'add_options') openerAdd.set(nested, (openerAdd.get(nested) ?? new Set()).add(y.id));
         } else answer = ask('opens_changed', ek, path, `option:${ok}`);
+        // an option that opens a group is taken once (the table's check): the plan never lowers the venue's quantity
+        // (an update takes nothing away), so `new_group` on an option guests may take more than once is refused
+        if (answer === 'new_group' && e.max_qty !== 1) return void x.add('opener_qty', ek, 'opens_changed');
         if (answer === 'new_group') {
           forcedNew.add(nested);
           needsGlobal.add(nested);
@@ -1449,7 +1460,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     }
   });
   const targetsOf = (g: DraftGroup): Target[] => {
-    const list: Target[] = needsGlobal.has(g.key) ? [globalOf(g.key)] : [];
+    const global = globalOf(g.key);
+    const list: Target[] = needsGlobal.has(g.key) && (global.id !== null || createdUsed.has(g.key)) ? [global] : [];
     const own = new Set<string>(openerOwn.get(g.key) ?? []);
     for (const r of linksOfGroup(g)) if (r.kind === 'own' && r.answer !== 'new_group') own.add(r.groupId);
     for (const id of [...own].sort(compareIds)) if (list[0]?.id !== id) list.push({ id, ref: null });
@@ -1474,6 +1486,23 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       const selection = groupOf.get(a.group)!.selection;
       if (landed.some((l) => l.at === at || (l.selection === selection && scoreKeys(l.keys, keys) > 0))) mergedLinks.add(linkKey(d.key, a.group));
       else landed.push({ at, keys, selection });
+    }
+  }
+  // the group this plan would create for a draft group is created only when something uses it: a kept link that is not
+  // merged, a venue's option moved to open it, or an option created in a group that is itself created (until nothing
+  // changes); with its links all merged and no opener, the draft group loses that target (`unused` with no other)
+  const createdUsed = new Set<string>(openerMove.values());
+  for (const s of draft.sections) for (const d of s.dishes) for (const a of d.groups) {
+    if (!linkOut(d, a) && !mergedLinks.has(linkKey(d.key, a.group)) && landingOf(d, a).id === null) createdUsed.add(a.group);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const g of draft.groups) {
+      if (!createdUsed.has(g.key)) continue;
+      for (const o of keptOptions(g)) {
+        const opens = opensOf(o);
+        if (opens !== null && !out(opens) && globalOf(opens).id === null && !createdUsed.has(opens)) { createdUsed.add(opens); changed = true; }
+      }
     }
   }
   /** The kept, unmerged links of `g` that land on the group this plan creates for it. */
@@ -1706,9 +1735,12 @@ function replaceNames(current: { name_he: string; name_en: string }, name: Text)
 }
 
 function summarize(steps: readonly PlanStep[]): PlanSummary {
-  const out = {} as Record<PlanKind, Record<PlanOp, number>>;
-  for (const k of PLAN_KINDS) out[k] = { create: 0, update: 0, keep: 0, skip: 0 };
-  for (const s of steps) out[s.kind][s.op] += 1;
+  const out = {} as Record<PlanKind, Record<PlanOp, number> & { skipped: Record<SkipReason, number> }>;
+  for (const k of PLAN_KINDS) out[k] = { create: 0, update: 0, keep: 0, skip: 0, skipped: { choice: 0, merged: 0, empty: 0, parent_skipped: 0, unused: 0 } };
+  for (const s of steps) {
+    out[s.kind][s.op] += 1;
+    if (s.op === 'skip') out[s.kind].skipped[s.reason] += 1;
+  }
   return out;
 }
 
@@ -1866,11 +1898,21 @@ export const READER_NOTES = {
   page_truncated: 'check',
   /** The scanner found no menu on a page, or could not read it. */
   page_unreadable: 'check',
-  /** A dish's line ends with a number that may be part of the name ("Combo 1", "Tea for 2", "since 1998") or with two
-   * prices ("House red 38 140"): the name was kept whole and no price was taken from it. `key`: the dish; `lines`: its
-   * line(s); `count`: how many lines; `rule`: null. */
+  /** A dish's line begins or ends with a number that may be part of the name or its price ("64 Schnitzel", "Combo 1",
+   * "Tea for 2", "since 1998"), or ends with two prices ("House red 38 140"): the name was kept whole and no price was
+   * taken from it. `key`: the dish; `lines`: its line(s); `count`: how many lines; `rule`: null. */
   price_ambiguous: 'check',
+  /** The same lines could be read two ways, and the reader chose one: check the dish or section it is on. `key`: that
+   * dish or section (never null, never a group or option); `lines`: the lines read; `count`: how many; `rule`, which
+   * guess (`LAYOUT_GUESS_RULES`): `tag_or_heading`, a tag word between two dishes read as a tag (or a heading);
+   * `desc_habit`, two short lines read as a name and its description, or as a heading and a name, as the menu does
+   * elsewhere; `common_name`, a common section name over a dish read as a heading; `other_language`, a common name
+   * under a dish read as its name in the other language. */
+  layout_guessed: 'check',
 } as const;
+/** The guesses a `layout_guessed` note names in its `rule`. */
+export const LAYOUT_GUESS_RULES = ['tag_or_heading', 'desc_habit', 'common_name', 'other_language'] as const;
+export type LayoutGuessRule = (typeof LAYOUT_GUESS_RULES)[number];
 export type ReaderNoteCode = keyof typeof READER_NOTES;
 export const READER_NOTE_CODES = Object.keys(READER_NOTES) as ReaderNoteCode[];
 /** Line numbers per note, and notes per import. */
@@ -1890,7 +1932,8 @@ export type ReaderNote = {
   readonly lines: readonly number[];
   /** How many lines or nodes the note stands for (can be more than `lines` holds). */
   readonly count: number;
-  /** For `noise`: the rule that recognised the lines (a machine word). */
+  /** The reader's rule, a machine word: for `noise`, the rule that recognised the lines; for `layout_guessed`, one of
+   * `LAYOUT_GUESS_RULES` (required). Any other code may name its rule too, or carry null; only its shape is checked. */
   readonly rule: string | null;
 };
 
@@ -1902,16 +1945,20 @@ export type ReaderNote = {
  * fields; `code` one of `READER_NOTES` with its own `severity`; `key` null or a draft key (`DRAFT_KEY_RE`; with `draft`,
  * one the draft has, section, dish, group or option); `lines` an array of at most `NOTE_LINES_MAX` integers from 1 to
  * `NOTE_NUMBER_MAX`, strictly ascending (empty allowed); `count` an integer from 1 to `NOTE_NUMBER_MAX`; `rule` null or
- * a machine word of 1–40 characters (`a–z` first, then `a–z`, `0–9`, `_`).
+ * a machine word of 1–40 characters (`a–z` first, then `a–z`, `0–9`, `_`). A `layout_guessed` note also needs a `rule`
+ * of `LAYOUT_GUESS_RULES` (`rule_invalid`) and a `key` (null is `key_invalid`; with `draft`, a key that is not one of
+ * its sections or dishes is `ref_unknown`).
  */
 export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix = 'notes'): Issue[] {
   const x = new Issues();
   if (!Array.isArray(raw)) return [{ code: 'type', path: prefix }];
   if (raw.length > NOTES_MAX) x.add('too_many', prefix);
   let keys: Set<string> | null = null;
+  let dishOrSection: Set<string> | null = null;
   if (draft) {
     keys = new Set<string>();
     for (const s of draft.sections) { keys.add(s.key); for (const d of s.dishes) keys.add(d.key); }
+    dishOrSection = new Set(keys);
     for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
   }
   raw.forEach((n, i) => {
@@ -1920,17 +1967,18 @@ export function readerNoteIssues(raw: unknown, draft: ImportDraft | null, prefix
     only(x, n, ['code', 'severity', 'key', 'lines', 'count', 'rule'], p);
     if (!oneOf(READER_NOTE_CODES, n.code)) x.add('enum_invalid', `${p}.code`);
     else if (n.severity !== READER_NOTES[n.code]) x.add('enum_invalid', `${p}.severity`);
+    const layout = n.code === 'layout_guessed';
     if (n.key !== null) {
       if (!isString(n.key) || !DRAFT_KEY_RE.test(n.key)) x.add('key_invalid', `${p}.key`);
-      else if (keys && !keys.has(n.key)) x.add('ref_unknown', `${p}.key`);
-    }
+      else if (keys && !(layout ? dishOrSection! : keys).has(n.key)) x.add('ref_unknown', `${p}.key`);
+    } else if (layout) x.add('key_invalid', `${p}.key`);
     const lines = n.lines;
     if (!Array.isArray(lines) || lines.length > NOTE_LINES_MAX ||
         !lines.every((l, j) => isInt(l) && l >= 1 && l <= NOTE_NUMBER_MAX && (j === 0 || l > (lines[j - 1] as number)))) {
       x.add('lines_invalid', `${p}.lines`);
     }
     if (!isInt(n.count) || n.count < 1 || n.count > NOTE_NUMBER_MAX) x.add('count_invalid', `${p}.count`);
-    if (n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
+    if (layout ? !oneOf(LAYOUT_GUESS_RULES, n.rule) : n.rule !== null && !(isString(n.rule) && NOTE_RULE_RE.test(n.rule))) x.add('rule_invalid', `${p}.rule`);
   });
   return x.list;
 }
