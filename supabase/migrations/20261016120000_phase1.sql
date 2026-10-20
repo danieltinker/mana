@@ -3169,6 +3169,7 @@ create function app.target_name(p_venue uuid, p_table text, p_id text) returns j
     when 'addon_groups' then (select jsonb_build_object('he', x.name_he, 'en', x.name_en) from public.addon_groups x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
     when 'addon_options' then (select jsonb_build_object('he', x.name_he, 'en', x.name_en) from public.addon_options x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
     when 'upsell_rules' then (select jsonb_build_object('he', x.label, 'en', x.label) from public.upsell_rules x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
+    when 'schedules' then (select jsonb_build_object('he', x.name_he, 'en', x.name_en) from public.schedules x where x.id = app.as_uuid(p_id) and x.venue_id = p_venue)
     -- "taken off", "brought back": the name of what was taken off (its section, dish or option), as it reads now
     when 'availability_overrides' then (
       select app.target_name(p_venue, case x.target_kind when 'section' then 'sections' when 'dish' then 'dishes' when 'option' then 'addon_options'
@@ -3177,11 +3178,23 @@ create function app.target_name(p_venue uuid, p_table text, p_id text) returns j
   end
 $$;
 
+-- the name of something an availability action names by id alone: a section, dish, add-on option or group of the venue
+create function app.menu_node_name(p_venue uuid, p_id text) returns jsonb language sql stable security definer set search_path = '' as $$
+  select coalesce(app.target_name(p_venue, 'dishes', p_id), app.target_name(p_venue, 'sections', p_id),
+                  app.target_name(p_venue, 'addon_options', p_id), app.target_name(p_venue, 'addon_groups', p_id))
+$$;
+
 -- `you`: the reader made the change. The actor's id never leaves: Halom's staff are never named to the owner.
+-- targetName: the row's one target as it reads now; for Halom's act_for_owner row, what the action names first (the
+-- target taken off or brought back, the dish changed)
 create function app.activity_entry(p_row public.activity_log, p_viewer uuid) returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object('id', p_row.id, 'at', app.iso(p_row.at), 'actorKind', p_row.actor_kind, 'you', coalesce(p_row.actor_id = p_viewer, false),
     'via', p_row.via, 'action', p_row.action, 'targetTable', p_row.target_table, 'targetIds', to_jsonb(p_row.target_ids), 'n', p_row.n,
-    'targetName', case when cardinality(p_row.target_ids) = 1 then app.target_name(p_row.venue_id, p_row.target_table, p_row.target_ids[1]) end,
+    'targetName', case
+      when p_row.action = 'support.act_for_owner' and p_row.detail->>'action' in ('availability.set', 'availability.restore')
+        then app.menu_node_name(p_row.venue_id, p_row.target_ids[1])
+      when p_row.action = 'support.act_for_owner' and p_row.detail->>'action' = 'dish.update' then app.target_name(p_row.venue_id, 'dishes', p_row.target_ids[1])
+      when cardinality(p_row.target_ids) = 1 then app.target_name(p_row.venue_id, p_row.target_table, p_row.target_ids[1]) end,
     'reason', p_row.reason, 'detail', p_row.detail)
 $$;
 

@@ -370,16 +370,61 @@ describe('venue_activity: the log, page by page', () => {
     assert.ok(p1.entries[0].id > p1.entries[1].id);
     const mine = p1.entries[0];
     assert.deepEqual([mine.action, mine.actorKind, mine.you, mine.via, mine.targetName], ['dishes.update', 'owner', true, 'direct', { he: 'שניצל', en: 'Schnitzel' }]);
-    assert.ok(!('actorId' in mine) && !JSON.stringify(p1).includes(U.ownerA), 'no person\'s id leaves the database');
+    // (a venue_members row is keyed by its member's user id, which the venue's members list already shows owners and
+    // managers: those entries are left out of the check)
+    assert.ok(!('actorId' in mine) && !JSON.stringify(p1.entries.filter((e) => e.targetTable !== 'venue_members')).includes(U.ownerA),
+      'no actor\'s id leaves the database');
     assert.equal(p1.next, p1.entries[1].id);
     const p2 = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_before: p1.next, p_limit: 2 });
     assert.ok(p2.entries.every((e) => e.id < p1.next));
-    const staff = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_actor: 'staff', p_limit: 100 });
+    assert.equal((await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: 'availability.restore',
+      p_payload: { targetKind: 'dish', targetId: ID.schnitzel } })).ok, true, 'one entry by staff, whatever ran before');
+    const staff =await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_actor: 'staff', p_limit: 100 });
     assert.ok(staff.entries.length > 0 && staff.entries.every((e) => e.actorKind === 'staff' && !e.you));
     const all = await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_via: 'act_for_owner', p_limit: 100 });
     assert.ok(all.entries.every((e) => e.via === 'act_for_owner'));
     assert.equal(all.next, null, 'the last page');
     assert.ok(all.entries.every((e) => isActivityAction(e.action)));
+  });
+
+  test('every availability and schedule entry names its target: the owner\'s, and Halom\'s through act_for_owner, taken off and brought back (QA-M3)', async () => {
+    const BURGER = { he: 'המבורגר', en: 'Burger' }, MAINS = { he: 'עיקריות', en: 'Mains' }, CHIPOTLE = { he: 'צ׳יפוטלה', en: 'Chipotle' };
+    const since = Number((await w.admin.query(`select coalesce(max(id), 0) as m from public.activity_log`)).rows[0].m);
+    const fresh = async () => (await rpc(w.url, U.ownerA, 'venue_activity', { p_venue: A, p_limit: 100 })).entries.filter((e) => e.id > since).reverse();
+    const seen = (e) => [e.action, e.actorKind, e.via, e.detail?.action ?? null, e.targetName];
+
+    // the owner: a dish taken off and brought back through the phone's RPC, a section taken off and brought back directly
+    assert.equal((await rpc(w.url, U.ownerA, 'set_availability', { p_venue: A, p_target_kind: 'dish', p_target_id: ID.burger, p_until: { kind: 'indefinite' } })).ok, true);
+    assert.equal((await rpc(w.url, U.ownerA, 'set_availability', { p_venue: A, p_target_kind: 'dish', p_target_id: ID.burger, p_until: null })).ok, true);
+    const off = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.availability_overrides (venue_id, target_kind, target_id, until_kind, until_spec)
+      values ($1, 'section', $2, 'indefinite', '{"kind":"indefinite"}') returning id`, [A, ID.mains])).rows[0].id);
+    await as(w.url, U.ownerA, (c) => c.query(`update public.availability_overrides set restored_at = now() where id = $1`, [off]));
+    // Halom, through act_for_owner: an option taken off and brought back, a dish changed
+    const afo = (action, payload) => rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: action, p_payload: payload });
+    assert.equal((await afo('availability.set', { targetKind: 'option', targetId: ID.chipotle, until: { kind: 'indefinite' } })).ok, true);
+    assert.equal((await afo('availability.restore', { targetKind: 'option', targetId: ID.chipotle })).ok, true);
+    const at = (await w.admin.query(`select to_jsonb(updated_at) as u from public.dishes where id = $1`, [ID.burger])).rows[0].u;
+    assert.equal((await afo('dish.update', { dishId: ID.burger, patch: { desc_en: 'With pickles' }, expectedUpdatedAt: at })).ok, true);
+    // a schedule, made and renamed by the owner
+    const lunch = await as(w.url, U.ownerA, async (c) => (await c.query(`insert into public.schedules (venue_id, kind, name_he, name_en, windows)
+      values ($1, 'day_part', 'צהריים', 'Lunch', '[{"days":[0,1,2,3,4],"from":"12:00","to":"16:00"}]') returning id`, [A])).rows[0].id);
+    await as(w.url, U.ownerA, (c) => c.query(`update public.schedules set name_en = 'Business lunch' where id = $1`, [lunch]));
+
+    const LUNCH = { he: 'צהריים', en: 'Business lunch' };
+    assert.deepEqual((await fresh()).map(seen), [
+      ['availability_overrides.insert', 'owner', 'rpc', null, BURGER],
+      ['availability_overrides.update', 'owner', 'rpc', null, BURGER],
+      ['availability_overrides.insert', 'owner', 'direct', null, MAINS],
+      ['availability_overrides.update', 'owner', 'direct', null, MAINS],
+      ['availability_overrides.insert', 'staff', 'act_for_owner', null, CHIPOTLE],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'availability.set', CHIPOTLE],
+      ['availability_overrides.update', 'staff', 'act_for_owner', null, CHIPOTLE],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'availability.restore', CHIPOTLE],
+      ['dishes.update', 'staff', 'act_for_owner', null, BURGER],
+      ['support.act_for_owner', 'staff', 'act_for_owner', 'dish.update', BURGER],
+      ['schedules.insert', 'owner', 'direct', null, LUNCH],
+      ['schedules.update', 'owner', 'direct', null, LUNCH],
+    ], 'the name as it reads now, for every entry');
   });
 });
 
