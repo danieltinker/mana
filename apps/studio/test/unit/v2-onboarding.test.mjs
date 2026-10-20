@@ -13,7 +13,7 @@ import { DEMO_MARK, marksDemo, withDemoBand } from '../../src/v2/data/demo-mark.
 import { blockersOf, endWrite, nextOpenAfter, openStep, resumeStep, stepEnd, visitWrite } from '../../src/v2/data/flow.ts';
 import { imagePath, imagesHash, importsApi, isEmptyDraft, readText, storableNotes } from '../../src/v2/data/imports.ts';
 import {
-  aboutOf, carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, planLines, preview, priceDiffs, sameDraft, withDishPrice,
+  aboutOf, carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice,
 } from '../../src/v2/data/review.ts';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from '../../../../e2e/fixtures/wolt-text-cafe.mjs';
 
@@ -277,6 +277,18 @@ test('a pasted list reads into the same flow: sections, dishes, prices', () => {
   const pv = preview(r.draft, EMPTY_MENU, confirmPrices(NO_DECISIONS, true), LANGS);
   assert.ok(pv.plan);
   assert.deepEqual([pv.plan.summary.section.create, pv.plan.summary.dish.create], [2, 3]);
+});
+
+test('what the reader said: one line per kind, counts added, lines merged in order', () => {
+  const { notes } = parseWoltText(WOLT_TEXT);
+  const noise = notes.filter((n) => n.code === 'noise');
+  assert.ok(noise.length > 1, 'the reader keeps a note per rule');
+  const lines = noteLines(notes);
+  assert.equal(lines.filter((x) => x.code === 'noise').length, 1);
+  const one = lines.find((x) => x.code === 'noise');
+  assert.equal(one.count, noise.reduce((n, x) => n + x.count, 0));
+  assert.deepEqual(one.lines, [...new Set(noise.flatMap((x) => x.lines))].sort((a, b) => a - b));
+  assert.deepEqual(noteLines([]), []);
 });
 
 // ---------------------------------------------------------------- the import calls

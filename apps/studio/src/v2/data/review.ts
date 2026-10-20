@@ -236,6 +236,22 @@ export function priceDiffs(draft: ImportDraft, existing: ExistingMenu, plan: Imp
   return out;
 }
 
+// ---------------------------------------------------------------- what the reader said, one line per kind
+/** One line per kind of note: a reader keeps a note per rule (`noise` has one per kind of line it left out). */
+export type NoteLine = { readonly code: string; readonly severity: 'info' | 'check'; readonly count: number; readonly lines: readonly number[] };
+
+/** The reader's notes as the preview says them: by code, in the order they came, counts added, lines merged in order. */
+export function noteLines(notes: ReadonlyArray<{ readonly code: string; readonly severity: string; readonly count: number; readonly lines: readonly number[] }>): NoteLine[] {
+  const by = new Map<string, { code: string; severity: 'info' | 'check'; count: number; lines: Set<number> }>();
+  for (const n of notes) {
+    let x = by.get(n.code);
+    if (!x) by.set(n.code, (x = { code: n.code, severity: n.severity === 'check' ? 'check' : 'info', count: 0, lines: new Set() }));
+    x.count += n.count;
+    for (const l of n.lines) x.lines.add(l);
+  }
+  return [...by.values()].map((x) => ({ code: x.code, severity: x.severity, count: x.count, lines: [...x.lines].sort((a, b) => a - b) }));
+}
+
 // ---------------------------------------------------------------- the plan in words
 export type PlanCount = { readonly kind: PlanKind; readonly op: PlanOp; readonly n: number };
 

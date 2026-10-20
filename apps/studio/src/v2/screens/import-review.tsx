@@ -19,7 +19,7 @@ import { agorotOf, shekelsOf } from '../data/forms.ts';
 import { existingMenu, isTextSource, type ImportLine } from '../data/imports.ts';
 import { importApi, imports, keepNotes, loadAssets, loadImport, loadImports, loadProgress, notesFor, progress, runScan } from '../data/onboarding.ts';
 import {
-  carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, planLines, preview, priceDiffs, sameDraft, withDishPrice, withOptionPrice,
+  carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice, withOptionPrice,
   type ExceptionRow,
 } from '../data/review.ts';
 import { canEdit, menu, reloadMenuQuietly } from '../data/store.ts';
@@ -210,10 +210,10 @@ function Preview({ line }: { line: ImportLine & { status: 'parsed' } }) {
         <section class="card" aria-labelledby="notes-h" data-notes>
           <h2 id="notes-h">{t('imp.notes.title')}</h2>
           <ul class="notelist">
-            {notes.map((n, i) => (
-              <li key={i} data-note={n.code} data-severity={n.severity}>
+            {noteLines(notes).map((n) => (
+              <li key={n.code} data-note={n.code} data-severity={n.severity} data-count={n.count}>
                 <Icon name={n.severity === 'check' ? 'alert' : 'info'} size={16} />
-                <span>{t('note.' + n.code, { n: n.count })}{n.lines.length > 0 && <span class="fine"> · {tn('imp.lines', n.lines.length, { list: n.lines.slice(0, 8).join(', ') + (n.lines.length > 8 ? '…' : '') })}</span>}</span>
+                <span>{tn('note.' + n.code, n.count)}{n.lines.length > 0 && <span class="fine"> · {tn('imp.lines', n.lines.length, { list: n.lines.slice(0, 8).join(', ') + (n.lines.length > 8 ? '…' : '') })}</span>}</span>
               </li>
             ))}
           </ul>
@@ -326,14 +326,14 @@ function PriceFix({ r, draft, onEdit }: { r: ExceptionRow; draft: ImportDraft; o
   );
 }
 
-/** Everything that was read, section by section, with its prices: what the owner confirms. */
+/** Everything that was read, section by section, with its prices: what the owner confirms (open; each section folds). */
 function DraftList({ draft }: { draft: ImportDraft }) {
   const groups = new Map(draft.groups.map((g) => [g.key, g] as const));
   return (
     <section class="card" aria-labelledby="draft-h" data-draft-list>
       <h2 id="draft-h">{t('imp.list.title')}</h2>
       {draft.sections.map((s) => (
-        <details key={s.key} class="draftsec" data-draft-section={s.key} open={draft.sections.length <= 3}>
+        <details key={s.key} class="draftsec" data-draft-section={s.key} open>
           <summary><span class="strong" dir="auto">{say(s.name)}</span> <span class="fine">{tn('imp.n.dishes', s.dishes.length)}</span></summary>
           <ul class="draftdishes">
             {s.dishes.map((x) => (
