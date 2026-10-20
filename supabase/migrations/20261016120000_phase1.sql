@@ -2919,11 +2919,12 @@ begin
 end $$;
 
 -- ================================================================ support cases ("get help", F03 and F09)
--- SupportCase, as the owner and Halom read it
+-- SupportCase, as the owner and Halom read it. updatedAt is the case's version, at full precision (as to_jsonb writes
+-- a timestamptz): staff send it back to ops_update_case as p_expected_updated_at, exactly as they read it.
 create function app.case_json(p_case uuid) returns jsonb language sql stable security definer set search_path = '' as $$
   select jsonb_build_object('id', c.id, 'venueId', c.venue_id, 'topic', c.topic, 'status', c.status, 'subject', c.subject, 'body', c.body,
     'openedBy', case when m.role in ('owner', 'manager') then m.role when s.user_id is not null then 'staff' end,
-    'openedAt', app.iso(c.created_at), 'updatedAt', app.iso(c.updated_at), 'resolvedAt', app.iso(c.resolved_at), 'supportCanAct', v.support_can_act)
+    'openedAt', app.iso(c.created_at), 'updatedAt', to_jsonb(c.updated_at), 'resolvedAt', app.iso(c.resolved_at), 'supportCanAct', v.support_can_act)
   from public.support_cases c
   join public.venues v on v.id = c.venue_id
   left join public.venue_members m on m.venue_id = c.venue_id and m.user_id = c.opened_by
@@ -2970,21 +2971,30 @@ begin
 end $$;
 
 -- ops_update_case: staff change a case's status or topic. Halom's own record, so the owner's support switch does not
--- apply; the reason is on the audit row, and the owner sees it.
-create function public.ops_update_case(p_case uuid, p_status text default null, p_topic text default null, p_reason text default null) returns jsonb
+-- apply; the reason is on the audit row, and the owner sees it. p_expected_updated_at: the case's updatedAt as staff
+-- read it (SupportCase.updatedAt, full precision); a case changed since answers stale with the case as stored, and
+-- nothing is written (two staff pages never overwrite each other's answer). Null: no check (as before).
+create function public.ops_update_case(p_case uuid, p_status text default null, p_topic text default null, p_reason text default null,
+                                       p_expected_updated_at timestamptz default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
-declare errs jsonb;
+declare errs jsonb; at timestamptz;
 begin
   if not app.is_staff() then raise exception 'not_staff' using errcode = '42501'; end if;
   errs := app.validate_update_case(jsonb_build_object('caseId', p_case, 'reason', p_reason)
             || case when p_status is null then '{}'::jsonb else jsonb_build_object('status', p_status) end
             || case when p_topic is null then '{}'::jsonb else jsonb_build_object('topic', p_topic) end);
   if jsonb_array_length(errs) > 0 then return app.fail(errs->0->>'code'); end if;
-  if not exists (select 1 from public.support_cases where id = p_case) then return app.fail('case_unknown'); end if;
+  select updated_at into at from public.support_cases where id = p_case for update;
+  if not found then return app.fail('case_unknown'); end if;
+  if p_expected_updated_at is not null and at <> p_expected_updated_at then
+    return jsonb_build_object('ok', false, 'code', 'stale', 'current', app.case_json(p_case));
+  end if;
   perform set_config('mana.via', 'rpc', true);
+  perform set_config('mana.actor', 'staff', true);
   perform set_config('mana.reason', app.strip_blank(p_reason), true);
   update public.support_cases set status = coalesce(p_status, status), topic = coalesce(p_topic, topic) where id = p_case;
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   perform set_config('mana.reason', '', true);
   return jsonb_build_object('ok', true, 'case', app.case_json(p_case));
 end $$;
@@ -3399,8 +3409,11 @@ begin
                  from public.assets x where x.venue_id = p_venue)));
   select jsonb_object_agg(key, jsonb_array_length(value)) into counts from jsonb_each(out->'tables');
   perform set_config('mana.via', 'rpc', true);
+  -- a staff member's export is Halom's, whatever venue they also belong to (SEC-L3)
+  if app.is_staff() then perform set_config('mana.actor', 'staff', true); end if;
   perform app.log(p_venue, 'menu.export', 'venues', array[p_venue::text], jsonb_build_object('counts', counts));
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   return out;
 end $$;
 
@@ -3756,8 +3769,10 @@ begin
   if not found then return app.fail('revision_unknown'); end if;
   -- (mana.via is set only around the log row: an error path leaves nothing set)
   perform set_config('mana.via', 'rpc', true);
+  perform set_config('mana.actor', 'staff', true);
   perform app.log(p_venue, 'menu.read', 'menu_revisions', array[r.id::text], jsonb_build_object('revision', r.number));
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   return jsonb_build_object('ok', true, 'venueId', p_venue,
     'revision', jsonb_build_object('id', r.id, 'number', r.number, 'createdAt', app.iso(r.created_at), 'note', r.note,
                                    'live', r.id is not distinct from v.published_revision_id),
@@ -3860,16 +3875,35 @@ begin
   errs := app.validate_set_demo(jsonb_build_object('venueId', p_venue, 'demo', p_demo, 'reason', p_reason));
   if jsonb_array_length(errs) > 0 then return app.fail(errs->0->>'code'); end if;
   if not exists (select 1 from public.venues where id = p_venue and archived_at is null) then return app.fail('venue_unknown'); end if;
+  if app.member_role(p_venue) is not null then return app.fail('own_venue'); end if;
   perform set_config('mana.via', 'rpc', true);
+  perform set_config('mana.actor', 'staff', true);
   perform set_config('mana.reason', app.strip_blank(p_reason), true);
   update public.venues set is_demo = p_demo where id = p_venue and is_demo is distinct from p_demo;
   perform app.log(p_venue, 'venue.set_demo', 'venues', array[p_venue::text], jsonb_build_object('demo', p_demo), 1, app.strip_blank(p_reason));
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   perform set_config('mana.reason', '', true);
   return jsonb_build_object('ok', true, 'demo', p_demo);
 end $$;
 
 -- ================================================================ staff writes, after the back office's review (SEC-M1, QA)
+-- Who an entry names (SEC-L3): a staff-only RPC (ops_approve_venue, ops_set_plan, ops_set_demo, ops_update_case,
+-- ops_revision, export_menu by a staff member) and act_for_owner act as Halom, logged 'staff' whatever venue the staff
+-- member also belongs to; they say so with mana.actor = 'staff' around their writes and log rows. A staff member who
+-- belongs to a venue never approves it, sets its plan or its demo label (own_venue).
+create or replace function app.actor_kind(p_venue uuid) returns text
+language plpgsql stable security definer set search_path = '' as $$
+declare r text;
+begin
+  if (select auth.uid()) is null then return 'system'; end if;
+  if (current_setting('mana.via', true) = 'act_for_owner' or current_setting('mana.actor', true) = 'staff') and app.is_staff() then return 'staff'; end if;
+  r := app.member_role(p_venue);
+  if r is not null then return r; end if;
+  if app.is_staff() then return 'staff'; end if;
+  return 'system';
+end $$;
+
 -- A staff reason is checked like every other reason (app.v_reason, the twin of isReason: 3 to 500 characters once its
 -- blank edges are stripped, so zero-width spaces, tabs, NBSPs and the like are not a reason) and stored stripped.
 
@@ -3890,6 +3924,7 @@ begin
   if p_expected_revision is null or p_expected_revision < 1 then return app.fail('revision_invalid'); end if;
   select * into v from public.venues where id = p_venue and archived_at is null for update;
   if not found then return app.fail('venue_unknown'); end if;
+  if app.member_role(p_venue) is not null then return app.fail('own_venue'); end if;
   if v.approved_at is not null then return app.fail('already_approved'); end if;
   if v.first_published_at is null or v.published_revision_id is null then return app.fail('not_published'); end if;
   select r.number into latest from public.menu_revisions r where r.venue_id = p_venue and r.id = v.published_revision_id;
@@ -3897,11 +3932,13 @@ begin
     return jsonb_build_object('ok', false, 'code', 'revision_changed', 'revision', latest);
   end if;
   perform set_config('mana.via', 'rpc', true);
+  perform set_config('mana.actor', 'staff', true);
   update public.venues set approved_at = now(), approved_by = (select auth.uid()) where id = p_venue;
   ends := app.start_trial(p_venue);
   perform app.log(p_venue, 'venue.approve', 'venues', array[p_venue::text],
                   jsonb_build_object('trialEndsAt', app.iso(ends), 'revision', latest), 1, reason);
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   return jsonb_build_object('ok', true, 'trialEndsAt', app.iso(ends));
 end $$;
 
@@ -3920,8 +3957,10 @@ begin
   if p_until is not null and p_until <= now() and p_state in ('trialing', 'active') then return app.fail('until_in_past'); end if;
   select id, approved_at into v from public.venues where id = p_venue and archived_at is null for update;
   if not found then return app.fail('venue_unknown'); end if;
+  if app.member_role(p_venue) is not null then return app.fail('own_venue'); end if;
   if p_state in ('trialing', 'active') and v.approved_at is null then return app.fail('approval_first'); end if;
   perform set_config('mana.via', 'rpc', true);
+  perform set_config('mana.actor', 'staff', true);
   update public.entitlements set
     status = p_state,
     plan = coalesce(p_plan, plan),
@@ -3934,11 +3973,13 @@ begin
   get diagnostics n = row_count;
   if n = 0 then
     perform set_config('mana.via', '', true);
+    perform set_config('mana.actor', '', true);
     return app.fail('venue_unknown');
   end if;
   perform app.log(p_venue, 'plan.set', 'entitlements', array[p_venue::text],
                   jsonb_build_object('state', p_state, 'plan', p_plan, 'until', app.iso(p_until)), 1, reason);
   perform set_config('mana.via', '', true);
+  perform set_config('mana.actor', '', true);
   return jsonb_build_object('ok', true, 'state', app.entitlement_state(p_venue));
 end $$;
 
@@ -3957,8 +3998,18 @@ begin
   if not app.uuid_ok(p->'dishId') or jsonb_typeof(patch) is distinct from 'object' or patch = '{}'::jsonb or expected is null then
     raise exception 'payload_invalid';
   end if;
+  -- each value of its column's JSON type, as the contracts check it ("3900" is not a price, "yes" not a boolean)
   for k in select jsonb_object_keys(patch) loop
     if not (k = any (allowed)) then raise exception 'payload_invalid'; end if;
+    if not (case k
+         when 'price' then app.js_null(patch->k) or app.js_int(patch->k)
+         when 'hidden' then jsonb_typeof(patch->k) = 'boolean'
+         when 'position' then app.js_int(patch->k)
+         when 'stock_id' then app.js_null(patch->k) or jsonb_typeof(patch->k) = 'string'
+         when 'tags' then jsonb_typeof(patch->k) = 'array' and not exists (select 1 from jsonb_array_elements(patch->k) t where jsonb_typeof(t) <> 'string')
+         else jsonb_typeof(patch->k) = 'string' end) then
+      raise exception 'payload_invalid';
+    end if;
   end loop;
   select * into d from public.dishes where id = (p->>'dishId')::uuid and venue_id = p_venue for update;
   if not found then raise exception 'target_unknown'; end if;
@@ -3987,6 +4038,26 @@ begin
   return jsonb_build_object('dishId', p->>'dishId', 'fields', (select jsonb_agg(k2 order by k2) from jsonb_object_keys(patch) k2));
 end $$;
 
+-- act_for_owner('availability.restore', {targetKind, targetId}): a target of this venue (another venue's id, or none:
+-- target_unknown, nothing written or logged, like the other actions)
+create or replace function app.afo_availability_restore(p_venue uuid, p jsonb) returns jsonb
+language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  if coalesce(p->>'targetKind', '') not in ('section', 'dish', 'option') or not app.uuid_ok(p->'targetId') then raise exception 'payload_invalid'; end if;
+  if not (case p->>'targetKind'
+       when 'section' then exists (select 1 from public.sections s where s.id = (p->>'targetId')::uuid and s.venue_id = p_venue)
+       when 'dish' then exists (select 1 from public.dishes d where d.id = (p->>'targetId')::uuid and d.venue_id = p_venue)
+       else exists (select 1 from public.addon_options o where o.id = (p->>'targetId')::uuid and o.venue_id = p_venue) end) then
+    raise exception 'target_unknown';
+  end if;
+  update public.availability_overrides set restored_at = now()
+  where venue_id = p_venue and target_kind = p->>'targetKind' and target_id = (p->>'targetId')::uuid
+    and restored_at is null and (until_at is null or until_at > now());
+  get diagnostics n = row_count;
+  return jsonb_build_object('restored', n);
+end $$;
+
 -- act_for_owner: the reason checked by app.v_reason and kept stripped; an action that answers {ok: false} (a stale dish
 -- or step) writes nothing and is returned as it is. menu.publish is not an action in phase 1 (it would publish the
 -- owner's draft unreviewed; staff help with publishing by approving): action_unknown.
@@ -4000,7 +4071,9 @@ begin
   if (select auth.uid()) is null or app.staff_role() is null then raise exception 'not_staff' using errcode = '42501'; end if;
   if not app.v_reason(to_jsonb(p_reason)) then return app.fail('reason_required'); end if;
   reason := app.strip_blank(p_reason);
-  select id, support_can_act into v from public.venues where id = p_venue and archived_at is null;
+  -- the owner's switch, read under a share lock: an act waits for a switch change in flight and sees its result
+  -- (SEC-L2), and the switch cannot change under an act that is running
+  select id, support_can_act into v from public.venues where id = p_venue and archived_at is null for share;
   if not found then return app.fail('venue_unknown'); end if;
   if not v.support_can_act then return app.fail('owner_declined'); end if;
   if coalesce(p_action, '') not in ('availability.set', 'availability.restore', 'dish.update', 'onboarding.set', 'support_case.update') then
@@ -4136,7 +4209,7 @@ grant execute on function public.slug_available(text), public.create_venue(text,
 -- phase 1 (ADR-008): each checks its caller
 grant execute on function public.create_import(uuid, text, text, text[], text, boolean, uuid), public.claim_import_scan(uuid, text),
   public.discard_import(uuid), public.set_onboarding_step(uuid, text, text, text[]),
-  public.open_case(uuid, text, text, text, boolean, uuid), public.ops_update_case(uuid, text, text, text),
+  public.open_case(uuid, text, text, text, boolean, uuid), public.ops_update_case(uuid, text, text, text, timestamptz),
   public.set_availability(uuid, text, uuid, jsonb, text), public.restore_today(uuid), public.export_menu(uuid),
   public.venue_activity(uuid, bigint, integer, text, text), public.ops_venues(jsonb), public.ops_venue(uuid), public.ops_analytics(jsonb),
   public.ops_set_demo(uuid, boolean, text), public.ops_revision(uuid, integer),
@@ -4239,7 +4312,7 @@ declare expected text[] := array[
   'authenticated|function|public.ops_revision(uuid,integer)|EXECUTE',
   'authenticated|function|public.ops_set_demo(uuid,boolean,text)|EXECUTE',
   'authenticated|function|public.ops_set_plan(uuid,text,timestamp with time zone,text,text)|EXECUTE',
-  'authenticated|function|public.ops_update_case(uuid,text,text,text)|EXECUTE',
+  'authenticated|function|public.ops_update_case(uuid,text,text,text,timestamp with time zone)|EXECUTE',
   'authenticated|function|public.ops_update_lead(uuid,text,text,text)|EXECUTE',
   'authenticated|function|public.ops_venue(uuid)|EXECUTE',
   'authenticated|function|public.ops_venues(jsonb)|EXECUTE',

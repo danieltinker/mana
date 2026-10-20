@@ -130,8 +130,10 @@ a caller roll that transaction back: call `ops_revision` as a staff member with 
 see that the `menu.read` row is there afterwards (PostgREST honours that header only when its `db-tx-end` setting allows
 an override; it must not, on `mana` and on any later project).
 
-**Halom staff are never made members of client venues.** A staff member who is also a member is logged under the
-member's role (the owner reads "manager", not "Halom"), so nothing marks the action as staff's.
+**Halom staff are never made members of client venues.** Should one be (their own restaurant), the staff-only RPCs
+(`ops_approve_venue`, `ops_set_plan`, `ops_set_demo`, `ops_update_case`, `ops_revision`, and `export_menu` by a staff
+member) and `act_for_owner` are logged as `staff` there all the same, and nobody approves, plans or labels a venue they
+belong to (`own_venue`). Their own edits as a member are logged under the member's role.
 
 Once, after the last one:
 
@@ -248,8 +250,10 @@ database cannot write.
 
 **Act for owner (D25).** Staff never write a venue's menu directly. `act_for_owner(venue, reason, action, payload)` checks
 the caller is staff, needs a reason (3–500 characters once its blank edges are stripped, so zero-width spaces, tabs or
-NBSPs are not a reason; kept stripped), honours the owner's `support_can_act` switch, allows five actions
-(`availability.set`, `availability.restore`, `dish.update` with a column allow-list, `onboarding.set`,
+NBSPs are not a reason; kept stripped), honours the owner's `support_can_act` switch (read under a share lock: an act waits for a switch change in flight
+and sees its result), allows five actions
+(`availability.set`, `availability.restore` (a target of this venue, else `target_unknown`), `dish.update` with a
+column allow-list, each value of its column's JSON type (`"3900"` is not a price: `payload_invalid`), `onboarding.set`,
 `support_case.update`; **no `menu.publish` in phase 1**: it would publish the owner's draft unreviewed, so staff help
 through the approval), marks the transaction so every audit row the action causes reads `via = act_for_owner` with the
 reason, and writes its own `support.act_for_owner` row (the payload's keys and ids and the result's ids and numbers,
@@ -320,7 +324,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `my_dashboard(p_venue, p_range)` | owner, manager, staff | v2 (`"v": 2`, every phase-0 field kept): from the rollups, totals, opens by source and language, days (with `capped`), the last hour by minute (opens, views, adds; only minutes with something), top dishes, rule numbers (with trigger and why a rule is off); off now with names, who and whether it was today; onboarding steps (`auto`) and progress; nudges in `NUDGE_CODES` order; activity as entries (`you`, the row's name now); today's glance |
 | `set_onboarding_step(p_venue, p_step, p_state, p_blockers)` | owner, manager | `{ok, progress}`; the automatic steps (venue, menu, review, publish) are never marked done by hand (`step_automatic`), a done step stays done (`step_done`); blockers are machine words, kept when none are sent |
 | `open_case(p_venue, p_topic, p_subject, p_body, p_allow_act, p_id)` | owner, manager | the only way to make a case: `{ok, caseId, supportCanAct, reused}`; `p_allow_act` switches Halom's access in the same call (owner only); `case_caps` per local day; `p_id` the client's own id: the same id again answers the stored case (`reused: true`, a retry: nothing written, whatever else it says, and not counted by the cap), another venue's is `id_taken` |
-| `ops_update_case(p_case, p_status, p_topic, p_reason)` | staff | `{ok, case}`; the reason (required) is shown to the owner |
+| `ops_update_case(p_case, p_status, p_topic, p_reason, p_expected_updated_at)` | staff | `{ok, case}`; the reason (required) is shown to the owner; `p_expected_updated_at`, the case's `updatedAt` as staff read it (full precision): a case changed since is `stale` with the case as stored, nothing written; null, no check |
 | `set_availability(p_venue, p_target_kind, p_target_id, p_until, p_note)` | owner, manager, counter | the phone's quick action: the newest answer counts (what was off is restored first, in the same call); `p_until` null brings the target back; a duration ends on a whole minute; `{ok, overrideId, untilAt, restored}` |
 | `restore_today(p_venue)` | owner, manager, counter | everything taken off on the venue's local today, back: `{ok, restored, targets}` |
 | `export_menu(p_venue)` | owner, manager, staff | the menu as JSON (`MenuExport`): every menu table as stored, pictures by their public files only; logged (`menu.export`) |
@@ -339,9 +343,9 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `ops_venue(p_venue)` | staff | one venue: its row, members, onboarding, imports (never their input), cases (open first), the timeline |
 | `ops_revision(p_venue, p_revision)` | staff | the stored menu Halom approves (before approval `public_menu` answers "unavailable"): the newest revision unless a number is asked, whether it is live, the review state, the snapshot; logged (`menu.read`) |
 | `ops_analytics(p_query)` | staff | counts per minute (35 days back, a day at most) or per day, across venues or for one, real traffic unless the query says otherwise; the funnel of the venues created in the range; the imports created in it |
-| `ops_set_demo(p_venue, p_demo, p_reason)` | Halom admin | labels a venue demo or real, with the reason the owner sees; stored events and rollups keep the label they were counted with |
-| `ops_approve_venue(p_venue, p_reason, p_expected_revision)` | staff | approves the first publish, starts the trial, logged with the reason; the only way a venue is approved. `p_expected_revision` is the published revision's number staff reviewed (the one guests will see): another is `revision_changed` with that number, under the venue's lock; nothing published (never, or unpublished since) is `not_published` |
-| `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` | Halom admin | sets the plan state by hand until billing exists (live today as `ops_set_entitlement`), logged with the reason; `suspended` takes a venue offline; **never approves**: `trialing` or `active` on a venue waiting for approval is `approval_first` |
+| `ops_set_demo(p_venue, p_demo, p_reason)` | Halom admin (never of a venue they belong to: `own_venue`) | labels a venue demo or real, with the reason the owner sees; stored events and rollups keep the label they were counted with |
+| `ops_approve_venue(p_venue, p_reason, p_expected_revision)` | staff (never of a venue they belong to: `own_venue`) | approves the first publish, starts the trial, logged with the reason; the only way a venue is approved. `p_expected_revision` is the published revision's number staff reviewed (the one guests will see): another is `revision_changed` with that number, under the venue's lock; nothing published (never, or unpublished since) is `not_published` |
+| `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` | Halom admin (never of a venue they belong to: `own_venue`) | sets the plan state by hand until billing exists (live today as `ops_set_entitlement`), logged with the reason; `suspended` takes a venue offline; **never approves**: `trialing` or `active` on a venue waiting for approval is `approval_first` |
 | `ops_leads(p_status, p_source, p_since, p_limit)`, `ops_update_lead(p_id, p_status, p_owner, p_notes)` | staff | the leads, every read logged; spam out of the default view |
 | `act_for_owner(p_venue, p_reason, p_action, p_payload)` | staff | the only staff write path into a venue's menu (above) |
 

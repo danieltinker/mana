@@ -259,6 +259,33 @@ describe('support cases: open_case and ops_update_case', () => {
     assert.deepEqual(await rpc(w.url, U.support, 'ops_update_case', { p_case: '00000000-0000-4000-8000-00000000ffff', p_status: 'open', p_reason: 'Checking' }),
       { ok: false, code: 'case_unknown' });
   });
+
+  test('ops_update_case with the version staff read: a page that is out of date answers stale, and nothing is overwritten (QA L4)', async () => {
+    const c = await rpc(w.url, U.ownerB, 'open_case', { p_venue: w.B, p_topic: 'menu', p_subject: 'Two pages at once' });
+    // staff A and staff B both read the case from the venue's page (ops_venue), at full precision
+    const read = async () => (await rpc(w.url, U.support, 'ops_venue', { p_venue: w.B })).cases.find((x) => x.id === c.caseId);
+    const seenA = await read();
+    const seenB = await read();
+    assert.match(seenA.updatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?\+00:00$/, 'as to_jsonb writes it');
+    const a = await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'resolved', p_reason: 'Fixed by phone', p_expected_updated_at: seenA.updatedAt });
+    assert.equal(a.ok, true, JSON.stringify(a));
+    const before = (await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1`, [w.B])).rows[0].n;
+    const b = await rpc(w.url, U.admin, 'ops_update_case', { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Asked the owner', p_expected_updated_at: seenB.updatedAt });
+    assert.deepEqual([b.ok, b.code, b.current.id, b.current.status, b.current.updatedAt], [false, 'stale', c.caseId, 'resolved', a.case.updatedAt],
+      'B sees A\'s answer, as stored');
+    assert.equal((await w.admin.query(`select status from public.support_cases where id = $1`, [c.caseId])).rows[0].status, 'resolved', 'A\'s answer stays');
+    assert.equal((await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1`, [w.B])).rows[0].n, before, 'nothing written');
+    // B, with the case as the stale answer gave it, decides again
+    const again = await rpc(w.url, U.admin, 'ops_update_case', { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Asked the owner', p_expected_updated_at: b.current.updatedAt });
+    assert.equal(again.case.status, 'waiting_owner');
+    // the same second, another microsecond: stale too; no version at all: as before, no check
+    const exact = (await w.admin.query(`select updated_at from public.support_cases where id = $1`, [c.caseId])).rows[0].updated_at;
+    const sameSecond = new Date(Math.floor(exact.getTime() / 1000) * 1000).toISOString();
+    if (sameSecond !== exact.toISOString() || again.case.updatedAt.includes('.')) {
+      assert.equal((await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'open', p_reason: 'Reopened', p_expected_updated_at: sameSecond })).code, 'stale');
+    }
+    assert.equal((await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'open', p_reason: 'Reopened' })).case.status, 'open');
+  });
 });
 
 describe('availability: set_availability and restore_today', () => {

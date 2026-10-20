@@ -216,3 +216,90 @@ describe('ops_revision leaves nothing set behind', () => {
   });
 });
 
+describe('the back office\'s security review (20 Oct)', () => {
+  test('SEC-L2: act_for_owner waits for the owner switching Halom off, then answers owner_declined and writes nothing', async () => {
+    const offs = async () => (await w.admin.query(`select count(*)::int as n from public.availability_overrides where venue_id = $1 and target_id = $2`, [A, ID.burger])).rows[0].n;
+    const before = await offs();
+    let staff;
+    let early;
+    await as(w.url, U.ownerA, async (c) => {
+      // the owner's transaction switches Halom off and is still open while staff act
+      await c.query(`update public.venues set support_can_act = false where id = $1`, [A]);
+      staff = rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: 'availability.set',
+        p_payload: { targetKind: 'dish', targetId: ID.burger, until: { kind: 'indefinite' } } });
+      early = await Promise.race([staff.then(() => 'answered'), new Promise((r) => setTimeout(() => r('waiting'), 2000))]);
+    });
+    assert.equal(early, 'waiting', 'the act waits for the switch change in flight');
+    assert.deepEqual(await staff, { ok: false, code: 'owner_declined' }, 'and sees its result');
+    assert.equal(await offs(), before, 'nothing written');
+    await w.admin.query(`update public.venues set support_can_act = true where id = $1`, [A]);
+  });
+
+  test('SEC-L3: a staff member who belongs to a venue acts there as Halom (staff), and never approves it, plans it or labels it (own_venue)', async () => {
+    const O = '11111111-1111-4111-8111-1111111111d1';
+    const v = await newOwner(O, 'staff-belongs');
+    const pub = await rpc(w.url, O, 'publish_menu', { p_venue: v });
+    for (const staff of [U.support, U.admin]) await w.admin.query(`insert into public.venue_members (venue_id, user_id, role) values ($1, $2, 'manager')`, [v, staff]);
+    try {
+      assert.deepEqual(await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu checked', p_expected_revision: pub.revision }),
+        { ok: false, code: 'own_venue' });
+      assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_plan', { p_venue: v, p_state: 'suspended', p_reason: 'Plan set by hand' }), { ok: false, code: 'own_venue' });
+      assert.deepEqual(await rpc(w.url, U.admin, 'ops_set_demo', { p_venue: v, p_demo: true, p_reason: 'A demo venue' }), { ok: false, code: 'own_venue' });
+      assert.equal((await w.admin.query('select approved_at from public.venues where id = $1', [v])).rows[0].approved_at, null);
+      const kinds = async (action) => (await w.admin.query(`select actor_kind from public.activity_log where venue_id = $1 and action = $2 order by id`, [v, action]))
+        .rows.map((r) => r.actor_kind);
+      // the staff-only reads and writes there are logged as Halom's, not as the manager's
+      assert.equal((await rpc(w.url, U.support, 'ops_revision', { p_venue: v })).ok, true);
+      assert.deepEqual(await kinds('menu.read'), ['staff']);
+      await rpc(w.url, U.support, 'export_menu', { p_venue: v });
+      assert.deepEqual(await kinds('menu.export'), ['staff']);
+      const c = await rpc(w.url, O, 'open_case', { p_venue: v, p_topic: 'menu', p_subject: 'A question' });
+      assert.equal((await rpc(w.url, U.support, 'ops_update_case', { p_case: c.caseId, p_status: 'waiting_owner', p_reason: 'Asked the owner' })).ok, true);
+      assert.deepEqual(await kinds('support_cases.update'), ['staff']);
+      // the same person's own edits as a member stay a manager's
+      await as(w.url, U.support, (x) => x.query(`update public.dishes set desc_en = 'Hot' where venue_id = $1`, [v]));
+      assert.deepEqual(await kinds('dishes.update'), ['manager']);
+      // and nothing is left set for the next statement of the same session
+      const left = await as(w.url, U.support, async (x) => {
+        await x.query(`select public.ops_revision($1, null)`, [v]);
+        return (await x.query(`select coalesce(current_setting('mana.actor', true), '') as a`)).rows[0].a;
+      });
+      assert.equal(left, '');
+    } finally {
+      await w.admin.query(`delete from public.venue_members where venue_id = $1 and user_id = any($2::uuid[])`, [v, `{${U.support},${U.admin}}`]);
+    }
+    // a staff member who does not belong to it approves it, logged as staff
+    assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: v, p_reason: 'Menu checked', p_expected_revision: pub.revision })).ok, true);
+    const approve = (await w.admin.query(`select actor_kind from public.activity_log where venue_id = $1 and action = 'venue.approve'`, [v])).rows[0];
+    assert.equal(approve.actor_kind, 'staff');
+  });
+
+  test('SEC-N5: dish.update refuses a value whose JSON type is not its column\'s; the dish stays as it was', async () => {
+    const read = async () => (await w.admin.query(`select to_jsonb(d) as d from public.dishes d where id = $1`, [ID.burger])).rows[0].d;
+    const before = await read();
+    for (const patch of [{ hidden: 'yes' }, { hidden: 1 }, { price: '3900' }, { price: 39.5 }, { position: '1' }, { tags: 'vegan' }, { tags: [1] },
+      { name_en: 5 }, { desc_he: null }, { stock_id: 7 }]) {
+      const r = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'dish.update',
+        p_payload: { dishId: ID.burger, patch, expectedUpdatedAt: before.updated_at } });
+      assert.deepEqual(r, { ok: false, code: 'payload_invalid' }, JSON.stringify(patch));
+    }
+    assert.deepEqual(await read(), before);
+    const ok = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'dish.update',
+      p_payload: { dishId: ID.burger, patch: { hidden: false, price: before.price, position: before.position, tags: before.tags, stock_id: null },
+        expectedUpdatedAt: before.updated_at } });
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+  });
+
+  test('SEC-N6: availability.restore of another venue\'s dish, or none, is target_unknown and writes nothing, not even the log', async () => {
+    const other = (await w.admin.query(`select id from public.dishes where venue_id = $1 limit 1`, [w.B])).rows[0].id;
+    const before = await logCount();
+    for (const [targetKind, targetId] of [['dish', other], ['dish', '00000000-0000-4000-8000-00000000ffff'], ['section', ID.burger], ['option', ID.burger]]) {
+      assert.deepEqual(await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: 'availability.restore', p_payload: { targetKind, targetId } }),
+        { ok: false, code: 'target_unknown' }, `${targetKind} ${targetId}`);
+    }
+    assert.equal(await logCount(), before);
+    const own = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner called', p_action: 'availability.restore', p_payload: { targetKind: 'dish', targetId: ID.burger } });
+    assert.equal(own.ok, true, 'this venue\'s dish, with nothing off: restored 0');
+  });
+});
+
