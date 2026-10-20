@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, validateListPurgeableQuery } from '../../packages/contracts/src/index.ts';
+import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, SCAN_IMAGE_CAPS, validateListPurgeableQuery } from '../../packages/contracts/src/index.ts';
 import { dish, draftOf, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
@@ -240,6 +240,7 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
   test('the images per venue (local day), per person and in all (UTC day) are capped; rate_limited names the cap', async () => {
     const base = await cfg('import_caps');
     assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000 });
+    assert.deepEqual(Object.keys(base).filter((k) => k.startsWith('scan_images')).sort(), [...SCAN_IMAGE_CAPS].sort(), 'the caps ClaimScanReply names');
     for (const [cap, other] of [['scan_images_per_venue_day', null], ['scan_images_per_user_day', null], ['scan_images_per_day', 'B']]) {
       await clearImports();
       await clearCounters();
