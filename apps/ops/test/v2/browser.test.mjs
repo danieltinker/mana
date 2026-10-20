@@ -642,8 +642,9 @@ test('leads: loaded once (each read is logged), an edit says what it will save f
 
 // ------------------------------------------------------------------ the fourth QA round and the security review
 
-/** Requests give up after 1.5 s, and a lost write is believed not to have happened 3 s after it was lost; no polls. */
-const LOST = { __OPS_TIMEOUT_MS: 1500, __OPS_RETRY_GAP_MS: 3000, __OPS_POLL_MS: 600000 };
+/** Requests give up after 3 s, and a lost write is believed not to have happened 3 s after it was lost; no polls. A slow
+ * write below is applied 4.5 s after it was sent: after the page gave up, before its second look (6 s). */
+const LOST = { __OPS_TIMEOUT_MS: 3000, __OPS_RETRY_GAP_MS: 3000, __OPS_POLL_MS: 600000 };
 const actLog = () => stub.world.venues[0].activity.filter((e) => e.action === 'support.act_for_owner');
 
 test('a lost answer (QA-M1): the change was made; the page says the outcome is unknown, finds the change, and never sends it twice', async () => {
@@ -657,12 +658,12 @@ test('a lost answer (QA-M1): the change was made; the page says the outcome is u
   await act.locator('[data-reason]').fill('Owner asked by phone for the new price');
   await act.locator('[data-review]').click();
   await act.locator('[data-what]').waitFor();
-  await control({ delays: { act_for_owner: 2500 } });          // the database applies it after the page has given up waiting
+  await control({ delays: { act_for_owner: 4500 } });          // the database applies it after the page has given up waiting
   await act.locator('[data-go]').click();
-  await act.locator('[data-write-lost]').waitFor({ timeout: 6000 });
+  await act.locator('[data-write-lost]').waitFor({ timeout: 10000 });
   assert.match(await act.locator('[data-write-lost]').innerText(), /The answer did not arrive: the change may or may not have been made/);
   assert.equal(await act.locator('[data-go]').count(), 0, 'no second send while the outcome is not known');
-  await act.locator('[data-write-result]').waitFor({ timeout: 10000 });
+  await act.locator('[data-write-result]').waitFor({ timeout: 15000 });
   assert.equal(await act.locator('[data-write-result]').innerText(), 'Done. The answer did not arrive, but the change is there now: it was made once.');
   await control({ delays: {} });
   assert.equal(calls('act_for_owner').length, 1, 'sent once');
@@ -684,9 +685,9 @@ test('a lost answer (QA-M1): the change was not made; after the wait the page sa
   await act.locator('[data-what]').waitFor();
   await control({ faults: { act_for_owner: { mode: 'timeout', times: 1 } } });   // never answers, never applies
   await act.locator('[data-go]').click();
-  await act.locator('[data-write-lost=waiting]').waitFor({ timeout: 6000 });
+  await act.locator('[data-write-lost=waiting]').waitFor({ timeout: 10000 });
   assert.equal(await act.locator('[data-go]').count(), 0, 'not offered while the server may still be working on it');
-  await act.locator('[data-write-error]').waitFor({ timeout: 10000 });
+  await act.locator('[data-write-error]').waitFor({ timeout: 15000 });
   assert.equal(await act.locator('[data-write-error]').innerText(), 'The answer did not arrive, and the change is not there: nothing was made. You can send it again.');
   assert.equal(actLog().length, 0);
   await act.locator('[data-go]').click();
@@ -708,10 +709,10 @@ test('a lost answer on approve (QA-M1), then a second staff member approving (L4
     await ap.locator('[data-review]').click();
     await ap.locator('[data-what]').waitFor();
   }
-  await control({ delays: { ops_approve_venue: 2500 } });
+  await control({ delays: { ops_approve_venue: 4500 } });
   await A.page.locator('[data-write=approve] [data-go]').click();
-  await A.page.locator('[data-write=approve] [data-write-lost]').waitFor({ timeout: 6000 });
-  await A.page.locator('[data-panel=approved] [data-write-result]').waitFor({ timeout: 12000 });
+  await A.page.locator('[data-write=approve] [data-write-lost]').waitFor({ timeout: 10000 });
+  await A.page.locator('[data-panel=approved] [data-write-result]').waitFor({ timeout: 18000 });
   assert.equal(await A.page.locator('[data-panel=approved] [data-write-result]').innerText(),
     'Approved: guests can open the menu now. (The answer did not arrive, but the venue is approved.)');
   await control({ delays: {} });
