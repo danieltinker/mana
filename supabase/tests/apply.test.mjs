@@ -152,6 +152,68 @@ describe('apply_import', () => {
     assert.equal(ok.ok, true, 'applies once the limit allows it');
     assert.deepEqual(await counts(), { ...before, sections: before.sections + 1, dishes: before.dishes + 2 });
   });
+
+  test('new_group: a venue option moved to open the group the plan creates, a dish link moved to it; opener_qty refuses a venue option taken twice', async () => {
+    const O2 = '55555555-5555-4555-8555-5555555555a2';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-owner-2@example.invalid', now())`, [O2]);
+    const V2 = (await rpc(w.url, O2, 'create_venue', { p_slug: 'apply-moves', p_name_he: 'מסעדה', p_name_en: 'Apply Moves' })).id;
+    const at = () => V2;
+    const first = bistroDraft();
+    assert.equal((await apply(O2, await parsed(first, O2, at), first, DEC)).ok, true);
+    const q = async (sql) => (await w.admin.query(sql, [V2])).rows;
+    const optionNamed = async (en) => (await q(`select o.id, o.max_qty, o.opens_group_id from public.addon_options o where o.venue_id = $1 and o.name_en = '${en}'`))[0];
+    const sauceBefore = (await q(`select id from public.addon_groups where venue_id = $1 and name_en = 'Sauce'`)).map((r) => r.id);
+    assert.equal(sauceBefore.length, 1);
+    // the source now says Salad opens the sauces, and Extras has bacon: both answered new_group
+    const again = copy(bistroDraft());
+    again.groups[0].options[1].opens = 'g-sauce';
+    again.groups[2].options.push({ ...again.groups[2].options[1], key: 'o-bacon', name: { he: 'בייקון', en: 'Bacon' } });
+    const dec = { ...DEC, choices: { 'opens_changed@o-salad>g-sauce': 'new_group', 'group_changed@d-burger>g-extras': 'new_group' } };
+    const want = planApply(again, await existingOf(V2), dec);
+    assert.equal(want.ok, true, JSON.stringify(want.errors));
+    const moved = want.value.steps.filter((s) => s.op === 'update' && Object.keys(s.refs).length > 0).map((s) => [s.kind, s.key, s.refs]);
+    assert.deepEqual(moved, [['option', 'o-salad', { opens_group_id: 'g-sauce' }], ['dish_group', 'd-burger>g-extras', { group_id: 'g-extras' }]]);
+    const link = (await q(`select l.id from public.dish_addon_groups l join public.dishes d on d.id = l.dish_id join public.addon_groups g on g.id = l.group_id
+      where l.venue_id = $1 and d.name_en = 'Burger' and g.name_en = 'Extras'`))[0].id;
+    const r = await apply(O2, await parsed(again, O2, at), again, dec);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.plan, JSON.parse(JSON.stringify(want.value)));
+    const sauces = (await q(`select id from public.addon_groups where venue_id = $1 and name_en = 'Sauce'`)).map((x) => x.id);
+    const created = sauces.find((id) => !sauceBefore.includes(id));
+    assert.ok(created, 'a new Sauce group');
+    assert.equal((await optionNamed('Salad')).opens_group_id, created, 'the venue\'s Salad opens the group the plan created');
+    assert.equal((await optionNamed('Fries')).opens_group_id, sauceBefore[0], 'Fries still opens the venue\'s own');
+    const movedLink = (await q(`select l.id, l.group_id, g.name_en from public.dish_addon_groups l join public.addon_groups g on g.id = l.group_id where l.venue_id = $1`))
+      .find((x) => x.id === link);
+    assert.equal(movedLink.name_en, 'Extras');
+    assert.ok(!(await q(`select id from public.addon_groups where venue_id = $1 and name_en = 'Extras' order by created_at limit 1`)).some((x) => x.id === movedLink.group_id),
+      'the burger\'s link is the same row, now on the Extras group the plan created');
+    // a venue option guests may take twice never opens a group: plan_invalid, opener_qty at the question's key, nothing written
+    const third = copy(bistroDraft());
+    third.groups[2].options[0].opens = 'g-sauce';
+    third.groups[2].options[0].maxQty = 1;
+    assert.equal((await optionNamed('Cheese')).max_qty, 2);
+    const before = await counts(V2);
+    const no = await apply(O2, await parsed(third, O2, at), third, { ...DEC, choices: { 'opens_changed@o-cheese>g-sauce': 'new_group' } });
+    assert.deepEqual([no.code, no.errors], ['plan_invalid', [{ code: 'opener_qty', path: 'o-cheese>g-sauce', message: 'opens_changed' }]]);
+    assert.deepEqual(await counts(V2), before);
+  });
+
+  test('the summary counts the skipped steps by reason, every reason present', async () => {
+    const draft = bistroDraft();
+    const plan = planApply(draft, await existingOf(), { ...DEC, skip: ['d-lemonade'] });
+    const id = await parsed(draft);
+    const r = await apply(O, id, draft, { ...DEC, skip: ['d-lemonade'] });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.plan.summary, JSON.parse(JSON.stringify(plan.value.summary)));
+    for (const k of ['section', 'group', 'option', 'dish', 'dish_group', 'photo']) {
+      assert.deepEqual(Object.keys(r.plan.summary[k].skipped).sort(), ['choice', 'empty', 'merged', 'parent_skipped', 'unused'], k);
+      assert.equal(Object.values(r.plan.summary[k].skipped).reduce((a, b) => a + b, 0), r.plan.summary[k].skip, k);
+    }
+    assert.equal(r.plan.summary.dish.skipped.choice, 1);
+    const log = (await w.admin.query(`select detail from public.activity_log where venue_id = $1 and action = 'import.apply' order by id desc limit 1`, [V])).rows[0];
+    assert.deepEqual(log.detail.summary, r.plan.summary, 'the import.apply row carries it');
+  });
 });
 
 /** A small draft for venue A (a demo venue with its own menu). */

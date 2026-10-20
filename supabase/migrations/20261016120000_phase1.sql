@@ -1709,6 +1709,7 @@ declare
   v_key text; v_lk text; v_tk text; v_nested text; v_ok text; v_ek text; v_path text; v_q text; v_reason text; v_top text; v_first text;
   v_gk text; v_root text; v_cur text; v_group_price text; v_adding boolean; v_at_upload boolean; v_at text; v_landed jsonb;
   v_link_list jsonb[] := '{}'; v_pass jsonb; v_tie jsonb := '{}'; v_merged_links jsonb := '{}'; v_lkeys jsonb; v_sel jsonb; v_new boolean;
+  v_created_used jsonb := '{}';
 begin
   -- ---- 1. the draft's answers, in one pass (as plan_ask answers each: a fix without an answer, or an answer the
   -- exception does not allow, is an error at its key, in the exceptions' order)
@@ -2181,6 +2182,13 @@ begin
           select a.c, a.choice, a.errs, a.rec into v_c, v_choice, v_errs, v_rec from app.plan_ask(v_choice, v_errs, 'opens_changed', v_ek, v_path, 1, p_decisions) a;
           if v_rec is not null then v_plan_asked := v_plan_asked || jsonb_build_array(jsonb_build_object('e', v_rec, 'step', 'option:' || v_ok)); end if;
         end if;
+        -- an option that opens a group is taken once (the table's check), and the plan never lowers the venue's quantity
+        -- (an update takes nothing away): new_group on an option guests may take more than once is refused, and nothing
+        -- moves
+        if v_c = 'new_group' and (v_m->'max_qty') is distinct from '1'::jsonb then
+          v_errs := v_errs || app.issue('opener_qty', v_ek, 'opens_changed');
+          continue;
+        end if;
         if v_c = 'new_group' then
           v_forced_new := v_forced_new || jsonb_build_object(v_nested, true);
           v_needs_global := v_needs_global || jsonb_build_object(v_nested, true);
@@ -2218,9 +2226,29 @@ begin
           v_merged_links := v_merged_links || jsonb_build_object(v_lk, true);
         else
           v_landed := v_landed || jsonb_build_array(jsonb_build_object('at', v_at, 'keys', v_lkeys, 'sel', v_sel));
+          if (v_gt->>'id') is null then v_created_used := v_created_used || jsonb_build_object(v_a->>'group', true); end if;
         end if;
       end loop;
     end loop;
+  end loop;
+  -- the group this plan would create for a draft group is created only when something uses it: a kept link that is not
+  -- merged (above), a venue's option moved to open it, or an option created in a group that is itself created (until
+  -- nothing changes); with its links all merged and no opener, the draft group loses that target (unused with no other)
+  select v_created_used || coalesce(jsonb_object_agg(x.value #>> '{}', true), '{}') into v_created_used from jsonb_each(v_opener_move) x;
+  loop
+    v_changed := false;
+    for v_gi in 0 .. jsonb_array_length(v_grps) - 1 loop
+      v_g := v_grps->v_gi;
+      continue when not v_created_used ? (v_g->>'key');
+      for v_o in select x from jsonb_array_elements(v_g->'options') x where not v_skipped ? (x->>'key') loop
+        v_nested := case when not app.js_null(v_o->'opens') and v_choice->>('nesting_too_deep@' || (v_o->>'key')) is distinct from 'unlink' then v_o->>'opens' end;
+        if v_nested is not null and not v_skipped ? v_nested and (v_forced_new ? v_nested or not v_global_match ? v_nested)
+           and not v_created_used ? v_nested then
+          v_created_used := v_created_used || jsonb_build_object(v_nested, true); v_changed := true;
+        end if;
+      end loop;
+    end loop;
+    exit when not v_changed;
   end loop;
 
   -- ---- 10-11. the groups' steps, then their options, per target
@@ -2235,7 +2263,7 @@ begin
     v_targets := app.plan_targets(
       case when v_needs_global ? v_key then
         case when not v_forced_new ? v_key and v_global_match ? v_key then jsonb_build_object('id', v_global_match->>v_key, 'ref', null)
-             else jsonb_build_object('id', null, 'ref', v_key) end end,
+             when v_created_used ? v_key then jsonb_build_object('id', null, 'ref', v_key) end end,
       array(select x #>> '{}' from jsonb_array_elements(coalesce(v_opener_own->v_key, '[]')) x
             union all
             select x->>'groupId' from jsonb_array_elements(coalesce(v_res_by_group->v_key, '[]')) x
@@ -2479,7 +2507,10 @@ begin
            'create', (select count(*) from jsonb_array_elements(v_steps) x where x->>'kind' = k.kind and x->>'op' = 'create'),
            'update', (select count(*) from jsonb_array_elements(v_steps) x where x->>'kind' = k.kind and x->>'op' = 'update'),
            'keep', (select count(*) from jsonb_array_elements(v_steps) x where x->>'kind' = k.kind and x->>'op' = 'keep'),
-           'skip', (select count(*) from jsonb_array_elements(v_steps) x where x->>'kind' = k.kind and x->>'op' = 'skip')))
+           'skip', (select count(*) from jsonb_array_elements(v_steps) x where x->>'kind' = k.kind and x->>'op' = 'skip'),
+           'skipped', (select jsonb_object_agg(r.reason, (select count(*) from jsonb_array_elements(v_steps) x
+                                                           where x->>'kind' = k.kind and x->>'op' = 'skip' and x->>'reason' = r.reason))
+                       from unnest(array['choice', 'merged', 'empty', 'parent_skipped', 'unused']) r(reason))))
   into v_summary from unnest(array['section', 'group', 'option', 'dish', 'dish_group', 'photo']) k(kind);
   return jsonb_build_object('ok', true, 'value', jsonb_build_object('v', 1, 'steps', v_steps, 'summary', v_summary,
     'exceptions', v_answered || v_plan_ex, 'fromDraft', jsonb_array_length(v_answered)));
@@ -2756,8 +2787,10 @@ begin
            s->'set'->>'name_he', s->'set'->>'name_en', (s->'set'->>'price')::integer, (s->'set'->>'max_qty')::integer, (s->'set'->>'is_default')::boolean,
            case when s->'set' ? 'opens_group_id' then (s->'set'->>'opens_group_id')::uuid else (ids->>('group:' || (s->'refs'->>'opens_group_id')))::uuid end
     from jsonb_array_elements(steps) with ordinality x(s, i) where s->>'kind' = 'option' and s->>'op' = 'create' order by i;
+    -- (a venue's option answered new_group opens the group this plan creates: refs.opens_group_id)
     update public.addon_options t set name_he = coalesce(u.s->'set'->>'name_he', t.name_he), name_en = coalesce(u.s->'set'->>'name_en', t.name_en),
-           price = case when u.s->'set' ? 'price' then (u.s->'set'->>'price')::integer else t.price end
+           price = case when u.s->'set' ? 'price' then (u.s->'set'->>'price')::integer else t.price end,
+           opens_group_id = case when u.s->'refs' ? 'opens_group_id' then (ids->>('group:' || (u.s->'refs'->>'opens_group_id')))::uuid else t.opens_group_id end
     from (select s from jsonb_array_elements(steps) s where s->>'kind' = 'option' and s->>'op' = 'update') u
     where t.id = (u.s->>'id')::uuid and t.venue_id = p_venue;
 
@@ -2781,6 +2814,13 @@ begin
     where t.id = (u.s->>'id')::uuid and t.venue_id = p_venue;
 
     stage := 'dish_addon_groups';
+    -- a dish's link answered new_group moves to the group this plan creates, with the draft's limits (refs.group_id)
+    update public.dish_addon_groups t set
+      group_id = case when u.s->'refs' ? 'group_id' then (ids->>('group:' || (u.s->'refs'->>'group_id')))::uuid else t.group_id end,
+      min_units = case when u.s->'set' ? 'min_units' then (u.s->'set'->>'min_units')::integer else t.min_units end,
+      max_units = case when u.s->'set' ? 'max_units' then (u.s->'set'->>'max_units')::integer else t.max_units end
+    from (select s from jsonb_array_elements(steps) s where s->>'kind' = 'dish_group' and s->>'op' = 'update') u
+    where t.id = (u.s->>'id')::uuid and t.venue_id = p_venue;
     insert into public.dish_addon_groups (venue_id, dish_id, group_id, position, min_units, max_units)
     select p_venue, coalesce(s->'set'->>'dish_id', ids->>('dish:' || (s->'refs'->>'dish_id')))::uuid,
            coalesce(s->'set'->>'group_id', ids->>('group:' || (s->'refs'->>'group_id')))::uuid, (s->'set'->>'position')::integer,
