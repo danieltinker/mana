@@ -198,6 +198,11 @@ test('QA-L4 (round 2): a bare number before the name stays in it, and the dish i
   // right under a heading it is a dish, not a heading
   assert.deepEqual(placed(parsePaste('Mains\n58 Kebab\nShishlik 66')), ['# Mains', '58 Kebab - {price_ambiguous@2}', 'Shishlik 6600']);
   assert.equal(classifyPasteLine('58 Kebab')?.rule, 'price_ambiguous');
+  // QA round 3: after a blank line (or first), over a priced dish, a number first is a heading ("2 course dinner")
+  assert.deepEqual(placed(parsePaste('Grill\nKebab 68\n\n4 skewers deal\nMixed skewers 120\n\n2 course dinner\nSoup and steak 140')),
+    ['# Grill', 'Kebab 6800', '# 4 skewers deal', 'Mixed skewers 12000', '# 2 course dinner', 'Soup and steak 14000']);
+  // a number first with its price on the next line is a numbered dish, with no doubt left
+  assert.deepEqual(placed(parsePaste('Pizzas\n7 Marinara\n38\n8 Diavola\n48')), ['# Pizzas', '7 Marinara 3800', '8 Diavola 4800']);
   // a description that starts with a number stays a description
   const desc = valid(parsePaste('# Breakfast\nFull breakfast 62\n2 eggs, toast, salad'));
   assert.deepEqual(desc.sections[0]!.dishes.map((x) => [x.name.en, x.price, x.desc.en]), [['Full breakfast', 6200, '2 eggs, toast, salad']]);

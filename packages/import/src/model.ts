@@ -3,7 +3,7 @@
  * dish's groups held by reference (so a reader never names or dedupes anything) and with notes on the nodes they
  * concern. `buildDraft` turns one or more of these into one draft.
  */
-import { importKey, type DraftPhoto, type Lang, type Room, type SectionKind, type SelectionKind, type Tag, type Text } from '@mana/contracts';
+import { importKey, type DraftPhoto, type Lang, type LayoutGuessRule, type Room, type SectionKind, type SelectionKind, type Tag, type Text } from '@mana/contracts';
 import type { PendingNote } from './notes.ts';
 import type { PriceRead } from './price.ts';
 import { inScript, NO_TEXT } from './text.ts';
@@ -81,7 +81,7 @@ export function note(target: { notes: PendingNote[] }, code: PendingNote['code']
 }
 
 /** A `layout_guessed` note on a node: the reader chose one of two readings, by the rule named. */
-export function guessed(target: { notes: PendingNote[] }, rule: string, ...lines: number[]): void {
+export function guessed(target: { notes: PendingNote[] }, rule: LayoutGuessRule, ...lines: number[]): void {
   target.notes.push({ code: 'layout_guessed', lines, rule });
 }
 

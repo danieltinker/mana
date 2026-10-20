@@ -9,7 +9,7 @@
  * Pure: no network, no model, no cost. Runs in browsers, in Node 22.18+ and in Deno (the scanner) as it is.
  */
 export { buildDraft, draftModel, mergeDrafts, nameIdentity, type Reading, type ReadResult } from './build.ts';
-export { contractNote, NOTE_CODES, NOTE_LINES_MAX, NOTES, NOTES_MAX, type NoteCode, type NoteSeverity, type ReaderNote } from './notes.ts';
+export { NOTE_CODES, NOTE_LINES_MAX, NOTES, NOTES_MAX, type NoteCode, type NoteSeverity, type ReaderNote } from './notes.ts';
 export { amount, readOptionPrice, readPrice, splitPrice, type PriceRead } from './price.ts';
 export { guessKind, readRule, ruleLimits, type GroupRule } from './rules.ts';
 export { classifyPasteLine, parsePaste, type PasteToken } from './paste.ts';

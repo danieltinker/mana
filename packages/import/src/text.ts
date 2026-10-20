@@ -128,6 +128,8 @@ export function headingShaped(s: string): boolean {
 
 /** Words that open a description, not a name: "with tahini", "served with", "עם טחינה", "מוגש עם". */
 const DESC_START = /^(?:with|served|topped|comes with|עם|מוגש|מוגשת|מוגשים|בתוספת|ברוטב|לצד)\s/iu;
+/** Does the line open with a word only a description opens with ("with …", "עם …")? */
+export const descOpener = (s: string): boolean => DESC_START.test(s);
 
 /**
  * Rule `desc_shape`: a line that reads like a description: 4 words or more, or a comma, semicolon, colon or full stop

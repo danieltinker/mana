@@ -10,7 +10,8 @@
  * - **A number that may be the name's** (rule `price_ambiguous`): "Combo 1", "Tea for 2", "Pizza No. 5", "Serves 4",
  *   "since 1998", a phone number, "House red 38 140", or a bare number first ("64 Schnitzel"): no price is taken from
  *   inside a name. The line stays whole (a name, a description or a heading, by its neighbours) and a dish it names
- *   gets a note to check.
+ *   gets a note to check. A number first is a heading only after a blank line (or first) and over a priced dish
+ *   ("3 course lunch"); right under a heading it is a dish.
  * - **Descriptions**: a line right under a dish (no blank line between) that reads like a description, or a short
  *   line under a priced dish that the next dish or the end of the block follows.
  * - **Tags**: a line of tag words ("Vegan", "ללא גלוטן") right under its dish, with no blank line between. After a
@@ -251,10 +252,12 @@ export function parsePaste(text: string): ReadResult {
           break;
         }
         // rule `heading`: a heading by its own look; or a short line followed by a dish (or by a heading: an empty
-        // section), when a blank line, the start or another heading comes before it (right under a dish it is a dish;
-        // "64 Schnitzel", a number first, is a dish whose number is checked)
+        // section), when a blank line, the start or another heading comes before it (right under a dish it is a dish).
+        // A number first ("3 course lunch", "64 Schnitzel") is a heading only after a blank line or at the start and
+        // over a priced dish; right under a heading it is a dish whose number is checked
         const free = blankBefore || role === null || role === 'heading';
-        if (strongHeading(t.text) || (free && t.number !== 'leading' && headingShaped(t.text) && (dishAt(i + 1) || next?.t.k === 'heading'))) {
+        const numbered = t.number === 'leading' && !(blankBefore || role === null);
+        if (strongHeading(t.text) || (free && !numbered && headingShaped(t.text) && (dishAt(i + 1) || (t.number !== 'leading' && next?.t.k === 'heading')))) {
           open(t.text, n);
           if (otherName) guessed(section!, 'other_language', n);
           break;

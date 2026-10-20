@@ -391,30 +391,56 @@ test('D33: the readers never fetch anything and name no Wolt address', () => {
   }
 });
 
-test('QA-M2 (round 2): a common section name with a line marked as a description under it is the dish', () => {
+test('QA-M2 (round 2): a common name over a line marked as a description is the dish when the dishes around are described; checked', () => {
   const cases: Array<[string, string, string[]]> = [
     ['Coffee', 'Bakery\nCroissant\nButter, sea salt\n₪16.00\nCoffee\nDouble espresso, oat milk\n₪14.00\nTea\nMint, sage\n₪12.00',
-      ['# Bakery', 'Croissant 1600 (Butter, sea salt)', 'Coffee 1400 (Double espresso, oat milk)', 'Tea 1200 (Mint, sage)']],
+      ['# Bakery', 'Croissant 1600 (Butter, sea salt)', 'Coffee 1400 (Double espresso, oat milk) {layout_guessed:common_name@5}', 'Tea 1200 (Mint, sage)']],
     ['Pasta', 'Mains\nRoast chicken\nHalf a chicken, potatoes\n₪78.00\nPasta\nFresh tagliatelle, sage butter\n₪56.00\nGnocchi\nPotato, brown butter\n₪54.00',
-      ['# Mains', 'Roast chicken 7800 (Half a chicken, potatoes)', 'Pasta 5600 (Fresh tagliatelle, sage butter)', 'Gnocchi 5400 (Potato, brown butter)']],
+      ['# Mains', 'Roast chicken 7800 (Half a chicken, potatoes)', 'Pasta 5600 (Fresh tagliatelle, sage butter) {layout_guessed:common_name@5}', 'Gnocchi 5400 (Potato, brown butter)']],
     ['Breakfast, a description by its first word', 'Mornings\nGranola\nYoghurt, honey\n₪32.00\nBreakfast\nwith two eggs any style\n₪58.00',
-      ['# Mornings', 'Granola 3200 (Yoghurt, honey)', 'Breakfast 5800 (with two eggs any style)']],
+      ['# Mornings', 'Granola 3200 (Yoghurt, honey)', 'Breakfast 5800 (with two eggs any style) {layout_guessed:common_name@5}']],
     ['Hebrew', 'מאפים\nקרואסון\nחמאה, מלח ים\n‏16.00 ₪\nקפה\nאספרסו כפול, חלב שיבולת\n‏14.00 ₪',
-      ['# מאפים', 'קרואסון 1600 (חמאה, מלח ים)', 'קפה 1400 (אספרסו כפול, חלב שיבולת)']],
+      ['# מאפים', 'קרואסון 1600 (חמאה, מלח ים)', 'קפה 1400 (אספרסו כפול, חלב שיבולת) {layout_guessed:common_name@5}']],
     ['the first lines of the copy', 'Pasta\nFresh tagliatelle, sage butter\n₪56.00\nGnocchi\nPotato, brown butter\n₪54.00',
-      ['# תפריט', 'Pasta 5600 (Fresh tagliatelle, sage butter)', 'Gnocchi 5400 (Potato, brown butter)']],
+      ['# תפריט', 'Pasta 5600 (Fresh tagliatelle, sage butter) {layout_guessed:common_name@1}', 'Gnocchi 5400 (Potato, brown butter)']],
     // a long name under a common heading, with nothing marking it as a description: the heading, checked
     ['a heading over a long name', 'Mains\nRoast chicken\n₪78.00\nDesserts\nPear and almond tart with cream\n₪38.00',
       ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Pear and almond tart with cream 3800 {layout_guessed:common_name@5}']],
-    // three lines: the common name with a description under it is still the dish; a heading above it opens
+    // three lines: the common name with a description under it is the dish under the heading above it, checked
     ['a heading, then the common name and its description', 'Mains\nRoast chicken\n₪78.00\nHot drinks\nCoffee\nDouble espresso, oat milk\n₪14.00',
-      ['# Mains', 'Roast chicken 7800', '# Hot drinks', 'Coffee 1400 (Double espresso, oat milk)']],
+      ['# Mains', 'Roast chicken 7800', '# Hot drinks {layout_guessed:common_name@4}', 'Coffee 1400 (Double espresso, oat milk) {layout_guessed:common_name@5}']],
   ];
   for (const [label, text, expected] of cases) {
     const r = parseWoltText(text);
     assert.deepEqual(placed(r), expected, label);
     assert.equal(r.draft.dropped, 0, label);
   }
+});
+
+test('QA-M4 (round 3): a common heading over a dish whose name has a comma, a full stop or an ellipsis stays the heading, checked', () => {
+  // the dishes around have no descriptions: the common name is the heading, the marked line the dish's name
+  const cases: Array<[string, string, string[]]> = [
+    ['a comma', 'Mains\nRoast chicken\n₪78.00\nKids\nSchnitzel strips, fries & juice\n₪46.00\nMini pizza\n₪36.00',
+      ['# Mains', 'Roast chicken 7800', '# Kids {layout_guessed:common_name@4}', 'Schnitzel strips, fries & juice 4600 {layout_guessed:common_name@5}', 'Mini pizza 3600']],
+    ['another comma', 'Bakery\nCroissant\n₪16.00\nBreakfast\nOmelette, salad & bread\n₪52.00\nGranola\n₪32.00',
+      ['# Bakery', 'Croissant 1600', '# Breakfast {layout_guessed:common_name@4}', 'Omelette, salad & bread 5200 {layout_guessed:common_name@5}', 'Granola 3200']],
+    ['a full stop', 'Mains\nRoast chicken\n₪78.00\nDesserts\nChoc. mousse\n₪34.00\nMalabi\n₪26.00',
+      ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Choc. mousse 3400 {layout_guessed:common_name@5}', 'Malabi 2600']],
+    ['an ellipsis', 'Mains\nRoast chicken\n₪78.00\nDesserts\nWarm apple crumble with…\n₪38.00\nMalabi\n₪26.00',
+      ['# Mains', 'Roast chicken 7800', '# Desserts {layout_guessed:common_name@4}', 'Warm apple crumble with… 3800 {layout_guessed:common_name@5}', 'Malabi 2600']],
+    ['Hebrew', 'סלטים\nסלט ירוק\n‏42.00 ₪\nארוחות בוקר\nחביתה, סלט ולחם\n‏52.00 ₪\nגרנולה\n‏32.00 ₪',
+      ['# סלטים', 'סלט ירוק 4200', '# ארוחות בוקר {layout_guessed:common_name@4}', 'חביתה, סלט ולחם 5200 {layout_guessed:common_name@5}', 'גרנולה 3200']],
+    ['the first lines of the copy', 'Coffee\nLatte, oat milk\n₪16.00\nEspresso\n₪10.00',
+      ['# Coffee {layout_guessed:common_name@1}', 'Latte, oat milk 1600 {layout_guessed:common_name@2}', 'Espresso 1000']],
+  ];
+  for (const [label, text, expected] of cases) {
+    const r = parseWoltText(text);
+    assert.deepEqual(placed(r), expected, label);
+    assert.equal(r.draft.dropped, 0, label);
+  }
+  // the page's own list settles it: no guess
+  const listed = parseWoltText('Imaginary Diner\nMains\nKids\nMains\nRoast chicken\n₪78.00\nKids\nSchnitzel strips, fries & juice\n₪46.00\nMini pizza\n₪36.00');
+  assert.deepEqual(placed(listed), ['# Mains', 'Roast chicken 7800', '# Kids', 'Schnitzel strips, fries & juice 4600', 'Mini pizza 3600']);
 });
 
 test('QA-M3 (round 2): every reading rule desc_habit guesses is checked, on the dish and the section it decided', () => {

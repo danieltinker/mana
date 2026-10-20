@@ -3,34 +3,19 @@
  * read but wants checked), stored with the draft (`SaveDraftInput.notes`, `menu_imports.notes`). The draft's own
  * exceptions (`draftExceptions`) are about the draft; these notes are about the source. A note never carries the
  * source's text, only line numbers, counts and the draft key it concerns.
- *
- * One code is the text readers' own until the contracts have it (an open item for the architect): `layout_guessed`.
- * `contractNote` tells the notes `save_import_draft` already stores.
  */
-import { NOTE_LINES_MAX, NOTES_MAX, READER_NOTES, type ReaderNote as ContractNote, type ReaderNoteCode } from '@mana/contracts';
+import { NOTE_LINES_MAX, NOTES_MAX, READER_NOTE_CODES, READER_NOTES, type LayoutGuessRule, type ReaderNote, type ReaderNoteCode } from '@mana/contracts';
 
-export const NOTES = {
-  ...READER_NOTES,
-  /** The same lines read two ways, and the reader chose one (`rule`: `tag_or_heading`, a tag word between two dishes;
-   * `desc_habit`, two short lines as a name and its description or a heading and a name; `common_name`, a common
-   * section name over a dish; `other_language`, a common name under a dish as its name in the other language):
-   * check the dish or section it is on. */
-  layout_guessed: 'check',
-} as const;
-export type NoteCode = keyof typeof NOTES;
+export const NOTES = READER_NOTES;
+export type NoteCode = ReaderNoteCode;
 export type NoteSeverity = (typeof NOTES)[NoteCode];
-export const NOTE_CODES = Object.keys(NOTES) as NoteCode[];
+export const NOTE_CODES = READER_NOTE_CODES;
 export { NOTE_LINES_MAX, NOTES_MAX };
+export type { ReaderNote, ReaderNoteCode };
 
-/** A reader note: the contracts' `ReaderNote`, with the readers' own code. */
-export type ReaderNote = Omit<ContractNote, 'code' | 'severity'> & { readonly code: NoteCode; readonly severity: NoteSeverity };
-
-/** Is this note one the contracts know (so `save_import_draft` stores it)? */
-export const contractNote = (n: ReaderNote): n is ContractNote => n.code in READER_NOTES;
-export type { ReaderNoteCode };
-
-/** A note on a node before the draft has keys: resolved to the node's key when the draft is built. */
-export type PendingNote = { readonly code: NoteCode; readonly lines: readonly number[]; readonly rule?: string };
+/** A note on a node before the draft has keys: resolved to the node's key when the draft is built. `rule`: which guess
+ * a `layout_guessed` note names. */
+export type PendingNote = { readonly code: NoteCode; readonly lines: readonly number[]; readonly rule?: LayoutGuessRule };
 
 /** Collects whole-input notes, merging those with the same code and rule. */
 export class NoteBook {
@@ -57,7 +42,8 @@ export class NoteBook {
       for (const n of notes) {
         const id = `${n.code}|${n.rule ?? ''}`;
         const j = joined.get(id);
-        if (!j) { joined.set(id, { ...n, key: null, lines: [...n.lines] }); continue; }
+        // a `layout_guessed` note always names a dish or section: the joined one keeps the first one's
+        if (!j) { joined.set(id, { ...n, key: n.code === 'layout_guessed' ? n.key : null, lines: [...n.lines] }); continue; }
         j.count = Math.min(1_000_000, j.count + n.count);
         for (const l of n.lines) if (j.lines.length < NOTE_LINES_MAX && !j.lines.includes(l)) j.lines.push(l);
       }

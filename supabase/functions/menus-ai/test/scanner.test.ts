@@ -548,11 +548,14 @@ test('purge: the retention holds whatever the list says; a list or a look-up tha
   }
 });
 
-test('security M1 (purge): only files of the import\'s own folder are deleted; any other path leaves the row alone', async () => {
+test('security M1 (purge): only files of the import\'s own folder, of an import not being read; any other row is left alone', async () => {
   const good = ROW(1);
   const evil = ROW(2, { paths: [`${VENUE}/imports/${ROW(2).importId}/1.jpg`, `${OTHER_VENUE}/imports/x/1.jpg`] });
   const traversal = ROW(3, { paths: [`${VENUE}/imports/${ROW(3).importId}/../../../menu-public/${OTHER_VENUE}/logo.png`] });
-  const all = [good, evil, traversal];
+  // security round 3: an import the list names while it is being read, and one whose id would widen a filter
+  const reading = ROW(4, { status: 'parsing' });
+  const widening = { ...ROW(5), importId: `${ROW(5).importId}),id.not.is.null,(x` };
+  const all = [good, evil, traversal, reading, widening];
   const f = fakeFetch({
     'GET /rest/v1/app_config': () => jsonResponse([]),
     'POST /rest/v1/rpc/list_purgeable_imports': () => jsonResponse(listed(all)),
@@ -561,8 +564,10 @@ test('security M1 (purge): only files of the import\'s own folder are deleted; a
     'PATCH /rest/v1/menu_imports': () => jsonResponse([{ id: 'x' }]),
   });
   const r = await read('purge', deps(f.fetch, {}, () => NOW), ALL, SVC);
-  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [evil.importId, traversal.importId], kept: 0, more: false });
+  assert.deepEqual(r.body, { ok: true, purged: 1, failed: [evil.importId, traversal.importId, reading.importId, widening.importId], kept: 0, more: false });
   assert.deepEqual(f.calls.filter((c) => c.method === 'DELETE').map((c) => c.body), [{ prefixes: good.paths }]);
+  assert.ok(f.calls.filter((c) => c.method === 'GET' && c.path === '/rest/v1/menu_imports').every((c) => !c.url.includes('not.is.null')), 'the look-up names uuids only');
+  assert.ok(!f.calls.some((c) => c.method === 'PATCH' && c.url.includes(reading.importId)));
 });
 
 test('security L6: rows that keep failing never hold back the rows after them; one call ends, and says when there is more', async () => {

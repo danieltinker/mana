@@ -8,7 +8,7 @@
  * `SCAN_ERROR_CODES` (a timeout too: an import is never left `parsing`), and nothing else is written.
  */
 import { IMPORT_IMAGES_MAX, isUuid, LANGS, validateSaveDraft, type DraftCounts, type ImportException, type ScanErrorCode } from '@mana/contracts';
-import { contractNote, MODE_SOURCE, readScanReply, scanDraft, type PageReading, type ReaderNote, type ScanMode, type StockHint } from '@mana/import';
+import { MODE_SOURCE, readScanReply, scanDraft, type PageReading, type ReaderNote, type ScanMode, type StockHint } from '@mana/import';
 import { callModel, requestBody, sniffMedia, toBase64, type Image, type ModelAnswer } from './anthropic.ts';
 import type { Deps } from './deps.ts';
 import { claim, download, markFailed, saveDraft, type Auth } from './rest.ts';
@@ -160,8 +160,8 @@ export async function readImport(d: Deps, asked: ScanMode, importId: string, aut
     if (pages.every((p) => p.dishes === 0)) return await fail('image_unreadable');
 
     const read = scanDraft(mode, pages);
-    // the notes are stored with the draft (`menu_imports.notes`); the scanner's are all the contracts' own
-    const notes = read.notes.filter(contractNote);
+    // the notes are stored with the draft (`menu_imports.notes`)
+    const notes = read.notes;
     const valid = validateSaveDraft({ importId, draft: read.draft, notes });
     if (!valid.ok) {
       log.errors = valid.errors.slice(0, 20).map((e) => `${e.code}@${e.path}`);

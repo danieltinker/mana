@@ -24,7 +24,7 @@ import {
   DRAFT_BYTES_MAX, DRAFT_CAPS, draftBytes, draftExceptions, draftGroupLimits, DROPPED_MAX, EXCEPTIONS_MAX, fallbackKey, GROUP_UNITS_MAX, importKey, isBlank, isInt,
   DRAFT_TEXT_MAX, LANGS, LIMITS, ROOMS, SECTION_KINDS, STOCK_RE, stripBlank, TAGS,
   type DraftDish, type DraftDishGroup, type DraftGroup, type DraftOption, type DraftPhoto, type DraftSection, type ImportDraft, type ImportSource,
-  type Lang, type Room, type SectionKind, type Text,
+  type Lang, type LayoutGuessRule, type Room, type SectionKind, type Text,
 } from '@mana/contracts';
 import { KeyMaker } from './keys.ts';
 import { newDish, newGroup, newOption, newSection, type MDish, type MenuModel, type MGroup, type MLink, type MOption, type MSection } from './model.ts';
@@ -586,7 +586,7 @@ function photoOf(dishes: readonly MDish[]): DraftPhoto | null {
 }
 
 function dedupeNotes(notes: readonly PendingNote[]): PendingNote[] {
-  const by = new Map<string, { code: PendingNote['code']; rule?: string; lines: number[] }>();
+  const by = new Map<string, { code: PendingNote['code']; rule?: LayoutGuessRule; lines: number[] }>();
   for (const n of notes) {
     const id = `${n.code}|${n.rule ?? ''}`;
     const e = by.get(id);

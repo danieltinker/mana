@@ -49,7 +49,8 @@ through.
 
 **Purge.** The imports to purge are the ones `list_purgeable_imports` names (the database's rule, oldest first, at
 most 500 a page). Each one's images are deleted through the Storage API, only files of the import's own folder
-(`<venue_id>/imports/<id>/…`; a row with any other path is left as it is and reported in `failed`); then the import
+(`<venue_id>/imports/<id>/…`), and only of an import applied, discarded, failed, uploaded or parsed, never one being
+read (a row with any other path or status is left as it is and reported in `failed`); then the import
 records it (`raw_paths` emptied, `raw_purged_at` set) only on a row not purged and not being read (the table's guard
 refuses anything else). The retention holds whatever the list says: an import goes only once it finished
 (`applied_at`, else `updated_at`, read from `menu_imports`) more than `import_raw_retention_days` ago (30 by default),

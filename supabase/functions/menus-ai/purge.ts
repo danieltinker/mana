@@ -8,15 +8,15 @@
  * more than `app_config.import_raw_retention_days` ago (30 by default), as the daily job measures the pasted text. An
  * import the list names sooner is kept for a later run (`kept`).
  *
- * Only files of the import's own folder are deleted (`<venue_id>/imports/<id>/<name>`); a row with any other path is
- * left as it is and reported. The list comes oldest first and has no cursor: one call reads it again while a full page
+ * Only files of the import's own folder are deleted (`<venue_id>/imports/<id>/<name>`), and only of an import in a
+ * status that may be purged (`PURGEABLE`, never `parsing`); any other row is left as it is and reported. The list comes oldest first and has no cursor: one call reads it again while a full page
  * purged something (what was purged leaves the list), at most `PURGE_PAGES` times, and says `more` when a next call
  * would find more.
  */
 import { isUuid } from '@mana/contracts';
 import type { Deps } from './deps.ts';
 import { pathsOk } from './read.ts';
-import { finishedAt, markPurged, purgeable, removeFiles, retentionDays } from './rest.ts';
+import { finishedAt, markPurged, purgeable, PURGEABLE, removeFiles, retentionDays } from './rest.ts';
 
 /** Imports read per page (the most `list_purgeable_imports` gives), and pages per call. */
 export const PURGE_BATCH = 500;
@@ -45,7 +45,12 @@ export async function purge(d: Deps, importId: string | null): Promise<PurgeRepl
     let progress = 0;
     for (const row of rows) {
       if (failed.has(row.importId)) continue;
-      if (!isUuid(row.importId) || !pathsOk(row.paths, row.venueId, row.importId)) { refused += 1; failed.add(row.importId); continue; }
+      // never an import being read (or any status the list should not name), never a path outside its own folder
+      if (!(PURGEABLE as readonly string[]).includes(row.status) || !isUuid(row.importId) || !pathsOk(row.paths, row.venueId, row.importId)) {
+        refused += 1;
+        failed.add(row.importId);
+        continue;
+      }
       // the retention, whatever the list says: finished long enough ago, or kept for a later run
       const finished = ages.get(row.importId);
       if (finished === undefined || !(finished < before)) { kept.add(row.importId); continue; }

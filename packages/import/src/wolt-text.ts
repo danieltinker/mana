@@ -17,8 +17,10 @@
  *  5. A sold-out dish still shows its price (`label_sold_out`).
  *  6. The venue's header comes first, then the page's own list of sections, then the sections (`nav_headings`);
  *     without the list, a dish's first line is its name, and a line before it is a heading only when it is a common
- *     section name ("Desserts", "קינוחים") or the page's first (`resolveDish`). A common name with a line marked as a
- *     description under it ("Coffee", "Double espresso, oat milk") is the dish (`desc_mark`). Two short lines that
+ *     section name ("Desserts", "קינוחים") or the page's first (`resolveDish`). A common name over a line marked as a
+ *     description ("Coffee", "Double espresso, oat milk") is the dish when the line opens like one ("with …") or the
+ *     dishes around it are described, and otherwise a heading over a dish whose name has a comma ("Kids", "Nuggets,
+ *     fries & juice"); either way it is checked (`desc_mark`). Two short lines that
  *     could be a heading and a name or a name and its description are read by the dishes around them (`desc_habit`),
  *     and every such guess, like a common name read as a heading over a dish, is checked (`layout_guessed`).
  *  7. "Popular" / "Most ordered" / "פופולרי" is the first section and repeats dishes of other sections
@@ -55,7 +57,7 @@
  *    dishes (rule `nav_headings`).
  * Every rule runs in time linear in its line, and lines are at most `LINE_MAX` long.
  */
-import { importKey, stripBlank, type Lang, type Tag, type Text } from '@mana/contracts';
+import { importKey, stripBlank, type Lang, type LayoutGuessRule, type Tag, type Text } from '@mana/contracts';
 import { buildDraft, nameIdentity, type ReadResult } from './build.ts';
 import { DEFAULT_SECTION_NAME, guessed, newDish, newGroup, newOption, newSection, note, optionNamed, setPrice, type MDish, type MGroup, type MSection } from './model.ts';
 import { NoteBook } from './notes.ts';
@@ -64,7 +66,7 @@ import {
   groupCue, guessKind, isCommonSection, isPopularSection, joinRules, nameMarkers, NO_RULE, readAllergens, readLabel, readRule, readTags, ruleLimits,
   type GroupRule, type Label,
 } from './rules.ts';
-import { append, bilingual, descMarked, descShaped, headingShaped, lower, mainLang, scriptOf, sourceLines } from './text.ts';
+import { append, bilingual, descMarked, descOpener, descShaped, headingShaped, lower, mainLang, scriptOf, sourceLines } from './text.ts';
 
 // ---------------------------------------------------------------- 1. lines
 
@@ -480,27 +482,37 @@ class WoltReader {
     const k = lines.length;
     let nameAt = k - 1;
     /** A reading the lines allow two ways: the rule that chose, checked on the section it opened and on the dish. */
-    let guess: string | null = null;
-    // a common name with a line marked as a description under it is the dish's name ("Coffee", "Filter coffee, refill")
-    const named = (i: number) => i === k - 2 && descMarked(lines[k - 1]!.text);
+    let guess: LayoutGuessRule | null = null;
+    const before = this.section?.dishes[this.section.dishes.length - 1];
+    const hasDesc = (d: MDish | undefined): boolean => d !== undefined && (d.desc.he !== '' || d.desc.en !== '');
+    // rule `desc_mark`: a common name (or a strong line) right over a line marked as a description ("Coffee", "Filter
+    // coffee, free refill") may be the dish and its description, or a heading over a dish whose name has a comma
+    // ("Kids", "Nuggets, fries & juice"): either way it is checked (`common_name`)
+    const marked = (i: number) => i >= 0 && i === k - 2 && descMarked(lines[k - 1]!.text) && this.strong(lines[i]!);
     let known = -1;
     for (let i = k - 2; i >= 0 && known < 0; i--) if (this.isHeading(lines[i]!.text)) known = i;
-    // without the page's list, a heading by itself (a common section name, tag words) among three lines or more
-    if (known < 0 && k >= 3) for (let i = k - 2; i >= 0 && known < 0; i--) if (this.strong(lines[i]!) && !named(i)) known = i;
+    // without the page's list, a heading by itself (a common section name, tag words) among three lines or more; a
+    // heading above it makes the marked common name the dish ("Hot drinks", "Coffee", "Double espresso, oat milk")
+    if (known < 0 && k >= 3) for (let i = k - 2; i >= 0 && known < 0; i--) if (this.strong(lines[i]!) && !marked(i)) known = i;
     if (known >= 0) nameAt = known + 1;
     else if (k >= 2) {
       const a = lines[k - 2]!, b = lines[k - 1]!;
-      if (this.dishesRead === 0 && this.section === null) nameAt = (!this.strong(a) && descShaped(b.text)) || named(k - 2) ? k - 2 : k - 1;
-      else if (named(k - 2)) nameAt = k - 2;
+      if (marked(k - 2)) {
+        // two lines: the dish and its description only when the line opens like a description ("with …") or the
+        // dishes around it are described too (the one before, where there is one, and the next one); else the heading
+        const around = (before === undefined || hasDesc(before)) && (next >= 2 || (next === 0 && before !== undefined));
+        nameAt = k > 2 || descOpener(b.text) || around ? k - 2 : k - 1;
+      } else if (this.dishesRead === 0 && this.section === null) nameAt = !this.strong(a) && descShaped(b.text) ? k - 2 : k - 1;
       else if (this.strong(a)) { nameAt = k - 1; guess = 'common_name'; }
       else if (descShaped(b.text) || hasMoney(b.text) || k > 2) nameAt = k - 2;
       else {
-        const before = this.section?.dishes[this.section.dishes.length - 1];
-        const described = next >= 2 || (next === 0 && before !== undefined && (before.desc.he !== '' || before.desc.en !== ''));
+        const described = next >= 2 || (next === 0 && hasDesc(before));
         nameAt = described ? k - 2 : k - 1;
         guess = 'desc_habit';
       }
     }
+    // the page's own list settles it; otherwise reading the marked common name either way is a guess
+    if ((marked(nameAt) || marked(nameAt - 1)) && !this.isHeading(lines[k - 2]!.text)) guess = 'common_name';
     const head = lines.slice(0, nameAt);
     if (head.length > 0) {
       this.openFromHead(head);
@@ -690,7 +702,7 @@ export function parseWoltText(text: string): ReadResult {
  * tags, allergens or noise) comes between them: the page's habit for rule `desc_habit`. 0: no such next dish.
  */
 function lookahead(lines: Classified[]): void {
-  const quiet = (k: WoltToken['k']) => k === 'noise' || k === 'label' || k === 'tags' || k === 'allergens';
+  const quiet = (k: WoltToken['k']) => k === 'noise' || k === 'label' || k === 'tags' || k === 'unplaced' || k === 'allergens';
   let run = 0;
   let open: { line: Classified; j: number } | null = null;
   const close = (next: number): void => {
