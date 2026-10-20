@@ -56,11 +56,11 @@ export function toAppError(e: any): AppError {
 }
 
 /** Await a supabase-js call; return its data or throw an AppError. */
-export async function q<T = any>(p: PromiseLike<{ data: T; error: any }>): Promise<T> {
-  let r: { data: T; error: any };
+export async function q<T = any>(p: PromiseLike<{ data: unknown; error: any }>): Promise<T> {
+  let r: { data: unknown; error: any };
   try { r = await p; } catch (e) { throw toAppError(e); }
   if (r.error) throw toAppError(r.error);
-  return r.data;
+  return r.data as T;
 }
 
 export const fnUrl = (name: string) => cfg!.supabaseUrl.replace(/\/+$/, '') + '/functions/v1/' + name;

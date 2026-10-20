@@ -1,0 +1,232 @@
+/* The v2 app's own pieces, in the app's language (../app.css): solid white surfaces for what holds data, the glass only
+   on the chrome, ink and porcelain, every target at least 44 px. */
+
+/* the place's name in the top bar is a button when there are several places */
+.top-switch{display:inline-flex;align-items:center;gap:6px;min-height:44px;border:0;background:transparent;padding:0;text-align:start;cursor:pointer}
+.top-switch span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v2 .top-brand{display:none}
+@media (min-width:1024px){.v2 .top-brand{display:inline-flex}}
+.nav button.nav-item{border:0;background:transparent;font:inherit;cursor:pointer}
+
+.start-ico{justify-self:center}
+.flabel{font-weight:500;font-size:.88rem;color:var(--muted)}
+.lib-label{font-weight:400}
+
+/* a number with − and + */
+.stepper{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line-2);border-radius:999px;background:#fff;padding:0 2px;justify-self:start}
+.stepper-n{min-width:2.2em;text-align:center;font-weight:600;font-variant-numeric:tabular-nums;color:var(--black)}
+
+/* tabs: one row of pills under the sheet's title */
+.tabs-wrap{min-width:0}
+.tabs{display:flex;gap:4px;padding:3px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{flex:1 0 auto;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border:0;border-radius:999px;background:transparent;font-weight:500;color:var(--charcoal);white-space:nowrap}
+.tabs button[aria-selected=true]{background:var(--paper);color:var(--black);box-shadow:0 1px 3px rgba(67,40,30,.16)}
+.tabs-n{font-weight:600;font-size:.76rem;background:var(--peach);color:#5b2a1b;border-radius:999px;padding:0 7px;line-height:1.6}
+.tabpanel{display:grid;gap:16px;min-width:0}
+.dish2,.addons2,.related2{display:grid;gap:14px;min-width:0}
+
+/* attached groups and "goes well with" in a list */
+.attached{flex:1;min-width:0;display:grid}
+.attached-main{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:10px 6px 10px 14px;min-height:64px}
+[dir=rtl] .attached-main{padding:10px 14px 10px 6px}
+.attached-main .row-name{text-decoration:none}
+.attached .limits{padding:4px 14px 14px;display:grid;gap:10px;border-top:1px solid var(--line)}
+.picklist{gap:10px}
+.picks{display:grid}
+.picks li{display:flex;align-items:center;gap:10px;justify-content:space-between;padding:8px 0;min-height:56px}
+.picks li+li{border-top:1px solid var(--line)}
+.pick-text{display:grid;gap:2px;min-width:0}
+.related-add{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end}
+
+/* the guest's sheet, in small: what they see and pay */
+.gp{display:grid;gap:10px;padding-top:6px;border-top:1px solid var(--line)}
+.gp-head{display:grid;gap:2px}
+.gp-head h3{color:var(--black);font-size:1rem}
+.gp-card{display:grid;gap:12px;padding:16px;border-radius:20px;background:var(--surface);border:1px solid var(--edge);box-shadow:var(--lift)}
+.gp-dish{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.gp-name{font:600 1.2rem/1.2 var(--display);color:var(--black);min-width:0;overflow-wrap:anywhere}
+.gp-from{font-weight:600;color:var(--black);white-space:nowrap}
+.gp-group{border:0;margin:0;padding:0;display:grid;gap:6px;min-width:0}
+.gp-group legend{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:0;margin-bottom:4px}
+.gp-gname{font-weight:600;color:var(--black)}
+.gp-group.is-nested{margin:6px 0 4px;padding-inline-start:14px;border-inline-start:2px solid var(--peach)}
+.gp-options{display:grid;gap:2px}
+.gp-options>li{display:grid;gap:4px}
+.gp-opt{display:flex;align-items:center;gap:10px;min-height:44px;cursor:pointer}
+.gp-opt input{width:22px;height:22px;accent-color:var(--black);flex:none;margin:0}
+.gp-opt.is-off{opacity:.45;cursor:not-allowed}
+.gp-options .stepper{margin-inline-start:32px}
+.gp-total{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid var(--line);font-weight:600;color:var(--black);min-height:44px}
+.gp-total .price{font:600 1.35rem/1 var(--display)}
+.gp-err{color:var(--bad);font-weight:500}
+
+/* the group editor: one card per choice */
+.opts{display:grid;gap:12px;counter-reset:none}
+.optcard{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:#fff}
+.opt-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-4px -6px -4px 0}
+[dir=rtl] .opt-head{margin:-4px 0 -4px -6px}
+.opt-n{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--soft);font-weight:600;font-size:.86rem;color:var(--charcoal)}
+.opt-grid{display:grid;grid-template-columns:minmax(0,1fr) 112px;gap:10px}
+
+/* publishing */
+.standing{gap:10px}
+.standing h2{font:600 1.15rem/1.25 var(--body)}
+.notices{display:grid;gap:8px}
+.notices ul{display:grid;gap:6px}
+.price-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;align-items:start}
+
+/* availability: the red marker, what is off now, the sheet's choices */
+.dot-bad{background:var(--bad);box-shadow:0 0 0 4px var(--bad-bg)}
+.badge-out{white-space:normal}
+.offbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 14px;border-radius:var(--r);background:var(--bad-bg);color:#6d2014}
+.offbar-n{display:inline-flex;align-items:center;gap:10px;font-weight:600}
+.offnow{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 14px;border-radius:var(--r-sm);background:var(--ok-bg);color:var(--ok);font-weight:600}
+.offnow.is-off{background:var(--bad-bg);color:var(--bad)}
+.offhow{color:var(--black);font-size:1rem;margin-top:4px}
+.offchoices{display:grid;gap:8px}
+.offchoice{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;width:100%;min-height:56px;padding:8px 16px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:var(--black);text-align:start;font:inherit}
+.offchoice:hover:not(:disabled){border-color:var(--charcoal)}
+.offchoice[aria-expanded=true]{border-color:var(--black)}
+.offchoice-what{font-weight:600}
+.offpick{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 2px 4px}
+.offparts{display:grid;gap:10px;padding-top:8px;border-top:1px solid var(--line)}
+.offrow{min-height:56px}
+.sec-part{margin:-4px 2px 8px}
+
+/* hours: the week, a window, the day chips, the time pickers */
+input[type=time],input[type=date],input[type=number]{width:100%;min-height:var(--tap);padding:10px 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:var(--black);font-size:16px;line-height:1.4}
+.nowcard h2{font:600 1.15rem/1.25 var(--body)}
+.weekdays{display:grid}
+.weekday{display:grid;gap:8px;padding:8px 0}
+.weekday+.weekday{border-top:1px solid var(--line)}
+.weekday-line{display:flex;align-items:center;gap:12px;min-height:44px}
+.weekday-name{flex:0 0 4.4em;font-weight:600;color:var(--black)}
+.weekday-hours{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.hourchip{border:0;min-height:44px;padding:0 11px;font-size:.88rem;font-variant-numeric:tabular-nums;cursor:pointer}
+span.hourchip{cursor:default;min-height:0;padding:3px 11px}
+.hourchip[aria-expanded=true]{background:var(--black);color:var(--ivory)}
+.hoursedit,.card-in{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--soft)}
+.card-in h3{color:var(--black);font-size:1rem}
+.timepair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.daychips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.daychip{min-width:44px;min-height:44px;padding:0 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--charcoal);font-weight:600;font-size:.9rem}
+.daychip[aria-pressed=true]{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.daychip-all[aria-pressed=true]{color:var(--black);text-decoration:underline}
+.windows{border:0;margin:0;padding:0;display:grid;gap:10px;min-width:0}
+.windows legend{font-weight:500;font-size:.88rem;color:var(--muted);margin-bottom:6px}
+.windowcard{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--r-sm);background:#fff}
+
+/* suggestion rules */
+.row .rule-switch{flex:none;padding-inline:6px 12px}
+.rule-line{color:var(--charcoal);font-style:italic}
+.row-name[data-summary]{white-space:normal;overflow:visible;text-overflow:clip}
+.rule-summary-now{font:600 1.05rem/1.4 var(--body);color:var(--black);padding:10px 14px;border-radius:var(--r-sm);background:var(--soft)}
+.targets{display:grid;gap:8px;justify-items:start}
+.pickset{border:0;margin:0 0 10px;padding:0;display:grid;gap:6px;min-width:0}
+.pickset legend{font-weight:600;color:var(--black);margin-bottom:6px}
+.pickset .line-check .badge{flex:none}
+.sample{display:grid;gap:12px}
+.grid2-tight{grid-template-columns:1fr 1fr}
+.chip-x{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;margin-block:-6px;margin-inline:2px -8px;border:0;border-radius:50%;background:transparent;color:inherit}
+.chip-x:hover{background:rgba(0,0,0,.06)}
+.verdict{display:grid;gap:6px;padding:14px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--soft)}
+.verdict.is-yes{background:var(--ok-bg);border-color:transparent}
+.verdict.is-no{background:var(--warn-bg);border-color:transparent}
+.verdict-main{font:600 1.1rem/1.3 var(--display);color:var(--black)}
+
+/* an empty screen: the icon, a line, what to do, centred on a quiet card */
+.v2 .empty{display:grid;gap:10px;justify-items:center;text-align:center;padding:32px 18px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
+.v2 .empty p{color:var(--muted);max-width:40ch}
+.v2 .empty-actions{margin-top:6px}
+
+/* an editing area that a read-only account sees disabled (ReadOnly in ui.tsx): a fieldset with no look of its own */
+fieldset.ro{border:0;margin:0;padding:0;min-width:0}
+.group-form{display:grid;gap:18px}
+fieldset.ro:disabled .switch,fieldset.ro:disabled .stepper,fieldset.ro:disabled .tagchip,fieldset.ro:disabled .kindchip,fieldset.ro:disabled .seg{opacity:.6}
+.v2 :is(input,textarea,select):disabled{background:var(--soft);color:var(--charcoal);cursor:not-allowed}
+
+/* the group was saved somewhere else: what is stored now, and the two ways on (in the sticky bar, above the fold) */
+.stale{display:grid;gap:8px;padding:12px 14px;border-radius:var(--r);background:var(--warn-bg,#fff6e5);border:1px solid #ecd3a3;color:var(--black)}
+.stale-now{max-height:30vh;overflow:auto;font-size:.92rem}
+.stale-now ul{display:grid;gap:2px;margin-top:4px;padding-inline-start:18px;list-style:disc}
+.stale .btnrow{display:flex;flex-wrap:wrap;gap:8px}
+
+/* changed somewhere else: the stored values beside the owner's, then the owner's choice */
+.conflict-table{width:100%;border-collapse:collapse;font-size:.92rem;margin:10px 0}
+.conflict-table th,.conflict-table td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:start;vertical-align:top;overflow-wrap:anywhere}
+.conflict-table thead th{font-weight:500;color:var(--muted);font-size:.84rem}
+.conflict-table tbody th{font-weight:600;color:var(--black)}
+.conflict .dialog-foot{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+
+/* toasts over the top bar in v2, for a moment: they never cover the screen's content (the sticky bar with its error
+   line and button, the "not saved" line, the versions list), and taps go through them */
+html[data-app=v2] .toasts{inset:calc(6px + env(safe-area-inset-top)) 0 auto 0}
+html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
+
+/* Home (F08): the help button, quick actions, what is off now, at a glance, the latest changes */
+.helpbtn{text-decoration:none}
+.acts-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.acts-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.act:disabled{opacity:.45;cursor:default}
+.nudges .nudge-plain{display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 14px;border-radius:var(--r);background:var(--soft);color:var(--charcoal);font-weight:500;font-size:.96rem;margin:0}
+.badge-halom{background:var(--black);color:var(--ivory)}
+.offnowcard h2{font:600 1.05rem/1.25 var(--body)}
+.offlist{display:grid}
+.offlist li{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 0}
+.offlist li+li{border-top:1px solid var(--line)}
+.offlist-text{display:grid;gap:2px;min-width:0}
+.offlist-name{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.offquick{display:grid;gap:8px}
+.offquick h3{font-size:.95rem;color:var(--muted)}
+.glance{gap:14px}
+.glance h2{font:600 1.15rem/1.25 var(--body)}
+.glance-in{display:grid;gap:16px}
+.glance-hero{display:grid;gap:6px}
+.glance-minis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;padding-top:10px;border-top:1px solid var(--line)}
+.glance-minis li,.glance-tiles li{display:grid;gap:3px;min-width:0}
+.glance-minis bdi,.glance-tiles bdi{font:600 1.25rem/1 var(--display);color:var(--black)}
+.glance-minis span,.glance-tiles span{display:flex;align-items:flex-start;gap:4px;font-size:.8rem;line-height:1.3;color:var(--muted)}
+.glance-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0 0;border-top:1px solid var(--line)}
+.glance-sugg{display:grid;gap:8px}
+.glance-sugg .glance-tiles{border-top:0;padding-top:0}
+.glance-chart,.glance-top{display:grid;gap:6px}
+.glance-empty{display:grid;gap:6px;justify-items:center;text-align:center;padding:22px 12px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
+.chart-fig{margin:0;display:grid;gap:2px}
+.chart-readout{min-height:1.3em;margin:0}
+.cols{height:auto}
+.cols .col{fill:var(--charcoal)}
+.cols .col-capped{opacity:.4}
+.cols .col-picked{fill:var(--rose)}
+.cols .col-hit{fill:transparent;cursor:pointer}
+.cols .col-label{font:600 10px var(--body);fill:var(--black)}
+.cols .grid{stroke:var(--line);stroke-width:1}
+.cols .baseline{stroke:var(--line-2);stroke-width:1}
+.top-bar .col{fill:var(--charcoal)}
+.chart-table summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:.9rem;color:var(--charcoal)}
+.chart-table table{width:100%;border-collapse:collapse;font-size:.88rem}
+.chart-table th,.chart-table td{padding:6px 4px;text-align:start;border-bottom:1px solid var(--line)}
+.chart-table td{font-variant-numeric:tabular-nums;text-align:end}
+.chart-table thead th:not(:first-child){text-align:end}
+.chart-table tbody th{font-weight:500}
+.topdishes2 li{grid-template-columns:minmax(0,40%) 1fr auto}
+.topdishes2 .top-n{font-weight:500;white-space:nowrap}
+
+/* the activity log */
+.actlog{display:grid;gap:14px}
+.actday{display:grid;gap:8px}
+.actday-h{font-size:.9rem;color:var(--muted)}
+.actrows .actrow{display:block}
+.actrow-in{display:grid;gap:3px;padding:10px 14px}
+.actrow.is-halom .actrow-in{border-inline-start:3px solid var(--black)}
+.actrow-what{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.actrow-who{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.actrow-reason{font-size:.9rem;color:var(--charcoal);background:var(--soft);border-radius:var(--r-sm);padding:6px 10px;margin-top:4px}
+
+/* get help */
+.helpform h2,.helpnext h2{font:600 1.1rem/1.25 var(--body)}
+.helpallow{display:grid;gap:4px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--soft)}
+.caselist{display:grid}
+.caseline{display:grid;gap:4px;padding:10px 0}
+.caseline+.caseline{border-top:1px solid var(--line)}
+.caseline-subject{font-weight:600;color:var(--black);overflow-wrap:anywhere}
+.caseline-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
