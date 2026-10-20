@@ -62,7 +62,9 @@ export type ReadClock = { readonly since: number; storedAt(id: string): number; 
 /**
  * A table's rows on screen after a read of the whole table answered, which may be late (a slow link): it never takes a
  * screen back to an older state of the database.
- * - a row read replaces the one on screen, unless the one on screen is a later version (its `updated_at`);
+ * - a row read replaces the one on screen, unless the one on screen is a later version (its `updated_at`), or, for a
+ *   row without a version (a dish's link to a group, "goes well with"), unless this screen stored it after the read was
+ *   sent;
  * - a row read that this screen deleted after the read was sent does not come back;
  * - a row on screen the read does not have stays only when this screen put it there after the read was sent (a row it
  *   just added); otherwise it was deleted elsewhere and goes.
@@ -75,7 +77,8 @@ export function rowsAfterRead<T extends { readonly id: string; readonly updated_
     seen.add(r.id);
     if (clock.droppedAt(r.id) > clock.since) continue;
     const mine = on.get(r.id);
-    if (mine && stampOrder(mine.updated_at, r.updated_at) > 0) { rows.push(mine); continue; }
+    const versioned = !!(mine?.updated_at && r.updated_at);
+    if (mine && (versioned ? stampOrder(mine.updated_at, r.updated_at) > 0 : clock.storedAt(r.id) > clock.since)) { rows.push(mine); continue; }
     rows.push(r); taken.push(r);
   }
   for (const r of screen) if (!seen.has(r.id) && clock.storedAt(r.id) > clock.since) rows.push(r);

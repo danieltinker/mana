@@ -338,3 +338,17 @@ test('versions in order at full precision; a read answered late never takes the 
   // a row on screen the read does not have, put there before the read was sent: deleted elsewhere, it goes
   assert.deepEqual(rowsAfterRead([zero, tea], [zero], clock(9, { tea: 3 })).rows.map((r) => r.id), ['cola']);
 });
+
+test('a link without a version (a dish\'s own limits, the order of its groups, "goes well with"): what this screen stored after a late read was sent stays', () => {
+  const clock = (since, stored = {}) => ({ since, storedAt: (x) => stored[x] ?? 0, droppedAt: () => 0 });
+  const saved = { id: 'link', dish_id: 'burger', group_id: 'extras', position: 0, min_units: null, max_units: 2 };
+  const old = { ...saved, max_units: null };
+  // stored here (9) after the read was sent (5): the late read does not put the old limits back
+  assert.equal(rowsAfterRead([saved], [old], clock(5, { link: 9 })).rows[0].max_units, 2);
+  // stored before the read was sent: the read is the newer one, and it is taken
+  assert.equal(rowsAfterRead([saved], [old], clock(5, { link: 3 })).rows[0].max_units, null);
+  // an order moved here after the read was sent stays too
+  const moved = [{ id: 'r1', dish_id: 'burger', related_dish_id: 'cola', position: 1 }, { id: 'r2', dish_id: 'burger', related_dish_id: 'fries', position: 0 }];
+  const before = [{ ...moved[0], position: 0 }, { ...moved[1], position: 1 }];
+  assert.deepEqual(rowsAfterRead(moved, before, clock(5, { r1: 7, r2: 8 })).rows.map((r) => [r.id, r.position]), [['r1', 1], ['r2', 0]]);
+});
