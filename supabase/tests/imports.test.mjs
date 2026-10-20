@@ -239,7 +239,7 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
 
   test('the images per venue (local day), per person and in all (UTC day) are capped; rate_limited names the cap', async () => {
     const base = await cfg('import_caps');
-    assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000 });
+    assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000, refused_applies_per_venue_hour: 10 });
     assert.deepEqual(Object.keys(base).filter((k) => k.startsWith('scan_images')).sort(), [...SCAN_IMAGE_CAPS].sort(), 'the caps ClaimScanReply names');
     for (const [cap, other] of [['scan_images_per_venue_day', null], ['scan_images_per_user_day', null], ['scan_images_per_day', 'B']]) {
       await clearImports();

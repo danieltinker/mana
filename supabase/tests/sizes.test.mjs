@@ -173,6 +173,44 @@ describe('every JSON argument is refused on its size before it is walked, and th
     }
   });
 
+  // SEC-M4: 200 groups of one name at the limits, their options of one name (or 29 names they share and one of their
+  // own): every venue group of the name was a candidate for every draft group, each with a cover of 30 × 30 options
+  // (security measured 6.6 and 28.2 CPU s for the re-import). A first import and a re-import of each, and of a third
+  // shape: one Hebrew name for every option.
+  test('200 groups of one name at the limits, options of one name or 29 shared: a first import and a re-import (SEC-M4)', async () => {
+    const shapes = [['all options of one name', () => ({ he: 'אותו', en: 'Same' })],
+      ['29 shared option names and one of the group\'s own', (g, o) => (o === 29 ? { he: 'יחיד ' + he(g), en: 'Own ' + g } : { he: 'אותו ' + he(o), en: 'Same ' + o })],
+      // (and every option one Hebrew name, the English ones all different: each option matches all 30 by its Hebrew)
+      ['one Hebrew option name, the English ones different', (g, o) => ({ he: 'אותו', en: `Same ${g}-${o}` })]];
+    for (const [n, [label, optName]] of shapes.entries()) {
+      const groups = Array.from({ length: 200 }, (_, g) => ({ key: 'g' + g, name: { he: 'תוספת', en: 'Extra' }, translated: [], selection: 'multiple', min: null, max: null,
+        options: Array.from({ length: 30 }, (_, o) => ({ key: `g${g}o${o}`, name: optName(g, o), translated: [], price: 0, priceText: null, maxQty: 1, default: false, opens: null })) }));
+      const big = draft(40, 10, { groups, link: (i, j) => [{ group: 'g' + ((i * 10 + j) % 200), min: null, max: null }] });
+      const O = `66666666-6666-4666-8666-6666666666b${n}`;
+      await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, $2, now())`, [O, `sizes-same-${n}@example.invalid`]);
+      const V = (await rpc(w.url, O, 'create_venue', { p_slug: `sizes-same-${n}`, p_name_en: 'Sizes' })).id;
+      const saved = async () => {
+        const imp = await rpc(w.url, O, 'create_import', { p_venue: V, p_source: 'paste', p_text: 'same ' + randomUUID() });
+        const s = await rpc(w.url, O, 'save_import_draft', { p_import: imp.importId, p_draft: big });
+        assert.equal(s.ok, true, JSON.stringify(s).slice(0, 200));
+        return [imp.importId, s.exceptions];
+      };
+      // the draft's own questions answered as an owner would (clamp the limits, skip the rest)
+      const [first, exc] = await saved();
+      const choices = Object.fromEntries(exc.filter((e) => e.severity === 'fix').map((e) => [`${e.code}@${e.key}`, e.code === 'limits_unreachable' ? 'clamp' : 'skip']));
+      const dec = { v: 1, pricesConfirmed: true, choices, skip: [] };
+      const [a, t1] = await cpu(O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec });
+      assert.equal(a.ok, true, JSON.stringify(a).slice(0, 200));
+      under(t1, 4, `${label}: a first import (rolled back)`);
+      assert.equal((await rpc(w.url, O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec })).ok, true, 'applied, for the re-import');
+      const [again] = await saved();
+      const [b, t2] = await cpu(O, 'apply_import', { p_import: again, p_draft: big, p_decisions: { v: 1, pricesConfirmed: true, choices: {}, skip: [] } });
+      assert.equal(b.ok, true, JSON.stringify(b).slice(0, 200));
+      assert.ok(Object.values(b.plan.summary).every((k) => k.create === 0 && k.update === 0), `${label}: the same draft again writes nothing ${JSON.stringify(b.plan.summary)}`);
+      under(t2, 4, `${label}: a re-import (rolled back)`);
+    }
+  });
+
   // SEC-M2: an onboarding step's blockers past BLOCKERS_MAX (20) are refused unread, by the owner's RPC and by Halom's
   test('set_onboarding_step: 20 000 invalid blockers are refused unread, by the owner and through act_for_owner', async () => {
     const many = `{${Array(20000).fill('BAD').join(',')}}`;

@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { appliedIds, planApply } from '../../packages/contracts/src/index.ts';
+import { appliedIds, mergePrevious, planApply } from '../../packages/contracts/src/index.ts';
 import { bistroDraft, copy, dish, draftOf, group, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
@@ -155,6 +155,41 @@ describe('apply_import', () => {
     assert.deepEqual({ ...after, sections: after.sections - 1, dishes: after.dishes - 1 }, before, 'only B\'s section and dish were added');
   });
 
+  test('app.existing_menu\'s previous is mergePrevious over the venue\'s imports: applied ones only, the latest per key, ties to the greater id', async () => {
+    const OP = '55555555-5555-4555-8555-5555555555aa';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-merge@example.invalid', now())`, [OP]);
+    const VP = (await rpc(w.url, OP, 'create_venue', { p_slug: 'apply-merge', p_name_he: 'מיזוג', p_name_en: 'Apply Merge' })).id;
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const pick = (a) => a[Math.floor(rnd() * a.length)];
+    // instants a microsecond apart, the same instant written with another offset, and ties
+    const AT = [null, '2026-10-20 10:00:00+00', '2026-10-20 10:00:00.000001+00', '2026-10-20 13:00:00.000001+03', '2026-10-20 10:00:01+00'];
+    const ids = (keys) => Object.fromEntries(keys.filter(() => rnd() < 0.6).map((k) => [k, randomUUID()]));
+    let n = 0, some = 0, none = 0;
+    for (let round = 0; round < 40; round++) {
+      await w.admin.query(`delete from public.menu_imports where venue_id = $1`, [VP]);
+      const count = Math.floor(rnd() * 6);
+      for (let i = 0; i < count; i++) {
+        const at = pick(AT);
+        const applied = rnd() < 0.8 ? { sections: ids(['s0', 's1', 's2']), dishes: ids(['d0', 'd1', 'd2', 'd3']) } : null;
+        // (an id whose upper-case form would sort the other way: the tie goes to the greater lowercase id)
+        const id = rnd() < 0.5 ? randomUUID() : `0000000${i}-0000-4000-8000-00000000000${pick(['a', 'b', 'c'])}`;
+        await w.admin.query(`insert into public.menu_imports (id, venue_id, source, status, raw_text, input_sha256, applied_at, applied_ids)
+          values ($1, $2, 'paste', $3, 'x', $4, $5, $6)`, [id, VP, at ? 'applied' : 'discarded', `${'b'.repeat(56)}${String(++n).padStart(8, '0')}`, at, applied]).catch((e) => {
+          if (e.code !== '23505') throw e;   // a repeated fixed id: that row is left out
+        });
+      }
+      // applied_at as the database writes a timestamptz (to the microsecond)
+      const rows = (await w.admin.query(`select id, to_jsonb(applied_at) #>> '{}' as at, applied_ids from public.menu_imports where venue_id = $1`, [VP])).rows;
+      const imports = rows.map((r) => ({ id: r.id, appliedAt: r.at, appliedIds: r.applied_ids }));
+      const db = (await w.admin.query(`select app.existing_menu($1)->'previous' as p`, [VP])).rows[0].p;
+      assert.deepEqual(db, mergePrevious(imports) ?? null, `round ${round}: ${JSON.stringify(rows).slice(0, 400)}`);
+      if (db === null) none++; else some++;
+    }
+    assert.ok(some > 10 && none > 3, `both kinds of venue: ${some} with previous, ${none} without`);
+    await w.admin.query(`delete from public.menu_imports where venue_id = $1`, [VP]);
+  });
+
   test('a second apply of the venue while one runs answers import_busy at once (the import lock is tried, not waited for)', async () => {
     const draft = bistroDraft();
     const id = await parsed(draft);
@@ -244,6 +279,56 @@ describe('apply_import', () => {
     const ok = await apply(O, id, draft, DEC);
     assert.equal(ok.ok, true, 'applies once the limit allows it');
     assert.deepEqual(await counts(), { ...before, sections: before.sections + 1, dishes: before.dishes + 2 });
+  });
+
+  test('refused applies are bounded: past import_caps.refused_applies_per_venue_hour a venue gets rate_limited before the plan (security round 4)', async () => {
+    const OR = '55555555-5555-4555-8555-5555555555b1';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-owner-refused@example.invalid', now())`, [OR]);
+    const VR = (await rpc(w.url, OR, 'create_venue', { p_slug: 'apply-refused', p_name_he: 'סירוב', p_name_en: 'Apply Refused' })).id;
+    const caps = (await w.admin.query(`select value from public.app_config where key = 'import_caps'`)).rows[0].value;
+    assert.equal(caps.refused_applies_per_venue_hour, 10, 'the starting value');
+    const refusals = async () => (await w.admin.query(`select hour, n from app.import_refusals where venue_id = $1 order by hour`, [VR])).rows;
+    const noPrice = copy(bistroDraft());
+    noPrice.sections[0].dishes.push(dish('d-special', 'מנה מיוחדת', 'Special', null));
+    const good = bistroDraft();
+    const bad = await parsed(noPrice, OR, () => VR);
+    const ok = await parsed(good, OR, () => VR);
+    await w.admin.query(`update public.app_config set value = $1::jsonb where key = 'import_caps'`, [JSON.stringify({ ...caps, refused_applies_per_venue_hour: 3 })]);
+    try {
+      // the checks before the plan count nothing
+      assert.equal((await apply(OR, bad, null, DEC)).code, 'draft_changed');
+      assert.equal((await apply(OR, bad, noPrice, { ...DEC, v: 2 })).code, 'invalid_decisions');
+      assert.deepEqual(await refusals(), []);
+      for (let k = 0; k < 3; k++) assert.equal((await apply(OR, bad, noPrice, DEC)).code, 'plan_invalid', `refusal ${k + 1}`);
+      assert.deepEqual((await refusals()).map((r) => r.n), [3]);
+      assert.deepEqual(await apply(OR, bad, noPrice, DEC), { ok: false, code: 'rate_limited' });
+      assert.deepEqual(await apply(OR, ok, good, DEC), { ok: false, code: 'rate_limited' }, 'the venue\'s, whichever import');
+      assert.deepEqual((await refusals()).map((r) => r.n), [3], 'a rate_limited answer counts nothing');
+      assert.equal((await w.admin.query(`select status from public.menu_imports where id = $1`, [ok])).rows[0].status, 'parsed');
+      // another venue is not held back
+      assert.equal((await apply(U.managerA, await parsed(draftOfA(), U.managerA, () => A), draftOfA(), DEC)).ok, true);
+      // the next hour: the count starts again, and the old hour's row goes with the next refusal
+      await w.admin.query(`update app.import_refusals set hour = hour - interval '1 hour' where venue_id = $1`, [VR]);
+      assert.equal((await apply(OR, bad, noPrice, DEC)).code, 'plan_invalid');
+      assert.deepEqual((await refusals()).map((r) => r.n), [1]);
+      assert.equal((await apply(OR, ok, good, DEC)).ok, true, 'an apply that passes counts nothing');
+      assert.deepEqual((await refusals()).map((r) => r.n), [1]);
+      // apply_failed counts too
+      const limits = (await w.admin.query(`select value from public.app_config where key = 'limits'`)).rows[0].value;
+      const more = copy(good);
+      more.sections[0].dishes.push(dish('d-extra', 'עוד', 'Extra', 1200));
+      const failing = await parsed(more, OR, () => VR);
+      await w.admin.query(`update public.app_config set value = $1::jsonb where key = 'limits'`, [JSON.stringify({ ...limits, dishes: (await counts(VR)).dishes })]);
+      try {
+        assert.equal((await apply(OR, failing, more, DEC)).code, 'apply_failed');
+      } finally {
+        await w.admin.query(`update public.app_config set value = $1::jsonb where key = 'limits'`, [JSON.stringify(limits)]);
+      }
+      assert.deepEqual((await refusals()).map((r) => r.n), [2]);
+      assert.equal((await q(w.url, OR, `select * from app.import_refusals`)).error?.code, '42501', 'not the clients\' to read');
+    } finally {
+      await w.admin.query(`update public.app_config set value = $1::jsonb where key = 'import_caps'`, [JSON.stringify(caps)]);
+    }
   });
 
   test('new_group: a venue option moved to open the group the plan creates, a dish link moved to it; opener_qty refuses a venue option taken twice', async () => {

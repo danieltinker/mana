@@ -102,8 +102,14 @@ Supabase's tooling may flag as destructive are marked `-- DESTRUCTIVE-LOOKING:` 
   screenshots; a scan at most 8, by `create_import`). Check 2 above.
 - `drop function public.ops_approve_venue(uuid, text)`: replaced by the three-argument version (the revision reviewed),
   granted again in the same file.
+- The ten row triggers `<table>_limit` of `20261015120100_menu.sql` are dropped and created again, of the same names,
+  once per statement (`app.guard_limit_rows`); each of those tables also gets `<table>_limit_move` after an update
+  (SEC-N11). No data changes.
 - `support_cases`: the column INSERT of `authenticated` is revoked and the policy `cases_open` dropped; cases are made
   only through `open_case` (its daily cap, its client id), as imports through their RPCs. No rows change.
+- `onboarding_progress`: the column INSERT and UPDATE of `authenticated` are revoked and the policies `onboarding_add`
+  and `onboarding_change` dropped; steps are written only through `set_onboarding_step` (and Halom's `act_for_owner`),
+  in their lock order. SELECT stays. No rows change.
 - `menu_imports`: the client policies `imports_add` and `imports_change` are dropped; clients now write imports only
   through the RPCs. The table's privileges are revoked from `authenticated` and given back as a column list without
   `raw_text`, and revoked from `service_role` and given back as an UPDATE on four columns.
@@ -161,9 +167,28 @@ case in backend CPU.
 dishes, 200 add-on groups of 30 options, 8 groups per dish) is planned and written by one `apply_import` in about 2 CPU
 seconds, a first import or a re-import (`sizes.test.mjs` holds it under 4). Nothing per row is skipped; it is made cheap:
 the applier writes each kind in one statement and finds its rows by id; the size limits (`<table>_limit`) are checked
-once per statement, after it, for every key it touched (`app.guard_limit_rows`, the same `limit_<name>`); the audit
-reads ids and venue straight from the transition table; the plan reads names once per distinct name. A second apply of
-the venue while one runs answers `import_busy` at once (the import lock is tried, not waited for).
+once per statement, after it, for every key it touched (`app.guard_limit_rows`, the same `limit_<name>`), and an update
+that moves rows to another key (an option's `group_id`, a link's `dish_id`) counts that key too (`<table>_limit_move`,
+SEC-N11); the audit reads ids and venue straight from the transition table; the plan reads names once per distinct
+name. A second apply of the venue while one runs answers `import_busy` at once (the import lock is tried, not waited
+for).
+
+**Many groups of one name (SEC-M4).** A group's global match (rule 10) tries its candidates (the venue's groups of its
+selection and name: the best score, then the fewest options, then the smaller id) one by one: a candidate that cannot
+cover it by count (fewer options, or fewer options matching some name than the draft group has of it, from per-group
+name counts made once) is passed over without a cover, and after `GLOBAL_COVER_TRIES` (8) covers that fail there is
+no match (`app.plan_global_match`, the contracts' `globalMatchOf`). The candidates are listed once per name and
+selection. A cover itself (`app.plan_cover`, the contracts' `assign` over every pair) is taken by names, a pass per
+score with a pointer per name list, not pair by pair; `import-twins.test.mjs` compares it with the pair-by-pair walk
+on 4000 random sets. At the limits with all 200 groups of one name, their options of one name, or 29 shared names
+and one of their own, or one Hebrew name for all, a re-import takes about 1.5 to 2 CPU seconds (security measured 6.6
+and 28.2 before).
+
+**Refused applies are bounded (security, round 4).** A refused apply (`plan_invalid`, `apply_failed`) has run the
+whole plan and leaves the import `parsed`, so it could be repeated without end: each venue's refused applies are
+counted per UTC hour (`app.import_refusals`), and once it has `import_caps.refused_applies_per_venue_hour` (10) of them
+`apply_import` answers `rate_limited` before it plans. The checks before the plan (`draft_changed`,
+`invalid_decisions`) and an apply that passes count nothing; the next hour starts again.
 
 **Who may write, before the definer triggers (SEC-L1).** RLS checks an inserted row after the `BEFORE` triggers, and
 some of those run as definer and read the venue's other rows. `_writer_guard`, first of them on every venue table,
@@ -182,7 +207,9 @@ venue's import lock and only then the import's row (QA-L7). `apply_import` takes
 any insert takes a limit lock, as `save_addon_group` does (N10). Every writer of `onboarding_progress` takes the venue's
 row before a step's row (QA2-M1): `publish` FOR UPDATE, then its step; `set_onboarding_step`, `act_for_owner`'s
 `onboarding.set` and `apply_import` FOR SHARE first; the dishes' trigger that marks `menu` comes after the dish's
-foreign key took the venue (KEY SHARE).
+foreign key took the venue (KEY SHARE). Clients have no INSERT or UPDATE on `onboarding_progress` (phase 1 revokes
+them and drops the policies `onboarding_add` and `onboarding_change`): a direct write would take the step's row first.
+No app, simulator or end-to-end test on the listed branches wrote the table directly.
 
 **Halom staff are never made members of client venues.** Should one be (their own restaurant), the staff-only RPCs
 (`ops_approve_venue`, `ops_set_plan`, `ops_set_demo`, `ops_update_case`, `ops_revision`, and `export_menu` by a staff
@@ -256,7 +283,7 @@ All settings:
 | `event_caps_demo` | `{"per_source_hour": 100000, "per_venue_source_day": 1000000, "per_venue_day": 1000000}` | The same caps for demo venues (`venues.is_demo`), on counters of their own: the simulator runs every bot from one source |
 | `lead_caps` | `{"per_source_hour": 5, "per_source_day": 20, "hard_day": 2000}` | Past `per_source_hour` a lead is kept as `spam`; past `per_source_day` one source's leads are answered ok and not stored; past `hard_day` non-spam leads from everyone in 24 hours the form answers `rate_limited` |
 | `events_retention_months` | `13` | Event partitions older than this many months are dropped by the daily job |
-| `import_caps` | `{"per_venue_day": 20, "scan_images_per_venue_day": 60, "scan_images_per_user_day": 120, "scan_images_per_day": 1000}` | Imports a venue may create per local day (the same input again is not a new one); the images the scanner may read, charged when a claim succeeds, before any paid call: per venue (its local day), per person and for all venues (UTC day). Starting values; `rate_limited` names the cap. Daniel's to change |
+| `import_caps` | `{"per_venue_day": 20, "scan_images_per_venue_day": 60, "scan_images_per_user_day": 120, "scan_images_per_day": 1000, "refused_applies_per_venue_hour": 10}` | Imports a venue may create per local day (the same input again is not a new one); the images the scanner may read, charged when a claim succeeds, before any paid call: per venue (its local day), per person and for all venues (UTC day), `rate_limited` naming the cap; and the applies a venue may have refused after the plan per UTC hour (then `apply_import` answers `rate_limited`). Starting values. Daniel's to change |
 | `case_caps` | `{"per_venue_day": 10}` | Support cases a venue may open per local day |
 | `import_raw_retention_days` | `30` | The raw input of imports finished (applied, discarded, failed), or left uploaded or parsed, longer ago than this is purged: the text by the daily job, the screenshots by the scanner (`list_purgeable_imports`) |
 | `staff_invite_max_failures` | `5` | Failed invite redemptions per person per day before `locked` |
@@ -312,7 +339,8 @@ column allow-list, each value of its column's JSON type (`"3900"` is not a price
 `support_case.update`; **no `menu.publish` in phase 1**: it would publish the owner's draft unreviewed, so staff help
 through the approval), marks the transaction so every audit row the action causes reads `via = act_for_owner` with the
 reason, and writes its own `support.act_for_owner` row (the payload's keys and ids and the result's ids and numbers,
-never the words staff typed), all in one transaction; a failed action leaves nothing. `dish.update` and
+never the words staff typed), all in one transaction; a failed action leaves nothing, and an `onboarding.set` answered
+`kept` (a `doing` on a step done or skipped) changed nothing, so it writes no row either (`logId` null, QA-L11). `dish.update` and
 `onboarding.set` carry the `updated_at` staff read (`expectedUpdatedAt`), compared to the microsecond: when the owner
 changed the row since, the answer is `stale` with the row as it is, and nothing is written. Every read a version comes
 from gives it in full (a table row, `ops_venue` and `my_dashboard`'s onboarding steps). The marker counts only for staff:
@@ -387,7 +415,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `create_import(p_venue, p_source, p_text, p_paths, p_input_sha256, p_rights_confirmed, p_import_id)` | owner, manager | a text is stored stripped and hashed by the database; images name the import's id (made by the client before uploading) and send their private paths, each exactly `<venue>/imports/<id>/<name>` (a name of letters, digits, `.`, `-`, `_`; the table's check says the same), at most 8 for a scan and 24 for Wolt screenshots, and their hash; the same input as a live import is that import (`reused`); an id already used otherwise is `id_taken`; `import_caps.per_venue_day` |
 | `claim_import_scan(p_import, p_mode)` | owner, manager (the scanner, with the owner's token) | before any paid call, `p_mode` the import's source (`scan`, `wolt_screenshots`; another is `not_scannable`, free): the import moves to `parsing` (a claim older than 10 minutes may be taken again; a purged one never), and the scanner gets `{importId, venueId, source, paths, images, rightsConfirmed, langs}`; the images are charged on three caps (`rate_limited` with `cap`); anyone else, and an import that does not exist, `import_unknown` |
 | `save_import_draft(p_import, p_draft, p_notes)` | owner, manager (uploaded, failed, parsed); the service role (an import it claimed) | the draft checked by `app.validate_import_draft` (`invalid_draft` with the contracts' codes, `too_large` past 1 500 000 bytes), its source, its photos in the import's own folder and never one of the uploaded images (`raw_paths`: a photo is a crop the scanner wrote), confirmed photos only on a confirmed import, the reader's notes (`app.validate_reader_notes`, the twin of `readerNoteIssues`: a `layout_guessed` note names a section or dish of the draft and one of `LAYOUT_GUESS_RULES`); stores `parsed`, `notes` and `exceptions` (in the venue's languages); `{ok, exceptions, counts}` |
-| `apply_import(p_import, p_draft, p_decisions)` | owner, manager | the stored draft (`draft_changed` otherwise) and the owner's answers through `app.plan_import`, the twin of `planApply` (`plan_invalid` with its errors, among them `opener_qty`: a venue option guests may take more than once never opens a group), run in one transaction: never a delete, never a publish; a venue option answered `new_group` opens the group the plan creates, a dish link answered `new_group` moves to it (the same row); a trigger's refusal undoes everything (`apply_failed`); stores the draft's answered exceptions and `applied_ids` (the row each section and dish landed on, by draft key: the contracts' `appliedIds`; the next plan's `previous` is every applied import's, each key from the most recently applied import that holds it, and holds those rows first while their names still match), marks onboarding's menu and review done, one `import.apply` row (summary per kind and op, with the skipped steps by reason, `planExceptions` per code); `{ok, plan}`; while another import RPC of the venue runs, `import_busy` at once |
+| `apply_import(p_import, p_draft, p_decisions)` | owner, manager | the stored draft (`draft_changed` otherwise) and the owner's answers through `app.plan_import`, the twin of `planApply` (`plan_invalid` with its errors, among them `opener_qty`: a venue option guests may take more than once never opens a group), run in one transaction: never a delete, never a publish; a venue option answered `new_group` opens the group the plan creates, a dish link answered `new_group` moves to it (the same row); a trigger's refusal undoes everything (`apply_failed`); stores the draft's answered exceptions and `applied_ids` (the row each section and dish landed on, by draft key: the contracts' `appliedIds`; the next plan's `previous` is every applied import's, each key from the most recently applied import that holds it, and holds those rows first while their names still match), marks onboarding's menu and review done, one `import.apply` row (summary per kind and op, with the skipped steps by reason, `planExceptions` per code); `{ok, plan}`; while another import RPC of the venue runs, `import_busy` at once; past `import_caps.refused_applies_per_venue_hour` refused applies of the venue this hour, `rate_limited` before the plan |
 | `discard_import(p_import)` | owner, manager | uploaded, failed or parsed → discarded (twice is fine), and a claim older than the 10-minute reclaim window (a crashed read); frees the input's hash; anyone else, and an import that does not exist, `import_unknown` |
 | `list_purgeable_imports(p_limit, p_after)` | service role | the image imports whose screenshots may be deleted now, by the daily job's rule (finished, or left uploaded or parsed, or claimed and not read within 10 minutes (a crashed read), longer ago than `import_raw_retention_days`; a failed scan keeps its screenshots that long, so the owner can try it again), with their venue, paths and `finishedAt` (to the microsecond), oldest first; `p_after`, the last row's `{finishedAt, importId}` as it came, gives the next page (a malformed cursor: 22023 `cursor_invalid`). A claim inside the 10-minute reclaim window is never listed, whatever the retention (N9). The scanner marks each row purged first (`raw_paths '{}'`, `raw_purged_at now()`, where still unpurged; the guard refuses an import that may not be purged) and deletes the files only when that update changed the row: exactly the listed paths, one object at a time, never a folder, a prefix or a listing |
 | `save_addon_group(p_venue, p_group, p_options, p_expected_updated_at, p_confirm_rule_removal)` | owner, manager | a group and its options as one, under the venue's nesting lock: the client's ids (insert or update), the options left out deleted; the same input twice changes nothing; `stale` (with the stored group) over a newer save; never a group publishing would refuse (`options_empty`, `min_unreachable`) or limits a dish offering it could no longer keep (`limits_loosened`, `limits_invalid`, path `dishGroups.<link id>`); `option_in_rules` (with the rule ids) until the owner confirms; a trigger's refusal rolls back everything; `{ok, group, options}` as stored |
@@ -402,7 +430,7 @@ of real totals. The daily job drops event partitions older than `events_retentio
 | `ops_approve_venue(p_venue, p_reason, p_expected_revision)` | staff (never of a venue they belong to: `own_venue`) | approves the first publish, starts the trial, logged with the reason; the only way a venue is approved. `p_expected_revision` is the published revision's number staff reviewed (the one guests will see): another is `revision_changed` with that number, under the venue's lock; nothing published (never, or unpublished since) is `not_published` |
 | `ops_set_plan(p_venue, p_state, p_until, p_reason, p_plan)` | Halom admin (never of a venue they belong to: `own_venue`) | sets the plan state by hand until billing exists (live today as `ops_set_entitlement`), logged with the reason; `suspended` takes a venue offline; **never approves**: `trialing` or `active` on a venue waiting for approval is `approval_first` |
 | `ops_leads(p_status, p_source, p_since, p_limit)`, `ops_update_lead(p_id, p_status, p_owner, p_notes)` | staff | the leads, every read logged; spam out of the default view |
-| `act_for_owner(p_venue, p_reason, p_action, p_payload)` | staff | the only staff write path into a venue's menu (above) |
+| `act_for_owner(p_venue, p_reason, p_action, p_payload)` | staff | the only staff write path into a venue's menu (above); `{ok, action, result, logId}`, `logId` null for an `onboarding.set` that was `kept` (nothing written, nothing logged) |
 
 Every RPC above answers a refusal its caller can act on as `{ok:false, code}` (the codes are the contracts'), and a
 caller who may not call it at all with 42501; the read RPCs answer a bad input with 22023 and the code as the message.

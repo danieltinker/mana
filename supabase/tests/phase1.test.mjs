@@ -64,8 +64,11 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     assert.deepEqual(await set('menu', 'todo'), { ok: false, code: 'step_done' }, 'the first dish marked it done');
     assert.equal((await set('review', 'skipped')).ok, true, 'a menu built by hand skips the review');
     assert.deepEqual(await set('publish', 'skipped'), { ok: false, code: 'step_automatic' }, 'of the automatic steps only the review is skipped');
-    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'skipped' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '',
-      /step_automatic/, 'nor by a direct write');
+    // no direct write at all: set_onboarding_step is the clients' only writer (its lock order, its rules; QA2-M1)
+    assert.equal((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'skipped' where venue_id = $1 and step = 'menu'`, [w.B])).error?.code, '42501');
+    assert.equal((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'style'`, [w.B])).error?.code, '42501');
+    assert.equal((await q(w.url, U.managerA, `insert into public.onboarding_progress (venue_id, step, state) values ($1, 'style', 'done')`, [A])).error?.code, '42501');
+    assert.equal((await q(w.url, U.ownerB, `insert into public.onboarding_progress (venue_id, step, state) values ($1, 'style', 'done') on conflict (venue_id, step) do update set state = 'done'`, [w.B])).error?.code, '42501');
     assert.deepEqual(await set('hours', 'blocked', ['Free text!']), { ok: false, code: 'blocker_invalid' });
     assert.deepEqual(await set('hours', 'blocked', Array(21).fill('a_b')), { ok: false, code: 'too_many' });
     assert.deepEqual(await set('party', 'done'), { ok: false, code: 'enum_invalid' });
@@ -87,8 +90,13 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     assert.deepEqual(await afo({ step: 'publish', state: 'done', expectedUpdatedAt: await seen('publish') }), { ok: false, code: 'step_automatic' });
     assert.deepEqual(await afo({ step: 'menu', state: 'todo', expectedUpdatedAt: await seen('menu') }), { ok: false, code: 'step_done' });
     // a "doing" on a done step is kept, as for the owner (QA2-M2)
+    const acts = async () => (await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1 and action = 'support.act_for_owner'`, [w.B])).rows[0].n;
+    const actsBefore = await acts();
     const keptMenu = await afo({ step: 'menu', state: 'doing', expectedUpdatedAt: await seen('menu') });
     assert.deepEqual([keptMenu.ok, keptMenu.result.step, keptMenu.result.state, keptMenu.result.kept], [true, 'menu', 'done', true]);
+    // nothing changed, so nothing is logged: the owner's activity does not say Halom acted (QA-L11)
+    assert.equal(keptMenu.logId, null);
+    assert.equal(await acts(), actsBefore);
     assert.deepEqual(await afo({ step: 'nope', state: 'done', expectedUpdatedAt: null }), { ok: false, code: 'enum_invalid' });
     assert.deepEqual(await afo({ step: 'style', state: 'done' }), { ok: false, code: 'payload_invalid' }, 'expectedUpdatedAt is required');
     const at0 = await seen('style');   // null when never written
@@ -191,7 +199,7 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     });
     assert.equal(await step(), 'done');
     assert.equal((await w.admin.query(`select count(*)::int as n from public.events where venue_id = $1 and name = 'onboarding_step_done' and props->>'step' = 'menu'`, [v])).rows[0].n, 1);
-    assert.match((await q(w.url, O, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'publish'`, [v])).error?.message ?? '', /step_automatic/);
+    assert.deepEqual(await rpc(w.url, O, 'set_onboarding_step', { p_venue: v, p_step: 'publish', p_state: 'done' }), { ok: false, code: 'step_automatic' });
   });
 });
 
@@ -707,6 +715,40 @@ describe('the via labels of the staff RPCs (simulator follow-up)', () => {
     assert.deepEqual([...new Set(rows.map((r) => r.action))].sort(), ['leads.read', 'leads.update', 'staff.insert', 'staff.join', 'staff_invite.create']);
     assert.ok(rows.every((r) => r.via === 'rpc'), JSON.stringify(rows));
     await w.admin.query(`delete from public.staff where user_id = $1`, [X]);
+  });
+});
+
+describe('the size limits count the rows an update moves (SEC-N11)', () => {
+  test('options moved into a full group, a link moved onto a full dish: refused; a swap or an update that moves nothing passes', async () => {
+    const O = '22222222-2222-4222-8222-2222222222b7';
+    const v = await newVenue(O, 'limits-move');
+    const lim = await cfg('limits');
+    const [nOpt, nLink] = [lim.options_per_group, lim.groups_per_dish];
+    await as(w.url, O, async (c) => {
+      const grp = async (name) => (await c.query(`insert into public.addon_groups (venue_id, name_en, selection, min_units, max_units) values ($1, $2, 'multiple', 0, 10) returning id`, [v, name])).rows[0].id;
+      const g1 = await grp('Full one'), g2 = await grp('Full two');
+      for (const g of [g1, g2]) {
+        await c.query(`insert into public.addon_options (venue_id, group_id, name_en, price) select $1, $2, 'Option ' || i, 0 from generate_series(1, $3) i`, [v, g, nOpt]);
+      }
+      const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [v])).rows[0].id;
+      const d1 = (await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Full dish', 1000) returning id`, [v, s])).rows[0].id;
+      const d2 = (await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Other dish', 1000) returning id`, [v, s])).rows[0].id;
+      const links = [];
+      for (let i = 0; i <= nLink; i++) links.push(await grp('Link ' + i));
+      await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id) select $1, $2, g from unnest($3::uuid[]) g`, [v, d1, links.slice(0, nLink)]);
+      await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id) values ($1, $2, $3)`, [v, d2, links[nLink]]);
+      const tryIt = async (sql, params) => { await c.query('savepoint t'); try { await c.query(sql, params); await c.query('release savepoint t'); return 'ok'; } catch (e) { await c.query('rollback to savepoint t'); return e.message; } };
+      assert.equal(await tryIt(`update public.addon_options set group_id = $1 where group_id = $2`, [g1, g2]), 'limit_options_per_group', 'all of one full group into another');
+      assert.equal(await tryIt(`update public.addon_options set group_id = $1 where id = (select id from public.addon_options where group_id = $2 limit 1)`, [g1, g2]), 'limit_options_per_group', 'one is enough');
+      assert.equal(await tryIt(`update public.dish_addon_groups set dish_id = $1 where dish_id = $2`, [d1, d2]), 'limit_groups_per_dish');
+      // a swap between two full groups leaves both full, and an update that moves nothing checks nothing
+      const a = (await c.query(`select id from public.addon_options where group_id = $1 order by id limit 1`, [g1])).rows[0].id;
+      const b = (await c.query(`select id from public.addon_options where group_id = $1 order by id limit 1`, [g2])).rows[0].id;
+      assert.equal(await tryIt(`update public.addon_options set group_id = case when id = $1 then $4::uuid else $3::uuid end where id in ($1, $2)`, [a, b, g1, g2]), 'ok');
+      assert.equal(await tryIt(`update public.addon_options set price = 100 where group_id in ($1, $2)`, [g1, g2]), 'ok');
+      const counts = (await c.query(`select group_id, count(*)::int as n from public.addon_options where group_id in ($1, $2) group by 1`, [g1, g2])).rows.map((r) => r.n);
+      assert.deepEqual(counts, [nOpt, nOpt]);
+    });
   });
 });
 
