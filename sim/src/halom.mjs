@@ -63,9 +63,12 @@ export class HalomBot {
   setDemo(venueId, demo, reason) { return this.api.rpc('ops_set_demo', { p_venue: venueId, p_demo: demo, p_reason: reason }); }
 
   /** Approves a venue's first publish, naming the revision the reviewer looked at (revision_changed when the owner
-   * published a newer one meanwhile). */
-  approve(venueId, reason, revision) {
-    return this.api.rpc('ops_approve_venue', { p_venue: venueId, p_reason: reason, p_expected_revision: revision });
+   * published a newer one meanwhile). Without `revision`, the published revision as staff read it now (`ops_venue`'s
+   * `venue.menu.revision`, the number guests will see; null when nothing is published, which the database refuses as
+   * revision_invalid). */
+  async approve(venueId, reason, revision = undefined) {
+    const expected = revision ?? (await this.venue(venueId))?.venue?.menu?.revision ?? null;
+    return this.api.rpc('ops_approve_venue', { p_venue: venueId, p_reason: reason, p_expected_revision: expected });
   }
 
   /** act_for_owner('dish.update') with the dish's updated_at as support reads it now: refused as stale, writing
