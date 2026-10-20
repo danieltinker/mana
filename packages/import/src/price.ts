@@ -13,17 +13,24 @@ export const PRICE_MAX = 48;
 /** A number shown without a currency is a price only below this (₪10,000, in agorot). */
 const BARE_MAX = 1_000_000;
 
-/** The shekel's signs: ₪, and ש"ח (with any quote mark) as a word of its own. */
-const SIGN = String.raw`(?:₪|(?<![א-ת])ש["״”']{1,2}ח(?![א-ת]))`;
-/** Its codes, NIS and ILS, only as whole words (never the end of "Cocktails", "Lentils" or "Tennis"). */
-const CODE = String.raw`(?:(?<!\p{L})(?:NIS|ILS)(?!\p{L}))`;
-/** The shekel as menus write it. */
+/** The shekel's signs: ₪, and ש"ח (with any quote mark) with no Hebrew letter after it. */
+const SIGN = String.raw`(?:₪|ש["״”']{1,2}ח(?![א-ת]))`;
+/** Its codes, NIS and ILS, with no letter after them. */
+const CODE = String.raw`(?:NIS|ILS)(?!\p{L})`;
+/** The shekel as menus write it, where what comes before it is the start, a number, a sign or a space (inside a
+ * price's own pattern, anchored at the start of the price). */
 const SHEKEL = String.raw`(?:${SIGN}|${CODE})`;
+/**
+ * The shekel anywhere in a line: never the end of a word ("Cocktails", "Lentils", "Tennis", "Nisan" are words). Old
+ * Safari has no lookbehind (the owner's browser runs the readers), so the character before ש"ח, NIS or ILS is matched
+ * too, or the start; group 1 holds it.
+ */
+const SHEKEL_IN = String.raw`(?:₪|(^|[^\p{L}])(?:ש["״”']{1,2}ח(?![א-ת])|${CODE}))`;
 const NUM = String.raw`\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,7}(?:[.,]\d{1,2})?`;
 const MONEY = String.raw`(?:${SHEKEL} ?(?:${NUM})|(?:${NUM}) ?${SHEKEL})`;
 /** Something shown as a price Mana cannot read: a sign and up to `n` more characters, or a code beside up to `n`
  * characters one of which is a digit (so a word that only holds the code's letters is never price-like). */
-const ODD = (n: number) => String.raw`(?:${SIGN} ?\S{1,${n}}|\S{1,${n}} ?${SIGN}|${CODE} ?(?=\S{0,${n - 1}}\d)\S{1,${n}}|(?=\S{0,${n - 1}}\d)\S{1,${n}} ?${CODE})`;
+const ODD = (n: number) => String.raw`(?:${SIGN} ?\S{1,${n}}|\S{1,${n}} ?${SIGN}|${CODE} ?(?=\S{0,${n - 1}}\d)\S{1,${n}}|(?=\S{0,${n - 1}}\d)(?:\S{1,${n}} |\S{0,${n - 1}}[^\p{L}\s])${CODE})`;
 const FROM = String.raw`(?:from|starting at|starts at|החל מ[-־]?|מ[-־])`;
 const DASH = String.raw` ?[–—-] ?`;
 
@@ -42,9 +49,9 @@ const RE = {
   free: /^(?:free|no charge|חינם|ללא תשלום|ללא תוספת תשלום|ללא עלות|\+ ?0)$/iu,
   leading: new RegExp(`^(${MONEY}) (?=\\S)`, 'iu'),
   digits: /\d[\d.,]*/u,
-  shekel: new RegExp(SHEKEL, 'iu'),
+  shekel: new RegExp(SHEKEL_IN, 'iu'),
   /** A shekel beside a digit, anywhere (each try is a few characters long). */
-  hasMoney: new RegExp(`${SHEKEL} ?\\d|\\d ?${SHEKEL}`, 'iu'),
+  hasMoney: new RegExp(`${SHEKEL_IN} ?\\d|\\d ?${SHEKEL_IN}`, 'iu'),
 };
 
 /** A number as written ("62", "62.5", "62,50", "1,250", "1,250.50") → agorot; null when it is not one. */
@@ -187,7 +194,7 @@ export function splitPrice(line: string, bare: boolean): SplitPrice | null {
     if (!price) continue;
     if (price.kind === 'unreadable') {
       // a shekel price Mana cannot read: only a short one with a digit (or a letter often misread for one) in it
-      if (RE.oddTail.test(tail) && /[\dOoIl]/u.test(tail.replace(RE.shekel, ''))) return { text, price, option: false, bare: false, token: tail };
+      if (RE.oddTail.test(tail) && /[\dOoIl]/u.test(tail.replace(RE.shekel, (_, before: string | undefined) => before ?? ''))) return { text, price, option: false, bare: false, token: tail };
       continue;
     }
     if (!currency && (!bare || /^\d+$/u.test(text))) continue;
