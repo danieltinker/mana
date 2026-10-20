@@ -212,11 +212,14 @@ matcher): skipped with a note without a list, failed when `MANA_FORBIDDEN_NAMES_
 production (`bash tools/build-site.sh`), then opens each app's production entry, the owner app (`/mana/studio/`), the
 guest menu (`/mana/view/?demo=olea`, the in-build demo) and the back office (`/mana/ops/`), in Chromium made into an
 iPhone on iOS 15 before any script runs: `RegExp` refuses a lookbehind (Safari before 16.4), `Object.hasOwn` and
-`crypto.randomUUID` are gone (Safari before 15.4). Each must boot (the owner app and the back office render into
-`#app`; the guest menu leaves its boot mode) with no page error, and no script or page it loads may hold a lookbehind
-(a literal one is a parse error on those phones, which the patched `RegExp` cannot see). An entry chunk that imports
-code built for newer engines, a lookbehind made at load among them, is a blank page on an iPhone that was not updated;
-this suite fails on it. The settings are production's with the database address pointed at a closed port on
+`crypto.randomUUID` are gone (Safari before 15.4). Each must boot with no page error: the owner app and the back
+office render into `#app`; the guest menu must be up on its table (`#app.live`) with no console error, because it
+imports the table's chunk apart and catches a failure there (it would fall back to its list, and no page error would
+say why). Every built script and page under `_site/` (`.js`, `.mjs`, `.html`), the ones these three pages never load
+included (the seat map, the host board, the floor, `gen/`), is also read for a lookbehind: a literal one is a parse
+error on those phones, which the patched `RegExp` cannot see. A finding gives the file, line and column; one inside a
+string is reported too, and a person judges it. An entry chunk that imports code built for newer engines, a lookbehind
+made at load among them, is a blank page on an iPhone that was not updated; this suite fails on it. The settings are production's with the database address pointed at a closed port on
 127.0.0.1; every request to another host is aborted. `node tools/check-old-phones.mjs <a copy of _site/>` checks
 another build.
 
