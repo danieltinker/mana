@@ -68,11 +68,12 @@ export const DRAFT_TEXT_MAX = {
   section: LIMITS.shortNameLength, group: LIMITS.shortNameLength, option: LIMITS.shortNameLength, dish: LIMITS.nameLength,
   desc: LIMITS.descLength, priceNote: LIMITS.noteLength, allergens: LIMITS.allergensLength, priceText: PRICE_TEXT_MAX,
 } as const;
+/** Rule 10: how many full cover checks a draft group's name candidates get before only the groups with a twin for
+ * every option are tried, up to as many again (the ones that cannot cover it by count are passed over without one;
+ * a walk that leaves one untried for this bound is `group_ambiguous`; SEC-M4, round 10c). */
+export const GLOBAL_COVER_TRIES = 8;
 /** Hard bounds on a draft's shape: a reader that goes past them is broken, so the draft is refused (`too_large`).
  * Between `LIMITS` and these, the draft is kept and the extra nodes are `too_many` exceptions. */
-/** Rule 10: how many of a draft group's name candidates, at most, get the full cover check before it has no global
- * match (the ones that cannot cover it by count are passed over without one; SEC-M4). */
-export const GLOBAL_COVER_TRIES = 8;
 export const DRAFT_CAPS = { sections: 80, dishes: 800, groups: 400, optionsPerGroup: 60, groupsPerDish: 16 } as const;
 
 export type DraftPhoto = {
@@ -839,38 +840,67 @@ export type ExistingMenu = {
  * twin (`keep_both`) or another import of the venue's did since (Hopa test 1). A draft's keys must therefore name its
  * nodes by their content, as the readers' do (`packages/import/src/keys.ts`): the same node in a re-read keeps its key,
  * and a key never moves to another node (a key by position would, when sections reorder). A row is only ever held by a
- * node whose name matches it.
+ * node whose name matches it. Keys by position are not made safe by this (round 10c, documented, not fixed): when two
+ * sections swap places and one is also renamed, so that it claims no row by name, or when two dishes of one name in a
+ * section swap places, each key holds the other node's row; the plan then asks (`dish_elsewhere`, `price_differs`, with
+ * the venue's answers by default) and deletes nothing, but a draft with such keys can match the wrong row.
  */
-export type ImportedIds = { readonly sections: Readonly<Record<string, string>>; readonly dishes: Readonly<Record<string, string>> };
+export type ImportedIds = {
+  /** A section kept and left without a row (its step `skip`, reason `empty`) while one of its own dishes was placed,
+   * none left out by hand, is `null` (`appliedIds`), so a later import of the same draft knows the imports left it so
+   * (rule 6); `mergePrevious` keeps it until a later import gives the key a row. */
+  readonly sections: Readonly<Record<string, string | null>>;
+  readonly dishes: Readonly<Record<string, string>>;
+};
 
-/** One import of the venue's as `mergePrevious` reads it: `menu_imports.id`, `applied_at` (as the database writes a
- * `timestamptz`; null when not applied) and `applied_ids` (null for an import not applied, or applied before the
+/** One import of the venue's as `mergePrevious` reads it: `menu_imports.id`, `applied_at` (a `timestamptz` as
+ * `to_jsonb` writes it, `2026-10-20T10:00:00.123456+00:00`, or in PostgreSQL's text form, `2026-10-20
+ * 10:00:00.123456+00`; null when not applied) and `applied_ids` (null for an import not applied, or applied before the
  * column existed). */
 export type AppliedImport = { readonly id: string; readonly appliedAt: string | null; readonly appliedIds: ImportedIds | null };
 
 /**
  * `ExistingMenu.previous` from a venue's imports, the reference for `app.existing_menu`: the imports that count are
  * those with both `applied_at` and `applied_ids`; with none, `undefined`. Otherwise, for each section key and each
- * dish key, the row id from the most recently applied of them whose `applied_ids` holds that key: the latest
- * `applied_at` (to the microsecond), then the greater import id (uuid order: lowercase text). A key a later import has
- * not mentioned keeps an earlier import's row, so an import of another menu of the venue's (its wines) loses nothing.
+ * dish key, the value (a row id, or a section's `null`) from the most recently applied of them whose `applied_ids` holds
+ * that key: the latest `applied_at` (to the microsecond), then the greater import id (uuid order: lowercase text). A key
+ * a later import has not mentioned keeps an earlier import's value, so an import of another menu of the venue's (its
+ * wines) loses nothing. An `applied_at` in neither form counts as the oldest.
  */
 export function mergePrevious(imports: readonly AppliedImport[]): ImportedIds | undefined {
   const applied = imports.filter((i) => i.appliedAt !== null && i.appliedIds !== null);
   if (applied.length === 0) return undefined;
-  const order = [...applied].sort((a, b) => instantMs(a.appliedAt!) - instantMs(b.appliedAt!) || compareIds(a.id.toLowerCase(), b.id.toLowerCase()));
-  const sections = new Map<string, string>();
+  const at = (s: string): number => {
+    const v = instantMs(s.replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));
+    return Number.isNaN(v) ? -Infinity : v;
+  };
+  const order = [...applied].sort((a, b) => {
+    const x = at(a.appliedAt!), y = at(b.appliedAt!);
+    return x < y ? -1 : x > y ? 1 : compareIds(a.id.toLowerCase(), b.id.toLowerCase());
+  });
+  const sections = new Map<string, string | null>();
   const dishes = new Map<string, string>();
-  const fold = (into: Map<string, string>, ids: unknown) => { if (isObject(ids)) for (const [k, v] of Object.entries(ids)) into.set(k, v as string); };
+  const fold = <V>(into: Map<string, V>, ids: unknown) => { if (isObject(ids)) for (const [k, v] of Object.entries(ids)) into.set(k, v as V); };
   for (const i of order) { fold(sections, i.appliedIds!.sections); fold(dishes, i.appliedIds!.dishes); }
   return { sections: Object.fromEntries(sections), dishes: Object.fromEntries(dishes) };
 }
 
-/** `ImportedIds` of an applied plan: `createdId` gives the id `apply_import` made for a step it created. */
-export function appliedIds(plan: ImportPlan, createdId: (kind: 'section' | 'dish', key: string) => string | undefined): ImportedIds {
-  const out = { sections: {} as Record<string, string>, dishes: {} as Record<string, string> };
+/**
+ * `ImportedIds` of the applied plan of `draft`: `createdId` gives the id `apply_import` made for a step it created. A
+ * section the plan leaves `empty` while one of its own dishes landed on a venue's row (its step not `skip`) is `null`:
+ * the import put its dishes elsewhere and gave it no row. Unless one of its own dishes was left out by hand (a `skip`
+ * step, reason `choice`, that no answer `skip` of the plan's exceptions names: `ImportDecisions.skip`): a run that
+ * leaves dishes out by hand is no reason to forget where the section went before.
+ */
+export function appliedIds(draft: ImportDraft, plan: ImportPlan, createdId: (kind: 'section' | 'dish', key: string) => string | undefined): ImportedIds {
+  const out = { sections: {} as Record<string, string | null>, dishes: {} as Record<string, string> };
+  const placed = new Set(plan.steps.filter((s) => s.kind === 'dish' && s.op !== 'skip').map((s) => s.key));
+  const answeredSkip = new Set(plan.exceptions.filter((e) => e.choice === 'skip').map((e) => e.key));
+  const byHand = new Set(plan.steps.filter((s) => s.kind === 'dish' && s.op === 'skip' && s.reason === 'choice' && !answeredSkip.has(s.key)).map((s) => s.key));
+  const leftEmpty = new Set(draft.sections.filter((x) => x.dishes.some((d) => placed.has(d.key)) && !x.dishes.some((d) => byHand.has(d.key))).map((x) => x.key));
   for (const s of plan.steps) {
     if (s.kind !== 'section' && s.kind !== 'dish') continue;
+    if (s.kind === 'section' && s.op === 'skip') { if (s.reason === 'empty' && leftEmpty.has(s.key)) out.sections[s.key] = null; continue; }
     const id = s.op === 'create' ? createdId(s.kind, s.key) : s.op === 'skip' ? undefined : s.id;
     if (id !== undefined) (s.kind === 'section' ? out.sections : out.dishes)[s.key] = id;
   }
@@ -1009,7 +1039,7 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * nodes name is held by neither. A name that no longer matches (the owner renamed the row since) holds nothing.
  */
 function heldRows<R extends { id: string; keys: Keys }>(
-  nodes: ReadonlyArray<{ key: string; keys: Keys }>, ids: Readonly<Record<string, string>> | undefined, byId: ReadonlyMap<string, R>,
+  nodes: ReadonlyArray<{ key: string; keys: Keys }>, ids: Readonly<Record<string, string | null>> | undefined, byId: ReadonlyMap<string, R>,
 ): Map<string, string> {
   const held = new Map<string, string>();
   if (ids === undefined || !isObject(ids)) return held;
@@ -1028,9 +1058,11 @@ function heldRows<R extends { id: string; keys: Keys }>(
 /**
  * Turns a draft, the venue's menu and the owner's decisions into what `apply_import` will do: never a delete, never a
  * duplicate of what the venue has (Hopa test 1), and the same plan whatever the order of the draft. Errors (no plan):
- * `exception_unresolved` (a `fix` without an allowed answer), `choice_invalid`, `prices_unconfirmed`, `too_many` (with
- * what the venue has, past `LIMITS`), `nesting_too_deep` (a new choice would open an existing group that has choices
- * opening groups of their own), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
+ * `exception_unresolved` (a `fix` without an allowed answer, the plan's `nesting_too_deep` among them: rule 11),
+ * `choice_invalid`,
+ * `prices_unconfirmed`, `too_many` (with what the venue has, past `LIMITS`), `group_ambiguous` (path: the draft group's
+ * key; the venue has so many groups of its name that look alike that rule 10 stopped before trying them all: the owner
+ * leaves the group out, or tidies the venue's groups first), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
  * that guests may take more than once open a group: an option that opens a group is taken once, and the plan never
  * lowers the venue's quantity, so the owner keeps the venue's option or sets its quantity to 1 first).
  *
@@ -1077,9 +1109,10 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    resolved to or proposes: `section_renamed` (`same_section`, the default, keeps the venue's name; `rename` takes
  *    the source's; `keep_both` makes a new section). With step 5's rank, two renamed sections that each hold a dish of
  *    the same name keep their own; when only a tie could tell them apart, neither is proposed, and their dishes ask
- *    `dish_elsewhere` (rule 8). A section no applied import gave a row (`previous` has none for it) while it holds a row
- *    for one of its dishes is not asked: its proposal still counts against another's, and it stays without a row, as
- *    the imports left it.
+ *    `dish_elsewhere` (rule 8). A section no applied import gave a row (`previous` has no row id for it: no entry, or
+ *    `null`, the mark `appliedIds` leaves for a section an import left empty while its dishes were placed) while it
+ *    holds a row for one of its dishes is not asked: its proposal still counts against another's, and it stays without
+ *    a row, as the imports left it.
  * 7. **Dishes of another kind:** the dishes still unmatched against the existing dishes still free, in a section of the
  *    other family, one pass: `dish_other_kind` (default `new_dish`).
  * 8. **Dish outcomes.** A step-4 match, or a step-5 match now in its own resolved section, updates or keeps the
@@ -1094,9 +1127,14 @@ function heldRows<R extends { id: string; keys: Keys }>(
  * 9. **New sections** (draft order) are created only when a dish is created in them; else `empty`.
  * 10. **Groups.** A group's global match: an existing group with the same `selection`, `nameScore > 0`, whose options
  *    cover its kept options (`assign` over the options); the best score, then the fewest existing options, then the
- *    smaller id. The candidates are tried in that order, and the first that covers is the match. One with fewer
- *    options than the kept ones, or with fewer options matching some name than the kept options of that name, is
- *    passed over untried (it cannot cover); after `GLOBAL_COVER_TRIES` tried covers that fail, there is none. Each kept link of a matched dish whose dish already has a group with the same selection and a
+ *    smaller id. The candidates are tried in that order, and the first that covers is the match. One that cannot cover
+ *    by its counts is passed over untried: fewer options than the kept ones; for some name (`he|en` keys), fewer options
+ *    matching it (`scoreKeys > 0`) than the kept options of that name; or, over all the names, fewer different options
+ *    matching one of them than the kept options. After `GLOBAL_COVER_TRIES` tried covers that fail, only a group with,
+ *    for each name, at least as many options of exactly those keys (`hasTwins`: as an import of this group makes it) is
+ *    tried, up to `GLOBAL_COVER_TRIES` more. A walk that ends without a match while it passed over, for the bound, a
+ *    group its counts allow is refused (`group_ambiguous` at the draft group's key: never a second group made in
+ *    silence); one that tried every group its counts allow has no match (rule 2 counts a refused walk as no match). Each kept link of a matched dish whose dish already has a group with the same selection and a
  *    matching name (the best score, then the link's position, then its id) **stays on that group**: if its options do
  *    not cover the draft's, `group_changed` keyed `<dish>><group>` (`keep_mine` by default; `add_options` adds the
  *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it); a link whose dish's
@@ -1107,8 +1145,8 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    there) that opens a kept group G: when the venue's option opens a group with G's selection and a matching name,
  *    that group is a target of G (`group_changed` keyed `<option step key>><G>` when it does not cover G's options);
  *    otherwise `opens_changed` (same key; `keep_mine`, or `new_group`: G is created and the venue's option is updated
- *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option, and as
- *    `opener_qty` when the venue's option has a `max_qty` other than 1). A group's
+ *    to open it, refused as `opener_qty` when the venue's option has a `max_qty` other than 1; whether the move keeps
+ *    one nesting level is rule 11's last check). A group's
  *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
  *    group's key, the others by `targetKey`. An option's `group_changed` or `opens_changed` on an existing target
  *    takes the answer stored under the key that names the target (`<option>@<group id>><G>`) first, then its own: the
@@ -1120,7 +1158,7 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    Its limits are confirmed only when the source stated one (`limits_confirmed`).
  * 11. **Options**, per target (draft option order): a left-out option has one `skip` step, under the first target only;
  *    in a created target every kept option is created (positions from 0; its default kept; it opens its nested
- *    group's global target, refused as `nesting_too_deep` when that is an existing group whose options open groups);
+ *    group's global target);
  *    in an existing target, a matched option updates (names fill blanks; prices read that differ, on every existing
  *    target of the group, ask one `price_differs` keyed by the draft group, `count` = how many, and
  *    `price_differs@<option key>` answers one option on all its targets; an `opens_changed`/`group_changed` answer
@@ -1128,10 +1166,16 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    or is kept; an unmatched one is created when a link or option of this group answered `add_options` for that
  *    target (positions after the group's last, never a default), and is `skip` (`choice`) otherwise. An option so
  *    added that opens a kept group N (`opensOf`) opens N's global target, so the next import finds it as the draft
- *    says, unless that would nest deeper than the venue allows: when a venue option opens the target it is added to,
- *    or N's global target is that same group or an existing group holding a venue option that opens a group, it opens
- *    nothing. N then needs its global target (rule 10's `needsGlobal`), created when N has no global match: that
+ *    says. N then needs its global target (rule 10's `needsGlobal`), created when N has no global match: that
  *    creation counts as a use (rule 12).
+ *    **One nesting level**, last, on the menu as the plan leaves it (round 10c): the openers are the plan's option
+ *    steps `create` or `update` that set an opened group (`set.opens_group_id`, or `refs.opens_group_id` for a group
+ *    the plan creates), held by their target (an update's: the venue's option's group), and the venue's options that
+ *    open a group, except those the plan updates. An opener of the plan's whose group is opened by any opener, or
+ *    whose opened group holds any opener, asks `nesting_too_deep` (a `fix`: `unlink` or `skip`), keyed by its draft
+ *    option, once per key (in option step order), unless the draft asks it already. Unanswered, the plan is refused
+ *    (`exception_unresolved`): it never writes a chain the database refuses, and never drops an opener in silence.
+ *    Answered, the answer holds from rule 1 on, like the draft's own (`opensOf`, rule 2), and is listed then.
  * 12. **Links.** A dish never gets two links to one group, nor to two groups of one selection whose names match
  *    (`scoreKeys`; the venue's names for its group, the draft's for one this plan creates): in link order, a kept link
  *    that lands where an earlier link of the same dish landed, or on a group whose name matches that one's, is `merged`
@@ -1175,10 +1219,22 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
 
   // ---- 1. the draft's answers
   const choice = new Map<string, ImportChoice>();
-  for (const e of draftExceptions(draft, opts)) {
+  const fromDraft = draftExceptions(draft, opts);
+  for (const e of fromDraft) {
     const c = answer(e);
     if (c !== undefined) { choice.set(exceptionId(e), c); answered.push({ ...e, choice: c }); }
   }
+  // the owner's answer to the plan's `nesting_too_deep` for an opener (rule 11's last check) holds from the start, wherever that
+  // option goes: `unlink` (it opens nothing) or `skip` (it is left out); the plan lists it as asked, with that answer
+  const draftNesting = new Set(fromDraft.filter((e) => e.code === 'nesting_too_deep').map((e) => e.key));
+  draft.groups.forEach((g, gi) => g.options.forEach((o, oi) => {
+    const id = `nesting_too_deep@${o.key}`;
+    const c = decisions.choices[id];
+    if (o.opens === null || draftNesting.has(o.key) || c === undefined) return;
+    if (!EXCEPTION_CHOICES.nesting_too_deep.includes(c)) return void x.add('choice_invalid', o.key, 'nesting_too_deep');
+    choice.set(id, c);
+    planAsked.push({ e: { code: 'nesting_too_deep', severity: 'fix', key: o.key, path: `groups[${gi}].options[${oi}]`, count: 1, choice: c }, step: `option:${o.key}` });
+  }));
   const chosen = (code: ImportExceptionCode, key: string): ImportChoice | undefined => choice.get(`${code}@${key}`);
   /** A plan exception: asked once, answered like the draft's, filed against the step it concerns. */
   const ask = (code: ImportExceptionCode, key: string, path: string, step: `${PlanKind}:${string}`, count = 1, first?: string): ImportChoice | undefined => {
@@ -1222,18 +1278,26 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   /** The existing options that `options` match in group `gid` (each at most once). */
   const matchOptions = (options: readonly DraftOption[], gid: string): Map<string, Row<ExistingMenu['options'][number]>> =>
     assign(options.map((o) => ({ key: o.key, keys: optionKeys.get(o.key)! })), () => optionsOf.get(gid) ?? [], new Set());
-  /** The venue's group's options, indexed by name, once. */
+  /** The venue's group's options, indexed by name, and counted by their exact name keys, once each. */
   const optionIndexCache = new Map<string, ReturnType<typeof byIndex<ExistingMenu['options'][number]>>>();
   const optionIndexOf = (gid: string) => {
     let i = optionIndexCache.get(gid);
     if (!i) { i = byIndex(optionsOf.get(gid) ?? []); optionIndexCache.set(gid, i); }
     return i;
   };
-  /** What a cover of `options` by group `gid` needs, checked without the cover (so it never changes one): no more
-   * options than the group has, and for each set of options with the same name keys, at least as many of the group's
-   * options that match that name. */
-  const mayCover = (options: readonly DraftOption[], gid: string): boolean => {
-    if (options.length > (optionsOf.get(gid)?.length ?? 0)) return false;
+  const twinCountCache = new Map<string, Map<string, number>>();
+  const twinCountOf = (gid: string): Map<string, number> => {
+    let c = twinCountCache.get(gid);
+    if (!c) {
+      c = new Map();
+      for (const r of optionsOf.get(gid) ?? []) c.set(`${r.keys.he}|${r.keys.en}`, (c.get(`${r.keys.he}|${r.keys.en}`) ?? 0) + 1);
+      twinCountCache.set(gid, c);
+    }
+    return c;
+  };
+  /** A draft group's options in sets of the same name keys (`he|en`), with how many each. */
+  type NameSets = ReadonlyMap<string, { readonly keys: Keys; readonly n: number }>;
+  const nameSetsOf = (options: readonly DraftOption[]): NameSets => {
     const same = new Map<string, { keys: Keys; n: number }>();
     for (const o of options) {
       const k = optionKeys.get(o.key)!;
@@ -1241,25 +1305,51 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       if (c) c.n += 1;
       else same.set(`${k.he}|${k.en}`, { keys: k, n: 1 });
     }
-    for (const { keys, n } of same.values()) if (candidates(optionIndexOf(gid), keys).length < n) return false;
+    return same;
+  };
+  /** What a cover of `count` options (in `sets`) by group `gid` needs, checked without the cover, so it never changes
+   * one: no more options than the group has; for each set, at least as many of the group's options matching that name
+   * (`scoreKeys > 0`); and, over all the sets, at least `count` different options of the group matching one of them. */
+  const mayCover = (sets: NameSets, count: number, gid: string): boolean => {
+    if (count > (optionsOf.get(gid)?.length ?? 0)) return false;
+    const any = new Set<string>();
+    for (const { keys, n } of sets.values()) {
+      const rows = candidates(optionIndexOf(gid), keys);
+      if (rows.length < n) return false;
+      for (const r of rows) any.add(r.id);
+    }
+    return any.size >= count;
+  };
+  /** Whether group `gid` has, for each set, at least as many options with exactly those name keys: an option of its
+   * own for each (as an import of this group makes it). */
+  const hasTwins = (sets: NameSets, gid: string): boolean => {
+    const have = twinCountOf(gid);
+    for (const [k, { n }] of sets) if ((have.get(k) ?? 0) < n) return false;
     return true;
   };
-  /** The venue's groups a draft group lands on by itself (rule 10's global match): its selection, a name that matches,
+  /**
+   * The venue's group a draft group lands on by itself (rule 10's global match): its selection, a name that matches,
    * and options that cover `options`; the best score, then the fewest existing options, then the smaller id. The
-   * candidates are tried in that order and the first that covers is the match; one that `mayCover` rules out is passed
-   * over, and after `GLOBAL_COVER_TRIES` covers tried that fail, none is (SEC-M4: a menu of many groups of one name). */
-  const globalMatchOf = (g: DraftGroup, options: readonly DraftOption[]): string | undefined => {
+   * candidates are walked in that order and the first that covers is the match; one that `mayCover` rules out is passed
+   * over. After `GLOBAL_COVER_TRIES` covers that fail, the walk tries only the groups with a twin for every option
+   * (`hasTwins`), up to `GLOBAL_COVER_TRIES` more. A walk that ends without a match, having left a group `mayCover`
+   * allows untried, is `ambiguous` (SEC-M4: a menu of many groups of one name; never a second group made in silence).
+   */
+  const globalMatchOf = (g: DraftGroup, options: readonly DraftOption[]): { id?: string; ambiguous?: true } => {
     const k = groupKeys.get(g.key)!;
+    const sets = nameSetsOf(options);
     const ordered = candidates(groupIndex, k).filter((e) => e.selection === g.selection)
       .sort((a, b) => scoreKeys(k, b.keys) - scoreKeys(k, a.keys) || (optionsOf.get(a.id)?.length ?? 0) - (optionsOf.get(b.id)?.length ?? 0) ||
         compareIds(a.id, b.id));
     let tried = 0;
+    let untried = false;
     for (const e of ordered) {
-      if (!mayCover(options, e.id)) continue;
-      if (matchOptions(options, e.id).size === options.length) return e.id;
-      if (++tried === GLOBAL_COVER_TRIES) return undefined;
+      if (!mayCover(sets, options.length, e.id)) continue;
+      if (tried >= 2 * GLOBAL_COVER_TRIES || (tried >= GLOBAL_COVER_TRIES && !hasTwins(sets, e.id))) { untried = true; continue; }
+      if (matchOptions(options, e.id).size === options.length) return { id: e.id };
+      tried += 1;
     }
-    return undefined;
+    return untried ? { ambiguous: true } : {};
   };
 
   // ---- 2. what is left out
@@ -1321,7 +1411,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     cascade();
     const skipAnswered = (g: DraftGroup): boolean => decisions.choices[exceptionId({ code: 'limits_unreachable', key: g.key })] === 'skip';
     const pass = draft.groups.filter((g) => !unreachableInDraft.has(g.key) && !askedUnreachable.has(g.key) && unreachable(g) &&
-      (skipAnswered(g) || globalMatchOf(g, keptOptions(g)) === undefined));
+      (skipAnswered(g) || globalMatchOf(g, keptOptions(g)).id === undefined));
     const skips = pass.filter(skipAnswered);
     for (const g of skips) { askUnreachable(g); skipped.set(g.key, 'choice'); }
     cascade();
@@ -1427,7 +1517,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   // still holds (it was this draft): its proposal still counts against another's, but it is not asked, so the same
   // draft with the same answers leaves it without a row again
   const leftOut = (key: string): boolean =>
-    prevSections !== undefined && !hasOwn(prevSections, key) && kept.some((n) => rootOf(n.section.key) === key && heldDishes.has(n.key));
+    prevSections !== undefined && typeof (hasOwn(prevSections, key) ? prevSections[key] : undefined) !== 'string' &&
+    kept.some((n) => rootOf(n.section.key) === key && heldDishes.has(n.key));
   for (const s of draft.sections) {
     if (out(s.key) || mergedInto.has(s.key) || nameMatched.has(s.key)) continue;
     // more than half of all its kept dishes (its merged sections' included) matched, not by a tie, in one section
@@ -1550,8 +1641,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const covers = (g: DraftGroup, gid: string): boolean => cover(g, gid).size === keptOf.get(g.key)!.length;
   const globalMatch = new Map<string, string>();
   for (const g of draft.groups) {
-    const m = out(g.key) ? undefined : globalMatchOf(g, keptOf.get(g.key)!);
-    if (m !== undefined) globalMatch.set(g.key, m);
+    const m = out(g.key) ? {} : globalMatchOf(g, keptOf.get(g.key)!);
+    if (m.id !== undefined) globalMatch.set(g.key, m.id);
+    else if (m.ambiguous) x.add('group_ambiguous', g.key);
   }
   type LinkRes = { kind: 'own'; link: ExistingMenu['dishGroups'][number]; groupId: string; answer: ImportChoice | null } | { kind: 'global' };
   const linkRes = new Map<string, LinkRes>();
@@ -1644,7 +1736,6 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
           forcedNew.add(nested);
           needsGlobal.add(nested);
           openerMove.set(ok, nested);
-          if (existing.options.some((x2) => x2.opens_group_id === t.id)) x.add('nesting_too_deep', o.key);
         }
       });
     }
@@ -1663,15 +1754,11 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   /** Rule 11 adds the options a target lacks when a link or an option of the group answered `add_options` for it. */
   const addingTo = (g: DraftGroup, tid: string): boolean =>
     linksOfGroup(g).some((r) => r.kind === 'own' && r.groupId === tid && r.answer === 'add_options') || (openerAdd.get(g.key)?.has(tid) ?? false);
-  const nestsAlready = (gid: string): boolean => (optionsOf.get(gid) ?? []).some((o) => o.opens_group_id !== null);
-  /** What an option rule 11 adds to the venue's group `tid` opens: its nested group's global target, while the venue
-   * keeps one nesting level (no venue option opens `tid`; the target is another group, holding no venue option that
-   * opens a group); otherwise nothing. */
-  const addedOpens = (tid: string, o: DraftOption): Target | null => {
+  /** What an option rule 11 adds to the venue's group opens: its nested group's global target (one nesting level is
+   * rule 11's last check, on the menu as the plan leaves it). */
+  const addedOpens = (o: DraftOption): Target | null => {
     const n = opensOf(o);
-    if (n === null || out(n) || existing.options.some((v) => v.opens_group_id === tid)) return null;
-    const ot = globalOf(n);
-    return ot.id !== null && (ot.id === tid || nestsAlready(ot.id)) ? null : ot;
+    return n === null || out(n) ? null : globalOf(n);
   };
   // the nested group of such an option needs its global target, created (and so used) when it has no global match
   const addedOpenerCreates = new Set<string>();
@@ -1682,7 +1769,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       if (!addingTo(g, t.id!)) continue;
       const cov = cover(g, t.id!);
       for (const o of keptOptions(g)) {
-        const ot = cov.has(o.key) ? null : addedOpens(t.id!, o);
+        const ot = cov.has(o.key) ? null : addedOpens(o);
         if (ot === null) continue;
         needsGlobal.add(opensOf(o)!);
         if (ot.id === null) addedOpenerCreates.add(opensOf(o)!);
@@ -1811,16 +1898,47 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         if (t.id === null) refs.group_id = g.key; else set.group_id = t.id;
         // in a created group: its nested group's global target; added to the venue's: `addedOpens`
         const opens = opensOf(o);
-        const ot = t.id !== null ? addedOpens(t.id, o) : opens !== null && !out(opens) ? globalOf(opens) : null;
-        if (ot?.id) {
-          if (nestsAlready(ot.id)) x.add('nesting_too_deep', o.key);
-          set.opens_group_id = ot.id;
-        } else if (ot?.ref) refs.opens_group_id = ot.ref;
+        const ot = t.id !== null ? addedOpens(o) : opens !== null && !out(opens) ? globalOf(opens) : null;
+        if (ot?.id) set.opens_group_id = ot.id;
+        else if (ot?.ref) refs.opens_group_id = ot.ref;
         else set.opens_group_id = null;
         optionSteps.push(createStep('option', key, set, refs));
       });
     }
   });
+
+  // ---- 11, last. one nesting level, on the menu as the plan leaves it: no group is both opened by an option and holds an
+  // option that opens a group. Each opener the plan writes (created, added to a venue's group, or a venue's option moved
+  // to open a new group) that is part of such a chain asks `nesting_too_deep`, keyed by its draft option, unless the
+  // draft asks it already; unanswered, the plan is refused (`exception_unresolved`), so it never writes what the
+  // database refuses. The answer (`unlink`, `skip`) holds from rule 1 on.
+  {
+    const edges: Array<{ holder: string; target: string; step: string | null }> = [];
+    const movedIds = new Set<string>();
+    const venueGroupOf = new Map(existing.options.map((o) => [o.id, o.group_id] as const));
+    for (const p of optionSteps) {
+      if (p.kind !== 'option' || (p.op !== 'create' && p.op !== 'update')) continue;
+      const set = p.set as { group_id?: string; opens_group_id?: string | null };
+      const refs = p.refs as { group_id?: string; opens_group_id?: string };
+      const target = refs.opens_group_id !== undefined ? `ref:${refs.opens_group_id}` : set.opens_group_id ?? null;
+      if (target === null) continue;
+      if (p.op === 'update') movedIds.add(p.id);
+      const holder = p.op === 'update' ? venueGroupOf.get(p.id)! : set.group_id ?? `ref:${refs.group_id}`;
+      edges.push({ holder, target, step: p.key });
+    }
+    for (const o of existing.options) if (o.opens_group_id !== null && !movedIds.has(o.id)) edges.push({ holder: o.group_id, target: o.opens_group_id, step: null });
+    const opened = new Set(edges.map((e) => e.target));
+    const holding = new Set(edges.map((e) => e.holder));
+    const optionPath = new Map(draft.groups.flatMap((g, gi) => g.options.map((o, oi) => [o.key, `groups[${gi}].options[${oi}]`] as const)));
+    const askedNesting = new Set<string>();
+    for (const e of edges) {
+      if (e.step === null || !(opened.has(e.holder) || holding.has(e.target))) continue;
+      const optionKey = e.step.split('@')[0]!;
+      if (draftNesting.has(optionKey) || askedNesting.has(optionKey)) continue;
+      askedNesting.add(optionKey);
+      ask('nesting_too_deep', optionKey, optionPath.get(optionKey)!, `option:${e.step}`);
+    }
+  }
 
   // ---- 12. links and photos
   const linkSteps: PlanStep[] = [];
@@ -2302,7 +2420,9 @@ export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
  * `apply_import`: `draft` is the one the owner looked at (the database refuses with `draft_changed` when the stored
  * draft is another), `decisions` their answers. The reply carries the plan that was applied. `import_busy`: another
  * import RPC of the venue holds its import lock (the apply tries it and does not wait); nothing was done, so the client
- * retries after a moment.
+ * retries after a moment. `plan_invalid`: `planApply`'s errors, in `errors` (among them, since round 10c,
+ * `exception_unresolved` with message `nesting_too_deep` for an opener the plan would chain, and `group_ambiguous`).
+ * The import's `applied_ids` is `appliedIds(draft, plan, …)`: the draft too, for a section's `null`.
  */
 export type ApplyImportInput = { readonly importId: string; readonly draft: ImportDraft; readonly decisions: ImportDecisions };
 export type ApplyImportReply =

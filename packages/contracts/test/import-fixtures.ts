@@ -139,8 +139,9 @@ type Rows = { -readonly [K in Exclude<keyof ExistingMenu, 'previous'>]: Array<Re
 
 /** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call), and folds what
  * it put each section and dish on (what `apply_import` stores as `menu_imports.applied_ids`) into `previous`, as the
- * newest applied import (`mergePrevious`). */
-export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
+ * newest applied import (`mergePrevious`). With the plan's `draft`, a section it left empty with all its dishes
+ * placed is recorded `null`, as `apply_import` does; without it, no such section is recorded. */
+export function applyPlan(menu: ExistingMenu, plan: ImportPlan, draft: ImportDraft = { v: 1, source: 'paste', sections: [], groups: [], dropped: 0 }): ExistingMenu {
   const out = copy(menu) as unknown as Rows;
   const idOf = new Map<string, string>();
   const resolved = (set: object, refs: object): Record<string, unknown> => {
@@ -163,7 +164,7 @@ export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
   }
   out.previous = mergePrevious([
     { id: 'earlier', appliedAt: '2026-01-01T00:00:00Z', appliedIds: menu.previous ?? null },
-    { id: 'this', appliedAt: '2026-01-01T00:00:01Z', appliedIds: appliedIds(plan, (_, key) => idOf.get(key)) },
+    { id: 'this', appliedAt: '2026-01-01T00:00:01Z', appliedIds: appliedIds(draft, plan, (_, key) => idOf.get(key)) },
   ]);
   return out as unknown as ExistingMenu;
 }

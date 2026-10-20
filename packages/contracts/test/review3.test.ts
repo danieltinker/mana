@@ -440,14 +440,14 @@ type HopaFlow = { draft: ImportDraft; first: ImportDecisions; reread: ImportDraf
  */
 const hopaFlow = (f: HopaFlow, forget = false) => {
   const p1 = plan(f.draft, EMPTY_MENU, f.first);
-  let m = applyPlan(EMPTY_MENU, p1);
+  let m = applyPlan(EMPTY_MENU, p1, f.draft);
   const p2 = plan(f.draft, m, f.first);
-  m = applyPlan(m, p2);
+  m = applyPlan(m, p2, f.draft);
   if (forget) { const { previous: _, ...rest } = m; m = rest; }
   const p3 = plan(f.reread, m, f.again);
-  m = applyPlan(m, p3);
+  m = applyPlan(m, p3, f.reread);
   const p4 = plan(f.reread, m, f.again);
-  const m4 = applyPlan(m, p4);
+  const m4 = applyPlan(m, p4, f.reread);
   const p5 = plan(f.reread, m4, f.again);
   return { p1, p2, p3, p4, p5, menu: m, menu4: m4 };
 };
@@ -580,8 +580,8 @@ test('round 9: appliedIds is what apply_import stores: the row each section and 
   const d = bistroDraft();
   const p1 = plan(d, EMPTY_MENU, yes({}, ['d-lemonade']));
   const ids = new Map([['s-mains', 'S1'], ['s-drinks', 'S2'], ['d-schnitzel', 'D1'], ['d-burger', 'D2']]);
-  assert.deepEqual(appliedIds(p1, (_, key) => ids.get(key)), { sections: { 's-mains': 'S1' }, dishes: { 'd-schnitzel': 'D1', 'd-burger': 'D2' } },
-    'a node left out (and the section it empties) has none');
+  assert.deepEqual(appliedIds(d, p1, (_, key) => ids.get(key)), { sections: { 's-mains': 'S1' }, dishes: { 'd-schnitzel': 'D1', 'd-burger': 'D2' } },
+    'a node left out has none, nor a section emptied by leaving its dishes out');
   const m1 = applyPlan(EMPTY_MENU, p1);
   const m2 = applyPlan(m1, plan(d, m1));
   assert.deepEqual(Object.keys(m2.previous!.dishes), ['d-schnitzel', 'd-burger', 'd-lemonade']);
@@ -841,7 +841,7 @@ test('round 10 (SEC-M4): a menu at the limits whose 200 groups share one name re
   }
 });
 
-test('round 10 (SEC-M4): candidates in order; those that cannot cover by count are passed over; after 8 failed covers, no match', () => {
+test('round 10 (SEC-M4, 10c): candidates in order, count misfits passed over; after 8 failed covers only twin groups; never a silent duplicate', () => {
   // a venue group whose options pass the count checks for the draft's two options, yet the cover fails: the draft's
   // אורז/Rice takes the venue's אורז/Rice (score 3) before ''/Rice can, and ''/Rice matches nothing else
   const failing = (i: number) => ({ id: uuid(0x100 + i), options: [['אורז', 'Rice'], ['אורז', 'Pilaf']] as const });
@@ -861,6 +861,89 @@ test('round 10 (SEC-M4): candidates in order; those that cannot cover by count a
   // groups with fewer options come first in the order; a group that is too small is passed over without a try
   const tooSmall = Array.from({ length: 20 }, (_, i) => tooFew(i));
   assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 7 }, (_, i) => failing(i)), covering])), covering.id, '7 failed tries, the 8th covers');
-  assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 8 }, (_, i) => failing(i)), covering])), 'created',
-    'after 8 failed covers the group has no global match (without the bound, the covering group)');
+  // after 8 failed covers, a group with a twin for each draft option (as an import of this group makes it) is still tried
+  assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 8 }, (_, i) => failing(i)), covering])), covering.id, 'the twin group, after the bound');
+  // one that covers without twins is not tried: rather than make a second Extras in silence, the plan is refused
+  const coversOtherwise = { id: uuid(0x1fe), options: [['אורז', 'Rice'], ['צ׳יפס', 'Rice']] as const };
+  const r = planApply(d, venue([...Array.from({ length: 8 }, (_, i) => failing(i)), coversOtherwise]), yes());
+  assert.deepEqual(r.ok ? [] : r.errors, [{ code: 'group_ambiguous', path: 'g' }]);
+  assert.equal(landing(venue([...Array.from({ length: 7 }, (_, i) => failing(i)), coversOtherwise])), coversOtherwise.id, 'within the bound, it is tried');
+  // a walk that tried every candidate the counts allow, and found none, makes the group as before
+  assert.equal(landing(venue([...tooSmall, ...Array.from({ length: 12 }, (_, i) => failing(i))].filter((_, i) => i < 28))), 'created');
+  assert.equal(step(plan(d, venue(Array.from({ length: 8 }, (_, i) => failing(i)))), 'group', 'g').op, 'create', '8 tried, nothing left untried');
 });
+
+// ---------------------------------------------------------------- round 10c (QA of 202522b)
+
+test('round 10c (QA-M4, r10-nesting-pg.ts N1–N3): one nesting level on the menu as the plan leaves it, asked per opener', () => {
+  const sauce = (k: string, opts: ReturnType<typeof opt>[]) => group(k, 'רוטב', 'Sauce', { selection: 'multiple', min: 0, max: 3, options: opts });
+  const venueOf = (d: ImportDraft) => applyPlan(EMPTY_MENU, plan(d), d);
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000)])],
+    [sauce('g-sauce', [opt('a', 'איולי', 'Aioli', 0), opt('k', 'קטשופ', 'Ketchup', 0)])]);
+  const herbs = (k: string, opts: ReturnType<typeof opt>[]) => group(k, 'עשבים', 'Herbs', { selection: 'multiple', min: 0, max: 2, options: opts });
+  // N1: a new Side's Fries opens the venue's Sauce, and the Burger's Sauce gets a Chili (add_options) that opens Herbs
+  const n1 = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-burger-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g-side')] }),
+  ])], [
+    group('g-side', 'תוספת', 'Side', { options: [opt('f', 'צ׳יפס', 'Fries', 0, { opens: 'g-sauce' }), opt('s2', 'סלט', 'Salad', 0)] }),
+    sauce('g-sauce', [opt('a2', 'איולי', 'Aioli', 0)]),
+    sauce('g-burger-sauce', [opt('a3', 'איולי', 'Aioli', 0), opt('c3', 'צ׳ילי', 'Chili', 0, { opens: 'g-herbs' })]),
+    herbs('g-herbs', [opt('h1', 'פטרוזיליה', 'Parsley', 0)]),
+  ]);
+  // N2: two add_options answers chain Sauce → Herbs → Dips
+  const base2 = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g-herbs')] }),
+  ])], [sauce('g-sauce', [opt('a', 'איולי', 'Aioli', 0), opt('k', 'קטשופ', 'Ketchup', 0)]), herbs('g-herbs', [opt('h1', 'פטרוזיליה', 'Parsley', 0)])]);
+  const n2 = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-burger-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g-steak-herbs')] }),
+  ])], [
+    sauce('g-burger-sauce', [opt('a3', 'איולי', 'Aioli', 0), opt('c3', 'צ׳ילי', 'Chili', 0, { opens: 'g-herbs' })]),
+    herbs('g-herbs', [opt('h2', 'פטרוזיליה', 'Parsley', 0)]),
+    herbs('g-steak-herbs', [opt('h3', 'פטרוזיליה', 'Parsley', 0), opt('m3', 'נענע', 'Mint', 0, { opens: 'g-dips' })]),
+    group('g-dips', 'מטבלים', 'Dips', { options: [opt('t1', 'טחינה', 'Tahini', 0), opt('t2', 'חומוס', 'Hummus', 0)] }),
+  ]);
+  // N3 (since 7c9d25b): a created option opens the venue's Sauce while opens_changed new_group moves its Aioli to a new Dips
+  const n3 = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-burger-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g-side')] }),
+  ])], [
+    group('g-side', 'תוספת', 'Side', { options: [opt('f', 'צ׳יפס', 'Fries', 0, { opens: 'g-sauce' }), opt('s2', 'סלט', 'Salad', 0)] }),
+    sauce('g-sauce', [opt('a2', 'איולי', 'Aioli', 0)]),
+    sauce('g-burger-sauce', [opt('a3', 'איולי', 'Aioli', 0, { opens: 'g-dips' }), opt('k3', 'קטשופ', 'Ketchup', 0)]),
+    group('g-dips', 'מטבלים', 'Dips', { options: [opt('t1', 'טחינה', 'Tahini', 0), opt('t2', 'חומוס', 'Hummus', 0)] }),
+  ]);
+  const cases: Array<[string, ImportDraft, ImportDraft, Record<string, ImportChoice>, [string, string]]> = [
+    ['N1', base, n1, { 'group_changed@d-burger>g-burger-sauce': 'add_options' }, ['f', 'c3']],
+    ['N2', base2, n2, { 'group_changed@d-burger>g-burger-sauce': 'add_options', 'group_changed@d-steak>g-steak-herbs': 'add_options' }, ['c3', 'm3']],
+    ['N3', base, n3, { 'opens_changed@a3>g-dips': 'new_group' }, ['f', 'a3']],
+  ];
+  for (const [label, b, d, choices, [first, second]] of cases) {
+    const m = venueOf(b);
+    // both openers of the chain are asked; unanswered, the plan is refused (it never writes what PostgreSQL refuses)
+    const r = planApply(d, m, yes(choices));
+    assert.deepEqual(r.ok ? [] : r.errors, [first, second].map((k) => ({ code: 'exception_unresolved', path: k, message: 'nesting_too_deep' })), label);
+    // either answer ends the chain: the plan lists it, and the menu keeps one level
+    for (const [k, c] of [[first, 'unlink'], [second, 'unlink'], [first, 'skip'], [second, 'skip']] as const) {
+      const p = plan(d, m, yes({ ...choices, [`nesting_too_deep@${k}`]: c }));
+      assert.ok(asked(p).includes(`nesting_too_deep@${k}=${c}`), `${label} ${k} ${c}`);
+      assert.deepEqual(menuRuleBreaks(applyPlan(m, p, d)), [], `${label} ${k} ${c}`);
+    }
+  }
+});
+
+test('round 10c (R10 L2): an empty section is remembered as such, unless dishes were left out by hand', () => {
+  const draft = draftOf([section('s0', 'עיקריות', 'Mains', [dish('s0d0', 'שניצל', 'Schnitzel', 3000), dish('s0d1', 'סלט', 'Salad', 3000)])]);
+  const reread = renamedCopy(draft);
+  const m1 = applyPlan(EMPTY_MENU, plan(draft), draft);
+  // the re-read: "Mains new" is not proposed for a rename when the owner says no (new_section)... the dishes stay
+  // where they are: the section is left empty with its dishes placed: null
+  const answers = yes({ 'section_renamed@s0': 'keep_both', 'dish_elsewhere@s0d0': 'same_dish', 'dish_elsewhere@s0d1': 'same_dish' });
+  const p = plan(reread, m1, answers);
+  assert.equal(brief(step(p, 'section', 's0')), 'section:s0:skip(empty)');
+  const ids = appliedIds(reread, p, () => undefined);
+  assert.equal(ids.sections['s0'], null);
+  // left out by hand (decisions.skip), the same section says nothing
+  const byHand = plan(reread, m1, yes(answers.choices, ['s0d1']));
+  assert.equal(brief(step(byHand, 'section', 's0')), 'section:s0:skip(empty)');
+  assert.equal(hasOwnKey(appliedIds(reread, byHand, () => undefined).sections, 's0'), false);
+});
+const hasOwnKey = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
