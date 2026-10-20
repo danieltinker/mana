@@ -32,6 +32,7 @@ import type {
 import {
   IMPORT_SOURCES, LIMITS, ROOMS, SECTION_KINDS, SELECTIONS, TAGS, type ImportSource, type Room, type SectionKind, type SelectionKind, type Tag,
 } from './enums.ts';
+import { instantMs } from './events.ts';
 import type { RpcFail, RpcOk } from './rpc.ts';
 import { isRelPath } from './validate-snapshot.ts';
 
@@ -866,7 +867,9 @@ export type PlanStep = {
     | { readonly kind: K; readonly key: string; readonly op: 'skip'; readonly id: null; readonly set: NoColumns; readonly refs: NoColumns; readonly reason: SkipReason };
 }[PlanKind];
 
-export type PlanSummary = Readonly<Record<PlanKind, Readonly<Record<PlanOp, number>>>>;
+/** Per kind, how many steps of each op, and of the skipped ones how many for each reason (every reason, zeros
+ * included; `skip` is their sum): a link `merged` and a group `unused` are said here, not only in the steps. */
+export type PlanSummary = Readonly<Record<PlanKind, Readonly<Record<PlanOp, number>> & { readonly skipped: Readonly<Record<SkipReason, number>> }>>;
 export type ImportPlan = {
   readonly v: 1;
   readonly steps: readonly PlanStep[];
@@ -933,7 +936,9 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * duplicate of what the venue has (Hopa test 1), and the same plan whatever the order of the draft. Errors (no plan):
  * `exception_unresolved` (a `fix` without an allowed answer), `choice_invalid`, `prices_unconfirmed`, `too_many` (with
  * what the venue has, past `LIMITS`), `nesting_too_deep` (a new choice would open an existing group that has choices
- * opening groups of their own).
+ * opening groups of their own), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
+ * that guests may take more than once open a group: an option that opens a group is taken once, and the plan never
+ * lowers the venue's quantity, so the owner keeps the venue's option or sets its quantity to 1 first).
  *
  * The rules, in the order the database's `app.plan_import` applies them:
  * 1. **Answers.** Each exception takes its answer, or its first choice when it is a `check`.
@@ -942,9 +947,10 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    the options that open it; a group whose options are all left out is left out too (`empty`). `unlink` keeps an
  *    option but it opens nothing. Limits and capacity count only the options kept. Then, in passes, until a pass
  *    leaves nothing out: a pass's groups are the kept groups not asked yet whose kept options cannot reach their minimum
- *    (`draftGroupLimits` over them) while all their options could, and that have no global match over their kept
- *    options (rule 10's: such a group lands on the venue's group, whose limits stay). Those the owner answered `skip`
- *    are left out first, all at once (`choice`), and the cascade runs; then each of the others still kept is asked
+ *    (`draftGroupLimits` over them) while all their options could, and that either the owner answered `skip` or have
+ *    no global match over their kept options (rule 10's: such a group lands on the venue's group, whose limits stay;
+ *    a `skip` counts whatever the venue has, so the same draft with the same answers leaves the same groups out on a
+ *    re-import that finds the group the first import made). Those the owner answered `skip` are left out first, all at once (`choice`), and the cascade runs; then each of the others still kept is asked
  *    `limits_unreachable` (keyed by the group; a group the skips emptied is not asked); the next pass starts only after
  *    the whole pass, since a skip may make another group unreachable. A draft-level `limits_unreachable` is not asked
  *    again. A group not asked for its global match and created all the same (`new_group`) has its minimum lowered to
@@ -985,14 +991,16 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  *    smaller id. Each kept link of a matched dish whose dish already has a group with the same selection and a
  *    matching name (the best score, then the link's position, then its id) **stays on that group**: if its options do
  *    not cover the draft's, `group_changed` keyed `<dish>><group>` (`keep_mine` by default; `add_options` adds the
- *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it). Every other kept link
+ *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it); a link whose dish's
+ *    link row an earlier link of the same dish (link order) already stays on is asked nothing, and is merged (rule 12). Every other kept link
  *    goes to the global target: the global match, or the draft's group created (always created once a link or an
  *    option answered `new_group`). A group opened by an option created in a created group needs the global target too.
  *    Then, for each existing target of a group (in target order), each kept option the venue already has (matched
  *    there) that opens a kept group G: when the venue's option opens a group with G's selection and a matching name,
  *    that group is a target of G (`group_changed` keyed `<option step key>><G>` when it does not cover G's options);
  *    otherwise `opens_changed` (same key; `keep_mine`, or `new_group`: G is created and the venue's option is updated
- *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option). A group's
+ *    to open it, refused as `nesting_too_deep` when the option's own group is opened by another option, and as
+ *    `opener_qty` when the venue's option has a `max_qty` other than 1). A group's
  *    targets, in order: the global target, then the dishes' and options' own groups by id; the first is keyed by the
  *    group's key, the others by `targetKey`. A group with no target is `unused`. A created group's limits, each on its
  *    own: a stated one as stated; an unstated one is the guess over its kept options and yields to what the group's
@@ -1012,8 +1020,11 @@ function assign<N extends { key: string; keys: Keys }, R extends { id: string; p
  * 12. **Links.** A dish never gets two links to one group, nor to two groups of one selection whose names match
  *    (`scoreKeys`; the venue's names for its group, the draft's for one this plan creates): in link order, a kept link
  *    that lands where an earlier link of the same dish landed, or on a group whose name matches that one's, is `merged`
- *    (decided once every target is known, before rule 10's limits; a group created only for merged links is still
- *    created, unlinked, in the venue's library). A link staying on the dish's own group is kept (its row's id), or
+ *    (decided once every target is known, before rule 10's limits and before the groups' steps). The group the plan
+ *    would create for a draft group is created only when something uses it: a kept link that is not merged, a venue's
+ *    option moved to open it (`new_group`), or an option created in a group that is created; otherwise that target is
+ *    dropped, and a group left with no target is `unused` (the summary counts it, and the merged links, by reason).
+ *    A link staying on the dish's own group is kept (its row's id), or
  *    under `new_group` updated with the draft's dish limits and `refs.group_id`; the others are created with the
  *    draft's dish limits: for an existing group only those within its own limits (else null). Then, for every link
  *    written, a minimum above the capacity of the group it lands on (the `max_qty` of its options, the venue's and those
@@ -1139,10 +1150,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const linkOut = (d: DraftDish, a: DraftDishGroup): SkipReason | null =>
     out(d.key) || out(a.group) ? 'parent_skipped' : asked.has(linkKey(d.key, a.group)) ? 'choice' : null;
   const keptOptions = (g: DraftGroup): DraftOption[] => g.options.filter((o) => !out(o.key));
-  // a group whose kept options no longer reach its minimum (the draft's own options did), and that does not land on a
-  // venue's group by itself (whose limits are the venue's): asked once. One pass at a time: the groups answered `skip`
-  // are left out first, all at once, with their options, links and openers (the cascade); the others are then asked
-  // unless that left them out; the next pass looks again, since a skip may make another group unreachable.
+  // a group whose kept options no longer reach its minimum (the draft's own options did): asked once, unless it lands on
+  // a venue's group by itself (whose limits are the venue's). The owner's `skip` counts whatever the venue has: the
+  // same draft with the same answers leaves the same groups out when a re-import finds the group the first one made.
+  // One pass at a time: the groups answered `skip` are left out first, all at once, with their options, links and
+  // openers (the cascade); the others are then asked unless that left them out; the next pass looks again, since a
+  // skip may make another group unreachable.
   const unreachableInDraft = new Set(draft.groups.filter((g) => { const l = draftGroupLimits(g, g.options); return l.min > l.capacity; }).map((g) => g.key));
   const askedUnreachable = new Set<string>();
   const unreachable = (g: DraftGroup): boolean => {
@@ -1157,9 +1170,10 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   };
   for (let more = true; more;) {
     cascade();
+    const skipAnswered = (g: DraftGroup): boolean => decisions.choices[exceptionId({ code: 'limits_unreachable', key: g.key })] === 'skip';
     const pass = draft.groups.filter((g) => !unreachableInDraft.has(g.key) && !askedUnreachable.has(g.key) && unreachable(g) &&
-      globalMatchOf(g, keptOptions(g)) === undefined);
-    const skips = pass.filter((g) => decisions.choices[exceptionId({ code: 'limits_unreachable', key: g.key })] === 'skip');
+      (skipAnswered(g) || globalMatchOf(g, keptOptions(g)) === undefined));
+    const skips = pass.filter(skipAnswered);
     for (const g of skips) { askUnreachable(g); skipped.set(g.key, 'choice'); }
     cascade();
     for (const g of pass) if (!askedUnreachable.has(g.key) && unreachable(g)) askUnreachable(g);
@@ -1368,6 +1382,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const needsGlobal = new Set<string>();
   const forcedNew = new Set<string>();
   const groupOf = new Map(draft.groups.map((g) => [g.key, g] as const));
+  // a dish's link row that an earlier link of the same dish already stays on: the later one is merged (rule 12), so it
+  // is asked nothing (its `new_group` could not move a row the earlier link keeps)
+  const claimedRows = new Set<string>();
   for (const s of draft.sections) for (const d of s.dishes) for (const a of d.groups) {
     if (linkOut(d, a)) continue;
     const g = groupOf.get(a.group)!;
@@ -1379,7 +1396,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       .sort((p, q) => scoreKeys(k, q.y.keys) - scoreKeys(k, p.y.keys) || p.l.position - q.l.position || compareIds(p.l.id, q.l.id))[0] : undefined;
     const lk = linkKey(d.key, g.key);
     if (own) {
-      const answer = covers(g, own.y.id) ? null : ask('group_changed', lk, `${dishPath.get(d.key)!}.groups[${d.groups.indexOf(a)}]`, `dish_group:${lk}`);
+      const claimed = claimedRows.has(`${d.key}|${own.l.id}`);
+      claimedRows.add(`${d.key}|${own.l.id}`);
+      const answer = claimed || covers(g, own.y.id) ? null : ask('group_changed', lk, `${dishPath.get(d.key)!}.groups[${d.groups.indexOf(a)}]`, `dish_group:${lk}`);
       linkRes.set(lk, { kind: 'own', link: own.l, groupId: own.y.id, answer: answer ?? null });
       if (answer === 'new_group') { forcedNew.add(g.key); needsGlobal.add(g.key); }
     } else {
@@ -1439,6 +1458,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
           if (answer !== 'new_group') openerOwn.set(nested, (openerOwn.get(nested) ?? new Set()).add(y.id));
           if (answer === 'add_options') openerAdd.set(nested, (openerAdd.get(nested) ?? new Set()).add(y.id));
         } else answer = ask('opens_changed', ek, path, `option:${ok}`);
+        // an option that opens a group is taken once (the table's check): the plan never lowers the venue's quantity
+        // (an update takes nothing away), so `new_group` on an option guests may take more than once is refused
+        if (answer === 'new_group' && e.max_qty !== 1) return void x.add('opener_qty', ek, 'opens_changed');
         if (answer === 'new_group') {
           forcedNew.add(nested);
           needsGlobal.add(nested);
@@ -1449,7 +1471,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     }
   });
   const targetsOf = (g: DraftGroup): Target[] => {
-    const list: Target[] = needsGlobal.has(g.key) ? [globalOf(g.key)] : [];
+    const global = globalOf(g.key);
+    const list: Target[] = needsGlobal.has(g.key) && (global.id !== null || createdUsed.has(g.key)) ? [global] : [];
     const own = new Set<string>(openerOwn.get(g.key) ?? []);
     for (const r of linksOfGroup(g)) if (r.kind === 'own' && r.answer !== 'new_group') own.add(r.groupId);
     for (const id of [...own].sort(compareIds)) if (list[0]?.id !== id) list.push({ id, ref: null });
@@ -1474,6 +1497,23 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       const selection = groupOf.get(a.group)!.selection;
       if (landed.some((l) => l.at === at || (l.selection === selection && scoreKeys(l.keys, keys) > 0))) mergedLinks.add(linkKey(d.key, a.group));
       else landed.push({ at, keys, selection });
+    }
+  }
+  // the group this plan would create for a draft group is created only when something uses it: a kept link that is not
+  // merged, a venue's option moved to open it, or an option created in a group that is itself created (until nothing
+  // changes); with its links all merged and no opener, the draft group loses that target (`unused` with no other)
+  const createdUsed = new Set<string>(openerMove.values());
+  for (const s of draft.sections) for (const d of s.dishes) for (const a of d.groups) {
+    if (!linkOut(d, a) && !mergedLinks.has(linkKey(d.key, a.group)) && landingOf(d, a).id === null) createdUsed.add(a.group);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const g of draft.groups) {
+      if (!createdUsed.has(g.key)) continue;
+      for (const o of keptOptions(g)) {
+        const opens = opensOf(o);
+        if (opens !== null && !out(opens) && globalOf(opens).id === null && !createdUsed.has(opens)) { createdUsed.add(opens); changed = true; }
+      }
     }
   }
   /** The kept, unmerged links of `g` that land on the group this plan creates for it. */
@@ -1706,9 +1746,12 @@ function replaceNames(current: { name_he: string; name_en: string }, name: Text)
 }
 
 function summarize(steps: readonly PlanStep[]): PlanSummary {
-  const out = {} as Record<PlanKind, Record<PlanOp, number>>;
-  for (const k of PLAN_KINDS) out[k] = { create: 0, update: 0, keep: 0, skip: 0 };
-  for (const s of steps) out[s.kind][s.op] += 1;
+  const out = {} as Record<PlanKind, Record<PlanOp, number> & { skipped: Record<SkipReason, number> }>;
+  for (const k of PLAN_KINDS) out[k] = { create: 0, update: 0, keep: 0, skip: 0, skipped: { choice: 0, merged: 0, empty: 0, parent_skipped: 0, unused: 0 } };
+  for (const s of steps) {
+    out[s.kind][s.op] += 1;
+    if (s.op === 'skip') out[s.kind].skipped[s.reason] += 1;
+  }
   return out;
 }
 
@@ -1815,6 +1858,44 @@ export type ClaimScanReply =
 export const SCAN_ERROR_CODES = ['image_unreadable', 'model_failed', 'draft_invalid', 'timeout'] as const;
 export type ScanErrorCode = (typeof SCAN_ERROR_CODES)[number];
 
+/** Where a page of `list_purgeable_imports` ends: the last row's `finishedAt` and `importId`, exactly as they came. */
+export type PurgeCursor = { readonly finishedAt: string; readonly importId: string };
+/** One image import whose screenshots may be deleted now: the scanner deletes exactly `<venueId>/imports/<importId>/…`
+ * (its `paths`). `finishedAt`: when its retention started (applied, discarded or failed; or left waiting), at full
+ * precision (microseconds, as `to_jsonb` writes a `timestamptz`), so it can be sent back in a `PurgeCursor`. */
+export type PurgeableImport = {
+  readonly importId: string;
+  readonly venueId: string;
+  readonly status: MenuImportRow['status'];
+  readonly paths: readonly string[];
+  readonly finishedAt: string;
+};
+/**
+ * `list_purgeable_imports(p_limit integer default 50, p_after jsonb default null)` → `ListPurgeable` (the service role
+ * only, the scanner's `purge` mode; anyone else gets 42501): the image imports past `import_raw_retention_days` whose
+ * screenshots are not purged yet, oldest first by (`finishedAt`, `importId`), at most `limit` (1–500; the database
+ * clamps one outside it, the validator refuses it). `after`, a keyset cursor: the page after that row, so rows the
+ * scanner cannot purge never hold back the rest. A malformed cursor raises 22023 `cursor_invalid`.
+ */
+export type ListPurgeableQuery = { readonly limit?: number | null; readonly after?: PurgeCursor | null };
+export type ListPurgeable = readonly PurgeableImport[];
+export const PURGE_PAGE_MAX = 500;
+
+/** Codes: type, field_not_allowed, limit_invalid, cursor_invalid (not an object of exactly a `finishedAt` PostgreSQL
+ * reads, `instantMs`, and a uuid `importId`). */
+export function validateListPurgeableQuery(raw: unknown): Validation<ListPurgeableQuery> {
+  if (!isObject(raw)) return { ok: false, errors: [{ code: 'type', path: '' }] };
+  const x = new Issues();
+  only(x, raw, ['limit', 'after'], '');
+  if (raw.limit !== undefined && raw.limit !== null && !(isInt(raw.limit) && raw.limit >= 1 && raw.limit <= PURGE_PAGE_MAX)) x.add('limit_invalid', 'limit');
+  const a = raw.after;
+  if (a !== undefined && a !== null) {
+    const keys = isObject(a) ? Object.keys(a) : [];
+    if (!isObject(a) || keys.length !== 2 || !isUuid(a.importId) || Number.isNaN(instantMs(a.finishedAt))) x.add('cursor_invalid', 'after');
+  }
+  return x.ok ? { ok: true, value: raw as unknown as ListPurgeableQuery } : { ok: false, errors: x.list };
+}
+
 // ---------------------------------------------------------------- what a reader says about the source
 
 /**
@@ -1900,8 +1981,8 @@ export type ReaderNote = {
   readonly lines: readonly number[];
   /** How many lines or nodes the note stands for (can be more than `lines` holds). */
   readonly count: number;
-  /** For `noise`: the rule that recognised the lines (a machine word). For `layout_guessed`: one of
-   * `LAYOUT_GUESS_RULES`. Null for the other codes. */
+  /** The reader's rule, a machine word: for `noise`, the rule that recognised the lines; for `layout_guessed`, one of
+   * `LAYOUT_GUESS_RULES` (required). Any other code may name its rule too, or carry null; only its shape is checked. */
   readonly rule: string | null;
 };
 

@@ -14,6 +14,7 @@ import { indexMenu, NO_SUGGESTION_CODES, whyNoSuggestion } from '../src/upsell.t
 import { cafeDemo, ID, RULES } from './fixtures.ts';
 import { applyPlan, bistroDraft, copy, dish, draftOf, group, link, menuRuleBreaks, opt, planProblems, section } from './import-fixtures.ts';
 
+const SKIPPED_NONE = { choice: 0, merged: 0, empty: 0, parent_skipped: 0, unused: 0 };
 const yes = (choices: Record<string, ImportChoice> = {}, skip?: string[]): ImportDecisions => ({ v: 1, pricesConfirmed: true, choices, ...(skip ? { skip } : {}) });
 const plan = (d: ImportDraft, m: ExistingMenu = EMPTY_MENU, dec: ImportDecisions = yes()): ImportPlan => {
   const v = validateDraft(d);
@@ -214,11 +215,11 @@ test('L4 (r3-probes R7, r3-probes5 V4): a dish with a picture in any state gets 
   assert.deepEqual(brief(step(plan(w, once), 'photo', 'd-schnitzel')), 'photo:d-schnitzel:skip(choice)', 'no photo yet, rights unknown: none');
 });
 
-test('L6 (r3-probes R5): a new dish never gets two groups of one name, one the venue\'s and one created', () => {
+test('L6 (r3-probes R5), round 6 L3: a new dish never gets two groups of one name; a group only its merged links used is unused', () => {
   const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g')] })])],
     [group('g', 'תוספת', 'Extras', { options: [opt('o1', 'צ׳יפס', 'Fries', 0), opt('o2', 'סלט', 'Salad', 0), opt('o3', 'אורז', 'Rice', 0)] })]);
   const once = applyPlan(EMPTY_MENU, plan(base));
-  for (const [extra, created] of [[opt('b1', 'אורז', 'Rice', 0), 'keep'], [opt('b2', 'פירה', 'Mash', 0), 'create']] as const) {
+  for (const [extra, created] of [[opt('b1', 'אורז', 'Rice', 0), 'keep'], [opt('b2', 'פירה', 'Mash', 0), 'skip(unused)']] as const) {
     const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-new', 'פרגית', 'Chicken', 7000, { groups: [link('g-side'), link('g-x')] })])], [
       group('g-side', 'תוספת', 'Side', { options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
       group('g-x', '', 'Extras', { options: [extra] }),
@@ -230,6 +231,14 @@ test('L6 (r3-probes R5): a new dish never gets two groups of one name, one the v
     const chicken = after.dishes.find((x) => x.name_en === 'Chicken')!;
     assert.deepEqual(after.dishGroups.filter((l) => l.dish_id === chicken.id).map((l) => after.groups.find((g) => g.id === l.group_id)!.name_en), ['Extras']);
     assert.deepEqual(menuRuleBreaks(after), []);
+    assert.equal(after.groups.length, 1, 'no group the dish lost its link to');
+    assert.deepEqual([p.summary.dish_group.skipped.merged, p.summary.group.skipped.unused], [1, created === 'keep' ? 0 : 1], 'the summary says so');
+    // the same draft again: both links stay on the dish's own Extras row; the second is merged, asked nothing (round 7:
+    // a new_group there could not move the row the first keeps), as on the first import
+    const again = plan(d, after);
+    assert.deepEqual(again.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), []);
+    assert.deepEqual(asked(again).filter((e) => !e.startsWith('name_missing_lang')), []);
+    assert.equal(brief(step(again, 'dish_group', linkKey('d-new', 'g-x'))), 'dish_group:d-new>g-x:skip(merged)');
   }
 });
 
@@ -309,4 +318,83 @@ test('round 5: the readers\' layout_guessed note, on a dish or a section, with t
   assert.deepEqual(issues([note({ key: 'g-anything' })], null), [], 'without the draft, the key is checked for shape only');
   const v = validateSaveDraft({ importId: '00000000-0000-4000-8000-0000000000d9', draft: d, notes: [note(), note({ code: 'price_ambiguous', rule: null })] });
   assert.ok(v.ok, 'stored with the draft by save_import_draft');
+});
+
+// ---------------------------------------------------------------- round 6 (QA round 4)
+
+test('QA-M1 (r4-opener.ts): new_group never makes a venue\'s option taken more than once open a group', () => {
+  // the venue: Burger with Extras (multiple 0–4): Cheese up to 2, Egg
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 7000, { groups: [link('g')] })])],
+    [group('g', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 4, options: [opt('c', 'גבינה', 'Cheese', 300, { maxQty: 2 }), opt('e', 'ביצה', 'Egg', 400)] })]);
+  const once = applyPlan(EMPTY_MENU, plan(base));
+  // the new read: Cheese (once) opens "Cheese type"
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 7000, { groups: [link('g')] })])], [
+    group('g', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 4, options: [opt('c', 'גבינה', 'Cheese', 300, { opens: 'n' }), opt('e', 'ביצה', 'Egg', 400)] }),
+    group('n', 'סוג גבינה', 'Cheese type', { selection: 'single', min: 1, max: 1, options: [opt('n1', 'צהובה', 'Yellow', 0), opt('n2', 'עיזים', 'Goat', 0)] }),
+  ]);
+  const kept = plan(d, once);
+  assert.deepEqual(asked(kept), ['opens_changed@c>n=keep_mine']);
+  assert.deepEqual(menuRuleBreaks(applyPlan(once, kept)), [], 'keep_mine: the venue\'s Cheese stays as it is');
+  const moved = planApply(d, once, yes({ 'opens_changed@c>n': 'new_group' }));
+  assert.deepEqual(moved.ok ? [] : moved.errors, [{ code: 'opener_qty', path: 'c>n', message: 'opens_changed' }]);
+  // the owner sets Cheese to once in the editor first: then new_group moves it
+  const once1: any = copy(once);
+  once1.options.find((o: any) => o.name_en === 'Cheese').max_qty = 1;
+  const p = plan(d, once1, yes({ 'opens_changed@c>n': 'new_group' }));
+  assert.equal(brief(step(p, 'option', 'c')), 'option:c:update');
+  assert.deepEqual(step(p, 'option', 'c').refs, { opens_group_id: 'n' });
+  assert.deepEqual(menuRuleBreaks(applyPlan(once1, p)), []);
+});
+
+test('QA-M1: menuRuleBreaks models the add-on options\' checks and the nesting guard', () => {
+  const m = applyPlan(EMPTY_MENU, plan(bistroDraft()));
+  assert.deepEqual(menuRuleBreaks(m), []);
+  const bad: any = copy(m);
+  const side = bad.groups.find((g: any) => g.name_en === 'Side of choice').id;
+  const sauce = bad.groups.find((g: any) => g.name_en === 'Sauce').id;
+  const fries = bad.options.find((o: any) => o.name_en === 'Fries');
+  fries.max_qty = 2;
+  bad.options.find((o: any) => o.name_en === 'Salad').opens_group_id = side;
+  bad.options.find((o: any) => o.group_id === sauce).opens_group_id = side;
+  bad.options.find((o: any) => o.group_id !== side && o.group_id !== sauce).max_qty = 11;
+  const breaks = menuRuleBreaks(bad);
+  for (const b of ['option Fries: opens a group with max_qty 2', 'option Salad: opens its own group']) assert.ok(breaks.includes(b), b);
+  assert.ok(breaks.some((b) => b.includes('nesting_too_deep')));
+  assert.ok(breaks.some((b) => b.endsWith('max_qty 11')));
+});
+
+test('round 6 L4: a reader note of another code may name its rule (only its shape is checked)', () => {
+  const note: ReaderNote = { code: 'sold_out', severity: 'check', key: 'd-burger', lines: [4], count: 1, rule: 'badge_text' };
+  assert.deepEqual(readerNoteIssues([note], bistroDraft()), []);
+  assert.deepEqual(readerNoteIssues([{ ...note, rule: 'Badge text' }], bistroDraft()).map((e) => e.code), ['rule_invalid']);
+});
+
+test('round 6 L3: the summary counts the skipped steps by reason', () => {
+  const p = plan(bistroDraft(), EMPTY_MENU, yes({}, ['d-burger']));
+  assert.deepEqual(p.summary.dish.skipped, { ...SKIPPED_NONE, choice: 1 });
+  assert.equal(p.summary.dish.skip, 1);
+  assert.deepEqual(p.summary.section.skipped, SKIPPED_NONE);
+});
+
+test('QA-M2 (r6-hopa.ts, fuzz6 seed 615767102): the owner\'s skip of an unreachable group holds on the re-import that finds it', () => {
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d-burger', 'המבורגר', 'Burger', 6200, { groups: [link('g-a')] }),
+    dish('d-steak', 'סטייק', 'Steak', 9800, { groups: [link('g-b')] }),
+  ])], [
+    group('g-a', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: [opt('a1', 'צ׳יפס', 'Fries', 0), opt('a2', 'סלט', 'Salad', 0)] }),
+    group('g-b', 'תוספות', 'Extras', { selection: 'multiple', min: 2, max: 2, options: [opt('b1', 'אורז', 'Rice', 0), opt('b2', 'סלט', 'Salad', 0)] }),
+  ]);
+  const answers = yes({ 'limits_unreachable@g-b': 'skip' }, ['b1']);
+  const first = plan(d, EMPTY_MENU, answers);
+  assert.deepEqual(asked(first), ['limits_unreachable@g-b=skip']);
+  const once = applyPlan(EMPTY_MENU, first);
+  const again = plan(d, once, answers);
+  assert.deepEqual(asked(again), ['limits_unreachable@g-b=skip'], 'asked and honoured though g-b now matches the venue\'s Extras');
+  assert.deepEqual(again.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), [], 'Hopa test 1');
+  assert.equal(brief(step(again, 'dish_group', linkKey('d-steak', 'g-b'))), 'dish_group:d-steak>g-b:skip(parent_skipped)');
+  // clamp instead: the venue's Extras is found the second time, and it is not asked again (its limits are the venue's)
+  const clamp = yes({ 'limits_unreachable@g-b': 'clamp' }, ['b1']);
+  const c1 = applyPlan(EMPTY_MENU, plan(d, EMPTY_MENU, clamp));
+  const c2 = plan(d, c1, clamp);
+  assert.deepEqual(c2.steps.filter((s) => s.op === 'create' || s.op === 'update').map(brief), []);
 });

@@ -10,6 +10,7 @@ import {
   NUDGE_CODES, onboardingProgress, OPS_WARNINGS, pollDelay, resolveUntil, timelineKind, validateActivityQuery, validateDashboardQuery,
   validateExportQuery, validateOpenCase, validateOpsAnalyticsQuery, validateOpsVenueQuery, validateOpsVenuesQuery, validateRestoreToday,
   validateOpsRevisionQuery, validateSetAvailability, validateSetDemo, validateSetStep, validateUpdateCase, venueFilter, zonedTime, type OpenCaseReply,
+  validateListPurgeableQuery, type ApproveVenueReply, type ListPurgeable, type SetDemoReply, type SetPlanReply, type SupportCase, type UpdateCaseReply,
   type Validation,
 } from '../src/index.ts';
 
@@ -186,4 +187,40 @@ test('config flags: absent means production, v1, realtime; a broken value is rep
     env: 'production', schema: 1, realtime: true,
     issues: [{ code: 'env_invalid', path: 'env' }, { code: 'schema_invalid', path: 'schema' }, { code: 'realtime_invalid', path: 'realtime' }],
   });
+});
+
+test('round 7: ops_update_case checks the case\'s version (full precision), and answers stale with the case', () => {
+  const at = '2026-10-20T09:41:07.123456+00:00';
+  assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: at })), []);
+  assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: null })), [], 'null: no check');
+  for (const bad of ['2026-02-30T09:41:07Z', '2026-10-20 09:41', 'yesterday', 7]) {
+    assert.deepEqual(errs(validateUpdateCase({ caseId: D, status: 'resolved', reason: 'Prices fixed', expectedUpdatedAt: bad })), ['time_invalid'], String(bad));
+  }
+  const current: SupportCase = {
+    id: D, venueId: V, topic: 'menu', status: 'open', subject: 'Help', body: '', openedBy: 'owner', openedAt: '2026-10-20T09:00:00Z', updatedAt: at,
+    resolvedAt: null, supportCanAct: true,
+  };
+  const stale: UpdateCaseReply = { ok: false, code: 'stale', current };
+  assert.equal(stale.ok, false);
+});
+
+test('round 7: a staff member who belongs to a venue never approves it, sets its plan or its demo label (own_venue)', () => {
+  const replies: Array<ApproveVenueReply | SetPlanReply | SetDemoReply> = [{ ok: false, code: 'own_venue' }, { ok: false, code: 'own_venue' }, { ok: false, code: 'own_venue' }];
+  assert.ok(replies.every((r) => !r.ok && r.code === 'own_venue'));
+});
+
+test('round 7: list_purgeable_imports pages by a keyset cursor (the last row\'s finishedAt and importId, as they came)', () => {
+  const I = '00000000-0000-4000-8000-0000000000e9';
+  const page: ListPurgeable = [{ importId: I, venueId: V, status: 'applied', paths: [`${V}/imports/${I}/1.jpg`], finishedAt: '2026-09-20T08:00:00.123456+00:00' }];
+  const last = page[page.length - 1]!;
+  assert.deepEqual(errs(validateListPurgeableQuery({})), []);
+  assert.deepEqual(errs(validateListPurgeableQuery({ limit: 1, after: { finishedAt: last.finishedAt, importId: last.importId } })), []);
+  assert.deepEqual(errs(validateListPurgeableQuery({ limit: null, after: null })), []);
+  for (const limit of [0, 501, 1.5, '10']) assert.deepEqual(errs(validateListPurgeableQuery({ limit })), ['limit_invalid'], String(limit));
+  for (const after of [last, [last.finishedAt, last.importId], { finishedAt: last.finishedAt }, { finishedAt: '2026-02-30T08:00:00Z', importId: I },
+    { finishedAt: last.finishedAt, importId: 'import-1' }, 'cursor']) {
+    assert.deepEqual(errs(validateListPurgeableQuery({ after })), ['cursor_invalid'], JSON.stringify(after));
+  }
+  assert.deepEqual(errs(validateListPurgeableQuery({ cursor: null })), ['field_not_allowed']);
+  assert.deepEqual(errs(validateListPurgeableQuery(null)), ['type']);
 });
