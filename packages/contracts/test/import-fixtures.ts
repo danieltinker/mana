@@ -5,7 +5,7 @@
  * the tables, so a test can re-import into the result.
  */
 import {
-  appliedIds, type DraftDish, type DraftGroup, type DraftOption, type DraftSection, type ExistingMenu, type ImportDraft, type ImportedIds, type ImportPlan,
+  appliedIds, mergePrevious, type DraftDish, type DraftGroup, type DraftOption, type DraftSection, type ExistingMenu, type ImportDraft, type ImportedIds, type ImportPlan,
   type PlanStep,
 } from '../src/import.ts';
 
@@ -137,8 +137,9 @@ const freshId = (): string => `00000000-0000-4000-8000-${(nextId++).toString(16)
 
 type Rows = { -readonly [K in Exclude<keyof ExistingMenu, 'previous'>]: Array<Record<string, unknown>> } & { previous?: ImportedIds };
 
-/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call), and keeps what
- * it put each section and dish on as `previous` (what `apply_import` stores as `menu_imports.applied_ids`). */
+/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call), and folds what
+ * it put each section and dish on (what `apply_import` stores as `menu_imports.applied_ids`) into `previous`, as the
+ * newest applied import (`mergePrevious`). */
 export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
   const out = copy(menu) as unknown as Rows;
   const idOf = new Map<string, string>();
@@ -160,6 +161,9 @@ export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
       else rows.push({ ...r, id });
     } else Object.assign(rows.find((r) => r.id === s.id)!, resolved(s.set, s.refs));
   }
-  out.previous = appliedIds(plan, (_, key) => idOf.get(key));
+  out.previous = mergePrevious([
+    { id: 'earlier', appliedAt: '2026-01-01T00:00:00Z', appliedIds: menu.previous ?? null },
+    { id: 'this', appliedAt: '2026-01-01T00:00:01Z', appliedIds: appliedIds(plan, (_, key) => idOf.get(key)) },
+  ]);
   return out as unknown as ExistingMenu;
 }

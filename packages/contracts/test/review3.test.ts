@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  appliedIds, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
+  appliedIds, mergePrevious, draftBytes, draftExceptions, EMPTY_MENU, jsonbNumberText, linkKey, planApply, validateDraft, validateSaveDraft, type ExistingMenu, type ImportChoice,
   type ImportDecisions, type ImportDraft, type ImportPlan, type PlanStep, type ReaderNote, LAYOUT_GUESS_RULES, READER_NOTES, readerNoteIssues,
   SCAN_IMAGE_CAPS, type ClaimScanReply, validateDecisions, NOTES_MAX, NOTES_BYTES_MAX, DRAFT_BYTES_MAX, DECISIONS_BYTES_MAX, saveDraftSizeFail,
   applyImportSizeFail,
@@ -665,4 +665,76 @@ test('round 9 (SEC-M1): the byte bounds, either side, as octet_length(v::text) m
   // a group left out is null (4 bytes); ["x…"] is 4 bytes more than its x's
   assert.equal(addonGroupSizeFail(undefined, ['x'.repeat(ADDON_GROUP_BYTES_MAX - 8)]), null);
   assert.deepEqual(addonGroupSizeFail(undefined, ['x'.repeat(ADDON_GROUP_BYTES_MAX - 7)]), { ok: false, code: 'too_large' });
+});
+
+// ---------------------------------------------------------------- round 10 (QA of 0f8c43e: provenance over every import)
+
+const uuid = (n: number) => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
+
+test('round 10 (QA-M3): mergePrevious takes, per key, the row of the most recently applied import that holds it', () => {
+  const ids = (sections: Record<string, string>, dishes: Record<string, string>) => ({ sections, dishes });
+  const a = { id: uuid(0xa), appliedAt: '2026-10-20T10:00:00.000001+00:00', appliedIds: ids({ 's-drinks': 'S1' }, { 'd-a': 'D1', 'd-b': 'D2' }) };
+  // a microsecond after a, written in another offset; c is the same instant as b, and its id is the greater
+  const b = { id: uuid(0xb), appliedAt: '2026-10-20T13:00:00.000002+03:00', appliedIds: ids({}, { 'd-a': 'D9', 'd-c': 'D5' }) };
+  const c = { id: uuid(0xc), appliedAt: '2026-10-20T10:00:00.000002Z', appliedIds: ids({ 's-wines': 'S3' }, { 'd-b': 'D7', 'd-c': 'D6' }) };
+  const before = { id: uuid(0xd), appliedAt: '2026-10-21T00:00:00Z', appliedIds: null };
+  const want = { sections: { 's-drinks': 'S1', 's-wines': 'S3' }, dishes: { 'd-a': 'D9', 'd-b': 'D7', 'd-c': 'D6' } };
+  assert.deepEqual(mergePrevious([a, b, c, before]), want);
+  assert.deepEqual(mergePrevious([before, c, a, b]), want, 'whatever the order they come in');
+  assert.equal(mergePrevious([]), undefined);
+  assert.equal(mergePrevious([before]), undefined, 'an import applied before the column existed counts for nothing');
+});
+
+test('round 10 (QA-M3, r9-hopa-other.ts): a re-read imported again after another import of the venue\'s writes nothing', () => {
+  // keys as the readers make them, from the names: the re-read renames the section, so every key is new
+  const first = draftOf([section('s-drinks', 'שתייה', 'Drinks', [
+    dish('d-drinks-classic-0', 'קלאסי', 'Classic', 0), dish('d-drinks-classic-4200', 'קלאסי', 'Classic', 4200),
+  ], { kind: 'drinks' })]);
+  const reread = draftOf([section('s-drinks-new', 'שתייה חדש', 'Drinks new', [
+    dish('d-drinks-new-classic-3000', 'קלאסי', 'Classic', 3000), dish('d-drinks-new-classic-4200', 'קלאסי', 'Classic', 4200),
+  ], { kind: 'drinks' })]);
+  const wines = draftOf([section('s-wines', 'יינות', 'Wines', [dish('d-wines-merlot', 'מרלו', 'Merlot', 3800)], { kind: 'wine' })]);
+  const answers = yes({
+    'dish_duplicate@d-drinks-new-classic-4200': 'keep_both', 'price_differs@s-drinks-new': 'take_new',
+    'dish_elsewhere@d-drinks-new-classic-3000': 'same_dish', 'dish_elsewhere@d-drinks-new-classic-4200': 'new_dish',
+  });
+  let m = applyPlan(EMPTY_MENU, plan(first, EMPTY_MENU, yes({ 'price_zero@d-drinks-classic-0': 'no_price', 'dish_duplicate@d-drinks-classic-4200': 'keep_both' })));
+  const r = plan(reread, m, answers);
+  m = applyPlan(m, r);
+  assert.deepEqual(sectionsOf(m), [['Drinks', ['Classic 3000', 'Classic 4200']], ['Drinks new', ['Classic 4200']]]);
+  assertHopa(plan(reread, m, answers), r, 'back to back');
+  m = applyPlan(m, plan(wines, m, yes()));
+  // before round 10, `previous` was the wines' alone: the Classics were matched by name again, one repriced and one made
+  const again = plan(reread, m, answers);
+  assertHopa(again, r, 'after the wines');
+  assertHopa(plan(reread, applyPlan(m, again), answers), r, 'and once more');
+});
+
+test('round 10 (QA\'s r9-crossing.ts): keys by position, sections reordered: the moved section key holds nothing, so the Salads stay', () => {
+  const a = draftOf([section('s0', 'עיקריות', 'Mains', [dish('s0d0', 'סלט', 'Salad', 4200)]), section('s1', 'ילדים', 'Kids', [dish('s1d0', 'סלט', 'Salad', 2400)])]);
+  const b = draftOf([section('s0', 'ילדים', 'Kids', [dish('s0d0', 'סלט', 'Salad', 2400)]), section('s1', 'עיקריות', 'Mains', [dish('s1d0', 'סלט', 'Salad', 4200)])]);
+  const m = applyPlan(EMPTY_MENU, plan(a, EMPTY_MENU));
+  const p = plan(b, m);
+  const where = (id: string | null) => { const x = m.dishes.find((y) => y.id === id)!; return `${m.sections.find((s) => s.id === x.section_id)!.name_en} ${x.price}`; };
+  assert.deepEqual(p.steps.filter((s) => s.kind === 'dish').map((s) => `${s.key} → ${where(s.id)}`), ['s0d0 → Kids 2400', 's1d0 → Mains 4200']);
+  assert.deepEqual(asked(p), [], 'nothing asked: each Salad is in its own section');
+  assert.deepEqual(changed(p), []);
+});
+
+test('round 10 (QA, seed -1686291165): an option\'s question on a target takes the answer that names the target first', () => {
+  const draft = (extras: Array<[string, string]>) => draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 6000, { groups: [link('g0')] })])], [
+    group('g0', 'רוטב', 'Sauce', { options: [opt('o', 'צ׳יפס', 'Fries', 0, { opens: 'g1' })] }),
+    group('g1', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: extras.map(([he, en], i) => opt(`x${i}`, he, en, 0)) }),
+  ]);
+  const m = applyPlan(EMPTY_MENU, plan(draft([['אורז', 'Rice']]), EMPTY_MENU));
+  const sauce = m.groups.find((g) => g.name_en === 'Sauce')!.id;
+  // the re-read adds an extra: the venue's Sauce is the only target of g0, so its question is keyed without its id
+  const reread = draft([['אורז', 'Rice'], ['סלט', 'Salad']]);
+  assert.deepEqual(asked(plan(reread, m)), ['group_changed@o>g1=keep_mine']);
+  // an answer stored for that same target under its own name (from an import where it was not the first) wins over a
+  // stale one under the short key, as the owner gave it for this group
+  const both = yes({ 'group_changed@o>g1': 'keep_mine', [`group_changed@o@${sauce}>g1`]: 'add_options' });
+  const p = plan(reread, m, both);
+  assert.deepEqual(asked(p), ['group_changed@o>g1=add_options']);
+  assert.deepEqual(changed(p).filter((s) => s.startsWith('option:')), ['option:x1:create']);
 });

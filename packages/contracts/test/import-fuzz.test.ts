@@ -12,6 +12,9 @@ import assert from 'node:assert/strict';
 import { draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, importKey, planApply, validateDraft, type ExistingMenu, type ImportDraft } from '../src/import.ts';
 import { applyPlan, copy, dish, draftOf, group, link, menuRuleBreaks, opt, planProblems, section } from './import-fixtures.ts';
 
+/** Another menu of the venue's, sharing no key or name with the generator's drafts. */
+const WINES = draftOf([section('x-wines', 'יינות', 'Wines', [dish('x-merlot', 'מרלו', 'Merlot', 3800)], { kind: 'wine' })]);
+
 /** `r2`: round 2's drafts (limits stated together or not at all; links without limits); `r3`: round 3's (limits each
  * on its own, dish links with limits); `r4`: round 3's with options taken up to 3 times, and openers added on re-import. */
 type Generator = 'r2' | 'r3' | 'r4';
@@ -157,6 +160,16 @@ function fuzz(start: number, n: number, kind: Generator, random: Random): { prob
     for (const p of planProblems(r4.plan)) problems.push(`seed ${s0}: noisy ${p}`);
     const after = applyPlan(once, r4.plan);
     for (const m of [...menuProblems(after), ...unusedCreated(once, after)]) problems.push(`seed ${s0}: noisy ${m}`);
+    // the re-read again with the same answers, back to back and after an import of another menu of the venue's (its
+    // wines): nothing written (Hopa test 1; `previous` is every applied import's, `mergePrevious`)
+    const w = planWith(WINES, after, {});
+    if (!w.plan) { problems.push(`seed ${s0}: the wines refused ${JSON.stringify(w.errors)}`); continue; }
+    for (const [label, m] of [['back to back', after], ['after the wines', applyPlan(after, w.plan)]] as const) {
+      const again = planWith(nz, m, { ...ch });
+      const writes = again.plan ? again.plan.steps.filter((s) => s.op === 'create' || s.op === 'update') : [];
+      if (!again.plan) problems.push(`seed ${s0}: the re-read again, ${label}, refused ${JSON.stringify(again.errors)}`);
+      if (writes.length) problems.push(`seed ${s0}: the re-read again, ${label}, writes ${writes.map((s) => `${s.kind}:${s.key}:${s.op}`).join(', ')}`);
+    }
   }
   return { problems, planned, distinct: drafts.size };
 }
