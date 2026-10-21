@@ -136,7 +136,7 @@ test('desk: with staff_require_aal2 on, the second step (B118): set up TOTP in G
     assert.equal(await p.locator('[data-page]').count(), 0, 'nothing of the back office before the second step');
     // GoTrue's QR, as an image under the page's own CSP (img-src 'self' data:), and the key as text
     await until(() => p.locator('img[data-mfa-qr]').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
-    const secret = (await p.locator('[data-mfa-secret]').innerText()).trim();
+    const secret = (await p.locator('[data-mfa-secret]').textContent()).trim();
     assert.match(secret, /^[A-Z2-7]{16,}$/, 'a base32 key');
     await shot(p, 'ops-second-step-enroll-desk');
     // the code an authenticator app would show (RFC 6238, node:crypto)

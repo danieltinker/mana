@@ -129,7 +129,7 @@ export type Factors = { readonly verified: string | null; readonly leftovers: re
 /** An enrollment in progress: the factor, its QR image (a data: URL, never markup) and its secret, for this screen only. */
 export type Enrollment = { readonly factorId: string; readonly qr: string | null; readonly secret: string };
 /** Why a second-step call failed, for the screen's words (mfa.ts `mfaWords`). */
-export type MfaFail = { readonly ok: false; readonly why: 'wrong' | 'rate' | 'signed_out' | 'timeout' | 'network' | 'other'; readonly message: string };
+export type MfaFail = { readonly ok: false; readonly why: 'wrong' | 'rate' | 'gone' | 'signed_out' | 'timeout' | 'network' | 'other'; readonly message: string };
 type MfaResult<T> = { readonly ok: true; readonly data: T } | MfaFail;
 
 const mfaFail = (e: RawError | null | undefined): MfaFail => {
@@ -137,6 +137,8 @@ const mfaFail = (e: RawError | null | undefined): MfaFail => {
   const f = failOf({ message, code: e?.code ?? '', status: e?.status ?? 0, name: e?.name ?? '' });
   if (f.kind === 'timeout' || f.kind === 'network') return { ok: false, why: f.kind, message: f.message };
   if (e?.status === 429 || e?.code === 'over_request_rate_limit') return { ok: false, why: 'rate', message };
+  // the factor is not there any more: a set-up started again on another tab or device removed it (R4-L1)
+  if (e?.code === 'mfa_factor_not_found' || (e?.status === 404 && /factor/i.test(message))) return { ok: false, why: 'gone', message };
   if (e?.code === 'mfa_verification_failed' || e?.code === 'mfa_challenge_expired' || /invalid totp code|code.*(invalid|expired)/i.test(message)) return { ok: false, why: 'wrong', message };
   if (e?.status === 401 || e?.name === 'AuthSessionMissingError') return { ok: false, why: 'signed_out', message };
   return { ok: false, why: 'other', message };

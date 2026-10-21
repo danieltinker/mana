@@ -111,7 +111,7 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
     await until(() => qr.evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
     assert.equal(await page.locator('svg script, [data-second-step] svg').count(), 0, 'no SVG markup in the page');
     assert.equal(await page.evaluate(() => window.__xss), undefined);
-    const secret = (await page.locator('[data-mfa-secret]').innerText()).trim();
+    const secret = (await page.locator('[data-mfa-secret]').textContent()).trim();
     assert.match(secret, /^[A-Z2-7]{32}$/, 'the key as text');
     const field = codeField(page);
     assert.deepEqual(await field.evaluate((i) => [i.inputMode, i.autocomplete, i.type]), ['numeric', 'one-time-code', 'text']);
@@ -174,7 +174,7 @@ test('second step (B118): a set-up left half done is removed before a new one; S
   await again.page.locator('[data-mfa-enroll]').waitFor();
   assert.equal(calls('mfa.unenroll').length, 1, 'the leftover, by its name');
   assert.equal(calls('mfa.enroll').length, 2);
-  const secret = (await again.page.locator('[data-mfa-secret]').innerText()).trim();
+  const secret = (await again.page.locator('[data-mfa-secret]').textContent()).trim();
   await typeCode(again.page, totp(secret));
   await again.page.locator('[data-page=clients] [data-count]').waitFor();
   clean(again.problems);
@@ -210,6 +210,101 @@ test('second step (B118): an account that is not staff never sees it', async () 
   assert.equal(await page.locator('[data-not-staff]').innerText(), 'Not Halom staff');
   assert.equal(await page.locator('[data-second-step]').count(), 0);
   assert.equal(calls('mfa.enroll').length, 0);
+});
+
+test('second step (R4-L5): nothing of the back office is drawn before it; the gate asks one staff call first', async () => {
+  await control({ requireAal2: true });
+  const { page } = await open(browser, base, { prefix: '/mana' });
+  await page.getByRole('heading', { name: 'Sign in' }).waitFor();
+  await page.evaluate(() => {
+    window.__sawPage = false;
+    new MutationObserver(() => { if (document.querySelector('[data-page]')) window.__sawPage = true; }).observe(document.body, { subtree: true, childList: true });
+  });
+  await signIn(page, ACCOUNTS.support);
+  await page.locator('[data-mfa-enroll]').waitFor();
+  assert.equal(await page.evaluate(() => window.__sawPage), false, 'the clients page was never drawn');
+  assert.deepEqual(calls('ops_venues').map((c) => c.args.p_filters?.limit), [1], 'one small staff call, no clients list');
+});
+
+test('second step (N16): the key leaves the page on pagehide; a page brought back from the back-forward cache starts over', async () => {
+  const { page } = await secondStep(ACCOUNTS.support);
+  const first = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  assert.equal((await page.content()).includes(first), false, 'the key is not in the page that the cache would keep');
+  assert.equal(await page.locator('img[data-mfa-qr][src]').count(), 0, 'nor its QR');
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const second = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  assert.notEqual(second, first, 'a new set-up');
+  assert.equal(calls('mfa.unenroll').length, 1, 'the one left behind is removed first');
+  await typeCode(page, totp(second));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+});
+
+test('second step (R4-L1): a set-up replaced on another tab or device says so in plain words, and starts again here on request', async () => {
+  const A = await secondStep(ACCOUNTS.support);
+  const keyA = (await A.page.locator('[data-mfa-secret]').textContent()).trim();
+  const B = await open(browser, base, { prefix: '/mana' });            // the same person, on another device
+  await signIn(B.page, ACCOUNTS.support);
+  await B.page.locator('[data-mfa-enroll]').waitFor();                   // its set-up removes A's
+  await typeCode(A.page, totp(keyA));
+  await A.page.locator('[data-mfa-restart]').waitFor();
+  assert.equal(await A.page.locator('[data-mfa-error]').innerText(),
+    'This set-up was replaced: it was started again on another tab or device. Finish it there, or start it again here (that replaces the other one).');
+  assert.equal(await A.page.locator('[data-mfa-restart]').innerText(), 'Start again here');
+  assert.equal(await A.page.locator('[data-mfa-secret], [data-mfa-code]').count(), 0, 'the old key and field are gone');
+  await A.page.locator('[data-mfa-restart]').click();
+  await A.page.locator('[data-mfa-enroll]').waitFor();
+  const keyA2 = (await A.page.locator('[data-mfa-secret]').textContent()).trim();
+  await typeCode(A.page, totp(keyA2));
+  await A.page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(A.problems.filter((p) => !/status of 404/.test(p)));
+});
+
+test('second step (R4-L2): only the newest key works: the set-up says so, and a code from an older key is answered for the set-up', async () => {
+  const { page } = await secondStep(ACCOUNTS.support);
+  assert.equal(await page.locator('[data-mfa-newest]').innerText(),
+    'Only this key works, and it is shown only here. A reload or another tab starts a new one: if the app already has an older entry for this account, delete it.');
+  const old = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await page.reload();                                                      // a new key
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const now = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  assert.notEqual(now, old);
+  await typeCode(page, totp(old));
+  await until(() => page.locator('[data-mfa-error]').innerText(),
+    'That code was not accepted. Enter the newest code for the key shown here: only this key works, so if the app has an older entry for this account, delete it and use this one.', 'a code from the old key');
+  await typeCode(page, totp(now));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+});
+
+test('second step (R4-L3): a timeout while setting up says to try again, with no word of a code', async () => {
+  await control({ requireAal2: true, enrollDelay: 2500 });
+  const { page, problems } = await open(browser, base, { prefix: '/mana', init: { __OPS_TIMEOUT_MS: 1500 } });
+  await signIn(page, ACCOUNTS.support);
+  await page.locator('[data-second-step=failed]').waitFor({ timeout: 8000 });
+  assert.equal(await page.locator('[data-mfa-error]').innerText(), 'The server did not answer in time. Try again.');
+  assert.equal(await page.locator('[data-mfa-restart]').innerText(), 'Try again');
+  await control({ enrollDelay: 0 });
+  await page.locator('[data-mfa-restart]').click();
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const key = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await typeCode(page, totp(key));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(problems);
+});
+
+test('second step (R4-L4, phone): the key reads in groups of four, never broken inside a group, and copies as one string', async () => {
+  const { page } = await secondStep(ACCOUNTS.support, { viewport: PHONE });
+  const key = page.locator('[data-mfa-secret]');
+  const raw = (await key.textContent()).trim();
+  assert.match(raw, /^[A-Z2-7]{32}$/);
+  assert.deepEqual(await key.locator('span').allTextContents(), raw.match(/.{4}/g), 'eight groups of four');
+  const fit = await key.evaluate((el) => ({ over: el.scrollWidth > el.clientWidth + 1,
+    split: [...el.querySelectorAll('span')].some((s) => s.getClientRects().length !== 1 || s.getBoundingClientRect().right > el.getBoundingClientRect().right + 1) }));
+  assert.deepEqual(fit, { over: false, split: false }, 'each group whole on its line, inside the box');
+  const copied = await key.evaluate((el) => { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString(); });
+  assert.equal(copied, raw, 'a copy is the key itself: no spaces or line breaks from the grouping');
+  await shot(page, 'v2-second-step-key-phone');
 });
 
 test('gate (SEC-N4): staff access removed mid-session says so (not "MFA needed"), with the data gone', async () => {

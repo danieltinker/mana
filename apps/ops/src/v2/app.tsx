@@ -48,7 +48,14 @@ export function App({ config }: { config: unknown }) {
       setPhase({ at: 'gate-error', user, message: r.message });
       return;
     }
-    setPhase(r.data ? { at: 'app', user, role: r.data } : { at: 'not-staff', user, why: wasStaff ? 'removed' : 'none' });
+    if (!r.data) { setPhase({ at: 'not-staff', user, why: wasStaff ? 'removed' : 'none' }); return; }
+    // a password-only session: one staff call first, so a database that wants the second step says so before any of
+    // the back office is drawn (R4-L5); any other answer opens the app, whose pages say what went wrong
+    if (user.aal !== 'aal2') {
+      const probe = await api.venues({ limit: 1 });
+      if (!probe.ok && probe.kind === 'not_staff') { setPhase({ at: 'second-step', user }); return; }
+    }
+    setPhase({ at: 'app', user, role: r.data });
   }, [api]);
 
   /** The database refused a staff call (42501): why, from the caller's own staff row, which RLS always lets them read. */

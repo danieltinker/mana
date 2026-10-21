@@ -6,7 +6,7 @@ import type { ActivityEntry, ActivityPage, ActForOwnerInput } from '@mana/contra
 import { ID } from '@mana/contracts/fixtures';
 import { actWant, logMark, ownEntry, sameInstant } from '../../src/v2/landed.ts';
 import { planEnd } from '../../src/v2/model.ts';
-import { codeOf, isCode, mfaWords, qrSrc } from '../../src/v2/mfa.ts';
+import { codeOf, isCode, keyGroups, mfaWords, qrSrc } from '../../src/v2/mfa.ts';
 import { opsApi } from '../../src/v2/api.ts';
 import { USERS, VENUE, fakeBackend, world } from './fake.ts';
 
@@ -88,9 +88,21 @@ test('the second step (B118): a code is six digits as typed or pasted; the QR is
   for (const bad of ['data:text/html,<script>alert(1)</script>', 'javascript:alert(1)', 'https://example.invalid/qr.svg', '<div>x</div>', 42, null, `data:image/svg+xml,<svg>${'x'.repeat(1_000_000)}</svg>`]) {
     assert.equal(qrSrc(bad), null, String(bad).slice(0, 40));
   }
-  assert.match(mfaWords({ ok: false, why: 'wrong', message: 'Invalid TOTP code entered' }), /^That code was not accepted\. Codes change every 30 seconds/);
-  assert.equal(mfaWords({ ok: false, why: 'rate', message: '' }), 'Too many tries. Wait a minute, then enter the newest code.');
-  assert.match(mfaWords({ ok: false, why: 'other', message: 'boom' }), /: boom$/);
+  const f = (why: 'wrong' | 'rate' | 'gone' | 'timeout' | 'other') => ({ ok: false as const, why, message: 'boom' });
+  assert.match(mfaWords(f('wrong'), 'code'), /^That code was not accepted\. Codes change every 30 seconds/);
+  assert.match(mfaWords(f('wrong'), 'setup'), /only this key works, so if the app has an older entry for this account, delete it/, 'R4-L2');
+  assert.equal(mfaWords(f('rate'), 'code'), 'Too many tries. Wait a minute, then enter the newest code.');
+  // R4-L3: before any code was asked, no word of a code
+  assert.equal(mfaWords(f('timeout'), 'load'), 'The server did not answer in time. Try again.');
+  assert.equal(mfaWords(f('rate'), 'load'), 'Too many tries. Wait a minute, then try again.');
+  assert.match(mfaWords(f('timeout'), 'setup'), /Try again with the newest code\.$/);
+  // R4-L1: a set-up replaced on another tab or device
+  assert.match(mfaWords(f('gone'), 'setup'), /^This set-up was replaced: it was started again on another tab or device\./);
+  assert.match(mfaWords(f('gone'), 'code'), /was removed\. Set it up again\.$/);
+  assert.match(mfaWords(f('other'), 'code'), /: boom$/);
+  // R4-L4: the key in groups of four, nothing lost
+  assert.deepEqual(keyGroups('ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'), ['ABCD', 'EFGH', 'IJKL', 'MNOP', 'QRST', 'UVWX', 'YZ23', '4567']);
+  assert.equal(keyGroups('ABCDEF').join(''), 'ABCDEF');
 });
 
 test('the plan\'s review says what happens to its end (QA-L2)', () => {

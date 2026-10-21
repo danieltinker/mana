@@ -1,6 +1,6 @@
 /**
- * The second step's logic, apart from its screen (mfa.tsx), so it is unit-tested: the code as typed, the QR image as
- * a data: URL (never markup in the page), and what a failure says.
+ * The second step's logic, apart from its screen (mfa.tsx), so it is unit-tested: the code as typed, the key in
+ * groups, the QR image as a data: URL (never markup in the page), and what a failure says at each step.
  */
 import type { MfaFail } from './session.ts';
 
@@ -8,13 +8,16 @@ import type { MfaFail } from './session.ts';
 export const codeOf = (typed: string): string => typed.replace(/[\s-]/g, '');
 export const isCode = (code: string): boolean => /^\d{6}$/.test(code);
 
+/** The key in groups of four, for reading (R4-L4); the screen keeps the key itself for copying. */
+export const keyGroups = (key: string): string[] => key.match(/.{1,4}/g) ?? [];
+
 /** The longest QR picture accepted: Supabase Auth's draws each pixel block as its own rect (about 360 kB on 21 Oct 2026). */
 const QR_MAX = 1_000_000;
 
 /**
  * Supabase Auth's QR code (`data:image/svg+xml;utf-8,<svg…>`, the SVG unencoded) as an image address: the SVG text
  * percent-encoded into a data: URL for an <img>, where an SVG runs no script and loads nothing. Its markup is never
- * put in the page. Anything that is not an SVG picture gives null (the secret is shown as text anyway).
+ * put in the page. Anything that is not an SVG picture gives null (the key is shown as text anyway).
  */
 export function qrSrc(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length > QR_MAX) return null;
@@ -25,12 +28,24 @@ export function qrSrc(raw: unknown): string | null {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** What the screen says when a second-step call failed. */
-export function mfaWords(f: MfaFail): string {
+/**
+ * What the screen says when a second-step call failed, by the step it failed at (R4-L3): `load` (reading or setting up
+ * the authenticator, before any code was asked), `setup` (a code for the key on screen), `code` (a code for an
+ * authenticator set up earlier).
+ */
+export function mfaWords(f: MfaFail, at: 'load' | 'setup' | 'code'): string {
+  const asked = at !== 'load';
   switch (f.why) {
-    case 'wrong': return 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.';
-    case 'rate': return 'Too many tries. Wait a minute, then enter the newest code.';
-    case 'timeout': return 'The server did not answer in time. Try again with the newest code.';
+    case 'wrong':
+      return at === 'setup'
+        ? 'That code was not accepted. Enter the newest code for the key shown here: only this key works, so if the app has an older entry for this account, delete it and use this one.'
+        : 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.';
+    case 'rate': return asked ? 'Too many tries. Wait a minute, then enter the newest code.' : 'Too many tries. Wait a minute, then try again.';
+    case 'gone':
+      return at === 'code'
+        ? 'The authenticator set up for this account was removed. Set it up again.'
+        : 'This set-up was replaced: it was started again on another tab or device. Finish it there, or start it again here (that replaces the other one).';
+    case 'timeout': return asked ? 'The server did not answer in time. Try again with the newest code.' : 'The server did not answer in time. Try again.';
     case 'network': return 'Could not reach the server. Check the connection, then try again.';
     case 'signed_out': return 'Your session ended. Sign in again.';
     default: return `Could not complete the second step: ${f.message}`;
