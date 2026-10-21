@@ -92,12 +92,14 @@ export type EntitlementStatus = (typeof ENTITLEMENT_STATUSES)[number];
 export const ACTOR_KINDS = ['owner', 'manager', 'counter', 'staff', 'system'] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
-/** The only things Halom support can do inside a venue, each through act_for_owner with a reason (D25). */
+/**
+ * The only things Halom support can do inside a venue, each through act_for_owner with a reason (D25). Phase 1 has no
+ * `menu.publish`: it would publish the owner's draft unreviewed; staff help through the approval (`ops_approve_venue`).
+ */
 export const ACT_FOR_OWNER_ACTIONS = [
   'availability.set',
   'availability.restore',
   'dish.update',
-  'menu.publish',
   'onboarding.set',
   'support_case.update',
 ] as const;
@@ -114,14 +116,21 @@ export const LIMITS = {
   rules: 50,
   schedules: 20,
   windows: 14,
+  /** Opening-hours windows per venue (`venue_hours` rows; `limits.hours` in the database). */
+  hours: 21,
   closures: 60,
   lineQuantity: 50,
   optionQuantity: 10,
   price: 10_000_000,
   ruleCap: 5,
+  /** A dish's name. */
   nameLength: 90,
+  /** A section's, group's or option's name, and a group's label (the schema's 60). */
+  shortNameLength: 60,
   descLength: 600,
   noteLength: 80,
+  /** A dish's allergen text, in the source's or the owner's words. */
+  allergensLength: 300,
   ruleLine: 120,
   detailsBytes: 6000,
 } as const;
