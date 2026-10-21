@@ -14,7 +14,7 @@
 import { Issues, isBlank, isInt, isObject, isString, isUuid, oneOf, type Issue, type Validation } from './common.ts';
 import type { AddonGroupRow, AddonOptionRow, DishAddonGroupRow } from './domain.ts';
 import { LIMITS, SELECTIONS } from './enums.ts';
-import { GROUP_UNITS_MAX } from './import.ts';
+import { draftBytes, GROUP_UNITS_MAX } from './import.ts';
 import { onlyKeys, optionalText } from './rpc.ts';
 
 /** A group's label and names, an option's names: the schema's 60 code points. */
@@ -43,7 +43,10 @@ export type AddonOptionWrite = Pick<AddonOptionRow, 'id'> &
  *
  * In this order (a failure answers one code, with the `path` of what to fix where there is one):
  *
- * 1. `venue_unknown` (no such venue, or archived).
+ * 1. `venue_unknown` (no such venue, or archived). Then the sizes, before anything is walked (SEC-M1,
+ *    `addonGroupSizeFail`): more options than the venue's `limits.options_per_group` (`LIMITS.optionsPerGroup` unless
+ *    the venue's config says otherwise) is `limit_options_per_group`; the group and its options over
+ *    `ADDON_GROUP_BYTES_MAX` together is `too_large` (no `path` for either).
  * 2. `app.validate_addon_group_input({venueId, group, options})`: the first issue of `validateAddonGroupInput`.
  * 3. Then one transaction under the venue's nesting advisory lock (the one `app.guard_nesting` takes).
  * 4. `not_allowed` with `group.id` (the id is another venue's group), then `not_allowed` with `options[i].id` (the first
@@ -102,7 +105,23 @@ export type AddonGroupCode =
 /** The codes the database finds against stored rows (steps 1, 4, 6, 7 and 9 above). */
 export type SaveAddonGroupStoredCode =
   | 'venue_unknown' | 'not_allowed' | 'group_unknown' | 'limits_loosened' | 'limits_invalid' | 'nesting_too_deep'
-  | 'limit_options_per_group' | 'limit_addon_groups' | 'conflict' | 'invalid';
+  | 'limit_options_per_group' | 'limit_addon_groups' | 'conflict' | 'invalid' | 'too_large';
+
+/** The group's and its options' jsonb text together, at most (30 options at their longest take about 26 KiB). */
+export const ADDON_GROUP_BYTES_MAX = 65_536;
+
+/**
+ * What `save_addon_group` answers on size alone, right after `venue_unknown` (step 1), or null: more options than
+ * `optionsPerGroup` (the venue's `limits.options_per_group`) is `limit_options_per_group`; `group` and `options`
+ * together past `ADDON_GROUP_BYTES_MAX` is `too_large` (each measured by `draftBytes`, the database's
+ * `octet_length(v::text)`; one left out counts as `null`).
+ */
+export function addonGroupSizeFail(group: unknown, options: unknown, optionsPerGroup: number = LIMITS.optionsPerGroup):
+  { readonly ok: false; readonly code: 'limit_options_per_group' | 'too_large' } | null {
+  if (Array.isArray(options) && options.length > optionsPerGroup) return { ok: false, code: 'limit_options_per_group' };
+  if (draftBytes(group ?? null) + draftBytes(options ?? null) > ADDON_GROUP_BYTES_MAX) return { ok: false, code: 'too_large' };
+  return null;
+}
 
 /** The stored rows as `to_jsonb` gives them (the reply on success, and `current` when `stale`): `group.updated_at` is
  * at full precision, the string the editor sends back as `expectedUpdatedAt`. */

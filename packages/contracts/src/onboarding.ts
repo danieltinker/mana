@@ -59,7 +59,11 @@ export function onboardingProgress(
   return { steps, done: steps.filter(finished).length, total: steps.length, next, complete: next === null };
 }
 
-/** `set_onboarding_step`: the client app marks a step (owners and managers; Halom through `act_for_owner`). */
+/**
+ * `set_onboarding_step`: the client app marks a step (owners and managers; Halom through `act_for_owner`). A `doing` on
+ * a step that is done or skipped (the owner opened it again) changes nothing: the answer is `{ok: true, kept: true,
+ * progress}`. A step is reopened on purpose with `todo`.
+ */
 export type SetStepInput = {
   readonly venueId: string;
   readonly step: OnboardingStep;
@@ -67,7 +71,7 @@ export type SetStepInput = {
   readonly blockers?: readonly string[];
 };
 export type SetStepReply =
-  | RpcOk<{ readonly progress: OnboardingProgress }>
+  | RpcOk<{ readonly progress: OnboardingProgress; readonly kept?: true }>
   | RpcFail<'venue_unknown' | 'step_done' | 'step_automatic' | 'enum_invalid' | 'blocker_invalid' | 'too_many'>;
 
 /** Codes: type, field_not_allowed, id_invalid, enum_invalid, blocker_invalid, too_many, step_automatic. The database
@@ -82,10 +86,9 @@ export function validateSetStep(raw: unknown): Validation<SetStepInput> {
     }
     if (o.blockers !== undefined) {
       if (!Array.isArray(o.blockers)) x.add('type', 'blockers');
-      else {
-        if (o.blockers.length > BLOCKERS_MAX) x.add('too_many', 'blockers');
-        o.blockers.forEach((b, i) => { if (typeof b !== 'string' || !BLOCKER_RE.test(b)) x.add('blocker_invalid', `blockers[${i}]`); });
-      }
+      // past BLOCKERS_MAX the blockers are not walked
+      else if (o.blockers.length > BLOCKERS_MAX) x.add('too_many', 'blockers');
+      else o.blockers.forEach((b, i) => { if (typeof b !== 'string' || !BLOCKER_RE.test(b)) x.add('blocker_invalid', `blockers[${i}]`); });
     }
   });
 }
