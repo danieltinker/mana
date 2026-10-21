@@ -57,15 +57,21 @@ const REF_KIND: Record<string, PlanStep['kind']> = { section_id: 'section', grou
 /**
  * Checks what every plan must be: no op but create, update, keep or skip; `set` only on create and update (never
  * empty on update); an id exactly on update and keep; a reason exactly on skip; every ref names a node the same plan
- * creates, of the right kind, earlier in apply order; no step key twice for one kind.
+ * creates, of the right kind, earlier in apply order; no step key twice for one kind; no venue row updated twice
+ * (round 10e: two draft groups on one venue group write each of its rows once).
  */
 export function planProblems(plan: ImportPlan): string[] {
   const out: string[] = [];
   const created = new Map<string, PlanStep['kind']>();
   const seen = new Set<string>();
+  const updated = new Set<string>();
   for (const s of plan.steps) {
     if (seen.has(`${s.kind}:${s.key}`)) out.push(`${s.kind}:${s.key}: twice`);
     seen.add(`${s.kind}:${s.key}`);
+    if (s.op === 'update') {
+      if (updated.has(`${s.kind}:${s.id}`)) out.push(`${s.kind}:${s.key}: updates row ${s.id} a second time`);
+      updated.add(`${s.kind}:${s.id}`);
+    }
     if (!['create', 'update', 'keep', 'skip'].includes(s.op)) out.push(`${s.key}: op ${s.op}`);
     if ((s.op === 'keep' || s.op === 'skip') && Object.keys(s.set).length > 0) out.push(`${s.key}: set on ${s.op}`);
     if (s.op === 'update' && Object.keys(s.set).length === 0 && Object.keys(s.refs).length === 0) out.push(`${s.key}: empty update`);

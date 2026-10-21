@@ -914,8 +914,9 @@ export type PlanKind = (typeof PLAN_KINDS)[number];
 export const PLAN_OPS = ['create', 'update', 'keep', 'skip'] as const;
 export type PlanOp = (typeof PLAN_OPS)[number];
 /** Why a node is left out: the owner's choice (or `ImportDecisions.skip`); a duplicate section merged into the first,
- * or a dish's second link to an existing group one of its links already lands on; a section that receives nothing new, or a group left with no options; a node whose section, dish or group is left
- * out; a group no dish of this import uses. */
+ * a dish's second link to an existing group one of its links already lands on, or an option another draft group adds
+ * to the same venue group (round 10e); a section that receives nothing new, or a group left with no options; a node
+ * whose section, dish or group is left out; a group no dish of this import uses. */
 export const SKIP_REASONS = ['choice', 'merged', 'empty', 'parent_skipped', 'unused'] as const;
 export type SkipReason = (typeof SKIP_REASONS)[number];
 
@@ -1061,8 +1062,11 @@ function heldRows<R extends { id: string; keys: Keys }>(
  * `exception_unresolved` (a `fix` without an allowed answer, the plan's `nesting_too_deep` among them: rule 11),
  * `choice_invalid`,
  * `prices_unconfirmed`, `too_many` (with what the venue has, past `LIMITS`), `group_ambiguous` (path: the draft group's
- * key; the venue has so many groups of its name that look alike that rule 10 stopped before trying them all: the owner
- * leaves the group out, or tidies the venue's groups first), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
+ * key; the group needs its global match and the venue has so many groups of its name that look alike that rule 10
+ * stopped before trying them all: the owner leaves the group out, or tidies the venue's groups first),
+ * `answers_conflict` (path: a draft option's key, message the question's code, `price_differs`, `opens_changed` or
+ * `group_changed`; its answer writes a venue row that another draft group's option reads otherwise, rule 11: the owner
+ * keeps the venue's for it, answers the others alike, or leaves one of the options out), `opener_qty` (path: the `opens_changed` key; `new_group` would make a venue's option
  * that guests may take more than once open a group: an option that opens a group is taken once, and the plan never
  * lowers the venue's quantity, so the owner keeps the venue's option or sets its quantity to 1 first).
  *
@@ -1133,8 +1137,10 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    matching one of them than the kept options. After `GLOBAL_COVER_TRIES` tried covers that fail, only a group with,
  *    for each name, at least as many options of exactly those keys (`hasTwins`: as an import of this group makes it) is
  *    tried, up to `GLOBAL_COVER_TRIES` more. A walk that ends without a match while it passed over, for the bound, a
- *    group its counts allow is refused (`group_ambiguous` at the draft group's key: never a second group made in
- *    silence); one that tried every group its counts allow has no match (rule 2 counts a refused walk as no match). Each kept link of a matched dish whose dish already has a group with the same selection and a
+ *    group its counts allow has no match, and a group that needs its global target (`needsGlobal`, once every target is
+ *    known, and not `new_group`) is then refused (`group_ambiguous` at the draft group's key, in draft order, before
+ *    rule 11's questions: never a second group made in silence; round 10e); one that tried every group its counts
+ *    allow has no match (rule 2 counts a refused walk as no match). Each kept link of a matched dish whose dish already has a group with the same selection and a
  *    matching name (the best score, then the link's position, then its id) **stays on that group**: if its options do
  *    not cover the draft's, `group_changed` keyed `<dish>><group>` (`keep_mine` by default; `add_options` adds the
  *    missing ones to it; `new_group` creates the draft's group and moves this dish's link to it); a link whose dish's
@@ -1175,7 +1181,24 @@ function heldRows<R extends { id: string; keys: Keys }>(
  *    whose opened group holds any opener, asks `nesting_too_deep` (a `fix`: `unlink` or `skip`), keyed by its draft
  *    option, once per key (in option step order), unless the draft asks it already. Unanswered, the plan is refused
  *    (`exception_unresolved`): it never writes a chain the database refuses, and never drops an opener in silence.
- *    Answered, the answer holds from rule 1 on, like the draft's own (`opensOf`, rule 2), and is listed then.
+ *    Answered, the answer holds from rule 1 on, like the draft's own (`opensOf`, rule 2), and is listed then. A shared
+ *    row's move asks each draft option that moved it.
+ *    **A venue group two or more draft groups land on** (round 10e; each in its own targets) has each of its rows
+ *    written once. Its group row: by the smallest draft group key, per name column the first fill in key order; the
+ *    others `keep`. An option row the kept options of two or more of them match (each by its own group's cover): its
+ *    contributors, in option key order; the first carries the one step, the others `keep`. Per name column, the first
+ *    fill in key order. A price only when a contributor takes one (`take_new`, read ≠ the row's) and every contributor
+ *    that reads a price reads that one and takes it; a move only when a contributor moves the row and every contributor
+ *    that opens a group moves it to that same group. Otherwise `answers_conflict`, at the smallest key that takes (or
+ *    moves), venue rows in id order, price before move. Options added: per venue group and name keys (`he|en`), the
+ *    adding draft group with the most such options, then the smallest such option key, adds them; another adding
+ *    group's such options are `skip` (`merged`). The row an added option makes is the one the next import matches every
+ *    group's unmatched option of those keys to, so each other group's such options (adding or not), in key order, pair
+ *    with the adding group's, in its draft order; those past their number pair with none. A paired option counts in its
+ *    group's `price_differs` when its price is not the one the row is made with (the adding option's, or 0), takes it
+ *    by its answer as a contributor does, and the same conflict rule holds, the adding option a contributor that does not
+ *    take; a take with no conflict makes the row at that price. Positions on such a venue group continue across the
+ *    draft groups that add to it, in draft order.
  * 12. **Links.** A dish never gets two links to one group, nor to two groups of one selection whose names match
  *    (`scoreKeys`; the venue's names for its group, the draft's for one this plan creates): in link order, a kept link
  *    that lands where an earlier link of the same dish landed, or on a group whose name matches that one's, is `merged`
@@ -1640,10 +1663,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   };
   const covers = (g: DraftGroup, gid: string): boolean => cover(g, gid).size === keptOf.get(g.key)!.length;
   const globalMatch = new Map<string, string>();
+  // a walk the bound stopped is refused only when the group needs its global target (checked once targets are known)
+  const ambiguous = new Set<string>();
   for (const g of draft.groups) {
     const m = out(g.key) ? {} : globalMatchOf(g, keptOf.get(g.key)!);
     if (m.id !== undefined) globalMatch.set(g.key, m.id);
-    else if (m.ambiguous) x.add('group_ambiguous', g.key);
+    else if (m.ambiguous) ambiguous.add(g.key);
   }
   type LinkRes = { kind: 'own'; link: ExistingMenu['dishGroups'][number]; groupId: string; answer: ImportChoice | null } | { kind: 'global' };
   const linkRes = new Map<string, LinkRes>();
@@ -1698,6 +1723,8 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
   const openerOwn = new Map<string, Set<string>>();
   const openerAdd = new Map<string, Set<string>>();
   const openerMove = new Map<string, string>();
+  /** The question whose `new_group` moved the venue's option (`group_changed` or `opens_changed`), by option step key. */
+  const openerMoveCode = new Map<string, ImportExceptionCode>();
   const linkTargets = (g: DraftGroup): Target[] => {
     const list: Target[] = needsGlobal.has(g.key) ? [globalOf(g.key)] : [];
     const own = new Set<string>();
@@ -1724,7 +1751,9 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         const path = `groups[${gi}].options[${oi}]`;
         const y = e.opens_group_id ? groupById.get(e.opens_group_id) : undefined;
         let answer: ImportChoice | undefined;
+        let code: ImportExceptionCode = 'opens_changed';
         if (y && y.selection === ng.selection && scoreKeys(groupKeys.get(nested)!, y.keys) > 0) {
+          code = 'group_changed';
           answer = covers(ng, y.id) ? undefined : ask('group_changed', ek, path, `option:${ok}`, 1, named('group_changed'));
           if (answer !== 'new_group') openerOwn.set(nested, (openerOwn.get(nested) ?? new Set()).add(y.id));
           if (answer === 'add_options') openerAdd.set(nested, (openerAdd.get(nested) ?? new Set()).add(y.id));
@@ -1736,6 +1765,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
           forcedNew.add(nested);
           needsGlobal.add(nested);
           openerMove.set(ok, nested);
+          openerMoveCode.set(ok, code);
         }
       });
     }
@@ -1760,6 +1790,35 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     const n = opensOf(o);
     return n === null || out(n) ? null : globalOf(n);
   };
+  // options that two or more draft groups add to one venue group with the same name keys are added by one of them
+  // (round 10e): the group that adds the most of them, then the one with the smallest such option key. Another group's
+  // such options, in key order, are merged into the adding group's, in its draft order (as a re-import pairs them with
+  // the rows made: by position). Only a group's own targets are added to (`addingTo`).
+  const addedKey = (tid: string, o: DraftOption): string => { const k = optionKeys.get(o.key)!; return `${tid}|${k.he}|${k.en}`; };
+  const adders = new Map<string, Map<string, DraftOption[]>>(); // added key → draft group key → its such options (draft order)
+  for (const g of draft.groups) {
+    if (out(g.key)) continue;
+    for (const t of withOwn([], g)) {
+      if (!addingTo(g, t.id!)) continue;
+      const cov = cover(g, t.id!);
+      for (const o of keptOptions(g)) {
+        if (cov.has(o.key)) continue;
+        const k = addedKey(t.id!, o);
+        if (!adders.has(k)) adders.set(k, new Map());
+        pushTo(adders.get(k)!, g.key, o);
+      }
+    }
+  }
+  /** By added key: the draft group that adds those options, and its such options (draft order). */
+  const addedBy = new Map<string, { readonly group: string; readonly options: readonly DraftOption[] }>();
+  const smallestKey = (os: readonly DraftOption[]): string => os.map((o) => o.key).sort(compareIds)[0]!;
+  for (const [k, by] of adders) {
+    const [group, options] = [...by].sort((a, b) => b[1].length - a[1].length || compareIds(smallestKey(a[1]), smallestKey(b[1])))[0]!;
+    addedBy.set(k, { group, options });
+  }
+  const groupOfOption = new Map(draft.groups.flatMap((g) => g.options.map((o) => [o.key, g.key] as const)));
+  /** Whether an option its group adds to venue group `tid` is merged into another group's (round 10e). */
+  const addedMerged = (tid: string, o: DraftOption): boolean => { const w = addedBy.get(addedKey(tid, o)); return w !== undefined && w.group !== groupOfOption.get(o.key); };
   // the nested group of such an option needs its global target, created (and so used) when it has no global match
   const addedOpenerCreates = new Set<string>();
   for (const g of draft.groups) {
@@ -1769,7 +1828,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
       if (!addingTo(g, t.id!)) continue;
       const cov = cover(g, t.id!);
       for (const o of keptOptions(g)) {
-        const ot = cov.has(o.key) ? null : addedOpens(o);
+        const ot = cov.has(o.key) || addedMerged(t.id!, o) ? null : addedOpens(o);
         if (ot === null) continue;
         needsGlobal.add(opensOf(o)!);
         if (ot.id === null) addedOpenerCreates.add(opensOf(o)!);
@@ -1824,22 +1883,150 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     return list;
   };
 
+  // rule 10's bound (round 10e): a group whose walk was stopped is refused only when it needs its global target
+  for (const g of draft.groups) if (ambiguous.has(g.key) && needsGlobal.has(g.key) && !forcedNew.has(g.key)) x.add('group_ambiguous', g.key);
+
+  // ---- 11. options. First, per group (draft order): its targets and its price question (one per draft group, for its
+  // options on every target); and what each kept option matched on a venue's group asks of that row
+  type Contribution = {
+    readonly o: DraftOption; readonly key: string; readonly fill: Record<string, unknown>; readonly takes: boolean;
+    readonly opener: string | null; readonly moveTo: string | undefined;
+  };
+  const planned = new Map<string, { readonly targets: Target[]; readonly groupPrice: ImportChoice | undefined }>();
+  const byRow = new Map<string, Contribution[]>();
+  const byCreated = new Map<string, Contribution[]>(); // a row an added option creates, by `+<group id>|<option key>`
+  const contributionOf = new Map<string, Contribution>(); // by `<row id>|<option key>`
+  const byGroupRow = new Map<string, DraftGroup[]>();
+  const targetsByGroup = new Map<string, Target[]>();
+  for (const g of draft.groups) if (!skipped.has(g.key)) targetsByGroup.set(g.key, targetsOf(g));
+  // the row an added option creates (round 10e) is the one a re-import matches every draft group's unmatched option of
+  // those name keys to, on that venue group: each group's such options, in key order, pair with the adding group's, in
+  // its draft order (by position, as the rows are made); a group's options past their number pair with none
+  const mergedOption = new Map<string, DraftOption>(); // by `<group id>|<option key>`
+  for (const g of draft.groups) {
+    for (const t of targetsByGroup.get(g.key) ?? []) {
+      if (t.id === null) continue;
+      const cov = cover(g, t.id);
+      const same = new Map<string, DraftOption[]>();
+      for (const o of keptOptions(g)) if (!cov.has(o.key)) pushTo(same, addedKey(t.id, o), o);
+      for (const [k, os] of same) {
+        const w = addedBy.get(k);
+        if (!w || w.group === g.key) continue;
+        [...os].sort((a, b) => compareIds(a.key, b.key)).forEach((o, i) => { if (i < w.options.length) mergedOption.set(`${t.id}|${o.key}`, w.options[i]!); });
+      }
+    }
+  }
+  const into = (t: Target, o: DraftOption): DraftOption | undefined => (t.id === null ? undefined : mergedOption.get(`${t.id}|${o.key}`));
+  const createdPrice = (w: DraftOption): number => w.price ?? 0;
+  draft.groups.forEach((g, gi) => {
+    const targets = targetsByGroup.get(g.key);
+    if (!targets || targets.length === 0) return;
+    const primary = targets[0]!;
+    let differing = 0;
+    for (const t of targets) {
+      if (t.id === null) continue;
+      const cov = cover(g, t.id);
+      for (const o of keptOptions(g)) {
+        const e = cov.get(o.key);
+        if (e && o.price !== null && o.price !== e.price) differing += 1;
+        const w = e ? undefined : into(t, o);
+        if (w && o.price !== null && o.price !== createdPrice(w)) differing += 1;
+      }
+    }
+    const groupPrice = differing > 0 ? ask('price_differs', g.key, `groups[${gi}]`, `group:${g.key}`, differing) : undefined;
+    planned.set(g.key, { targets, groupPrice });
+    for (const t of targets) {
+      if (t.id === null) continue;
+      pushTo(byGroupRow, t.id, g);
+      const cov = cover(g, t.id);
+      const adding = addingTo(g, t.id);
+      for (const o of g.options) {
+        if (skipped.has(o.key)) continue;
+        const key = tkey(o.key, t, primary);
+        const n = opensOf(o);
+        const opener = n !== null && !out(n) ? n : null;
+        const e = cov.get(o.key);
+        if (e) {
+          const c: Contribution = {
+            o, key, fill: fillBlank(e, { name_he: o.name.he, name_en: o.name.en }),
+            takes: o.price !== null && o.price !== e.price && override('price_differs', o.key, groupPrice) === 'take_new',
+            opener, moveTo: openerMove.get(key),
+          };
+          pushTo(byRow, e.id, c);
+          contributionOf.set(`${e.id}|${o.key}`, c);
+          continue;
+        }
+        // an option this group adds to the venue's group, or one paired with another group's (`mergedOption`): the row
+        // that one creates, `+<group id>|<option key>`
+        const w = into(t, o);
+        if (!w && !(adding && addedBy.get(addedKey(t.id, o))?.group === g.key)) continue;
+        const takes = w !== undefined && o.price !== null && o.price !== createdPrice(w) && override('price_differs', o.key, groupPrice) === 'take_new';
+        pushTo(byCreated, `+${t.id}|${(w ?? o).key}`, { o, key, fill: {}, takes, opener, moveTo: undefined });
+      }
+    }
+  });
+  // a venue's option that the kept options of two or more draft groups match (on a venue group they share) is written
+  // by one step, on the smallest draft option key (round 10e): per name column, the first fill by key; a price only when
+  // every one of them that reads a price reads the taken price and takes it; a move only when every one of them that
+  // opens a group moves the option to that same group. Otherwise the plan refuses the answer that writes, at the
+  // smallest key that takes or moves (`answers_conflict`, message the question's code). The others keep the row.
+  const sharedRow = new Map<string, { readonly set: Record<string, unknown>; readonly moveTo: string | undefined } | null>();
+  /** A shared row's merged move, by its step key: the draft options that moved it (key order). */
+  const movedBy = new Map<string, string[]>();
+  /** The price a merged option's `take_new` gives the row its adding option creates (round 10e). */
+  const createdAt = new Map<string, number>();
+  for (const [rowId, cs] of [...[...byRow].sort((a, b) => compareIds(a[0], b[0])), ...[...byCreated].sort((a, b) => compareIds(a[0], b[0]))]) {
+    if (cs.length < 2) continue;
+    const c = [...cs].sort((a, b) => compareIds(a.o.key, b.o.key));
+    const set: Record<string, unknown> = {};
+    for (const col of ['name_he', 'name_en']) { const f = c.find((y) => col in y.fill); if (f) set[col] = f.fill[col]; }
+    const taker = c.find((y) => y.takes);
+    if (taker) {
+      if (c.every((y) => y.o.price === null || (y.takes && y.o.price === taker.o.price))) {
+        set.price = taker.o.price;
+        if (rowId.startsWith('+')) createdAt.set(rowId, taker.o.price!);
+      } else x.add('answers_conflict', taker.o.key, 'price_differs');
+    }
+    const mover = c.find((y) => y.moveTo !== undefined);
+    let moveTo: string | undefined;
+    if (mover) {
+      if (c.every((y) => y.opener === null || y.moveTo === mover.moveTo)) {
+        moveTo = mover.moveTo;
+        movedBy.set(c[0]!.key, c.filter((y) => y.moveTo !== undefined).map((y) => y.o.key));
+      } else x.add('answers_conflict', mover.o.key, openerMoveCode.get(mover.key)!);
+    }
+    c.forEach((y, i) => sharedRow.set(`${rowId}|${y.o.key}`, i === 0 ? { set, moveTo } : null));
+  }
+  // a venue's group that two or more draft groups land on is written by one step, the smallest draft group key's: per
+  // name column, the first fill by key; the others keep it
+  const sharedGroup = new Map<string, Record<string, unknown> | null>(); // by `<group id>|<draft group key>`
+  for (const [tid, gs] of byGroupRow) {
+    if (gs.length < 2) continue;
+    const sorted = [...gs].sort((a, b) => compareIds(a.key, b.key));
+    const fills = sorted.map((g) => fillBlank(groupById.get(tid)!, { name_he: g.name.he, name_en: g.name.en }));
+    const set: Record<string, unknown> = {};
+    for (const col of ['name_he', 'name_en']) { const f = fills.find((y) => col in y); if (f) set[col] = f[col]; }
+    sorted.forEach((g, i) => sharedGroup.set(`${tid}|${g.key}`, i === 0 ? set : null));
+  }
+
   const groupSteps: PlanStep[] = [];
   const optionSteps: PlanStep[] = [];
-  draft.groups.forEach((g, gi) => {
-    const p = `groups[${gi}]`;
+  /** A venue group's next option position, continued across the draft groups that add to it (draft order). */
+  const nextAt = new Map<string, number>();
+  draft.groups.forEach((g) => {
     const reason = skipped.get(g.key);
     if (reason) {
       groupSteps.push(skipStep('group', g.key, reason));
       for (const o of g.options) optionSteps.push(skipStep('option', o.key, skipped.get(o.key) ?? 'parent_skipped'));
       return;
     }
-    const targets = targetsOf(g);
-    if (targets.length === 0) {
+    const pl = planned.get(g.key);
+    if (!pl) {
       groupSteps.push(skipStep('group', g.key, 'unused'));
       for (const o of g.options) optionSteps.push(skipStep('option', o.key, skipped.get(o.key) ?? 'unused'));
       return;
     }
+    const { targets } = pl;
     const primary = targets[0]!;
     const kept1 = keptOptions(g);
     for (const t of targets) {
@@ -1863,19 +2050,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         }, {}));
         continue;
       }
-      groupSteps.push(changeStep('group', key, t.id, fillBlank(groupById.get(t.id)!, { name_he: g.name.he, name_en: g.name.en })));
+      const shared = sharedGroup.get(`${t.id}|${g.key}`);
+      groupSteps.push(changeStep('group', key, t.id, shared === undefined ? fillBlank(groupById.get(t.id)!, { name_he: g.name.he, name_en: g.name.en }) : shared ?? {}));
     }
-    // ---- 11. options, per target; prices that differ: one question per draft group, for its options on every target
-    let differing = 0;
-    for (const t of targets) {
-      if (t.id === null) continue;
-      const cov = cover(g, t.id);
-      for (const o of kept1) { const e = cov.get(o.key); if (e && o.price !== null && o.price !== e.price) differing += 1; }
-    }
-    const groupPrice = differing > 0 ? ask('price_differs', g.key, p, `group:${g.key}`, differing) : undefined;
     for (const t of targets) {
       const isPrimary = t === primary;
-      let position = t.id === null ? 0 : nextPosition(optionsOf.get(t.id) ?? []);
+      let position = t.id === null ? 0 : nextAt.get(t.id) ?? nextPosition(optionsOf.get(t.id) ?? []);
       const adding = t.id !== null && addingTo(g, t.id);
       const matched = t.id === null ? new Map<string, Row<ExistingMenu['options'][number]>>() : cover(g, t.id);
       g.options.forEach((o) => {
@@ -1884,16 +2064,20 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         if (r) { if (isPrimary) optionSteps.push(skipStep('option', o.key, r)); return; }
         const e = matched.get(o.key);
         if (e) {
-          const set: Record<string, unknown> = fillBlank(e, { name_he: o.name.he, name_en: o.name.en });
-          if (o.price !== null && o.price !== e.price && override('price_differs', o.key, groupPrice) === 'take_new') set.price = o.price;
-          const moveTo = openerMove.get(key);
+          const shared = sharedRow.get(`${e.id}|${o.key}`);
+          if (shared === null) { optionSteps.push(changeStep('option', key, e.id, {})); return; }
+          const c = contributionOf.get(`${e.id}|${o.key}`)!;
+          const set = shared ? shared.set : c.takes ? { ...c.fill, price: o.price } : c.fill;
+          const moveTo = shared ? shared.moveTo : c.moveTo;
           if (moveTo) optionSteps.push({ kind: 'option', key, op: 'update', id: e.id, set, refs: { opens_group_id: moveTo }, reason: null });
           else optionSteps.push(changeStep('option', key, e.id, set));
           return;
         }
         if (t.id !== null && !adding) { optionSteps.push(skipStep('option', key, 'choice')); return; }
+        if (t.id !== null && addedMerged(t.id, o)) { optionSteps.push(skipStep('option', key, 'merged')); return; }
         const n = cleanText(o.name);
-        const set: OptionCreate = { position: position++, name_he: n.he, name_en: n.en, price: o.price ?? 0, max_qty: o.maxQty, is_default: t.id === null && o.default };
+        const price = t.id === null ? undefined : createdAt.get(`+${t.id}|${o.key}`);
+        const set: OptionCreate = { position: position++, name_he: n.he, name_en: n.en, price: price ?? o.price ?? 0, max_qty: o.maxQty, is_default: t.id === null && o.default };
         const refs: { group_id?: string; opens_group_id?: string } = {};
         if (t.id === null) refs.group_id = g.key; else set.group_id = t.id;
         // in a created group: its nested group's global target; added to the venue's: `addedOpens`
@@ -1904,6 +2088,7 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
         else set.opens_group_id = null;
         optionSteps.push(createStep('option', key, set, refs));
       });
+      if (t.id !== null) nextAt.set(t.id, position);
     }
   });
 
@@ -1933,10 +2118,12 @@ export function planApply(draft: ImportDraft, existing: ExistingMenu, decisions:
     const askedNesting = new Set<string>();
     for (const e of edges) {
       if (e.step === null || !(opened.has(e.holder) || holding.has(e.target))) continue;
-      const optionKey = e.step.split('@')[0]!;
-      if (draftNesting.has(optionKey) || askedNesting.has(optionKey)) continue;
-      askedNesting.add(optionKey);
-      ask('nesting_too_deep', optionKey, optionPath.get(optionKey)!, `option:${e.step}`);
+      // a shared row's move (round 10e) is its movers', each asked
+      for (const optionKey of movedBy.get(e.step) ?? [e.step.split('@')[0]!]) {
+        if (draftNesting.has(optionKey) || askedNesting.has(optionKey)) continue;
+        askedNesting.add(optionKey);
+        ask('nesting_too_deep', optionKey, optionPath.get(optionKey)!, `option:${e.step}`);
+      }
     }
   }
 
@@ -2428,7 +2615,8 @@ export function validateSaveDraft(raw: unknown): Validation<SaveDraftInput> {
  * draft is another), `decisions` their answers. The reply carries the plan that was applied. `import_busy`: another
  * import RPC of the venue holds its import lock (the apply tries it and does not wait); nothing was done, so the client
  * retries after a moment. `plan_invalid`: `planApply`'s errors, in `errors` (among them, since round 10c,
- * `exception_unresolved` with message `nesting_too_deep` for an opener the plan would chain, and `group_ambiguous`).
+ * `exception_unresolved` with message `nesting_too_deep` for an opener the plan would chain, and `group_ambiguous`;
+ * since round 10e, `answers_conflict`).
  * The import's `applied_ids` is `appliedIds(draft, plan, …)`: the draft too, for a section's `null`. `rate_limited`
  * (round 10d): the venue's applies refused as `plan_invalid` or `apply_failed` in the current UTC hour reached
  * `import_caps.refused_applies_per_venue_hour` (10); the apply is refused before planning and nothing is done, so the
