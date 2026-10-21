@@ -1,0 +1,24 @@
+{
+  "//": "Node-side type check of the scanner's modules and tests. index.ts is the Deno entry (Deno globals, jsr: types) and is checked by Deno at deploy.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts", "test/*.ts"],
+  "exclude": ["index.ts"]
+}
