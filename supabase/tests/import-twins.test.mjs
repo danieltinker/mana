@@ -282,7 +282,7 @@ describe('the plan', () => {
     };
     const first = planApply(base, EMPTY_MENU, answerFixes(base));
     assert.equal(first.ok, true);
-    const menu = applyPlan(EMPTY_MENU, first.value);
+    const menu = applyPlan(EMPTY_MENU, first.value, base);
     const variants = {
       same: (d) => d,
       prices: (d) => { d.sections[0].dishes[0].price = 6600; d.sections[0].dishes[1].price = 7400; d.groups[2].options[0].price = 350; return d; },

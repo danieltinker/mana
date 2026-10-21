@@ -444,7 +444,7 @@ comment on column public.menu_imports.notes is 'Reader notes: [{code, count}], c
 alter table public.menu_imports add column applied_ids jsonb
   check (applied_ids is null or (jsonb_typeof(applied_ids) = 'object' and jsonb_typeof(applied_ids->'sections') = 'object'
                                  and jsonb_typeof(applied_ids->'dishes') = 'object'));
-comment on column public.menu_imports.applied_ids is 'The rows an applied import wrote or kept, by draft key: {sections: {key: id}, dishes: {key: id}} (apply_import; the next plan''s held rows).';
+comment on column public.menu_imports.applied_ids is 'The rows an applied import wrote or kept, by draft key: {sections: {key: id or null}, dishes: {key: id}} (apply_import; the next plan''s held rows; a section null when the import left it empty while it placed its dishes).';
 
 -- Every transition is a function now (ADR-008): clients hold no write grant. The scanner (service role) only marks a
 -- read it claimed as failed, and purges. The raw input never changes, except that the purge empties it (the database's
@@ -2052,21 +2052,32 @@ $$;
 
 -- a draft group's global match (rule 10) over the option nodes given ({key, keys}): an existing group with its selection,
 -- a name that matches, options that cover the nodes; the best score, then the fewest options, then the smaller id
--- (p_cands, app.plan_global_cands). The candidates are walked in that order and the first that covers is the match; one
--- that cannot cover by count (fewer options than the nodes, or, for some set of nodes of the same name keys, fewer
--- options matching that name than the set has nodes: mayCover) is passed over without a cover, and after
--- GLOBAL_COVER_TRIES (8) covers that fail there is none (SEC-M4: a menu of many groups of one name). The counts come from
--- p_hist (per venue group, its options by Hebrew name 'h|', by English name with no Hebrew one 'b|', by English name
--- 'e|'); a candidate's names are checked the rarest in the venue first (p_tot, the same counts over every group), so
--- most fail on their first. Returns {id, cover} (the match and its cover), or null.
+-- (p_cands, app.plan_global_cands). The candidates are walked in that order and the first that covers is the match. One
+-- that cannot cover by count is passed over without a cover (mayCover): fewer options than the nodes; for some set of
+-- nodes of the same name keys, fewer options matching that name (score_keys > 0) than the set has nodes; or, over all
+-- the sets, fewer different options matching one of them than the nodes. After GLOBAL_COVER_TRIES (8) covers that fail,
+-- only a group with, for each set, at least as many options of exactly those name keys (hasTwins) is tried, up to 8
+-- more; a group passed over for that bound marks the walk, and a walk that ends so without a match is ambiguous
+-- (group_ambiguous: never a second group made in silence; SEC-M4, contracts round 10c). The counts come from p_hist:
+-- per venue group 'n' its options, 'h|<he>' by Hebrew name, 'b|<en>' by English name with no Hebrew one, 'e|<en>' by
+-- English name, 'c[he, en]' by both exactly, and 'k' its name classes [he, en, count]; a candidate's names are checked
+-- the rarest in the venue first (p_tot), so most fail on their first. Returns {id, cover} (the match and its cover),
+-- {ambiguous: true}, or null (no match).
 create function app.plan_global_match(p_nodes jsonb, p_cands jsonb, p_options_of jsonb, p_hist jsonb, p_tot jsonb) returns jsonb
 language plpgsql immutable set search_path = '' set jit = off as $$
-declare v_need jsonb; v_id text; v_h jsonb; v_p jsonb; v_ok boolean; v_tried integer := 0; v_cov jsonb; v_i integer; v_j integer;
-  v_nk integer := jsonb_array_length(coalesce(p_nodes, '[]'));
+declare v_need jsonb; v_id text; v_h jsonb; v_p jsonb; v_ok boolean; v_tried integer := 0; v_untried boolean := false; v_cov jsonb;
+  v_i integer; v_j integer; v_any integer; v_k jsonb; v_cl jsonb; v_he jsonb; v_enb jsonb; v_ena jsonb; v_twins boolean;
+  v_nk integer := jsonb_array_length(coalesce(p_nodes, '[]')); v_bound integer := app.global_cover_tries();
 begin
   if jsonb_array_length(p_cands) = 0 then return null; end if;
-  -- the nodes by name keys, how many of each, the rarest first
-  select coalesce(jsonb_agg(jsonb_build_array(y.he, y.en, y.n) order by q.f, y.he collate "C", y.en collate "C"), '[]') into v_need
+  -- the nodes by name keys, how many of each, the rarest first; and the names any node has, for the different options
+  -- that match one of them: a Hebrew name; an English name of a node with no Hebrew one; any node's English name (an
+  -- option with no Hebrew name matches that)
+  select coalesce(jsonb_agg(jsonb_build_array(y.he, y.en, y.n) order by q.f, y.he collate "C", y.en collate "C"), '[]'),
+         coalesce(jsonb_object_agg(y.he, true) filter (where y.he <> ''), '{}'),
+         coalesce(jsonb_object_agg(y.en, true) filter (where y.he = '' and y.en <> ''), '{}'),
+         coalesce(jsonb_object_agg(y.en, true) filter (where y.en <> ''), '{}')
+  into v_need, v_he, v_enb, v_ena
   from (select x->'keys'->>'he' as he, x->'keys'->>'en' as en, count(*)::integer as n from jsonb_array_elements(coalesce(p_nodes, '[]')) x group by 1, 2) y,
        lateral (select case when y.he <> '' then coalesce((p_tot->>('h|' || y.he))::integer, 0)
                                                  + case when y.en <> '' then coalesce((p_tot->>('b|' || y.en))::integer, 0) else 0 end
@@ -2075,6 +2086,7 @@ begin
     continue when (p_cands->v_i->>1)::integer < v_nk;
     v_id := p_cands->v_i->>0;
     v_h := coalesce(p_hist->v_id, '{}');
+    -- mayCover: each set's options matching its name, then the different options matching any set
     v_ok := true;
     for v_j in 0 .. jsonb_array_length(v_need) - 1 loop
       v_p := v_need->v_j;
@@ -2086,12 +2098,36 @@ begin
       end if;
     end loop;
     continue when not v_ok;
+    v_any := 0;
+    v_k := coalesce(v_h->'k', '[]');
+    for v_j in 0 .. jsonb_array_length(v_k) - 1 loop
+      v_cl := v_k->v_j;
+      if ((v_cl->>0) <> '' and v_he ? (v_cl->>0)) or ((v_cl->>1) <> '' and (v_enb ? (v_cl->>1) or ((v_cl->>0) = '' and v_ena ? (v_cl->>1)))) then
+        v_any := v_any + (v_cl->>2)::integer;
+      end if;
+    end loop;
+    continue when v_any < v_nk;
+    -- the bound: 8 covers, then only a group with a twin for every node, 8 more
+    if v_tried >= v_bound then
+      v_twins := true;
+      if v_tried < 2 * v_bound then
+        for v_j in 0 .. jsonb_array_length(v_need) - 1 loop
+          v_p := v_need->v_j;
+          if coalesce((v_h->>('c' || jsonb_build_array(v_p->>0, v_p->>1)::text))::integer, 0) < (v_p->>2)::integer then v_twins := false; exit; end if;
+        end loop;
+      end if;
+      if v_tried >= 2 * v_bound or not v_twins then
+        v_untried := true;
+        -- (past both bounds no cover is tried again: the walk is ambiguous whatever follows)
+        exit when v_tried >= 2 * v_bound;
+        continue;
+      end if;
+    end if;
     v_cov := app.plan_cover(p_nodes, p_options_of->v_id);
     if (select count(*) from jsonb_object_keys(v_cov)) = v_nk then return jsonb_build_object('id', v_id, 'cover', v_cov); end if;
     v_tried := v_tried + 1;
-    exit when v_tried = app.global_cover_tries();
   end loop;
-  return null;
+  return case when v_untried then '{"ambiguous": true}'::jsonb end;
 end $$;
 
 create function app.plan_import_on(p_draft jsonb, p_existing jsonb, p_decisions jsonb, p_langs text[] default array['he', 'en']) returns jsonb
@@ -2124,7 +2160,7 @@ declare
   v_link_list jsonb[] := '{}'; v_pass jsonb; v_tie jsonb := '{}'; v_merged_links jsonb := '{}'; v_lkeys jsonb; v_sel jsonb; v_new boolean;
   v_created_used jsonb := '{}'; v_claimed_rows jsonb := '{}'; v_claimed_row boolean; v_npos integer; v_links_by_group jsonb;
   v_held_sec jsonb := '{}'; v_held_dish jsonb := '{}'; v_held_ids jsonb := '{}'; v_groups_by_he jsonb; v_groups_by_en jsonb; v_moved jsonb := '{}';
-  v_ohist jsonb; v_otot jsonb; v_opened jsonb; v_nests jsonb; v_ot_id text; v_cands jsonb := '{}'; v_ck text;
+  v_ohist jsonb; v_otot jsonb; v_ot_id text; v_cands jsonb := '{}'; v_ck text; v_dn jsonb := '{}'; v_chain jsonb; v_ce jsonb;
 begin
   -- ---- 1. the draft's answers, in one pass (as plan_ask answers each: a fix without an answer, or an answer the
   -- exception does not allow, is an error at its key, in the exceptions' order)
@@ -2138,8 +2174,27 @@ begin
   )
   select coalesce(jsonb_agg(jsonb_build_object('code', r.bad, 'path', r.x->>'key', 'message', r.x->>'code') order by r.i) filter (where r.bad is not null), '[]'),
          coalesce(jsonb_agg(r.x || jsonb_build_object('choice', coalesce(r.v, r.allowed->0)) order by r.i) filter (where r.bad is null), '[]'),
-         coalesce(jsonb_object_agg((r.x->>'code') || '@' || (r.x->>'key'), coalesce(r.v, r.allowed->0)) filter (where r.bad is null), '{}')
-  into v_errs, v_answered, v_choice from r;
+         coalesce(jsonb_object_agg((r.x->>'code') || '@' || (r.x->>'key'), coalesce(r.v, r.allowed->0)) filter (where r.bad is null), '{}'),
+         coalesce(jsonb_object_agg(r.x->>'key', true) filter (where r.x->>'code' = 'nesting_too_deep'), '{}')
+  into v_errs, v_answered, v_choice, v_dn from r;
+  -- the owner's answer to the plan's nesting_too_deep for an opener (rule 11's last check) holds from the start,
+  -- wherever the option goes: unlink (it opens nothing) or skip (it is left out); the plan lists it as asked, with that
+  -- answer, filed against the option's step (contracts round 10c)
+  for v_gi in 0 .. jsonb_array_length(v_grps) - 1 loop
+    v_g := v_grps->v_gi;
+    for v_oj in 0 .. jsonb_array_length(v_g->'options') - 1 loop
+      v_o := v_g->'options'->v_oj;
+      continue when app.js_null(v_o->'opens') or v_dn ? (v_o->>'key') or (p_decisions->'choices'->('nesting_too_deep@' || (v_o->>'key'))) is null;
+      if not ((app.import_choices()->'nesting_too_deep') @> jsonb_build_array(p_decisions->'choices'->('nesting_too_deep@' || (v_o->>'key')))) then
+        v_errs := v_errs || app.issue('choice_invalid', v_o->>'key', 'nesting_too_deep');
+        continue;
+      end if;
+      v_choice := v_choice || jsonb_build_object('nesting_too_deep@' || (v_o->>'key'), p_decisions->'choices'->>('nesting_too_deep@' || (v_o->>'key')));
+      v_plan_asked := v_plan_asked || jsonb_build_array(jsonb_build_object('e', jsonb_build_object('code', 'nesting_too_deep', 'severity', 'fix',
+        'key', v_o->>'key', 'path', format('groups[%s].options[%s]', v_gi, v_oj), 'count', 1,
+        'choice', p_decisions->'choices'->>('nesting_too_deep@' || (v_o->>'key'))), 'step', 'option:' || (v_o->>'key')));
+    end loop;
+  end loop;
 
   -- ---- 2. what is left out
   select coalesce(jsonb_object_agg(x, true), '{}') into v_asked from jsonb_array_elements_text(coalesce(p_decisions->'skip', '[]')) x;
@@ -2194,21 +2249,21 @@ begin
   from (select o.x->>'group_id' as gid, jsonb_agg(o.x || jsonb_build_object('keys', k.keys) order by o.i) as rows
         from o join k on k.he = o.he and k.en = o.en group by 1) z;
   -- the venue's options counted by name, once (rule 10's mayCover, SEC-M4): per group, 'h|<he>' its options of that
-  -- Hebrew name, 'b|<en>' of that English name and no Hebrew one, 'e|<en>' of that English name, 'n' all of them; and
-  -- the names' counts over the venue
+  -- Hebrew name, 'b|<en>' of that English name and no Hebrew one, 'e|<en>' of that English name, 'c[he, en]' of exactly
+  -- those names, 'k' its name classes [he, en, count], 'n' all of them; and the names' counts over the venue
   with o as (select t.key as gid, x->'keys'->>'he' as he, x->'keys'->>'en' as en from jsonb_each(v_options_of) t, jsonb_array_elements(t.value) x),
        z as materialized (select o.gid, 'h|' || o.he as k, count(*)::integer as c from o where o.he <> '' group by 1, 2
                           union all select o.gid, 'b|' || o.en, count(*)::integer from o where o.he = '' and o.en <> '' group by 1, 2
                           union all select o.gid, 'e|' || o.en, count(*)::integer from o where o.en <> '' group by 1, 2)
   select (select coalesce(jsonb_object_agg(y.gid, y.m), '{}')
-          from (select n.gid, coalesce(m.m, '{}') || jsonb_build_object('n', n.c) as m
-                from (select o.gid, count(*)::integer as c from o group by 1) n left join (select z.gid, jsonb_object_agg(z.k, z.c) as m from z group by 1) m on m.gid = n.gid) y),
+          from (select n.gid, coalesce(m.m, '{}') || coalesce(c.m, '{}') || jsonb_build_object('n', n.c, 'k', c.k) as m
+                from (select o.gid, count(*)::integer as c from o group by 1) n
+                left join (select z.gid, jsonb_object_agg(z.k, z.c) as m from z group by 1) m on m.gid = n.gid
+                left join (select w.gid, jsonb_object_agg('c' || jsonb_build_array(w.he, w.en)::text, w.c) as m,
+                                  jsonb_agg(jsonb_build_array(w.he, w.en, w.c) order by w.he collate "C", w.en collate "C") as k
+                           from (select o.gid, o.he, o.en, count(*)::integer as c from o group by 1, 2, 3) w group by 1) c on c.gid = n.gid) y),
          (select coalesce(jsonb_object_agg(y.k, y.c), '{}') from (select z.k, sum(z.c)::integer as c from z group by 1) y)
   into v_ohist, v_otot;
-  -- the groups a venue option opens, and the groups holding a venue option that opens one (nestsAlready)
-  select coalesce(jsonb_object_agg(x->>'opens_group_id', true) filter (where jsonb_typeof(x->'opens_group_id') = 'string'), '{}'),
-         coalesce(jsonb_object_agg(x->>'group_id', true) filter (where jsonb_typeof(x->'opens_group_id') = 'string'), '{}')
-  into v_opened, v_nests from jsonb_array_elements(p_existing->'options') x;
   select coalesce(jsonb_object_agg(z.did, z.rows), '{}') into v_links_of
   from (select x->>'dish_id' as did, jsonb_agg(x order by i) as rows from jsonb_array_elements(p_existing->'dishGroups') with ordinality t(x, i) group by 1) z;
   select coalesce(jsonb_object_agg(s->>'key', format('sections[%s]', si - 1)), '{}'),
@@ -2242,7 +2297,7 @@ begin
       continue when (p_decisions->'choices'->('limits_unreachable@' || v_gk)) is distinct from '"skip"'::jsonb
         and app.plan_global_match(
         (select coalesce(jsonb_agg(jsonb_build_object('key', x->>'key', 'keys', app.keys_of(x->'name'->>'he', x->'name'->>'en'))), '[]')
-         from jsonb_array_elements(v_kept_opts) x), v_cands->v_ck, v_options_of, v_ohist, v_otot) is not null;
+         from jsonb_array_elements(v_kept_opts) x), v_cands->v_ck, v_options_of, v_ohist, v_otot)->>'id' is not null;
       v_pass := v_pass || to_jsonb(v_gi);
     end loop;
     v_more := false;
@@ -2393,9 +2448,11 @@ begin
   for v_t in select x from jsonb_array_elements(v_renamed) x loop
     -- two sections propose the same one: neither
     continue when (select count(*) from jsonb_array_elements(v_renamed) y where y->>1 = v_t->>1) > 1;
-    -- a section the last applied import left without a row while it put some of its dishes on rows the venue still
-    -- holds: its proposal counted above, but it is not asked, and stays without a row (QA-M2)
-    continue when coalesce(jsonb_typeof(p_existing->'previous'->'sections') = 'object' and not (p_existing->'previous'->'sections') ? (v_t->>0)
+    -- a section the applied imports left without a row (no row id: no entry, or the null appliedIds leaves for a section
+    -- an import left empty while its dishes were placed) while it put some of its dishes on rows the venue still holds:
+    -- its proposal counted above, but it is not asked, and stays without a row (QA-M2, round 10c)
+    continue when coalesce(jsonb_typeof(p_existing->'previous'->'sections') = 'object'
+                           and jsonb_typeof(p_existing->'previous'->'sections'->(v_t->>0)) is distinct from 'string'
                            and exists (select 1 from jsonb_array_elements(v_kept) n where n->>'root' = v_t->>0 and v_held_dish ? (n->>'key')), false);
     select a.c, a.choice, a.errs, a.rec into v_c, v_choice, v_errs, v_rec
     from app.plan_ask(v_choice, v_errs, 'section_renamed', v_t->>0, v_section_path->>(v_t->>0), 1, p_decisions) a;
@@ -2544,8 +2601,9 @@ begin
   left join (select o.gk, jsonb_agg(jsonb_build_object('key', o.y->>'key', 'keys', k.keys) order by o.j) as nodes
              from o join k on k.he = o.he and k.en = o.en group by o.gk) n on n.gk = g.x->>'key';
   -- a group's global match: the same selection, a name match, options covering its kept ones; the best score, then the
-  -- fewest options, then the smaller id; the ones that cannot cover by count passed over, at most 8 covers
-  -- (app.plan_global_match, SEC-M4). Its cover is kept for the steps below.
+  -- fewest options, then the smaller id; the ones that cannot cover by count passed over, 8 covers, then 8 more for the
+  -- groups with a twin for every option (app.plan_global_match, SEC-M4); a walk the bound cut short without a match is
+  -- group_ambiguous at the group's key (round 10c). Its cover is kept for the steps below.
   for v_gi in 0 .. jsonb_array_length(v_grps) - 1 loop
     v_g := v_grps->v_gi; v_gk := v_g->>'key';
     continue when v_skipped ? v_gk;
@@ -2553,6 +2611,7 @@ begin
     if not v_cands ? v_ck then v_cands := v_cands || jsonb_build_object(v_ck, app.plan_global_cands(v_group_keys->v_gk, v_g->'selection', v_groups_by_he, v_groups_by_en, v_ohist)); end if;
     v_y := app.plan_global_match(v_option_nodes->v_gk, v_cands->v_ck, v_options_of, v_ohist, v_otot);
     continue when v_y is null;
+    if v_y ? 'ambiguous' then v_errs := v_errs || app.issue('group_ambiguous', v_gk); continue; end if;
     v_global_match := v_global_match || jsonb_build_object(v_gk, v_y->>'id');
     if not v_cover_ix ? (v_gk || '|' || (v_y->>'id')) then
       v_cover_ix := v_cover_ix || jsonb_build_object((v_gk || '|' || (v_y->>'id')), cardinality(v_covers) + 1); v_covers := array_append(v_covers, v_y->'cover');
@@ -2678,20 +2737,17 @@ begin
           v_forced_new := v_forced_new || jsonb_build_object(v_nested, true);
           v_needs_global := v_needs_global || jsonb_build_object(v_nested, true);
           v_opener_move := v_opener_move || jsonb_build_object(v_ok, v_nested);
-          if v_opened ? (v_t->>'id') then
-            v_errs := v_errs || app.issue('nesting_too_deep', v_o->>'key');
-          end if;
         end if;
       end loop;
     end loop;
   end loop;
 
   -- an option rule 11 adds to a venue's group (addingTo: a link of the group, or an option's group_changed on that target,
-  -- answered add_options) and that opens a kept group N opens N's global target (addedOpens), unless that would nest
-  -- deeper than the venue allows (a venue option opens the target; N's global target is the target itself, or holds a
-  -- venue option that opens a group): N needs its global target, and when N has no global match that target is created,
-  -- which counts as a use (rule 12). The targets: the group's global one when needed and matched, then its own by id.
-  -- (Contracts round 10b; in draft order, each group's targets as needsGlobal stands when it comes.)
+  -- answered add_options) and that opens a kept group N opens N's global target (addedOpens; one nesting level is rule
+  -- 11's last check, on the menu as the plan leaves it): N needs its global target, and when N has no global match that
+  -- target is created, which counts as a use (rule 12). The targets: the group's global one when needed and matched,
+  -- then its own by id. (Contracts rounds 10b and 10c; in draft order, each group's targets as needsGlobal stands when
+  -- it comes.)
   for v_gi in 0 .. jsonb_array_length(v_grps) - 1 loop
     v_g := v_grps->v_gi; v_gk := v_g->>'key';
     continue when v_skipped ? v_gk;
@@ -2705,15 +2761,12 @@ begin
       continue when not (exists (select 1 from jsonb_array_elements(coalesce(v_res_by_group->v_gk, '[]')) x
                                  where x->>'kind' = 'own' and x->>'groupId' = v_t->>'id' and x->>'answer' = 'add_options')
                          or coalesce(v_opener_add->v_gk, '[]') @> jsonb_build_array(v_t->>'id'));
-      -- (a venue option opens the target: what is added opens nothing)
-      continue when v_opened ? (v_t->>'id');
       if not v_cover_ix ? (v_gk || '|' || (v_t->>'id')) then v_cover_ix := v_cover_ix || jsonb_build_object((v_gk || '|' || (v_t->>'id')), cardinality(v_covers) + 1); v_covers := array_append(v_covers, app.plan_cover(v_option_nodes->v_gk, v_options_of->(v_t->>'id'))); end if;
       v_cov := v_covers[(v_cover_ix->>(v_gk || '|' || (v_t->>'id')))::integer];
       for v_o in select x from jsonb_array_elements(v_g->'options') x where not v_skipped ? (x->>'key') and not v_cov ? (x->>'key') loop
         v_nested := case when not app.js_null(v_o->'opens') and v_choice->>('nesting_too_deep@' || (v_o->>'key')) is distinct from 'unlink' then v_o->>'opens' end;
         continue when v_nested is null or v_skipped ? v_nested;
         v_ot_id := case when not v_forced_new ? v_nested and v_global_match ? v_nested then v_global_match->>v_nested end;
-        continue when v_ot_id is not null and (v_ot_id = v_t->>'id' or v_nests ? v_ot_id);
         if not v_needs_global ? v_nested then v_needs_global := v_needs_global || jsonb_build_object(v_nested, true); end if;
         if v_ot_id is null and not v_created_used ? v_nested then v_created_used := v_created_used || jsonb_build_object(v_nested, true); end if;
       end loop;
@@ -2885,17 +2938,13 @@ begin
         v_pos := v_pos + 1;
         v_refs := '{}';
         if (v_t->>'id') is null then v_refs := jsonb_build_object('group_id', v_key); else v_set := v_set || jsonb_build_object('group_id', v_t->>'id'); end if;
-        -- in a created group: its nested group's global target; added to the venue's group: addedOpens (nothing where
-        -- that would nest deeper than the venue allows)
+        -- in a created group, or added to a venue's group (addedOpens): its nested group's global target (one nesting
+        -- level is rule 11's last check)
         v_nested := case when not app.js_null(v_o->'opens') and v_choice->>('nesting_too_deep@' || (v_o->>'key')) is distinct from 'unlink' then v_o->>'opens' end;
-        v_ot := case when v_nested is not null and not v_skipped ? v_nested and ((v_t->>'id') is null or not v_opened ? (v_t->>'id')) then
+        v_ot := case when v_nested is not null and not v_skipped ? v_nested then
                   case when not v_forced_new ? v_nested and v_global_match ? v_nested then jsonb_build_object('id', v_global_match->>v_nested, 'ref', null)
                        else jsonb_build_object('id', null, 'ref', v_nested) end end;
-        if (v_t->>'id') is not null and (v_ot->>'id') is not null and (v_ot->>'id' = v_t->>'id' or v_nests ? (v_ot->>'id')) then v_ot := null; end if;
         if (v_ot->>'id') is not null then
-          if v_nests ? (v_ot->>'id') then
-            v_errs := v_errs || app.issue('nesting_too_deep', v_o->>'key');
-          end if;
           v_set := v_set || jsonb_build_object('opens_group_id', v_ot->>'id');
         elsif (v_ot->>'ref') is not null then v_refs := v_refs || jsonb_build_object('opens_group_id', v_ot->>'ref');
         else v_set := v_set || jsonb_build_object('opens_group_id', null);
@@ -2904,6 +2953,43 @@ begin
       end loop;
     end loop;
   end loop;
+
+  -- ---- 11, last. one nesting level, on the menu as the plan leaves it (contracts round 10c): no group is both opened by
+  -- an option and holds an option that opens a group. The openers: the plan's option steps create or update that set an
+  -- opened group (refs.opens_group_id, a group the plan creates, named 'ref:<key>'; else a set.opens_group_id), held
+  -- by their target (an update's: the venue's option's group), and the venue's options that open a group, except those
+  -- the plan updates. Each opener of the plan's, in option step order, whose group is opened by an opener or whose
+  -- opened group holds one asks nesting_too_deep, keyed by its draft option (the step key before '@'), once per
+  -- option, unless the draft asks it already; unanswered, the plan is refused (exception_unresolved), so it never writes
+  -- a chain the database refuses and never drops an opener in silence.
+  with st as (select t.x, t.i from unnest(v_option_steps) with ordinality t(x, i) where t.x->>'kind' = 'option' and t.x->>'op' in ('create', 'update')),
+       vo as materialized (select x->>'id' as id, x->>'group_id' as gid, x->>'opens_group_id' as opens from jsonb_array_elements(p_existing->'options') x),
+       pe as materialized (
+         select st.i, st.x->>'key' as step, st.x->>'op' as op, st.x->>'id' as id,
+                case when st.x->'refs' ? 'opens_group_id' then 'ref:' || (st.x->'refs'->>'opens_group_id') else st.x->'set'->>'opens_group_id' end as target,
+                case when st.x->>'op' = 'update' then vo.gid else coalesce(st.x->'set'->>'group_id', 'ref:' || (st.x->'refs'->>'group_id')) end as holder
+         from st left join vo on st.x->>'op' = 'update' and vo.id = st.x->>'id'),
+       e as (select pe.i, pe.step, pe.holder, pe.target from pe where pe.target is not null
+             union all
+             select null, null, vo.gid, vo.opens from vo
+             where vo.opens is not null and not exists (select 1 from pe where pe.op = 'update' and pe.target is not null and pe.id = vo.id)),
+       opened as (select distinct e.target as g from e),
+       holding as (select distinct e.holder as g from e)
+  select coalesce(jsonb_agg(jsonb_build_array(z.ok, z.step) order by z.i), '[]') into v_chain
+  from (select distinct on (split_part(e.step, '@', 1)) split_part(e.step, '@', 1) as ok, e.step, e.i
+        from e
+        where e.step is not null and (exists (select 1 from opened o where o.g = e.holder) or exists (select 1 from holding h where h.g = e.target))
+        order by split_part(e.step, '@', 1), e.i) z
+  where not v_dn ? z.ok;
+  if jsonb_array_length(v_chain) > 0 then
+    select coalesce(jsonb_object_agg(t.o->>'key', format('groups[%s].options[%s]', g.gi - 1, t.oj - 1)), '{}') into v_ce
+    from jsonb_array_elements(v_grps) with ordinality g(x, gi), jsonb_array_elements(g.x->'options') with ordinality t(o, oj);
+    for v_e in select x from jsonb_array_elements(v_chain) x loop
+      select a.c, a.choice, a.errs, a.rec into v_c, v_choice, v_errs, v_rec
+      from app.plan_ask(v_choice, v_errs, 'nesting_too_deep', v_e->>0, v_ce->>(v_e->>0), 1, p_decisions) a;
+      if v_rec is not null then v_plan_asked := v_plan_asked || jsonb_build_array(jsonb_build_object('e', v_rec, 'step', 'option:' || (v_e->>1))); end if;
+    end loop;
+  end if;
 
   -- ---- 12. links and photos
   -- each group's capacity once the plan is applied (by target key): its options' max_qty, the venue's and the ones this
@@ -3517,14 +3603,27 @@ begin
     perform app.import_refused(v);
     return app.fail('apply_failed', jsonb_build_array(failed));
   end if;
-  -- appliedIds(plan, createdId): the row each section and dish step created, updated or kept, by draft key (a node left
-  -- out or merged has none); the next import's plan holds these rows first (QA-M2)
+  -- appliedIds(draft, plan, createdId): the row each section and dish step created, updated or kept, by draft key (a
+  -- node left out or merged has none); the next import's plan holds these rows first (QA-M2). A section the plan leaves
+  -- empty while one of its own dishes was placed (a dish step not skip) is null, unless one of its own dishes was left
+  -- out by hand (a skip, reason choice, that no plan exception answered skip names): the import put its dishes
+  -- elsewhere and gave it no row (contracts round 10c)
+  with st as materialized (select s from jsonb_array_elements(plan->'steps') s where s->>'kind' in ('section', 'dish')),
+       placed as (select s->>'key' as k from st where s->>'kind' = 'dish' and s->>'op' <> 'skip'),
+       by_hand as (select s->>'key' as k from st
+                   where s->>'kind' = 'dish' and s->>'op' = 'skip' and s->>'reason' = 'choice'
+                     and not exists (select 1 from jsonb_array_elements(plan->'exceptions') e where e->>'choice' = 'skip' and e->>'key' = st.s->>'key')),
+       left_empty as (select x->>'key' as k from jsonb_array_elements(p_draft->'sections') x
+                      where exists (select 1 from jsonb_array_elements(x->'dishes') d join placed on placed.k = d->>'key')
+                        and not exists (select 1 from jsonb_array_elements(x->'dishes') d join by_hand on by_hand.k = d->>'key'))
   select jsonb_build_object(
-           'sections', coalesce(jsonb_object_agg(s->>'key', case when s->>'op' = 'create' then failed->'ids'->>('section:' || (s->>'key')) else s->>'id' end)
-                                  filter (where s->>'kind' = 'section'), '{}'),
+           'sections', coalesce(jsonb_object_agg(s->>'key', case when s->>'op' = 'create' then failed->'ids'->>('section:' || (s->>'key'))
+                                                                 when s->>'op' = 'skip' then null else s->>'id' end)
+                                  filter (where s->>'kind' = 'section' and (s->>'op' <> 'skip'
+                                                                            or (s->>'reason' = 'empty' and exists (select 1 from left_empty l where l.k = s->>'key')))), '{}'),
            'dishes', coalesce(jsonb_object_agg(s->>'key', case when s->>'op' = 'create' then failed->'ids'->>('dish:' || (s->>'key')) else s->>'id' end)
-                                filter (where s->>'kind' = 'dish'), '{}'))
-  into applied from jsonb_array_elements(plan->'steps') s where s->>'kind' in ('section', 'dish') and s->>'op' <> 'skip';
+                                filter (where s->>'kind' = 'dish' and s->>'op' <> 'skip'), '{}'))
+  into applied from st;
   update public.menu_imports set status = 'applied', exceptions = stored, applied_ids = applied where id = i.id;
   insert into public.onboarding_progress (venue_id, step, state) values (i.venue_id, 'menu', 'done'), (i.venue_id, 'review', 'done')
   on conflict (venue_id, step) do update set state = 'done' where public.onboarding_progress.state <> 'done';

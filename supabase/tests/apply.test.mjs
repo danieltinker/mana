@@ -93,11 +93,11 @@ describe('apply_import', () => {
     const r1 = await apply(OP, first, draft, DEC);
     assert.equal(r1.ok, true, JSON.stringify(r1).slice(0, 300));
     const stored1 = (await w.admin.query(`select applied_ids from public.menu_imports where id = $1`, [first])).rows[0].applied_ids;
-    // appliedIds(plan, createdId): the ids apply_import made, read back from the rows by name
+    // appliedIds(draft, plan, createdId): the ids apply_import made, read back from the rows by name
     const rows = (await w.admin.query(`select 'section' as kind, id, name_en from public.sections where venue_id = $1
                                        union all select 'dish', id, name_en from public.dishes where venue_id = $1`, [VP])).rows;
     const nameOf = new Map(draft.sections.flatMap((s) => [[`section:${s.key}`, s.name.en], ...s.dishes.map((d) => [`dish:${d.key}`, d.name.en])]));
-    assert.deepEqual(stored1, appliedIds(r1.plan, (kind, key) => rows.find((x) => x.kind === kind && x.name_en === nameOf.get(`${kind}:${key}`))?.id));
+    assert.deepEqual(stored1, appliedIds(draft, r1.plan, (kind, key) => rows.find((x) => x.kind === kind && x.name_en === nameOf.get(`${kind}:${key}`))?.id));
     assert.deepEqual((await existingOf(VP)).previous, stored1, 'existing_menu reads the latest applied import\'s');
     const seen = await q(w.url, OP, `select applied_ids from public.menu_imports where id = $1`, [first]);
     assert.deepEqual(seen[0].applied_ids, stored1, 'a client reads it');
@@ -279,6 +279,73 @@ describe('apply_import', () => {
     const ok = await apply(O, id, draft, DEC);
     assert.equal(ok.ok, true, 'applies once the limit allows it');
     assert.deepEqual(await counts(), { ...before, sections: before.sections + 1, dishes: before.dishes + 2 });
+  });
+
+  // round 10c (QA-M4): a plan never writes a chain the database's guard_nesting refuses; it asks, per opener
+  test('one nesting level on the menu as the plan leaves it: both openers of a chain are asked; either answer applies, and the guard agrees', async () => {
+    const OS = '55555555-5555-4555-8555-5555555555b2';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-owner-nesting@example.invalid', now())`, [OS]);
+    const sauce = (k, opts) => group(k, 'רוטב', 'Sauce', { selection: 'multiple', min: 0, max: 3, options: opts });
+    const herbs = (k, opts) => group(k, 'עשבים', 'Herbs', { selection: 'multiple', min: 0, max: 2, options: opts });
+    const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000)])],
+      [sauce('g-sauce', [opt('a', 'איולי', 'Aioli', 0), opt('k', 'קטשופ', 'Ketchup', 0)])]);
+    // a new Side's Fries opens the venue's Sauce, and the Burger's Sauce gets a Chili (add_options) that opens Herbs
+    const n1 = draftOf([section('s', 'עיקריות', 'Mains', [
+      dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-burger-sauce')] }), dish('d-steak', 'סטייק', 'Steak', 9000, { groups: [link('g-side')] }),
+    ])], [
+      group('g-side', 'תוספת', 'Side', { options: [opt('f', 'צ׳יפס', 'Fries', 0, { opens: 'g-sauce' }), opt('s2', 'סלט', 'Salad', 0)] }),
+      sauce('g-sauce', [opt('a2', 'איולי', 'Aioli', 0)]),
+      sauce('g-burger-sauce', [opt('a3', 'איולי', 'Aioli', 0), opt('c3', 'צ׳ילי', 'Chili', 0, { opens: 'g-herbs' })]),
+      herbs('g-herbs', [opt('h1', 'פטרוזיליה', 'Parsley', 0)]),
+    ]);
+    const choices = { 'group_changed@d-burger>g-burger-sauce': 'add_options' };
+    let k = 0;
+    for (const [key, answer] of [['f', 'unlink'], ['c3', 'unlink'], ['f', 'skip'], ['c3', 'skip']]) {
+      const VS = (await rpc(w.url, OS, 'create_venue', { p_slug: `apply-nesting-${++k}`, p_name_he: 'קינון', p_name_en: 'Nesting' })).id;
+      assert.equal((await apply(OS, await parsed(base, OS, () => VS), base, DEC)).ok, true);
+      const id = await parsed(n1, OS, () => VS);
+      const asked = { ...DEC, choices };
+      const want = planApply(n1, await existingOf(VS), asked);
+      assert.deepEqual(want.ok ? [] : want.errors, [{ code: 'exception_unresolved', path: 'f', message: 'nesting_too_deep' }, { code: 'exception_unresolved', path: 'c3', message: 'nesting_too_deep' }]);
+      const refused = await apply(OS, id, n1, asked);
+      assert.deepEqual([refused.code, refused.errors], ['plan_invalid', want.errors], 'unanswered: refused, nothing written');
+      const answered = { ...DEC, choices: { ...choices, [`nesting_too_deep@${key}`]: answer } };
+      const before = await existingOf(VS);
+      const r = await apply(OS, id, n1, answered);
+      assert.equal(r.ok, true, `${key} ${answer}: ${JSON.stringify(r).slice(0, 300)}`);
+      assert.deepEqual(r.plan, JSON.parse(JSON.stringify(planApply(n1, before, answered).value)));
+      assert.ok(r.plan.exceptions.some((e) => e.code === 'nesting_too_deep' && e.key === key && e.choice === answer), 'listed with its answer');
+      // one nesting level: no group both opened by an option and holding an option that opens a group
+      const chain = (await w.admin.query(`select count(*)::int as n from public.addon_options a join public.addon_options b on b.group_id = a.opens_group_id
+                                          where a.venue_id = $1 and b.opens_group_id is not null`, [VS])).rows[0].n;
+      assert.equal(chain, 0, `${key} ${answer}`);
+    }
+  });
+
+  // round 10c (R10 L2): a section the import left empty while it placed its dishes is null in applied_ids, and stays so in
+  // previous; one whose dishes were left out by hand says nothing
+  test('applied_ids: a section left empty with its dishes placed is null, unless a dish was left out by hand (R10 L2)', async () => {
+    const OE = '55555555-5555-4555-8555-5555555555b3';
+    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'apply-owner-empty@example.invalid', now())`, [OE]);
+    const draft = draftOf([section('s0', 'עיקריות', 'Mains', [dish('s0d0', 'שניצל', 'Schnitzel', 3000), dish('s0d1', 'סלט', 'Salad', 3000)])]);
+    const reread = copy(draft);
+    reread.sections[0].name = { he: 'עיקריות חדש', en: 'Mains new' };
+    const answers = { 'section_renamed@s0': 'keep_both', 'dish_elsewhere@s0d0': 'same_dish', 'dish_elsewhere@s0d1': 'same_dish' };
+    for (const [n, skip, want] of [[1, undefined, null], [2, ['s0d1'], undefined]]) {
+      const VE = (await rpc(w.url, OE, 'create_venue', { p_slug: `apply-empty-${n}`, p_name_he: 'ריק', p_name_en: 'Empty' })).id;
+      assert.equal((await apply(OE, await parsed(draft, OE, () => VE), draft, DEC)).ok, true);
+      const id = await parsed(reread, OE, () => VE);
+      const dec = { ...DEC, choices: answers, ...(skip ? { skip } : {}) };
+      const r = await apply(OE, id, reread, dec);
+      assert.equal(r.ok, true, JSON.stringify(r).slice(0, 300));
+      assert.equal(r.plan.steps.find((s) => s.kind === 'section' && s.key === 's0').reason, 'empty');
+      const stored = (await w.admin.query(`select applied_ids from public.menu_imports where id = $1`, [id])).rows[0].applied_ids;
+      assert.deepEqual(stored, appliedIds(reread, r.plan, () => undefined), 'appliedIds(draft, plan, …)');
+      assert.equal(Object.prototype.hasOwnProperty.call(stored.sections, 's0') ? stored.sections.s0 : undefined, want);
+      const prev = (await existingOf(VE)).previous;
+      if (want === null) assert.equal(prev.sections.s0, null, 'previous keeps the null: the later import\'s value replaces the earlier row');
+      else assert.equal(typeof prev.sections.s0, 'string', 'the first import\'s row stays');
+    }
   });
 
   test('refused applies are bounded: past import_caps.refused_applies_per_venue_hour a venue gets rate_limited before the plan (security round 4)', async () => {
