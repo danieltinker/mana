@@ -15,18 +15,18 @@ export function sourceOf(loc) {
 const str = (v) => (typeof v === 'string' ? v : v == null ? '' : String(v));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 /* a text field: the contract's {he,en}; a plain string is accepted too and shown in both languages */
-function text(v) { if (isObj(v)) return { he: str(v.he), en: str(v.en) }; const s = str(v); return { he: s, en: s }; }
-function assetUrl(v, base) {
+export function text(v) { if (isObj(v)) return { he: str(v.he), en: str(v.en) }; const s = str(v); return { he: s, en: s }; }
+export function assetUrl(v, base) {
   if (typeof v !== 'string' || !v) return null;
   if (/^(blob:|data:image\/)/i.test(v)) return v;
   try { const u = new URL(v, base); return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null; } catch (e) { return null; }
 }
-function httpsUrl(v) { try { const u = new URL(str(v)); return u.protocol === 'https:' ? u.href : null; } catch (e) { return null; } }
+export function httpsUrl(v) { try { const u = new URL(str(v)); return u.protocol === 'https:' ? u.href : null; } catch (e) { return null; } }
 const num = (v, d) => (typeof v === 'number' && isFinite(v) ? v : d);
 const TAGS = ['vegan', 'vegetarian', 'spicy', 'gf'];
 const KINDS = ['food', 'dessert', 'drinks', 'wine', 'beer'], SCENES = ['auto', 'table', 'bar', 'holo'], RELIEF = ['flat', 'low', 'medium', 'tall', 'stand'];
 
-function asset(a, base) {
+export function asset(a, base) {
   if (!isObj(a)) return null;
   const color = assetUrl(a.color, base), thumb = assetUrl(a.thumb, base) || color;
   if (a.state === 'relief') {
@@ -77,7 +77,7 @@ export function resolveStock(snapshot, stock) {
   snapshot.stockLabel = label;
   return label;
 }
-function details(d) {
+export function details(d) {
   if (!isObj(d)) return {};
   const out = {};
   if (isObj(d.wine)) { const w = d.wine, n = isObj(w.notes) ? w.notes : {}; out.wine = { producer: text(w.producer), name: text(w.name), vintage: text(w.vintage), region: text(w.region), grape: text(w.grape), serving: text(w.serving), color: str(w.color), bottle: str(w.bottle),

@@ -205,6 +205,12 @@ test('from Home, timed: a dish off for two hours in two taps, back in one; every
     await page.locator(`dialog[data-sheet="off2h"] [data-off2h="${id}"]`).click();
     await page.locator(`[data-off-row="${id}"]`).waitFor();
   }
+  // a confirmation closed with Escape gives the focus back too (v2's opt-in for every dialog, QA-M4)
+  await page.locator('[data-act="restore-today"][data-n="2"]').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'להחזיר הכול' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.querySelector('dialog[open]'));
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-act') === 'restore-today');
   await timed('bring back today\'s', async () => {
     await page.locator('[data-act="restore-today"][data-n="2"]').click();         // tap 1
     await page.getByRole('dialog').getByRole('button', { name: 'להחזיר הכול' }).click();   // tap 2

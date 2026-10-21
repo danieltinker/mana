@@ -292,7 +292,8 @@ export function validateOpsVenueQuery(raw: unknown): Validation<OpsVenueQuery> {
 
 /**
  * `ops_revision(p_venue, p_revision)` (staff; a caller who is not staff gets 42501 `not_staff`): one stored revision
- * of a venue's menu, the newest when `revision` is null or absent. Each read is logged (`menu.read`).
+ * of a venue's menu, the newest when `revision` is null or absent. Each read is logged (`menu.read`). A `p_revision`
+ * below 1 is `revision_invalid` (as `validateOpsRevisionQuery` says).
  */
 export type OpsRevisionQuery = { readonly venueId: string; readonly revision?: number | null };
 export type OpsRevision =
@@ -305,7 +306,7 @@ export type OpsRevision =
       readonly review: ReviewState;
       readonly snapshot: SnapshotV2;
     }>
-  | RpcFail<'venue_unknown' | 'revision_unknown'>;
+  | RpcFail<'revision_invalid' | 'venue_unknown' | 'revision_unknown'>;
 
 /** Codes: type, field_not_allowed, id_invalid, revision_invalid. */
 export function validateOpsRevisionQuery(raw: unknown): Validation<OpsRevisionQuery> {

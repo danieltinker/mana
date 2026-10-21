@@ -7,7 +7,7 @@ reach any host but 127.0.0.1.
 npm run test:unit            # prices, menu address, pasted lists, dashboard sums, "what changed", name comparison,
                              # what a chosen file really is, and the menus-ai function itself against canned API answers;
                              # v2-data: the v2 app's data layer (rows <-> forms, the nesting guard, the guest's prices);
-                             # v2-saves: its save queue against a fake API (slow, failing, lost and stale answers)   ~4 s
+                             # v2-saves: its save queue against a fake API (slow, failing, lost, stale, missing answers)   ~4 s
 node test/check-i18n.mjs     # every t('key') in the sources exists in both languages (lib/i18n.ts and v2/i18n.ts)
 npm run build && npm run test:e2e    # browser tests against the local stack below               ~25 min on 2 cores
 node test/shots.mjs          # the screenshot tour into .shots/v2/                               ~3 min

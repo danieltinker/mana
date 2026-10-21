@@ -52,6 +52,7 @@ export function toV2Error(e: unknown): V2Error {
   const as = (c: string) => new V2Error(c, e, msg);
 
   if (r.name === 'AbortError') return as('aborted');
+  if (r.name === 'TimeoutError') return as('timeout');                 // no answer in time (data/saves.ts `within`)
   if (NETWORK.test(msg) || r.name === 'AuthRetryableFetchError') return as('network');
   if (code in AUTH_CODES) return as(AUTH_CODES[code]!);
   if (/invalid login credentials/i.test(msg)) return as('bad_login');

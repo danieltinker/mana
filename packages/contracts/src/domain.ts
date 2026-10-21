@@ -12,6 +12,7 @@ import type {
   SoldOutDisplay, StaffRole, Tag, TargetKind, Trigger, UntilKind, VenueKind, VenueMode,
 } from './enums.ts';
 import type { Lang } from './common.ts';
+import type { ImportedIds, ReaderNote } from './import.ts';
 import type { TimeWindow, UntilSpec, Weekday } from './time.ts';
 
 type Uuid = string;
@@ -280,9 +281,12 @@ export type MenuImportRow = {
   /** When the raw input (`raw_text`, or the screenshots of `raw_paths`) was purged after the retention period; the
    * draft (`parsed`) stays. */
   raw_purged_at: Iso | null;
-  /** What the reader noticed, as codes and counts (never text): written by save_import_draft, readable by clients.
-   * The contract's `ReaderNote` type comes with the importer's round 3. */
-  notes: unknown[];
+  /** What the reader noticed, as codes and counts (never text): written by save_import_draft, readable by clients. */
+  notes: ReaderNote[];
+  /** The row each section and dish of the draft landed on, by draft key (`appliedIds`): written by apply_import,
+   * readable by clients; null until the import is applied. The next import's plan reads the latest as
+   * `ExistingMenu.previous`. */
+  applied_ids: ImportedIds | null;
 };
 
 export type SupportCaseRow = {
@@ -343,7 +347,7 @@ export const TABLE_COLUMNS = {
   venue_closures: ['id', 'venue_id', 'from_date', 'to_date', 'note_he', 'note_en', 'created_at'],
   menu_revisions: ['id', 'venue_id', 'number', 'snapshot_version', 'snapshot', 'note', 'created_by', 'created_at'],
   onboarding_progress: ['venue_id', 'step', 'state', 'blockers', 'updated_by', 'updated_at'],
-  menu_imports: ['id', 'venue_id', 'source', 'status', 'raw_paths', 'raw_text', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by', 'applied_at', 'created_at', 'updated_at', 'raw_purged_at', 'notes'],
+  menu_imports: ['id', 'venue_id', 'source', 'status', 'raw_paths', 'raw_text', 'input_sha256', 'rights_confirmed', 'parsed', 'exceptions', 'error_code', 'created_by', 'applied_at', 'created_at', 'updated_at', 'raw_purged_at', 'notes', 'applied_ids'],
   support_cases: ['id', 'venue_id', 'topic', 'status', 'subject', 'body', 'opened_by', 'resolved_at', 'created_at', 'updated_at'],
   activity_log: ['id', 'venue_id', 'at', 'actor_id', 'actor_kind', 'via', 'reason', 'action', 'target_table', 'target_ids', 'n', 'detail'],
   entitlements: ['venue_id', 'plan', 'status', 'trial_started_at', 'trial_ends_at', 'current_period_end', 'note', 'updated_at'],

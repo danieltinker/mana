@@ -27,7 +27,8 @@ export class HalomBot {
   }
 
   constructor(target, session, role) {
-    this.target = target;
+    // the public part of the target only: a bot never holds the local service key (createUser takes it, once)
+    this.target = { apiUrl: target.apiUrl, anonKey: target.anonKey };
     this.session = session;
     this.userId = session.userId;
     this.role = role;

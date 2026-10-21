@@ -1,0 +1,62 @@
+{
+  "synthetic": true,
+  "about": "Bistro Check: an invented menu for the guest menu's harder cases (e2e/guest-menu.test.mjs): owner's defaults that cost money (a required dip, an optional topping), an add-on suggested right after an add, a dish suggested at checkout whose choices must be seen, a sauce group that can run out entirely. Open around the clock, no rule has hours.",
+  "venue": {
+    "slug": "bistro-check",
+    "name": { "he": "ביסטרו צ׳ק", "en": "Bistro Check" },
+    "cuisine": { "he": "ביסטרו", "en": "Bistro" },
+    "kind": "restaurant",
+    "defaultLang": "he",
+    "demo": true
+  },
+  "schedules": [],
+  "groups": [
+    { "key": "side", "label": "Side of choice", "name": { "he": "תוספת לבחירה", "en": "Side of choice" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "fries", "name": { "he": "צ׳יפס", "en": "Fries" }, "price": 0, "default": true, "opens": "sauce" },
+      { "key": "salad", "name": { "he": "סלט", "en": "Salad" }, "price": 0 },
+      { "key": "sweet", "name": { "he": "בטטה", "en": "Sweet potato" }, "price": 800, "opens": "sauce" }
+    ] },
+    { "key": "sauce", "label": "Sauce", "name": { "he": "רוטב", "en": "Sauce" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "aioli", "name": { "he": "איולי", "en": "Aioli" }, "price": 0, "default": true },
+      { "key": "ketchup", "name": { "he": "קטשופ", "en": "Ketchup" }, "price": 0 },
+      { "key": "harissa", "name": { "he": "חריסה", "en": "Harissa" }, "price": 300 }
+    ] },
+    { "key": "extras", "label": "Extras", "name": { "he": "תוספות", "en": "Extras" }, "selection": "multiple", "min": 0, "max": 3, "options": [
+      { "key": "cheese", "name": { "he": "גבינה", "en": "Cheese" }, "price": 400, "maxQty": 2 },
+      { "key": "egg", "name": { "he": "ביצה", "en": "Egg" }, "price": 500 }
+    ] },
+    { "key": "dip", "label": "Dip", "name": { "he": "מטבל", "en": "Dip" }, "selection": "single", "min": 1, "max": 1, "options": [
+      { "key": "garlic", "name": { "he": "שום", "en": "Garlic" }, "price": 300, "default": true },
+      { "key": "chili", "name": { "he": "צ׳ילי", "en": "Chili" }, "price": 200 }
+    ] },
+    { "key": "topping", "label": "Topping", "name": { "he": "תוספת למעלה", "en": "Topping" }, "selection": "multiple", "min": 0, "max": 2, "options": [
+      { "key": "cream", "name": { "he": "קצפת", "en": "Whipped cream" }, "price": 300, "default": true },
+      { "key": "marsh", "name": { "he": "מרשמלו", "en": "Marshmallow" }, "price": 200 }
+    ] }
+  ],
+  "sections": [
+    { "key": "mains", "name": { "he": "עיקריות", "en": "Mains" }, "kind": "food", "dishes": [
+      { "key": "burger", "name": { "he": "המבורגר", "en": "Burger" }, "desc": { "he": "המבורגר בלחמנייה", "en": "A burger in a bun" }, "price": 6800, "groups": ["side", "extras"] },
+      { "key": "toast", "name": { "he": "טוסט", "en": "Toast" }, "price": 4200, "tags": ["vegetarian"], "groups": ["side"] }
+    ] },
+    { "key": "sides", "name": { "he": "תוספות", "en": "Sides" }, "kind": "food", "dishes": [
+      { "key": "basket", "name": { "he": "סל צ׳יפס", "en": "Fries basket" }, "price": 2000, "tags": ["vegan"], "groups": ["dip"] }
+    ] },
+    { "key": "drinks", "name": { "he": "שתייה", "en": "Drinks" }, "kind": "drinks", "dishes": [
+      { "key": "lemonade", "name": { "he": "לימונדה", "en": "Lemonade" }, "price": 1400, "tags": ["vegan"] },
+      { "key": "cocoa", "name": { "he": "שוקו חם", "en": "Hot chocolate" }, "price": 1500, "tags": ["vegetarian"], "groups": ["topping"] }
+    ] },
+    { "key": "pastries", "name": { "he": "מאפים", "en": "Pastries" }, "kind": "dessert", "dishes": [
+      { "key": "cookie", "name": { "he": "עוגייה", "en": "Cookie" }, "price": 900, "tags": ["vegan"] }
+    ] }
+  ],
+  "rules": [
+    { "key": "burger-egg", "label": "An egg after adding a burger", "trigger": "add", "scope": { "dishes": ["burger"] }, "suggest": { "option": "egg" }, "line": { "he": "ביצה על ההמבורגר?", "en": "An egg on it?" }, "priority": 50, "cap": 3 },
+    { "key": "cookie-cocoa", "label": "A hot chocolate after a cookie", "trigger": "add", "scope": { "dishes": ["cookie"] }, "suggest": { "dish": "cocoa" }, "line": { "he": "שוקו חם ליד העוגייה?", "en": "A hot chocolate with it?" }, "priority": 45, "cap": 1 },
+    { "key": "burger-cheese", "label": "Cheese on the burger", "trigger": "sheet", "scope": { "dishes": ["burger"] }, "suggest": { "option": "cheese" }, "line": { "he": "להוסיף גבינה?", "en": "Add cheese?" }, "priority": 40, "cap": 2 },
+    { "key": "main-basket", "label": "Fries with a main", "trigger": "checkout", "scope": { "sections": ["mains"] }, "basketLacks": { "sections": ["sides"] }, "suggest": { "dish": "basket" }, "line": { "he": "סל צ׳יפס בצד?", "en": "A fries basket on the side?" }, "priority": 30, "cap": 1 }
+  ],
+  "hours": [{ "days": [0, 1, 2, 3, 4, 5, 6], "opens": "00:00", "closes": "00:00" }],
+  "onboarding": ["menu", "review", "addons", "hours"],
+  "publish": { "note": "Bistro Check, synthetic" }
+}

@@ -8,7 +8,7 @@ import { startCluster } from './harness/cluster.mjs';
 import { recordContractCalls } from './harness/import-corpus.mjs';
 import { ABSENT, compareValidator, inputs, storable } from './harness/parity.mjs';
 import {
-  ACT_FOR_OWNER_ACTIONS, draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_CHOICES, IMPORT_EXCEPTION_CODES, IMPORT_EXCEPTIONS, importKey,
+  ACT_FOR_OWNER_ACTIONS, draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, GLOBAL_COVER_TRIES, IMPORT_CHOICES, IMPORT_EXCEPTION_CODES, IMPORT_EXCEPTIONS, importKey,
   LAYOUT_GUESS_RULES, planApply, READER_NOTES, readerNoteIssues, validateApplyImport, validateDecisions, validateDraft, validateSaveDraft,
 } from '../../packages/contracts/src/index.ts';
 import { applyPlan, bistroDraft, copy, dish, link, opt, section } from '../../packages/contracts/test/import-fixtures.ts';
@@ -116,9 +116,9 @@ describe('the draft', () => {
 });
 
 describe('the closed lists', () => {
-  test('IMPORT_EXCEPTIONS (order and severity), IMPORT_CHOICES, EXCEPTION_CHOICES, READER_NOTES, LAYOUT_GUESS_RULES, ACT_FOR_OWNER_ACTIONS', async () => {
+  test('IMPORT_EXCEPTIONS (order and severity), IMPORT_CHOICES, EXCEPTION_CHOICES, READER_NOTES, LAYOUT_GUESS_RULES, ACT_FOR_OWNER_ACTIONS, GLOBAL_COVER_TRIES', async () => {
     const { rows } = await db.admin.query(`select app.import_exception_codes() c, app.import_choice_list() l, app.import_choices() x, app.reader_notes() n,
-      app.layout_guess_rules() g,
+      app.layout_guess_rules() g, app.global_cover_tries() t,
       (select jsonb_object_agg(c, app.import_exception_severity(c)) from unnest(app.import_exception_codes()) c) s,
       pg_get_functiondef('public.act_for_owner(uuid,text,text,jsonb)'::regprocedure) a`);
     assert.deepEqual(rows[0].c, [...IMPORT_EXCEPTION_CODES]);
@@ -127,6 +127,7 @@ describe('the closed lists', () => {
     assert.deepEqual(rows[0].x, JSON.parse(JSON.stringify(EXCEPTION_CHOICES)));
     assert.deepEqual(rows[0].n, { ...READER_NOTES });
     assert.deepEqual(rows[0].g, [...LAYOUT_GUESS_RULES]);
+    assert.equal(rows[0].t, GLOBAL_COVER_TRIES);
     const listed = /not in \(([^)]*)\) then\s+return app\.fail\('action_unknown'\)/.exec(rows[0].a)[1].match(/'([a-z_.]+)'/g).map((v) => v.slice(1, -1));
     assert.deepEqual(listed, [...ACT_FOR_OWNER_ACTIONS]);
   });
@@ -139,7 +140,8 @@ describe('the reader\'s notes', () => {
     const recorded = (calls.readerNoteIssues ?? []).map(([n, d, prefix]) => [n, d ?? null, prefix ?? 'notes']);
     const generated = inputs([note, { ...note, code: 'price_range', severity: 'check', key: 'd-burger', lines: [4], count: 1, rule: null }], {
       0: [ABSENT, 5, null, [], {}], '0.code': [ABSENT, 'nope', 5, 'price_range'], '0.severity': [ABSENT, 'check', null], '0.key': [ABSENT, 'd-burger', 'd-nope', 'D', 5, ''],
-      '0.lines': [ABSENT, [], [0], [1, 1], [2, 1], [1, 2.5], Array.from({ length: 101 }, (_, i) => i + 1), Array.from({ length: 100 }, (_, i) => i + 1), [1000001], '1'],
+      '0.lines': [ABSENT, [], [0], [1, 1], [2, 1], [1, 2.5], [2.5, 3], [1, 2.5, 2], [null], [1, '2'], [-1], [1e300], [1, {}], Array.from({ length: 101 }, (_, i) => i + 1),
+        Array.from({ length: 100 }, (_, i) => i + 1), [1000001], [1000000], '1'],
       '0.count': [ABSENT, 0, 1, 1000000, 1000001, 1.5, '2'], '0.rule': [ABSENT, 'Header', 'a'.repeat(40), 'a'.repeat(41), '_x', 5], '0.text': ['Soup'],
       '1.key': ['g-side', 'o-fries', 's-mains', 'x'], 2: [5],
     }, { random: 200, seed: 13 }).filter((n) => storable(n));
@@ -238,6 +240,30 @@ describe('the plan', () => {
     return list.length;
   }
 
+  // SEC-M4: app.plan_cover takes its pairs by names, not one by one; on random options (few names, blanks, positions
+  // that tie, up to 30 a side) it is the same map as app.plan_assign walking every pair with score_keys > 0, the order
+  // of the contracts' assign()
+  test('app.plan_cover is assign() over every pair, on 4000 random sets of options', async () => {
+    let seed = 20261020;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const pick = (a) => a[Math.floor(rnd() * a.length)];
+    const HE = ['', 'סלט', 'צ׳יפס', 'רוטב', 'אורז'];
+    const EN = ['', 'salad', 'fries', 'sauce', 'rice'];
+    const cases = Array.from({ length: 4000 }, () => {
+      const big = rnd() < 0.3;
+      const nn = 1 + Math.floor(rnd() * (big ? 30 : 12)), nr = Math.floor(rnd() * (big ? 30 : 12));
+      return [Array.from({ length: nn }, (_, i) => ({ key: `k${Math.floor(rnd() * 100)}-${i}`, keys: { he: pick(HE), en: pick(EN) } })),
+        Array.from({ length: nr }, (_, i) => ({ id: `0000000${Math.floor(rnd() * 10)}-${i}`, position: Math.floor(rnd() * 4), keys: { he: pick(HE), en: pick(EN) } }))];
+    });
+    const { rows } = await db.admin.query(`select count(*) filter (where z.a is distinct from z.b)::int as differ, count(*) filter (where z.b <> '{}')::int as matched, count(*)::int as n
+      from (select app.plan_cover(c->0, c->1) as a,
+                   (select p.map from app.plan_assign((select coalesce(jsonb_agg(jsonb_build_object('n', x->>'key', 'r', y, 'score', app.score_keys(x->'keys', y->'keys'))), '[]')
+                                                       from jsonb_array_elements(c->0) x, jsonb_array_elements(c->1) y where app.score_keys(x->'keys', y->'keys') > 0), '{}') p) as b
+            from jsonb_array_elements($1::jsonb) c) z`, [JSON.stringify(cases)]);
+    assert.deepEqual([rows[0].differ, rows[0].n], [0, 4000]);
+    assert.ok(rows[0].matched > 3000, String(rows[0].matched));
+  });
+
   // (the fuzz's seeds whole, its large runs one call in FUZZ_EVERY: harness/import-corpus.mjs; MANA_TWINS_FULL=1 for all)
   test('app.plan_import_on is planApply on every plan the contracts make (steps, summary, exceptions, fromDraft, errors)', async () => {
     const list = distinct((calls.planApply ?? []).filter((a) => storable(a)));
@@ -256,7 +282,7 @@ describe('the plan', () => {
     };
     const first = planApply(base, EMPTY_MENU, answerFixes(base));
     assert.equal(first.ok, true);
-    const menu = applyPlan(EMPTY_MENU, first.value);
+    const menu = applyPlan(EMPTY_MENU, first.value, base);
     const variants = {
       same: (d) => d,
       prices: (d) => { d.sections[0].dishes[0].price = 6600; d.sections[0].dishes[1].price = 7400; d.groups[2].options[0].price = 350; return d; },

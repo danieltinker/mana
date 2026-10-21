@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, U, world } from './harness/world.mjs';
-import { IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, SCAN_IMAGE_CAPS, validateListPurgeableQuery } from '../../packages/contracts/src/index.ts';
+import { IMPORT_CAP_KEYS, IMPORT_CLIENT_COLUMNS, IMPORT_IMAGES_MAX, IMPORT_TEXT_MAX, SCAN_IMAGE_CAPS, validateListPurgeableQuery } from '../../packages/contracts/src/index.ts';
 import { dish, draftOf, section } from '../../packages/contracts/test/import-fixtures.ts';
 
 let w;
@@ -239,8 +239,9 @@ describe('claim_import_scan: the scanner, with the owner\'s token, before any pa
 
   test('the images per venue (local day), per person and in all (UTC day) are capped; rate_limited names the cap', async () => {
     const base = await cfg('import_caps');
-    assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000 });
+    assert.deepEqual(base, { per_venue_day: 20, scan_images_per_venue_day: 60, scan_images_per_user_day: 120, scan_images_per_day: 1000, refused_applies_per_venue_hour: 10 });
     assert.deepEqual(Object.keys(base).filter((k) => k.startsWith('scan_images')).sort(), [...SCAN_IMAGE_CAPS].sort(), 'the caps ClaimScanReply names');
+    assert.deepEqual(Object.keys(base).sort(), [...IMPORT_CAP_KEYS].sort(), 'the keys the contracts list (IMPORT_CAP_KEYS)');
     for (const [cap, other] of [['scan_images_per_venue_day', null], ['scan_images_per_user_day', null], ['scan_images_per_day', 'B']]) {
       await clearImports();
       await clearCounters();
@@ -343,11 +344,13 @@ describe('save_import_draft: what a reader made of the input', () => {
     const s = await scan(U.ownerA, A, 1);
     const photo = (path, rights = 'unknown') => draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800, { photo: { path, rights } })])], [],
       { source: 'scan' });
-    const own = `${A}/imports/${s.importId}/page-0.jpg`;
+    // a dish photo is a crop the scanner wrote in the import's folder, never one of the uploaded images (QA-L4)
+    const own = `${A}/imports/${s.importId}/crop-0.jpg`;
     assert.deepEqual(await save('service', s.importId, photo(own)), { ok: false, code: 'import_closed' }, 'not claimed');
     assert.equal((await claim(U.ownerA, s.importId)).ok, true);
     assert.deepEqual(await save(U.ownerA, s.importId, photo(own)), { ok: false, code: 'import_busy' }, 'the owner waits for the read');
-    for (const path of [`${A}/imports/${randomUUID()}/page-0.jpg`, `${w.B}/imports/${s.importId}/page-0.jpg`, `${A}/dishes/page-0.jpg`]) {
+    for (const path of [`${A}/imports/${randomUUID()}/page-0.jpg`, `${w.B}/imports/${s.importId}/page-0.jpg`, `${A}/dishes/page-0.jpg`,
+      (await row(s.importId)).raw_paths[0]]) {
       const r = await save('service', s.importId, photo(path));
       assert.deepEqual([r.code, r.errors], ['invalid_draft', [{ code: 'path_invalid', path: 'sections[0].dishes[0].photo.path' }]], path);
     }
@@ -361,7 +364,7 @@ describe('save_import_draft: what a reader made of the input', () => {
     const wolt = await scan(U.ownerA, A, 1, { p_rights_confirmed: true }, 'wolt_screenshots');
     assert.equal((await claim(U.ownerA, wolt.importId, 'wolt_screenshots')).ok, true);
     const confirmed = draftOf([section('s-mains', 'עיקריות', 'Mains', [dish('d-soup', 'מרק', 'Soup', 3800,
-      { photo: { path: `${A}/imports/${wolt.importId}/page-0.jpg`, rights: 'confirmed' } })])], [], { source: 'wolt_screenshots' });
+      { photo: { path: `${A}/imports/${wolt.importId}/crop-0.jpg`, rights: 'confirmed' } })])], [], { source: 'wolt_screenshots' });
     assert.equal((await save('service', wolt.importId, confirmed)).ok, true, 'rights confirmed at upload');
     await clearCounters();
     await clearImports();
@@ -373,8 +376,10 @@ describe('discard_import', () => {
     await clearImports();
     const p = await paste(U.ownerB, w.B, 'Soup 38');
     const roles = { anon: 'anon', stranger: U.stranger, counterA: U.counterA, ownerA: U.ownerA, support: U.support, admin: U.admin };
+    // another venue's import is the same import_unknown as one that does not exist (N1); anon has no EXECUTE
     assert.deepEqual(await whoMay('discard_import', { p_import: p.importId }, roles),
-      { anon: '42501', stranger: '42501', counterA: '42501', ownerA: '42501', support: '42501', admin: '42501' });
+      { anon: '42501', stranger: 'import_unknown', counterA: 'import_unknown', ownerA: 'import_unknown', support: 'import_unknown', admin: 'import_unknown' });
+    assert.equal((await row(p.importId)).status, 'uploaded', 'nothing changed');
     const opened = (await row(p.importId)).updated_at;
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: p.importId }), { ok: true });
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: p.importId }), { ok: true });
@@ -387,6 +392,55 @@ describe('discard_import', () => {
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: x.importId }), { ok: false, code: 'import_closed' });
     assert.deepEqual(await rpc(w.url, U.ownerB, 'discard_import', { p_import: '00000000-0000-4000-8000-00000000ffff' }), { ok: false, code: 'import_unknown' });
     await clearImports();
+  });
+
+  test('a crashed read (a claim past the 10-minute reclaim window): its owner may discard it, and its screenshots go after the retention period (SEC-L2)', async () => {
+    await clearImports();
+    await clearCounters();
+    const s = await scan(U.ownerA, A, 1);
+    assert.equal((await claim(U.ownerA, s.importId)).ok, true);
+    assert.deepEqual(await rpc(w.url, U.ownerA, 'discard_import', { p_import: s.importId }), { ok: false, code: 'import_busy' }, 'a read in progress');
+    const ids = async () => (await rpc(w.url, 'service', 'list_purgeable_imports', {})).map((x) => x.importId);
+    await raw(`update public.menu_imports set updated_at = now() - interval '11 minutes' where id = $1`, [s.importId]);
+    assert.deepEqual(await ids(), [], 'waiting, within the retention period');
+    await raw(`update public.menu_imports set updated_at = now() - interval '31 days' where id = $1`, [s.importId]);
+    assert.deepEqual(await ids(), [s.importId], 'a crashed read past the retention period');
+    const listed = (await rpc(w.url, 'service', 'list_purgeable_imports', {}))[0];
+    assert.equal(listed.status, 'parsing');
+    // the scanner's purge goes through the guard
+    await as(w.url, 'service', (c) => c.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null`, [s.importId]));
+    assert.ok((await row(s.importId)).raw_purged_at);
+    const t = await scan(U.ownerA, A, 1);
+    assert.equal((await claim(U.ownerA, t.importId)).ok, true);
+    await raw(`update public.menu_imports set updated_at = now() - interval '11 minutes' where id = $1`, [t.importId]);
+    assert.deepEqual(await rpc(w.url, U.managerA, 'discard_import', { p_import: t.importId }), { ok: true }, 'its owner or manager lets it go');
+    assert.equal((await row(t.importId)).status, 'discarded');
+    await clearImports();
+    await clearCounters();
+  });
+
+  test('a claim inside the reclaim window is never purged, even with a retention of 0 days; the scanner marks before it deletes (N9)', async () => {
+    await clearImports();
+    await clearCounters();
+    await withCfg('import_raw_retention_days', 0, async () => {
+      const s = await scan(U.ownerA, A, 1);
+      assert.equal((await claim(U.ownerA, s.importId)).ok, true);
+      await raw(`update public.menu_imports set updated_at = now() - interval '1 minute' where id = $1`, [s.importId]);
+      assert.deepEqual((await rpc(w.url, 'service', 'list_purgeable_imports', {})).map((x) => x.importId), [], 'a live claim is not listed');
+      // the scanner's mark (the step before deleting any file) is refused for it: so nothing is deleted
+      const mark = await as(w.url, 'service', (c) => c.query(`update public.menu_imports set raw_paths = '{}', raw_purged_at = now() where id = $1 and raw_purged_at is null`, [s.importId]))
+        .then(() => 'marked', (e) => e.message);
+      assert.match(mark, /import_not_purgeable/);
+      assert.equal((await row(s.importId)).raw_purged_at, null);
+      const daily = (await w.admin.query(`select app.daily_maintenance() r`)).rows[0].r;
+      assert.equal(daily.ok, true);
+      assert.equal((await row(s.importId)).raw_purged_at, null, 'nor by the daily job');
+      // past the window it is a crashed read, waiting: purgeable at once with a retention of 0
+      await raw(`update public.menu_imports set updated_at = now() - interval '11 minutes' where id = $1`, [s.importId]);
+      assert.deepEqual((await rpc(w.url, 'service', 'list_purgeable_imports', {})).map((x) => x.importId), [s.importId]);
+    });
+    await clearImports();
+    await clearCounters();
   });
 });
 

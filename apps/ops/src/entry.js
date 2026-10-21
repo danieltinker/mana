@@ -1,0 +1,19 @@
+// The back office's entry point. It picks v1 or v2 once, at start, from the config's flags (ADR-007), and nothing below
+// it checks them again:
+// - schema 1 (production, halom.io/mana on halom-studio): the v1 back office, bundled here as it always was;
+// - schema 2 (the demo database `mana`, the simulator's stack): the v2 command center, a bundle of its own (v2.js and
+//   v2.css), fetched only then, so production downloads and runs exactly the v1 back office.
+// config.ts alone, not the contracts' index: production's app.js runs nothing of the contracts but these flags (the
+// index sets up every contract module at load; test/v2/entry.test.ts keeps it that way)
+import { configFlags } from '../../../packages/contracts/src/config.ts';
+import { startV1 } from './main.jsx';
+
+const mount = document.getElementById('app');
+if (configFlags(window.HALOM_MENUS_CONFIG).schema === 2) {
+  import(new URL('v2.js', import.meta.url).href).then(
+    (v2) => v2.startV2(mount),
+    () => { mount.textContent = 'Could not load the back office. Reload the page.'; },
+  );
+} else {
+  startV1(mount);
+}

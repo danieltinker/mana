@@ -277,6 +277,8 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await shot(page, '14-second-level-refused');
   // the two test groups go away again (Extras through the app, Combo through the API)
   await page.goto(e.webUrl + 'studio/#/addons/' + extrasId);
+  // the refused form still holds its changes: a typed address asks before they are dropped
+  await page.getByRole('dialog', { name: 'לצאת בלי לשמור?' }).getByRole('button', { name: 'לצאת בלי לשמור' }).click();
   await page.locator('[data-action="delete-group"]').click();
   await page.getByRole('dialog').getByRole('button', { name: 'מחיקה' }).click();
   await page.locator('[data-screen="addons"]').waitFor();

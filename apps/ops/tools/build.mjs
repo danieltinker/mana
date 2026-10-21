@@ -1,6 +1,8 @@
-// Builds src/ → dist/ (a static folder: index.html, app.js, app.css, fonts/). No CDN, no runtime build step.
+// Builds src/ → dist/ (a static folder: index.html, app.js, app.css, fonts/, and the v2 bundle v2.js, v2.css).
+// No CDN, no runtime build step. app.js is the entry (src/entry.js) with the v1 back office in it; it fetches v2.js only
+// when the config says schema 2 (ADR-007), so v2 is a bundle of its own and production never loads it.
 import { build } from 'esbuild';
-import { cp, mkdir, rm, readdir, stat, writeFile, readFile } from 'node:fs/promises';
+import { cp, mkdir, rm, readdir, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -9,19 +11,12 @@ const dist = path.join(root, 'dist');
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, 'fonts'), { recursive: true });
 
-await build({
-  entryPoints: [path.join(root, 'src/main.jsx')],
-  outfile: path.join(dist, 'app.js'),
-  bundle: true, format: 'esm', target: ['es2020'], minify: true, legalComments: 'none',
-  jsx: 'automatic', jsxImportSource: 'preact',
-  define: { 'process.env.NODE_ENV': '"production"' },
-  logLevel: 'warning',
-});
-await build({
-  entryPoints: [path.join(root, 'src/styles.css')],
-  outfile: path.join(dist, 'app.css'),
-  bundle: true, minify: true, external: ['*.woff2'], logLevel: 'warning',
-});
+import { JS as js } from './esbuild-options.mjs';
+await build({ ...js, entryPoints: [path.join(root, 'src/entry.js')], outfile: path.join(dist, 'app.js') });
+await build({ ...js, entryPoints: [path.join(root, 'src/v2/main.tsx')], outfile: path.join(dist, 'v2.js') });
+const css = { bundle: true, minify: true, external: ['*.woff2'], logLevel: 'warning' };
+await build({ ...css, entryPoints: [path.join(root, 'src/styles.css')], outfile: path.join(dist, 'app.css') });
+await build({ ...css, entryPoints: [path.join(root, 'src/v2/styles.css')], outfile: path.join(dist, 'v2.css') });
 const fontDir = path.join(root, 'node_modules/@fontsource/ibm-plex-sans-hebrew');
 for (const sub of ['hebrew', 'latin']) for (const w of [400, 500, 600]) {
   const f = `ibm-plex-sans-hebrew-${sub}-${w}-normal.woff2`;

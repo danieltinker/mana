@@ -4,8 +4,9 @@
  * Also a reference executor that applies an `ImportPlan` to an `ExistingMenu` in memory, the way `apply_import` writes
  * the tables, so a test can re-import into the result.
  */
-import type {
-  DraftDish, DraftGroup, DraftOption, DraftSection, ExistingMenu, ImportDraft, ImportPlan, PlanStep,
+import {
+  appliedIds, mergePrevious, type DraftDish, type DraftGroup, type DraftOption, type DraftSection, type ExistingMenu, type ImportDraft, type ImportedIds, type ImportPlan,
+  type PlanStep,
 } from '../src/import.ts';
 
 export const tx = (he: string, en: string) => ({ he, en });
@@ -134,10 +135,13 @@ export function menuRuleBreaks(m: ExistingMenu): string[] {
 let nextId = 0xa00000000000;
 const freshId = (): string => `00000000-0000-4000-8000-${(nextId++).toString(16).padStart(12, '0')}`;
 
-type Rows = { -readonly [K in keyof ExistingMenu]: Array<Record<string, unknown>> };
+type Rows = { -readonly [K in Exclude<keyof ExistingMenu, 'previous'>]: Array<Record<string, unknown>> } & { previous?: ImportedIds };
 
-/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call). */
-export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
+/** Applies a plan in memory, as `apply_import` writes the tables (ids are made up, new on every call), and folds what
+ * it put each section and dish on (what `apply_import` stores as `menu_imports.applied_ids`) into `previous`, as the
+ * newest applied import (`mergePrevious`). With the plan's `draft`, a section it left empty with all its dishes
+ * placed is recorded `null`, as `apply_import` does; without it, no such section is recorded. */
+export function applyPlan(menu: ExistingMenu, plan: ImportPlan, draft: ImportDraft = { v: 1, source: 'paste', sections: [], groups: [], dropped: 0 }): ExistingMenu {
   const out = copy(menu) as unknown as Rows;
   const idOf = new Map<string, string>();
   const resolved = (set: object, refs: object): Record<string, unknown> => {
@@ -158,5 +162,9 @@ export function applyPlan(menu: ExistingMenu, plan: ImportPlan): ExistingMenu {
       else rows.push({ ...r, id });
     } else Object.assign(rows.find((r) => r.id === s.id)!, resolved(s.set, s.refs));
   }
+  out.previous = mergePrevious([
+    { id: 'earlier', appliedAt: '2026-01-01T00:00:00Z', appliedIds: menu.previous ?? null },
+    { id: 'this', appliedAt: '2026-01-01T00:00:01Z', appliedIds: appliedIds(draft, plan, (_, key) => idOf.get(key)) },
+  ]);
   return out as unknown as ExistingMenu;
 }
