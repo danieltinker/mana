@@ -44,7 +44,9 @@ before(async () => {
   const seed = readSeed(path.join(SEEDS, 'cafe-demo.json')).seed;
   for (const [tag, slug] of [['desk', 'cafe-demo'], ['phone', 'cafe-demo-phone']]) {
     // built by its owner bot and published: the first publish waits for Halom's approval
-    const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug, halom: staff });
+    // the owner went through every step but the phone test (a step already done stays done: set_onboarding_step answers
+    // `kept` to a "doing" over "done", 9365621)
+    const v = await loadSeed(e.stack, { ...seed, publish: false, onboarding: seed.onboarding.filter((s) => s !== 'test') }, { slug, halom: staff });
     // the owner is still testing the menu on a phone: one step left for Halom to follow
     assert.equal((await v.owner.setStep('test', 'doing')).ok, true);
     const pub = await v.owner.publish('first publish');
