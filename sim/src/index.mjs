@@ -7,6 +7,6 @@ export { Ledger } from './ledger.mjs';
 export { autoSelection, chosenOptions, randomSelection, withOption } from './choices.mjs';
 export { guestClock, isoAt, realClock } from './clock.mjs';
 export { rng, first } from './rng.mjs';
-export { loadSeed, readSeed, seedProblems, SEEDS, PRIVATE } from './seed.mjs';
+export { DEMO_REASON, loadSeed, readSeed, seedProblems, SEEDS, PRIVATE } from './seed.mjs';
 export { randomVisit, runRandom, DEFAULTS as RANDOM_DEFAULTS } from './random.mjs';
-export { bistro, halomTeam, ownerWithMenu, phase0Chain, scriptedGuests } from './scenarios.mjs';
+export { bistro, halomTeam, liveFromSeed, ownerWithMenu, phase0Chain, phase1Chain, scriptedGuests } from './scenarios.mjs';

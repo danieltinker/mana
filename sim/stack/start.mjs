@@ -260,8 +260,6 @@ function handle(P, pool) {
     addStaff: (userId, role = 'admin') => sql(`insert into public.staff (user_id, role, note) values ($1, $2, 'sim setup') on conflict (user_id) do nothing`, [userId, role]),
     /** A venue member with a role no RPC hands out yet (team invites are phase 2): manager or counter. */
     addMember: (venueId, userId, role) => sql(`insert into public.venue_members (venue_id, user_id, role) values ($1, $2, $3)`, [venueId, userId, role]),
-    /** venues.is_demo is set by Halom only and no RPC sets it yet: the simulator flags its venues here. */
-    setDemo: (venueId, demo = true) => sql(`update public.venues set is_demo = $2 where id = $1`, [venueId, demo]),
     /** A setting in public.app_config (tests that change a switch). */
     setConfig: (key, value) => sql(`update public.app_config set value = $2::jsonb, updated_at = now() where key = $1`, [key, JSON.stringify(value)]),
   };

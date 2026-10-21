@@ -29,6 +29,11 @@ describe('the schema itself', () => {
     assert.equal(await count(w.url, U.support, `insert into public.leads (ref, client_token, message, contact) values ('x', gen_random_uuid(), 'hello', 'a@b.cd')`), '42501');
   });
 
+  test('Realtime publishes exactly the rollups and the availability overrides (never venues or anything personal)', async () => {
+    const { rows } = await w.admin.query(`select schemaname || '.' || tablename as t from pg_publication_tables where pubname = 'supabase_realtime' order by 1`);
+    assert.deepEqual(rows.map((r) => r.t), ['public.availability_overrides', 'public.rollups_day', 'public.rollups_minute']);
+  });
+
   test('every SECURITY DEFINER function pins search_path', async () => {
     const { rows } = await w.admin.query(`select n.nspname || '.' || p.proname as f from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname in ('public', 'app') and p.prosecdef and not coalesce('search_path=""' = any (p.proconfig), false)`);
@@ -50,10 +55,12 @@ describe('the schema itself', () => {
     assert.deepEqual(rows.map((r) => r.f), [
       'app.can_edit', 'app.can_operate', 'app.can_read', 'app.can_see_records', 'app.is_member', 'app.is_owner', 'app.is_staff',
       'app.path_venue', 'app.until_spec_ok', 'app.windows_ok',
-      'public.act_for_owner', 'public.create_staff_invite', 'public.create_venue', 'public.my_dashboard', 'public.ops_approve_venue',
-      'public.ops_leads', 'public.ops_overview', 'public.ops_set_plan', 'public.ops_update_lead', 'public.preview_menu', 'public.public_menu',
-      'public.publish_menu', 'public.redeem_staff_invite', 'public.restore_revision', 'public.slug_available', 'public.submit_lead',
-      'public.track_events', 'public.unpublish_menu',
+      'public.act_for_owner', 'public.apply_import', 'public.claim_import_scan', 'public.create_import', 'public.create_staff_invite', 'public.create_venue',
+      'public.discard_import', 'public.export_menu', 'public.my_dashboard', 'public.open_case', 'public.ops_analytics', 'public.ops_approve_venue',
+      'public.ops_leads', 'public.ops_overview', 'public.ops_revision', 'public.ops_set_demo', 'public.ops_set_plan', 'public.ops_update_case', 'public.ops_update_lead',
+      'public.ops_venue', 'public.ops_venues', 'public.preview_menu', 'public.public_menu', 'public.publish_menu', 'public.redeem_staff_invite',
+      'public.restore_revision', 'public.restore_today', 'public.save_addon_group', 'public.save_import_draft', 'public.set_availability', 'public.set_onboarding_step', 'public.slug_available',
+      'public.submit_lead', 'public.track_events', 'public.unpublish_menu', 'public.venue_activity',
     ]);
   });
 
