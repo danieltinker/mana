@@ -27,6 +27,10 @@ const SUITES = [
   ['tools', '.', "node --test 'tools/test/*.test.mjs'", false],      // the local server, the build's settings step, the demo's scenarios
   ['contracts-check', 'packages/contracts', 'npm run -s check', false],
   ['contracts', 'packages/contracts', 'npm test', false],
+  ['import-check', 'packages/import', 'npm run -s check', false],
+  ['import', 'packages/import', 'npm test', false],    // the menu readers: no model, no network
+  ['functions-check', 'supabase', 'npm run -s check:functions', false],
+  ['functions', 'supabase', 'npm run -s test:functions', false],   // the v2 scanner with every outside call mocked
   ['db', 'supabase', 'npm test', false],        // a throwaway local PostgreSQL 16 (/usr/lib/postgresql/16/bin), about 15 s
   // the simulator on its local stack (PostgreSQL 16 + GoTrue + PostgREST), about 35 s: fast on Linux x64; elsewhere
   // heavy, because the GoTrue release is a Linux binary (sim/README.md)
