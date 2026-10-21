@@ -9,6 +9,7 @@ import { createStub as createV1Stub } from '../stub.mjs';
 import { launch, open, signIn, shot, closeAll, until, DESKTOP, PHONE } from '../helpers.mjs';
 import { ID } from '@mana/contracts/fixtures';
 import { VENUE } from './fake.ts';
+import { newSecret, totp, wrongCode } from './totp.mjs';
 
 let stub, base, browser;
 before(async () => { stub = createStub(); base = `http://127.0.0.1:${await stub.listen(Number(process.env.OPS_V2_TEST_PORT) || 0)}`; browser = await launch(); });
@@ -81,15 +82,134 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
   });
 }
 
-test('gate: a staff row whose password-only session the database refuses (MFA required) is told why', async () => {
+// ------------------------------------------------------------------ the second step (B118): staff TOTP
+
+/** Signs in with a password while the database wants aal2; the gate shows the second step. */
+async function secondStep(who = ACCOUNTS.support, opts = {}) {
+  await control({ requireAal2: true });
+  const s = await open(browser, base, { prefix: '/mana', ...opts });
+  await signIn(s.page, who);
+  await s.page.locator('[data-second-step=enroll], [data-second-step=verify]').waitFor();
+  return s;
+}
+const codeField = (page) => page.locator('[data-mfa-code]');
+async function typeCode(page, code) {
+  await codeField(page).fill(code);
+  await page.locator('[data-mfa-go]').click();
+}
+
+for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
+  test(`second step (B118, ${tag}): no factor yet: set it up (QR and key), then the code; the gate passes and the staff calls work`, async () => {
+    const { page, problems } = await secondStep(ACCOUNTS.support, { viewport });
+    assert.equal(await page.locator('[data-page]').count(), 0, 'nothing of the back office before the second step');
+    const enroll = page.locator('[data-mfa-enroll]');
+    assert.match(await enroll.innerText(), /add this account to an authenticator app \(scan the code, or type the key\), then enter the 6-digit code/);
+    // the QR: an <img> of a data: URL (the SVG percent-encoded), never markup in the page; its script never runs
+    const qr = page.locator('img[data-mfa-qr]');
+    assert.match(await qr.getAttribute('src'), /^data:image\/svg\+xml;charset=utf-8,%3C%3Fxml%20/, 'percent-encoded, as GoTrue writes it (an XML declaration first)');
+    assert.doesNotMatch(await qr.getAttribute('src'), /[<>#"]/);
+    await until(() => qr.evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
+    assert.equal(await page.locator('svg script, [data-second-step] svg').count(), 0, 'no SVG markup in the page');
+    assert.equal(await page.evaluate(() => window.__xss), undefined);
+    const secret = (await page.locator('[data-mfa-secret]').innerText()).trim();
+    assert.match(secret, /^[A-Z2-7]{32}$/, 'the key as text');
+    const field = codeField(page);
+    assert.deepEqual(await field.evaluate((i) => [i.inputMode, i.autocomplete, i.type]), ['numeric', 'one-time-code', 'text']);
+    assert.ok(await field.evaluate((i) => i === document.activeElement), 'the code field has the focus');
+    await shot(page, `v2-second-step-enroll-${tag}`);
+    await typeCode(page, totp(secret));
+    await page.locator('[data-page=clients] [data-count]').waitFor();
+    assert.equal(await page.locator('[data-table=clients] tbody tr, [data-page=clients] .card').count() > 0, true, 'the staff calls answer at aal2');
+    assert.ok(calls('ops_venues').length >= 1);
+    assert.deepEqual(calls('mfa.enroll').map((c) => c.args), [{ friendly_name: 'Mana back office', factor_type: 'totp' }]);
+    // the key never stays: not in the page, the address, or the browser's storage
+    assert.equal(await page.locator('[data-mfa-secret]').count(), 0);
+    assert.doesNotMatch(page.url(), new RegExp(secret));
+    assert.equal(await page.evaluate((s) => JSON.stringify({ ...localStorage }).includes(s) || JSON.stringify({ ...sessionStorage }).includes(s), secret), false);
+    clean(problems);
+  });
+}
+
+test('second step (B118): a verified factor: only the code; a wrong one says so and asks for the newest; the field is cleared', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret } });
+  const { page, problems } = await secondStep(ACCOUNTS.support);
+  assert.equal(await page.locator('[data-second-step]').getAttribute('data-second-step'), 'verify');
+  assert.equal(await page.locator('[data-mfa-secret], img[data-mfa-qr]').count(), 0, 'no key and no QR once it is set up');
+  assert.match(await page.locator('[data-mfa-verify]').innerText(), /Enter the 6-digit code it shows now/);
+  await typeCode(page, '12');
+  assert.equal(await page.locator('[data-mfa-error]').innerText(), 'Enter the 6 digits from your authenticator app.');
+  assert.equal(await codeField(page).inputValue(), '', 'cleared');
+  await typeCode(page, wrongCode(secret));
+  await until(() => page.locator('[data-mfa-error]').innerText(), 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.', 'wrong code');
+  assert.equal(await codeField(page).inputValue(), '', 'cleared after a wrong code');
+  await codeField(page).fill('123 456');
+  assert.equal(await codeField(page).inputValue(), '123456', 'digits only, as pasted');
+  await typeCode(page, totp(secret));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  assert.equal(calls('mfa.enroll').length, 0, 'nothing set up again');
+  clean(problems.filter((p) => !/status of 422/.test(p)));
+});
+
+test('second step (B118): too many tries (429) says to wait; the next code after the wait works', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret }, mfaRateLimit: 1 });
+  const { page, problems } = await secondStep(ACCOUNTS.support);
+  await typeCode(page, totp(secret));
+  await until(() => page.locator('[data-mfa-error]').innerText(), 'Too many tries. Wait a minute, then enter the newest code.', '429');
+  assert.equal(await codeField(page).inputValue(), '');
+  await typeCode(page, totp(secret));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(problems.filter((p) => !/status of 429/.test(p)));
+});
+
+test('second step (B118): a set-up left half done is removed before a new one; Sign out is always there', async () => {
+  const first = await secondStep(ACCOUNTS.support);
+  await first.page.locator('[data-mfa-enroll]').waitFor();
+  await first.page.getByRole('button', { name: 'Sign out' }).click();
+  await first.page.getByRole('heading', { name: 'Sign in' }).waitFor();
+  await first.ctx.close();
+  const again = await open(browser, base, { prefix: '/mana' });
+  await signIn(again.page, ACCOUNTS.support);
+  await again.page.locator('[data-mfa-enroll]').waitFor();
+  assert.equal(calls('mfa.unenroll').length, 1, 'the leftover, by its name');
+  assert.equal(calls('mfa.enroll').length, 2);
+  const secret = (await again.page.locator('[data-mfa-secret]').innerText()).trim();
+  await typeCode(again.page, totp(secret));
+  await again.page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(again.problems);
+});
+
+test('second step (B118, SEC-N4): staff access removed before or after the second step still reads "Staff access removed"', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret } });
+  const { page } = await secondStep(ACCOUNTS.support);
+  await control({ revokeStaff: ACCOUNTS.support.id });            // removed while on the second step
+  await typeCode(page, totp(secret));
+  await page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Staff access removed');
+  assert.equal(await page.locator('[data-page]').count(), 0);
+  // and after it: in the back office at aal2, then removed
+  const secret2 = newSecret();
+  await control({ factor: { userId: ACCOUNTS.admin.id, secret: secret2 } });
+  const B = await secondStep(ACCOUNTS.admin);
+  await typeCode(B.page, totp(secret2));
+  await B.page.locator('[data-page=clients] [data-count]').waitFor();
+  await control({ revokeStaff: ACCOUNTS.admin.id });
+  await B.page.locator('[data-refresh]').click();
+  await B.page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await B.page.locator('[data-not-staff]').innerText(), 'Staff access removed');
+  assert.doesNotMatch(await B.page.locator('[data-refused]').innerText(), /MFA|second step/i);
+});
+
+test('second step (B118): an account that is not staff never sees it', async () => {
   await control({ requireAal2: true });
   const { page } = await open(browser, base, { prefix: '/mana' });
-  await signIn(page, ACCOUNTS.support);
-  await page.locator('[data-refused=aal1]').waitFor();
-  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Not accepted as staff');
-  assert.match(await page.locator('[data-refused]').innerText(), /password only \(aal1\).*second step \(MFA\)/s);
-  assert.equal(await page.locator('[data-page]').count(), 0, 'nothing of the back office is shown');
-  await shot(page, 'v2-gate-aal1-desk');
+  await signIn(page, ACCOUNTS.owner);
+  await page.locator('[data-not-staff]').waitFor();
+  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Not Halom staff');
+  assert.equal(await page.locator('[data-second-step]').count(), 0);
+  assert.equal(calls('mfa.enroll').length, 0);
 });
 
 test('gate (SEC-N4): staff access removed mid-session says so (not "MFA needed"), with the data gone', async () => {

@@ -16,6 +16,7 @@ import { HalomBot, OwnerBot, asAnon, loadSeed, readSeed, runRandom, SEEDS } from
 import { OUT, startE2E } from './helpers.mjs';
 import { withStorageImages } from '../apps/ops/tools/csp.mjs';
 import { PRODUCTION, retargetCsp } from '../tools/env.mjs';
+import { totp, wrongCode } from '../apps/ops/test/v2/totp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'apps/ops/dist');
@@ -124,17 +125,45 @@ test('desk: leads from the product page are read (the read is logged) and update
   await p.context().close();
 });
 
-test('desk: with staff_require_aal2 on, a staff password-only session is refused by the database, and the page says why', async () => {
+test('desk: with staff_require_aal2 on, the second step (B118): set up TOTP in GoTrue, enter its code, the staff calls answer; the next sign-in asks for the code only', async () => {
   await e.stack.setConfig('staff_require_aal2', true);
   try {
+    // a password-only session: the database refuses it as staff, and the gate shows the second step (no factor yet)
     const p = await page(DESK);
     await p.goto(e.webUrl + 'ops/#/leads');
     await signIn(p, STAFF);
-    await p.locator('[data-refused=aal1]').waitFor();
-    assert.match(await p.locator('[data-refused]').innerText(), /password only \(aal1\).*second step \(MFA\)/s);
-    assert.equal(await p.locator('[data-page]').count(), 0);
-    await shot(p, 'ops-refused-aal1-desk');
+    await p.locator('[data-mfa-enroll]').waitFor();
+    assert.equal(await p.locator('[data-page]').count(), 0, 'nothing of the back office before the second step');
+    // GoTrue's QR, as an image under the page's own CSP (img-src 'self' data:), and the key as text
+    await until(() => p.locator('img[data-mfa-qr]').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
+    const secret = (await p.locator('[data-mfa-secret]').innerText()).trim();
+    assert.match(secret, /^[A-Z2-7]{16,}$/, 'a base32 key');
+    await shot(p, 'ops-second-step-enroll-desk');
+    // the code an authenticator app would show (RFC 6238, node:crypto)
+    await p.locator('[data-mfa-code]').fill(totp(secret));
+    await p.locator('[data-mfa-go]').click();
+    await p.locator('[data-page=leads]').waitFor();
+    await p.locator('[data-page=leads] [data-lead], [data-page=leads] .empty, [data-page=leads] [data-count]').first().waitFor();
+    assert.equal(await p.locator('[data-mfa-secret]').count(), 0, 'the key is gone with the screen');
+    const [factor] = await e.stack.sql(`select f.status, f.factor_type from auth.mfa_factors f join auth.users u on u.id = f.user_id where u.email = $1`, [STAFF.email]);
+    assert.deepEqual({ ...factor }, { status: 'verified', factor_type: 'totp' });
+    assert.deepEqual(p.problems, []);
     await p.context().close();
+
+    // the next sign-in: the code only; a wrong one is refused in plain words (a fresh 30-second step, so no code is reused)
+    const q = await page(DESK);
+    await signIn(q, STAFF);
+    await q.locator('[data-second-step=verify]').waitFor();
+    assert.equal(await q.locator('[data-mfa-secret], img[data-mfa-qr]').count(), 0);
+    await new Promise((r) => setTimeout(r, (31 - (Math.floor(Date.now() / 1000) % 30)) * 1000));
+    await q.locator('[data-mfa-code]').fill(wrongCode(secret));
+    await q.locator('[data-mfa-go]').click();
+    await until(() => q.locator('[data-mfa-error]').innerText().catch(() => ''), 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.', 'a wrong code');
+    await q.locator('[data-mfa-code]').fill(totp(secret));
+    await q.locator('[data-mfa-go]').click();
+    await q.locator('[data-page=clients] [data-count]').waitFor();
+    assert.deepEqual(q.problems.filter((x) => !/status of 422/.test(x)), []);
+    await q.context().close();
   } finally {
     await e.stack.setConfig('staff_require_aal2', false);
   }

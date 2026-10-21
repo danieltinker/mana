@@ -118,6 +118,64 @@ export async function signIn(client: SupabaseClient, email: string, password: st
   } catch (e) { return failOf(thrown(e)); }
 }
 
+// ---------------------------------------------------------------- the second step (staff TOTP, B118)
+
+/** The name this back office gives the TOTP factor it sets up: an unverified one by this name is its own leftover. */
+export const FACTOR_NAME = 'Mana back office';
+/** What the authenticator app shows above the codes. */
+const ISSUER = 'Halom back office';
+
+export type Factors = { readonly verified: string | null; readonly leftovers: readonly string[] };
+/** An enrollment in progress: the factor, its QR image (a data: URL, never markup) and its secret, for this screen only. */
+export type Enrollment = { readonly factorId: string; readonly qr: string | null; readonly secret: string };
+/** Why a second-step call failed, for the screen's words (mfa.ts `mfaWords`). */
+export type MfaFail = { readonly ok: false; readonly why: 'wrong' | 'rate' | 'signed_out' | 'timeout' | 'network' | 'other'; readonly message: string };
+type MfaResult<T> = { readonly ok: true; readonly data: T } | MfaFail;
+
+const mfaFail = (e: RawError | null | undefined): MfaFail => {
+  const message = String(e?.message ?? 'unknown error').slice(0, 160);
+  const f = failOf({ message, code: e?.code ?? '', status: e?.status ?? 0, name: e?.name ?? '' });
+  if (f.kind === 'timeout' || f.kind === 'network') return { ok: false, why: f.kind, message: f.message };
+  if (e?.status === 429 || e?.code === 'over_request_rate_limit') return { ok: false, why: 'rate', message };
+  if (e?.code === 'mfa_verification_failed' || e?.code === 'mfa_challenge_expired' || /invalid totp code|code.*(invalid|expired)/i.test(message)) return { ok: false, why: 'wrong', message };
+  if (e?.status === 401 || e?.name === 'AuthSessionMissingError') return { ok: false, why: 'signed_out', message };
+  return { ok: false, why: 'other', message };
+};
+
+/** The caller's TOTP factors: the verified one (its id), and the unverified ones this back office left (to remove). */
+export async function mfaFactors(client: SupabaseClient): Promise<MfaResult<Factors>> {
+  try {
+    const { data, error } = await client.auth.mfa.listFactors();
+    if (error || !data) return mfaFail(error);
+    const verified = data.totp.find((f) => f.status === 'verified')?.id ?? null;
+    const leftovers = data.all.filter((f) => f.factor_type === 'totp' && f.status !== 'verified' && f.friendly_name === FACTOR_NAME).map((f) => f.id);
+    return { ok: true, data: { verified, leftovers } };
+  } catch (e) { return mfaFail(thrown(e)); }
+}
+
+/** Removes this back office's unverified leftovers, then starts a new TOTP enrollment. */
+export async function mfaEnroll(client: SupabaseClient, leftovers: readonly string[], qrOf: (raw: unknown) => string | null): Promise<MfaResult<Enrollment>> {
+  try {
+    for (const factorId of leftovers) {
+      const { error } = await client.auth.mfa.unenroll({ factorId });
+      if (error) return mfaFail(error);
+    }
+    const { data, error } = await client.auth.mfa.enroll({ factorType: 'totp', friendlyName: FACTOR_NAME, issuer: ISSUER });
+    if (error || !data || data.type !== 'totp' || typeof data.totp?.secret !== 'string') return mfaFail(error);
+    return { ok: true, data: { factorId: data.id, qr: qrOf(data.totp.qr_code), secret: data.totp.secret } };
+  } catch (e) { return mfaFail(thrown(e)); }
+}
+
+/** One code for a factor: a challenge, then the code. On success the client keeps the new session (aal2). */
+export async function mfaVerify(client: SupabaseClient, factorId: string, code: string): Promise<MfaResult<User & { aal: string | null }>> {
+  try {
+    const { data, error } = await client.auth.mfa.challengeAndVerify({ factorId, code });
+    if (error || !data) return mfaFail(error);
+    const u = await currentUser(client);
+    return u ? { ok: true, data: u } : { ok: false, why: 'signed_out', message: 'The session ended.' };
+  } catch (e) { return mfaFail(thrown(e)); }
+}
+
 export async function signOut(client: SupabaseClient): Promise<void> {
   try { await client.auth.signOut({ scope: 'local' }); } catch { /* the local session is gone either way */ }
 }
