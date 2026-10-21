@@ -21,7 +21,8 @@
 //               "suggest": { "dish": key } | { "option": key }, "line": {…}, "priority": 50, "cap": 1 }],
 //   "hours": [{ "days": [0, 1, 2, 3, 4], "opens": "07:00", "closes": "23:00" }],
 //   "closures": [{ "from": "2026-12-25", "to": "2026-12-25", "note": {…} }],
-//   "onboarding": ["menu", "review", "addons", "hours"],
+//   "onboarding": ["menu", "review", "addons", "hours"],   (the steps the owner went through: the others are marked done
+//                                         by the owner; venue, menu and publish by the database; review is skipped)
 //   "publish": { "note": "…" }            (omit or false to leave the menu unpublished)
 // }
 import fs from 'node:fs';
@@ -83,20 +84,30 @@ export function readSeed(file) {
   return { seed, private: inPrivate };
 }
 
+/** The reason Halom's admin gives when the simulator labels a seed's venue as a demo (the owner sees it). */
+export const DEMO_REASON = 'Synthetic demo venue, loaded by the simulator';
+
 /**
- * Loads a seed through the bots: the owner signs up, creates the venue, builds the menu, publishes; the venue is
- * flagged as a demo (setup: no RPC sets is_demo yet); a Halom bot approves the first publish when it waits for review.
+ * Loads a seed through the bots: the owner signs up, creates the venue, builds the menu, publishes; a Halom admin
+ * labels the venue a demo (ops_set_demo) unless the seed says "demo": false, and approves the first publish when it
+ * waits for review.
  * @param stack the local stack (sim/stack/start.mjs)
  * @param o.slug   another slug than the seed's (to load one seed twice)
- * @param o.halom  a HalomBot to approve with (a first admin is made when none is given and approval is needed)
+ * @param o.halom  a HalomBot (an admin, when the venue is a demo) to label and approve with; a first admin is made when
+ *                 none is given and one is needed
  */
 export async function loadSeed(stack, seed, { slug = seed.venue.slug, ownerEmail = `owner.${slug}@example.invalid`, halom = null,
   approveReason = 'Synthetic demo venue, loaded by the simulator' } = {}) {
+  let staff = halom;
+  const team = async () => (staff ??= await HalomBot.firstAdmin(stack, stack, { email: `admin.${slug}@example.invalid` }));
   const owner = await OwnerBot.signUp(stack, { email: ownerEmail });
   const v = seed.venue;
   const made = await owner.createVenue({ slug, name: v.name, kind: v.kind ?? 'cafe', defaultLang: v.defaultLang ?? 'he' });
   if (!made.ok) throw new Error(`create_venue ${slug}: ${JSON.stringify(made)}`);
-  if (v.demo !== false) await stack.setDemo(owner.venueId, true);
+  if (v.demo !== false) {
+    const r = await (await team()).setDemo(owner.venueId, true, DEMO_REASON);
+    if (!r.ok) throw new Error(`ops_set_demo ${slug}: ${JSON.stringify(r)}`);
+  }
   const patch = {};
   if (v.cuisine) { patch.cuisine_he = v.cuisine.he ?? ''; patch.cuisine_en = v.cuisine.en ?? ''; }
   if (v.area) { patch.area_he = v.area.he ?? ''; patch.area_en = v.area.en ?? ''; }
@@ -111,8 +122,7 @@ export async function loadSeed(stack, seed, { slug = seed.venue.slug, ownerEmail
     published = await owner.publish(seed.publish?.note ?? 'simulator seed');
     if (!published.ok) throw new Error(`publish_menu ${slug}: ${JSON.stringify(published)}`);
     if (published.review === 'pending') {
-      const staff = halom ?? (await HalomBot.firstAdmin(stack, stack, { email: `admin.${slug}@example.invalid` }));
-      approved = await staff.approve(owner.venueId, approveReason);
+      approved = await (await team()).approve(owner.venueId, approveReason, published.revision);
       if (!approved.ok) throw new Error(`ops_approve_venue ${slug}: ${JSON.stringify(approved)}`);
     }
   }

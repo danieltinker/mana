@@ -78,7 +78,7 @@ test('random mode: N guests over M minutes; the owner\'s dashboard and Halom\'s 
   assert.equal(d.lastHour.reduce((s, m) => s + m.opens, 0), 40, 'the last hour by minute');
   const card = await S.ctx.team.support.venueCard(venueId);
   assert.deepEqual([card.opens.last7d, card.opens.lastHour], [40, 40]);
-  assert.deepEqual(card.suggestions7d, { shown: r.ledger.n('suggestion_shown'), accepted: r.ledger.n('suggestion_accepted') });
+  assert.deepEqual(card.suggestions7d, { shown: r.ledger.n('suggestion_shown'), accepted: r.ledger.n('suggestion_accepted'), dismissed: r.ledger.n('suggestion_dismissed') });
   assert.deepEqual((await S.ctx.team.support.dashboard(venueId, '7d')).totals, d.totals);
   assert.ok(Object.keys(ids.dishes).length > 0);
 });

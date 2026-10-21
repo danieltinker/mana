@@ -1,6 +1,6 @@
 // The phase-1 chain on all three sides, on a fresh SYNTHETIC venue (the shape of the mock client's demo, none of its data):
-// an owner signs up and names the venue; pastes a menu as text (the scanner, played here by the service role, parses
-// it); builds a "side of choice" with a nested sauce; adds two upsell rules; sets breakfast and hours; publishes. A guest
+// an owner signs up and names the venue; pastes a menu as text (create_import), then builds the menu by hand and
+// discards the import; builds a "side of choice" with a nested sauce; adds two upsell rules; sets breakfast and hours; publishes. A guest
 // bot browses, chooses add-ons, accepts one suggestion and dismisses another. The owner takes a dish off for two hours.
 // Halom sees the venue, its numbers and its activity, and acts for the owner once to restore the dish; the owner sees it.
 import { after, before, test } from 'node:test';
@@ -26,13 +26,10 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
   assert.equal(made.ok, true);
   const V = made.id;
 
-  // 2. the menu arrives as pasted text; nothing is public until the owner applies it
-  const imp = await as(w.url, OWNER, async (c) => (await c.query(`insert into public.menu_imports (venue_id, source, raw_text, input_sha256)
-    values ($1, 'wolt_text', $2, encode(extensions.digest($2, 'sha256'), 'hex')) returning id`, [V, 'Toast 42\nFries side\nLemonade 14'])).rows[0].id);
-  await as(w.url, 'service', (c) => c.query(`update public.menu_imports set status = 'parsing' where id = $1`, [imp]));
-  await as(w.url, 'service', (c) => c.query(`update public.menu_imports set status = 'parsed',
-    parsed = '{"sections":[{"name":{"he":"","en":"Food"},"dishes":[{"name":{"en":"Toast"},"price":4200}]},{"name":{"en":"Drinks"},"dishes":[{"name":{"en":"Lemonade"},"price":null}]}]}',
-    exceptions = '[{"code":"price_missing","path":"sections[1].dishes[0]"}]' where id = $1`, [imp]));
+  // 2. the menu arrives as pasted text (create_import); nothing is public. The owner then builds it by hand instead and
+  // discards the import (so the import's review is skipped)
+  const imp = await rpc(w.url, OWNER, 'create_import', { p_venue: V, p_source: 'wolt_text', p_text: 'Toast 42\nFries side\nLemonade 14' });
+  assert.deepEqual([imp.ok, imp.status, imp.reused], [true, 'uploaded', false]);
   assert.deepEqual(await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' }), { state: 'not_found' });
 
   // 3. the owner fixes the exception and applies the import (the client app inserts the rows), then builds add-ons
@@ -58,10 +55,12 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
     const ruleB = await one(`insert into public.upsell_rules (venue_id, trigger, scope_kind, scope_ids, suggest_kind, suggest_dish_id, line_en, priority)
       values ($1, 'sheet', 'dish', $2, 'dish', $3, 'Lemonade with your toast?', 40) returning id`, [V, [toast], lemonade]);
     for (let d = 0; d < 7; d++) await c.query(`insert into public.venue_hours (venue_id, weekday, opens, closes) values ($1, $2, '00:00', '00:00')`, [V, d]);
-    await c.query(`update public.menu_imports set status = 'applied' where id = $1`, [imp]);
-    for (const step of ['menu', 'review', 'addons', 'hours']) await c.query(`update public.onboarding_progress set state = 'done' where venue_id = $1 and step = $2`, [V, step]);
     return { food, drinks, toast, lemonade, side, sauce, mayo, harissa, fries, salad, ruleA, ruleB };
   });
+  assert.deepEqual(await rpc(w.url, OWNER, 'discard_import', { p_import: imp.importId }), { ok: true });
+  for (const [step, state] of [['review', 'skipped'], ['addons', 'done'], ['hours', 'done']]) {
+    assert.equal((await rpc(w.url, OWNER, 'set_onboarding_step', { p_venue: V, p_step: step, p_state: state })).ok, true, step);
+  }
 
   // 4. publish; Halom reviews the first publish before guests see it
   const pub = await rpc(w.url, OWNER, 'publish_menu', { p_venue: V, p_note: 'opening day' });
@@ -69,7 +68,7 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
   assert.deepEqual(await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' }),
     { state: 'unavailable', venue: { name: { he: 'קפה הפינה', en: 'Corner Café' } } });
   assert.ok((await rpc(w.url, U.support, 'ops_overview')).venues.find((x) => x.id === V).warnings.includes('awaiting_review'));
-  assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: V, p_reason: 'First menu checked' })).ok, true);
+  assert.equal((await rpc(w.url, U.support, 'ops_approve_venue', { p_venue: V, p_reason: 'First menu checked', p_expected_revision: pub.revision })).ok, true);
 
   // 5. a guest bot reads the menu, chooses, gets one suggestion, accepts one and dismisses another; events go in
   const menu = await rpc(w.url, 'anon', 'public_menu', { p_slug: 'corner-cafe' });
@@ -103,7 +102,7 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
     e('suggestion_shown', { ruleId: ids.ruleB, trigger: 'sheet', dishId: ids.toast }),
     e('suggestion_dismissed', { ruleId: ids.ruleB, trigger: 'sheet', dishId: ids.toast }),
   ])])).rows[0].r);
-  assert.deepEqual(r, { ok: true, accepted: 9, duplicates: 0, capped: 0, rejected: [] });
+  assert.deepEqual(r, { ok: true, accepted: 9, duplicates: 0, capped: 0, rejected: [], duplicateIndexes: [], cappedIndexes: [] });
   await w.admin.query('select app.build_rollups()');
 
   // 6. the owner takes the toast off for two hours from the phone; guests see it at once
@@ -127,7 +126,7 @@ test('onboarding → menu with nested add-ons → publish → guest → owner qu
   assert.equal(card.menu.revision, 1);
   assert.equal(card.opens.today, 1);
   assert.equal(card.onboarding.stage, 'photos');
-  assert.deepEqual(card.suggestions7d, { shown: 2, accepted: 1 });
+  assert.deepEqual(card.suggestions7d, { shown: 2, accepted: 1, dismissed: 1 });
 
   // 9. Halom acts for the owner once to restore the dish
   const act = await rpc(w.url, U.support, 'act_for_owner', { p_venue: V, p_reason: 'Owner called: bread arrived', p_action: 'availability.restore', p_payload: { targetKind: 'dish', targetId: ids.toast } });

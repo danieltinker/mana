@@ -1,5 +1,6 @@
 // The owner bot: what a venue's owner does in the client app, through the same public interfaces (create_venue and
 // the other RPCs, the menu tables under RLS with the owner's own JWT).
+import { IMPORT_CLIENT_COLUMNS, isAutoStep } from '@mana/contracts';
 import { Api, asUser, createUser, signIn } from './client.mjs';
 
 const pick = (t) => ({ he: t?.he ?? '', en: t?.en ?? '' });
@@ -17,7 +18,8 @@ export class OwnerBot {
   }
 
   constructor(target, session) {
-    this.target = target;
+    // the public part of the target only: a bot never holds the local service key (createUser takes it, once)
+    this.target = { apiUrl: target.apiUrl, anonKey: target.anonKey };
     this.session = session;
     this.userId = session.userId;
     /** @type {Api} */
@@ -144,9 +146,24 @@ export class OwnerBot {
     return ids;
   }
 
-  /** Onboarding steps the owner went through (the client app saves them at every step). */
-  setOnboarding(steps, state = 'done') {
-    return this.api.update('onboarding_progress', { venue_id: `eq.${this.venueId}`, step: `in.(${steps.join(',')})` }, { state });
+  /** One onboarding step, as the client app saves it (set_onboarding_step); blockers left out are kept. */
+  setStep(step, state, blockers = undefined) {
+    return this.api.rpc('set_onboarding_step', { p_venue: this.venueId, p_step: step, p_state: state, ...(blockers ? { p_blockers: blockers } : {}) });
+  }
+
+  /**
+   * The onboarding steps a seed says the owner went through. The database marks the automatic ones itself (venue at
+   * creation, menu at the first dish, publish at the first publish); a menu built by hand skips the review of an import.
+   */
+  async setOnboarding(steps) {
+    const out = [];
+    for (const step of steps) {
+      if (isAutoStep(step) && step !== 'review') continue;
+      const r = await this.setStep(step, step === 'review' ? 'skipped' : 'done');
+      if (!r.ok) throw new Error(`set_onboarding_step ${step}: ${JSON.stringify(r)}`);
+      out.push(r);
+    }
+    return out;
   }
 
   preview() { return this.api.rpc('preview_menu', { p_venue: this.venueId }); }
@@ -173,7 +190,24 @@ export class OwnerBot {
       { restored_at: new Date().toISOString() });
   }
 
+  /** The phone's quick action (set_availability): the newest answer counts; `until` null brings the target back. */
+  setAvailability(targetKind, targetId, until = { kind: 'duration', minutes: 120 }, note = null) {
+    return this.api.rpc('set_availability', { p_venue: this.venueId, p_target_kind: targetKind, p_target_id: targetId, p_until: until, p_note: note });
+  }
+
+  /** Everything taken off today, back. */
+  restoreToday() { return this.api.rpc('restore_today', { p_venue: this.venueId }); }
+
   updateDish(dishId, patch) { return this.api.update('dishes', { id: `eq.${dishId}` }, patch); }
+
+  /** An add-on group and its options as one (save_addon_group): rows as the tables hold them, the client's ids. */
+  saveAddonGroup(group, options, { expectedUpdatedAt = null, confirmRuleRemoval = false } = {}) {
+    return this.api.rpc('save_addon_group', { p_venue: this.venueId, p_group: group, p_options: options,
+      p_expected_updated_at: expectedUpdatedAt, p_confirm_rule_removal: confirmRuleRemoval });
+  }
+
+  /** The owner's menu as JSON (export_menu). */
+  exportMenu() { return this.api.rpc('export_menu', { p_venue: this.venueId }); }
 
   dashboard(range = 'today') { return this.api.rpc('my_dashboard', { p_venue: this.venueId, p_range: range }); }
 
@@ -182,12 +216,31 @@ export class OwnerBot {
     return this.api.select('activity_log', { select: 'id,at,actor_kind,via,reason,action,target_table,target_ids,n,detail', venue_id: `eq.${this.venueId}`, order: 'id.desc', limit });
   }
 
+  /** One page of the activity view (venue_activity): entries with "you" and the rows' names, never a person's id. */
+  activityPage({ before = null, limit = 50, actor = null, via = null } = {}) {
+    return this.api.rpc('venue_activity', { p_venue: this.venueId, p_before: before, p_limit: limit, p_actor: actor, p_via: via });
+  }
+
   rollupsDay() {
     return this.api.select('rollups_day', { select: 'day,name,key,demo,n', venue_id: `eq.${this.venueId}`, order: 'day,name,key' });
   }
 
-  /** A support case from the client app's "get help". */
-  async askForHelp(topic, subject, body = '') {
-    return (await this.api.insert('support_cases', [{ venue_id: this.venueId, topic, subject, body }]))[0];
+  /** The client app's "get help" (open_case); `allowAct` switches Halom's access in the same call. */
+  askForHelp(topic, subject, body = '', allowAct = null) {
+    return this.api.rpc('open_case', { p_venue: this.venueId, p_topic: topic, p_subject: subject, p_body: body, p_allow_act: allowAct });
+  }
+
+  // ---- the import (ADR-006): the client reads text sources itself; the scanner reads images
+  /** Image sources pass `importId` (made before uploading under `<venue>/imports/<importId>/`); text sources may. */
+  createImport({ source, text = null, paths = null, inputSha256 = null, rightsConfirmed = false, importId = null }) {
+    return this.api.rpc('create_import', { p_venue: this.venueId, p_source: source, p_text: text, p_paths: paths, p_input_sha256: inputSha256,
+      p_rights_confirmed: rightsConfirmed, p_import_id: importId });
+  }
+
+  discardImport(importId) { return this.api.rpc('discard_import', { p_import: importId }); }
+
+  /** The owner's imports, without the raw input (no client reads it back). */
+  imports() {
+    return this.api.select('menu_imports', { select: IMPORT_CLIENT_COLUMNS.join(','), venue_id: `eq.${this.venueId}`, order: 'created_at.desc' });
   }
 }

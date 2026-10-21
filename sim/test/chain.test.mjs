@@ -84,7 +84,7 @@ test('owner: the rollups hold exactly the guests\' events, key by key', async ()
 test('Halom: ops_overview shows the same numbers, the review, the onboarding stage; demo traffic stays out of real totals', async () => {
   const card = c.views.card;
   assert.deepEqual(card.opens, { today: card.opens.today, last7d: 3, lastHour: 3 });
-  assert.deepEqual(card.suggestions7d, { shown: 6, accepted: 3 });
+  assert.deepEqual(card.suggestions7d, { shown: 6, accepted: 3, dismissed: 2 });
   assert.equal(card.review, 'approved');
   assert.deepEqual([card.menu.live, card.menu.revision], [true, 1]);
   assert.equal(card.isDemo, true);
@@ -98,7 +98,10 @@ test('Halom: ops_overview shows the same numbers, the review, the onboarding sta
 test('owner quick action: sold out for two hours, unavailable at once; Halom restores it for the owner, who sees why', async () => {
   assert.equal(c.off.target_kind, 'dish');
   assert.equal(c.off.created_by_kind, 'owner');
-  assert.equal(Date.parse(c.off.until_at) - Date.parse(c.off.starts_at), 120 * 60000);
+  // two hours, ending on the whole minute at or after (the moment the guest's phone shows is the moment it comes back)
+  const span = Date.parse(c.off.until_at) - Date.parse(c.off.starts_at);
+  assert.ok(span >= 120 * 60000 && span < 121 * 60000, String(span));
+  assert.equal(Date.parse(c.off.until_at) % 60000, 0);
   assert.deepEqual(c.whileOff.live.off.map((o) => [o.kind, o.id]), [['dish', D.toast]]);
   assert.equal(c.whileOff.toast.reason, 'off');
   assert.equal(c.whileOff.toast.back.getTime(), Date.parse(c.whileOff.live.off[0].until), 'back when the override ends');
