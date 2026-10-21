@@ -204,11 +204,12 @@ ol,ul{padding:0;list-style:none}
 /* ---------- without the table (no WebGL, or it could not keep up): the list is the page ---------- */
 .app.simple .sheet.list{position:absolute;inset:0;top:0;transform:none!important;pointer-events:auto;border-radius:0;border:0;box-shadow:none;padding-top:calc(env(safe-area-inset-top,0px) + 64px);max-width:none}
 .app.simple .sheet.list>*{width:100%;max-width:720px;margin-inline:auto}
-.app.simple #listClose,.app.simple .sheet-head{display:none}
+.app.simple #listClose,.app.simple .sheet.list .sheet-head{display:none}
 .app.simple .top{background:var(--bg);border-bottom:1px solid var(--edge);z-index:42;padding-bottom:6px}
 .app.simple .card{z-index:45;background:var(--panel);height:var(--sheet-h);max-width:720px;margin-inline:auto}
 .app.simple .card-head{min-height:0}
 .app.simple .backdrop{z-index:44}
+.app.simple .sheet.tray{z-index:46}      /* "my table" lies over the backdrop here too, so a finger inside it reaches it */
 
 /* ---------- wide: the card stands at the side ---------- */
 .app.wide .card{inset-inline:16px auto;bottom:16px;width:calc(var(--card-w) - 16px);border-radius:22px;border:1px solid var(--edge-2)}
