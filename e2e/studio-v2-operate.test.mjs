@@ -385,6 +385,26 @@ test('a counter takes a dish off and brings it back, and sees suggestions, hours
   await c.getByLabel('אימייל').fill('counter-operate@sim.local');
   await c.getByLabel('סיסמה', { exact: true }).fill(PASSWORD);
   await c.getByRole('button', { name: 'המשך' }).click();
+  // the place has published: Home, where a counter has only the availability actions (no numbers, nudges or export)
+  await c.locator('[data-screen="home"]').waitFor();
+  assert.deepEqual(await c.locator('[data-quick] [data-act]').evaluateAll((els) => els.map((x) => x.dataset.act)), ['off2h', 'restore-today']);
+  assert.equal(await c.locator('[data-glance], [data-nudges], [data-export], [data-recent]').count(), 0);
+  // no Activity tab for a counter, in the bar or under "More"; the address still says why
+  assert.equal(await c.locator('[data-tab="activity"]').count(), 0);
+  if (await c.locator('[data-tab="more"]').count()) {
+    await c.locator('[data-tab="more"]').click();
+    const more = c.locator('dialog[data-sheet="more"]');
+    await more.waitFor();
+    assert.equal(await more.locator('a[href="#/activity"]').count(), 0);
+    await c.keyboard.press('Escape');
+    await more.waitFor({ state: 'detached' });
+  }
+  await c.goto(e.webUrl + 'studio/#/activity');
+  await c.getByText('החשבון הזה לא יכול לראות את יומן הפעילות.').waitFor();
+  await c.goto(e.webUrl + 'studio/#/help');
+  await c.locator('[data-screen="help"]').waitFor();
+  assert.equal(await c.locator('[data-help-form]').count(), 0, 'a counter opens no case');
+  await c.goto(e.webUrl + 'studio/#/menu');
   await c.getByRole('heading', { name: 'שתייה', level: 2 }).waitFor();
   const at = async (hash) => { await c.goto(e.webUrl + 'studio/#/' + hash); };
   const hash = () => c.evaluate(() => location.hash);

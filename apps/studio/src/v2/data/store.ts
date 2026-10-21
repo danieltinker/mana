@@ -516,11 +516,21 @@ export function saveHours(id: string, times: Pick<VenueHoursRow, 'opens' | 'clos
 }
 
 /** The place's own settings (what guests see of something unavailable). */
-export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display'>>): Promise<VenueRow> {
+export function saveVenue(patch: Partial<Pick<VenueRow, 'sold_out_display' | 'support_can_act'>>): Promise<VenueRow> {
   return write(() => api.updateVenue(vid(), patch), (venue) => {
     menu.value = { ...menu.value!, venue };
     if (memberships.value) memberships.value = memberships.value.map((x) => (x.venue.id === venue.id ? { ...x, venue } : x));
   });
+}
+
+/**
+ * The owner's standing switch (D25): may Halom make changes for them (`act_for_owner`, each one logged with its reason)?
+ * It takes effect at once and on its own, and the database logs every change of it. Only an owner: anyone else is
+ * refused here (`owner_only`) before the database would refuse it.
+ */
+export function setSupportCanAct(on: boolean): Promise<VenueRow> {
+  if (menu.value?.role !== 'owner') return Promise.reject(new V2Error('owner_only'));
+  return saveVenue({ support_can_act: on });
 }
 
 // The rules' order, one move after another: a move waits for this tab's earlier moves to be answered, then checks the
@@ -573,10 +583,11 @@ export function setPriorities(priorities: ReadonlyMap<string, number>): Promise<
 }
 
 /**
- * The whole menu read again, quietly. The answer may come late: a read sent before one already on screen is dropped, and
- * no row goes back to an older version than the one on screen (`afterRead`).
+ * The open place's whole menu again, quietly (another device, or Halom, changed it); on failure the rows on screen stay.
+ * The answer may come late: a read sent before one already on screen is dropped, and no row goes back to an older
+ * version than the one on screen (`afterRead`).
  */
-async function reloadMenuQuietly() {
+export async function reloadMenuQuietly() {
   const d = menu.value; if (!d) return;
   const gen = generation, ticket = ++menuReads, since = clock;
   try {

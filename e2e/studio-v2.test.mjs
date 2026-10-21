@@ -380,7 +380,7 @@ test('an owner builds a schnitzel with a nested sauce, publishes, and after Halo
   await page.locator('[data-action="switch-venue"]').click();
   await shot(page, '19-switch-place');
   await page.locator('dialog[data-sheet="account"] [data-venue="schnitzel-sim"]').click();
-  await page.getByRole('heading', { name: 'עיקריות', level: 2 }).waitFor();
+  await page.locator('[data-screen="home"]').waitFor();                        // a place that has published opens on Home
   assert.match(await page.locator('.top-biz').innerText(), /Schnitzel Sim/);
 
   // the same app in English, left to right

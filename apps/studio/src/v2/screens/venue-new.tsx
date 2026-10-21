@@ -57,7 +57,7 @@ export function VenueNewScreen({ first }: { first: boolean }) {
     setBusy(true);
     try {
       const r = await api.createVenue({ slug, nameHe: isHe ? clean : '', nameEn: isHe ? '' : clean, kind, defaultLang: lang.value });
-      go(landing(), true);
+      go(landing(null), true);
       await loadMemberships(r.id);
     } catch (e2) {
       const code = toV2Error(e2).code;

@@ -49,8 +49,11 @@ export function createVenue(v: { slug: string; nameHe: string; nameEn: string; k
 }
 
 export const venueRow = (id: string) => q<VenueRow>(sb.from('venues').select('*').eq('id', id).single());
-/** The place's own settings the owner may change (the columns the schema grants). */
-export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
+/**
+ * The place's own settings the owner may change (the columns the schema grants). `support_can_act` is the owner's
+ * alone: the database refuses anyone else (`owner_only`), and logs the change.
+ */
+export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display' | 'support_can_act'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
 export const entitlementOf = (venueId: string) => q<EntitlementRow | null>(sb.from('entitlements').select('*').eq('venue_id', venueId).maybeSingle());
 export const revisionsOf = (venueId: string) =>
   q<RevisionInfo[]>(sb.from('menu_revisions').select('id, number, note, created_at').eq('venue_id', venueId).order('number', { ascending: false }).limit(50));

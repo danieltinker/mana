@@ -14,9 +14,12 @@ import { named } from './data/rows.ts';
 import { flushSaves, hasUnsaved, initAuth, loadError, loadMemberships, loadState, memberships, menu, openVenue, refused, retrySaves, saveState, session, signOut, venueId } from './data/store.ts';
 import { errText, lang, setLang, t } from './i18n.ts';
 import { NAV, PHONE_TABS, landing, screenAt } from './routes.tsx';
+import { HelpButton } from './screens/help.tsx';
 import { StartScreen } from './screens/start.tsx';
 import { VenueNewScreen } from './screens/venue-new.tsx';
 import { ErrorLine, Icon2, takeFocusOnReturn } from './ui.tsx';
+// while a first publish waits for Halom, the open place learns of the approval by itself (backlog B4)
+import './data/approval.ts';
 
 export function App() {
   useEffect(() => {
@@ -81,6 +84,7 @@ function Shell() {
             ? <button type="button" class="top-biz top-switch" aria-haspopup="dialog" onClick={() => setAccount(true)} data-action="switch-venue"><span>{name}</span><Icon name="chevdown" size={16} /></button>
             : <span class="top-biz" title={name}>{name}</span>}
           <SaveBadge />
+          <HelpButton onClick={(e) => guardedLink(e, 'help')} />
           <button type="button" class="acctbtn" aria-haspopup="dialog" aria-label={t('app.account')} onClick={() => setAccount(true)} data-action="account"><Icon name="user" /></button>
         </div>
       </header>
@@ -116,8 +120,9 @@ function guardedLink(e: MouseEvent, path: string) {
 
 function BottomNav({ here }: { here: string }) {
   const [more, setMore] = useState(false);
-  const fits = NAV.length <= PHONE_TABS;
-  const shown = fits ? NAV : NAV.slice(0, PHONE_TABS - 1), rest = fits ? [] : NAV.slice(PHONE_TABS - 1);
+  const tabs = NAV.filter((n) => n.shown?.() ?? true);
+  const fits = tabs.length <= PHONE_TABS;
+  const shown = fits ? tabs : tabs.slice(0, PHONE_TABS - 1), rest = fits ? [] : tabs.slice(PHONE_TABS - 1);
   const item = (n: (typeof NAV)[number]) => (
     <a key={n.key} href={'#/' + n.path} class="nav-item" aria-current={n.path === here ? 'page' : undefined} data-tab={n.key} onClick={(e) => guardedLink(e as unknown as MouseEvent, n.path)}>
       <span class="nav-ico"><Icon2 name={n.icon} size={22} />{n.dot?.() && <span class="nav-dot" aria-hidden="true" />}</span>
@@ -146,7 +151,8 @@ function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void })
   const other = lang.value === 'he' ? 'en' : 'he';
   // a change that did not save belongs to this place: switching drops it, so the owner is asked first
   const [ask, setAsk] = useState<string | null>(null), [askOut, setAskOut] = useState(false), [leaving, setLeaving] = useState(false);
-  const switchTo = (id: string) => { setAsk(null); openVenue(id); go(landing()); };
+  // the place being opened decides where it opens (Home once it has published), not the one still on screen
+  const switchTo = (id: string) => { setAsk(null); openVenue(id); go(landing(list.find((m) => m.venue.id === id)?.venue ?? null)); };
   function pick(id: string) {
     onClose();
     if (id === venueId.value) return;
