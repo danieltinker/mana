@@ -133,7 +133,15 @@ test('taste: a negation turns a word round: "not dry" is not dry, "לא מתוק
   assert.ok(hasWord('dry', 'dry') && !hasWord('not dry', 'dry') && !hasWord('לא יבש', 'יבש') && hasWord('יבש, לא חמוץ', 'יבש'));
   /* the same question from the card, the sheet and the list is answered once, and fast */
   const it = { desc: 'Dry, citrus', details: {} }; assert.equal(tasteOf(it, 'wine'), tasteOf(it, 'wine'));
-  const many = []; for (let k = 0; k < 300; k++) many.push({ desc: { he: 'יין יבש ומינרלי עם ניחוח הדרים, לא מתוק', en: 'Dry and mineral, citrus, not sweet ' + k }, details: { wine: { color: 'white', notes: { sweetness: 'Dry', fruit: 'Citrus' } } } });
-  const t0 = performance.now(); many.forEach((x) => tasteOf(x, 'wine')); const per = (performance.now() - t0) / many.length;
-  assert.ok(per < .5, 'well under a millisecond a drink: ' + per.toFixed(3) + ' ms');
+  /* timed in this process's own CPU time, so other processes on a busy machine do not count, and as the fastest of 30 rounds
+     of ten new drinks, so this process's one-off pauses (warming up, a garbage collection) do not either; code that got
+     slower is slower in every round */
+  const drink = (k) => ({ desc: { he: 'יין יבש ומינרלי עם ניחוח הדרים, לא מתוק', en: 'Dry and mineral, citrus, not sweet ' + k }, details: { wine: { color: 'white', notes: { sweetness: 'Dry', fruit: 'Citrus' } } } });
+  const cpuMs = () => { const u = process.cpuUsage(); return (u.user + u.system) / 1000; };
+  let per = Infinity;
+  for (let round = 0; round < 30; round++) {
+    const ten = Array.from({ length: 10 }, (_, i) => drink(round * 10 + i));
+    const c0 = cpuMs(); ten.forEach((x) => tasteOf(x, 'wine')); per = Math.min(per, (cpuMs() - c0) / ten.length);
+  }
+  assert.ok(per < .5, 'well under a millisecond a drink: ' + per.toFixed(3) + ' ms of CPU (the fastest of 30 rounds of ten)');
 });
