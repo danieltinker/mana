@@ -3,25 +3,48 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { menuAvailability, validateSnapshotV2 } from '@mana/contracts';
 import { GuestBot } from '../src/guest.mjs';
 import { loadSeed, PRIVATE, readSeed, seedProblems, SEEDS } from '../src/seed.mjs';
 import { snapshotVsSeed, useStack } from './helpers.mjs';
+import { findingsIn, readList } from '../../tools/names.mjs';
 
 const S = useStack();
 const files = fs.readdirSync(SEEDS).filter((f) => f.endsWith('.json'));
 
-test('every seed in the repository is synthetic, well formed, and never the mock client', () => {
+test('every seed in the repository is synthetic and well formed, with no real e-mail address', () => {
   assert.ok(files.length >= 2);
   for (const f of files) {
     const text = fs.readFileSync(path.join(SEEDS, f), 'utf8');
     const { seed } = readSeed(path.join(SEEDS, f));
     assert.equal(seed.synthetic, true, f);
     assert.deepEqual(seedProblems(seed), [], f);
-    assert.doesNotMatch(text, /noir/i, `${f} must not name the mock client`);
     assert.doesNotMatch(text, /@(?!example\.invalid)[a-z0-9-]+\.[a-z]/i, `${f}: no real e-mail address`);
   }
+});
+
+/* the mock client's names are never written in the repository: the name guard's private list (tools/names.mjs:
+   MANA_FORBIDDEN_NAMES_FILE, else private/forbidden-names.txt) is read, as the "names" suite reads it */
+const LIST = readList();
+if (LIST.note) console.log(`note: seeds: ${LIST.note}`);
+test('no seed in the repository names the mock client, in its text or its file name (the name guard\'s private list)', { skip: LIST.note ?? false }, () => {
+  if (LIST.problem) assert.fail(LIST.problem);
+  const found = files.flatMap((f) => findingsIn(`sim/seeds/${f}`, fs.readFileSync(path.join(SEEDS, f), 'utf8'), LIST.names));
+  assert.deepEqual(found, []);
+});
+
+test('the seeds check bites: a list that names the demo venue finds it, and a list that points at nothing fails', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mana-seed-names-')), file = path.join(dir, 'names.txt');
+  try {
+    fs.writeFileSync(file, '# invented for this test: the in-repo demo venue\nCafe Demo\n');
+    const list = readList({ MANA_FORBIDDEN_NAMES_FILE: file });
+    const found = findingsIn('sim/seeds/cafe-demo.json', fs.readFileSync(path.join(SEEDS, 'cafe-demo.json'), 'utf8'), list.names);
+    assert.ok(found.length >= 2, 'its path and its text');
+    assert.ok(found.every((x) => x.startsWith('sim/seeds/[masked]')), 'the finding masks the name');
+    assert.match(readList({ MANA_FORBIDDEN_NAMES_FILE: path.join(dir, 'nowhere.txt') }).problem, /points at nothing/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a seed that is not synthetic loads only from private/ (git-ignored)', () => {

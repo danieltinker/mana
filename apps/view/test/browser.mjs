@@ -22,9 +22,12 @@ export async function launch(extra = []) {
   return chromium.launch({ executablePath: process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', headless: true, args: GL.concat(extra) });
 }
 export { listen };
-export async function open(browser, url, { width = 390, height = 844, touch = false, dpr = 1, reducedMotion, init } = {}) {
+/* clock (a Date): the page's own clock (Date, timers, frames) stands still at that time from the first script on, and moves
+   only when the test turns it (page.clock.runFor); a page that races the real clock cannot outrun a busy machine's test */
+export async function open(browser, url, { width = 390, height = 844, touch = false, dpr = 1, reducedMotion, init, clock } = {}) {
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: dpr, hasTouch: touch, isMobile: touch, reducedMotion: reducedMotion || 'no-preference' });
   if (init) await ctx.addInitScript(init);
+  if (clock) { await ctx.clock.install({ time: clock }); await ctx.clock.pauseAt(clock); }
   const page = await ctx.newPage(); const errors = [];
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
@@ -37,7 +40,11 @@ export async function tableUp(page) { await page.evaluate(() => window.__mana.se
 export async function settle(page, frames = 60, dt = 1 / 30) {
   await page.evaluate(async ([n, d]) => { const M = window.__mana; for (let i = 0; i < n; i += 4) { if (M.pending() > 0) await new Promise((r) => setTimeout(r, 30)); M.tick(4, d); const s = M.info(); if (s && s.moving !== true && M.pending() === 0 && i > 8) break; } }, [frames, dt]);
 }
-export const shot = (page, name, opts) => page.screenshot(Object.assign({ path: join(SHOTS, name + '.png') }, opts || {}));
+/* wait for n of the page's own animation frames, however long a frame takes on this machine */
+export const frames = (page, n = 1) => page.evaluate((k) => new Promise((done) => { const next = () => (k-- > 0 ? requestAnimationFrame(next) : done()); next(); }), n);
+/* a picture for people to look at, never a check: its timeout only guards against a hang (software rendering on a busy machine
+   took up to 29 s for 1280x800, against Playwright's 30 s default) */
+export const shot = (page, name, opts) => page.screenshot(Object.assign({ path: join(SHOTS, name + '.png'), timeout: 120000 }, opts || {}));
 
 /* a finger on the glass, through the browser's real input pipeline (so touch-action takes part) */
 export async function swipe(page, from, to, { steps = 8, hold = 16 } = {}) {

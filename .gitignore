@@ -23,6 +23,7 @@ brand/.shots-raw/
 brand/.scratch/
 # the guest menu's build output: made by `cd apps/view && npm run build` (CI builds it in tools/build-site.sh)
 apps/view/app.js
+apps/view/v2-*.js
 apps/view/seat.js
 # timers: the host board's build
 apps/view/host.js
@@ -35,6 +36,11 @@ brand/site/land/
 
 # Private demo seeds (real venues), never committed
 private/
+# the local environment's settings: npm run dev:local writes them from the simulator's stack (docs/environments.md)
+config/local.js
 
 # Claude Code worktrees and local state
 .claude/
+
+# The Claude desktop app writes this folder into Daniel's connected ~/Documents/mana; untracked, it blocks the sync's clean-tree check
+Claude outputs/

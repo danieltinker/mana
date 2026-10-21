@@ -688,7 +688,12 @@ test('limits count what the venue has; a new choice may not open an existing gro
   d.groups[0].options[0].opens = null;
   d.groups.push(group('g-combo', 'קומבו', 'Combo', { options: [opt('o-combo', 'ארוחה', 'Meal', 1500, { opens: 'g-side' })] }));
   d.sections[0].dishes[1].groups = [link('g-combo')];
-  assert.deepEqual(errorsOf(d, m), ['nesting_too_deep@o-combo']);
+  // round 10c: asked as `nesting_too_deep` on the option (rule 11's last check), the plan refused until it is answered
+  const r = planApply(d, m, yes());
+  assert.deepEqual(r.ok ? [] : r.errors, [{ code: 'exception_unresolved', path: 'o-combo', message: 'nesting_too_deep' }]);
+  const unlinked = plan(d, m, yes({ 'nesting_too_deep@o-combo': 'unlink' }));
+  assert.equal((step(unlinked, 'option', 'o-combo').set as { opens_group_id?: string | null }).opens_group_id, null);
+  assert.equal(step(plan(d, m, yes({ 'nesting_too_deep@o-combo': 'skip' })), 'option', 'o-combo').reason, 'choice');
 });
 
 test('a dish limit on an existing group is kept only within the group\'s own limits', () => {
