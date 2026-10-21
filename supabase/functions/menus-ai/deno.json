@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@mana/contracts": "../../../packages/contracts/src/index.ts",
+    "@mana/import": "../../../packages/import/src/index.ts"
+  }
+}
