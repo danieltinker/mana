@@ -73,6 +73,8 @@ before(async () => {
   await page.getByLabel('אימייל').fill('owner-operate@sim.local');
   await page.getByLabel('סיסמה', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'המשך' }).click();
+  await page.locator('[data-screen="onboarding"]').waitFor();                      // never published: it opens on the setup flow
+  await go('menu');
   await page.getByRole('heading', { name: 'שתייה', level: 2 }).waitFor();
 }, { timeout: 240000 });
 after(async () => { await e?.stop(); });

@@ -5,7 +5,7 @@
 // the activity log with its reason. The screen says plainly what happens next, lists the place's requests that are not
 // resolved, and keeps a person one tap away (WhatsApp). The shell's help button leads here from every screen.
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, type CaseTopic } from '@mana/contracts';
+import { CASE_BODY_MAX, CASE_SUBJECT_MAX, CASE_TOPICS, oneOf, type CaseTopic } from '@mana/contracts';
 import { PRODUCT } from '../../product.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Field, Icon, Note, PageHead, Switch } from '../../ui.tsx';
@@ -23,12 +23,15 @@ export function HelpButton({ onClick }: { onClick?: (e: MouseEvent) => void }) {
 
 const TOPIC_ICON: Readonly<Record<CaseTopic, string>> = { onboarding: 'list', import: 'paste', menu: 'menu', photos: 'camera', account: 'user', other: 'chat' };
 
-export function HelpScreen() {
+/** `rest`: `#/help/<topic>` opens the form on that topic (each step of the setup flow asks on its own). */
+export function HelpScreen({ rest = [] }: { rest?: string[] }) {
   const d = menu.value!;
   const v = d.venue;
   const records = canEdit();
   const owner = d.role === 'owner';
-  const [topic, setTopic] = useState<CaseTopic>('menu');
+  const asked = rest[0];
+  const [topic, setTopic] = useState<CaseTopic>(() => (oneOf(CASE_TOPICS, asked) ? asked : 'menu'));
+  useEffect(() => { if (oneOf(CASE_TOPICS, asked)) setTopic(asked); }, [asked]);
   const [subject, setSubject] = useState(''), [body, setBody] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [subjectErr, setSubjectErr] = useState('');
   const [sent, setSent] = useState<string | null>(null);

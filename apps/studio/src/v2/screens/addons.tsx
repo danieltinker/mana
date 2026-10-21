@@ -64,7 +64,7 @@ function Library() {
                 <a class="row-main" href={'#/addons/' + g.id}>
                   <span class="row-text">
                     <span class="row-name">{named(g, L) || t('menu2.unnamed')}{g.label && <span class="muted lib-label"> · {g.label}</span>}</span>
-                    <span class="row-sub"><span>{ruleLine(g.min_units, g.max_units)} · {tn('lib.choices', n)}</span></span>
+                    <span class="row-sub"><span>{ruleLine(g.min_units, g.max_units)} · {tn('lib.choices', n)}</span>{g.limits_confirmed === false && <span class="badge badge-warn" data-unconfirmed>{t('lib.confirm.badge')}</span>}</span>
                     <span class="row-sub fine">
                       <span>{u.dishes.length ? tn('lib.usedBy', u.dishes.length) : t('lib.unused')}</span>
                       {u.opens.length > 0 && <span><Icon2 name="nest" size={14} /> {t('lib.opens', { names: u.opens.join(', ') })}</span>}
@@ -128,13 +128,13 @@ function GroupEditor({ id }: { id: string | null }) {
   /** The form now shows `rows` as stored, and the next save goes over their version. */
   const readAgain = (rows: GroupRows) => { const f = groupToForm(rows.group, rows.options); setForm(f); setOpened(f); setBase(shape(f)); setExpected(rows.group.updated_at); };
 
-  async function save({ over = expected, confirmRules = false, f = form }: { over?: string | null; confirmRules?: boolean; f?: GroupForm } = {}) {
+  async function save({ over = expected, confirmRules = false, confirmLimits = false, f = form }: { over?: string | null; confirmRules?: boolean; confirmLimits?: boolean; f?: GroupForm } = {}) {
     if (busy) return;
     setBusy(true); setError(''); setStale(null); setRules(null);
     try {
-      const r = await saveGroupForm(gid, f, over, { confirmRules });
+      const r = await saveGroupForm(gid, f, over, { confirmRules, confirmLimits });
       if (r.ok) {
-        toast(t('lib.saved'));
+        toast(t(confirmLimits ? 'lib.confirm.done' : 'lib.saved'));
         if (!id) go('addons/' + gid, true);
         else readAgain({ group: r.group, options: menu.value!.options.filter((o) => o.group_id === gid) });
       } else if (r.code === 'stale') setStale(r.current);
@@ -192,6 +192,11 @@ function GroupEditor({ id }: { id: string | null }) {
         )}</Field>
       </div>
 
+      {row && row.limits_confirmed === false && (
+        <Note kind="warn" title={t('lib.confirm.title')} action={editable ? <Btn small kind="primary" icon="check" busy={busy} onClick={() => save({ confirmLimits: true })} data-action="confirm-limits">{t('lib.confirm.go')}</Btn> : undefined}>
+          <span data-limits-unconfirmed>{t('lib.confirm.body', { rule: ruleLine(row.min_units, row.max_units) })}</span>
+        </Note>
+      )}
       <div class="card" role="group" aria-labelledby="how-h">
         <h2 id="how-h">{t('lib.how')}</h2>
         <Seg value={form.selection} label={t('lib.how')} disabled={!editable} onChange={(v) => set(withSelection(form, v))}

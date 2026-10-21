@@ -152,11 +152,16 @@ total the preview showed checked with `priceDish` on it). `e2e/studio-v2-edges.t
 production config never loads v2, the preview against `public_menu` for every selection, typed prices, two tabs, a
 dropped network, lost answers (`page.route` fetches, then drops the answer), a group save refused or cut halfway, a
 counter and a manager made counter, sign-up, right to left, keyboard, accessible names, owner text as HTML.
+`e2e/studio-v2-onboarding.test.mjs` is the setup flow (F03): the whole path in Hebrew and English on an invented café's
+Wolt text (`e2e/fixtures/wolt-text-cafe.mjs`), resuming on another device, a re-import that adds nothing, help, a counter,
+and the scanner's path through `e2e/scan-stub.mjs`: the stack has no Storage service and no edge functions, so the real
+`menus-ai` handler runs in the test's own process against the stack's PostgREST, the pictures the page uploads are held
+in memory, and the model call answers a recorded reply (nothing paid, nothing leaves the machine).
 `e2e/studio-v2-saving.test.mjs`: saving on a slow, failing or forgetful network (two edits in flight, a stale, lost,
 late or missing answer, retries inside an open sheet and when the connection returns), two tabs on a section and a
 group, links and quick adds tried again, a manager made counter or removed, a counter on eleven addresses, the session
-ending mid-save, and the ways out that ask (the browser's Back and Escape too). The back office's browser tests move
-here when it speaks the new schema.
+ending mid-save, and the ways out that ask (the browser's Back and Escape too).
+`e2e/ops.test.mjs` is the back office v2 on the stack.
 `node tools/test-all.mjs e2e` builds the site first; `cd e2e && npm test` uses the last build; screenshots in `e2e/.out/`.
 
 ## Not yet

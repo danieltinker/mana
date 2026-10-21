@@ -234,6 +234,95 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .caseline-subject{font-weight:600;color:var(--black);overflow-wrap:anywhere}
 .caseline-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 
+/* the setup flow (screens/onboarding.tsx): a step's header with where it stands, the steps folded, the step's card(s),
+   its actions, and help one tap away */
+.flow-head{display:grid;gap:8px;min-width:0}
+.flow-count{letter-spacing:.02em}
+.flow-bar{height:6px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden}
+.flow-bar span{display:block;height:100%;background:var(--black);border-radius:999px;transition:width .3s}
+.flow-steps summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;cursor:pointer;font-weight:600;color:var(--black)}
+.flow-steps{display:block}
+.flow-steps ol{list-style:none;padding:0;margin:8px 0 0;display:grid}
+.flow-steps li a{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:48px;color:inherit;text-decoration:none}
+.flow-steps li+li a{border-top:1px solid var(--line)}
+.flow-steps li[aria-current=step] .flow-name{font-weight:600;color:var(--black)}
+.flow-dot{width:26px;height:26px;border-radius:999px;display:inline-grid;place-items:center;font-size:.78rem;font-weight:600;border:1px solid var(--line-2);color:var(--charcoal);background:#fff}
+.flow-dot.is-done{background:var(--ok-bg);border-color:var(--ok-bg);color:var(--ok)}
+.flow-dot.is-doing{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.flow-dot.is-skipped{background:var(--soft);color:var(--muted)}
+.flow-actions{display:grid;gap:10px}
+.flow-help{display:flex;justify-content:center}
+.backtoflow{display:flex;align-items:center;gap:6px;min-height:44px;margin:10px var(--gut) 0;padding:0 14px;border-radius:999px;background:var(--black);color:var(--ivory);font-weight:500;text-decoration:none;width:max-content;max-width:calc(100% - 2 * var(--gut))}
+.backtoflow span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* bringing the menu: four ways in, then the source's own form */
+.srclist{list-style:none;padding:0;display:grid;gap:8px}
+.srccard{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:12px;min-height:64px;padding:10px 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:inherit;text-decoration:none}
+.srccard:hover{background:var(--soft)}
+.srccard[data-available=no]{opacity:.72}
+.srccard-text{display:grid;gap:2px;min-width:0}
+.srcscreen{display:grid;gap:12px;min-width:0}
+.srcscreen-h{font:600 1.2rem/1.25 var(--display)}
+.srcform{gap:14px}
+.srcform textarea{min-height:12em;font-size:.95rem}
+.howto{display:grid;gap:4px;padding-inline-start:1.3em;color:var(--charcoal)}
+.example{margin:0;padding:10px 12px;border-radius:var(--r-sm);background:var(--soft);border:1px solid var(--line);font:400 .9rem/1.5 var(--body);white-space:pre-wrap;color:var(--charcoal)}
+.thumbs{list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+.thumbs li{position:relative}
+.thumbs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:var(--soft)}
+.thumbs .iconbtn{position:absolute;top:2px;inset-inline-end:2px;background:rgba(255,255,255,.92)}
+
+/* checking an imported menu */
+.review{display:grid;gap:18px;min-width:0}
+.notelist,.exclist,.planlist{list-style:none;padding:0;display:grid}
+.notelist li{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;align-items:start;padding:8px 0}
+.notelist li+li,.exclist li+li,.planlist li+li{border-top:1px solid var(--line)}
+.notelist li[data-severity=check] .ico{color:var(--warn)}
+.exc{display:grid;gap:8px;padding:12px 0}
+.exc.is-open .exc-what .badge{background:var(--black);color:var(--ivory)}
+.exc-what{overflow-wrap:anywhere;color:var(--black)}
+.exc .kindchips{display:flex;flex-wrap:wrap;gap:6px}
+.pricediff{list-style:none;padding:0;display:grid;gap:2px}
+.pricefix{display:grid;gap:6px}
+.pricefix-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.planlist li{padding:8px 0;font-weight:500;color:var(--black)}
+.applycard{gap:12px}
+.draftsec{border-top:1px solid var(--line);padding:6px 0}
+.draftsec:first-of-type{border-top:0}
+.draftsec summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer}
+.draftdishes{list-style:none;padding:0;display:grid}
+.draftdishes>li{display:grid;gap:3px;padding:8px 0}
+.draftdishes>li+li{border-top:1px dashed var(--line)}
+.draftdish-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.draftdish-price{flex:none}
+.draftgroup{padding-inline-start:12px;border-inline-start:2px solid var(--line);display:grid;gap:2px}
+.draftgroup ul{list-style:none;padding:0}
+/* leaving something out of an import (ADR-006 skip): a small toggle beside it; what is left out is greyed and struck */
+.leaverow{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.leavebtn{min-height:40px;min-width:44px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--charcoal);font-size:.82rem;font-weight:600}
+.leavebtn[aria-pressed=true]{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.draftgroup-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.draftgroup li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:40px}
+.is-out>.draftdish-line .strong,.draftsec.is-out>summary .strong,.draftgroup.is-out>.draftgroup-head>span[dir],li.is-out>span[dir]{text-decoration:line-through;color:var(--muted)}
+
+/* trying it on a phone: the guest's view in a phone's frame */
+.phoneframe{justify-self:center;width:min(100%,340px);border-radius:34px;padding:10px;background:var(--table);box-shadow:var(--lift)}
+.phone-screen{border-radius:26px;background:var(--ivory);min-height:420px;max-height:640px;overflow:auto;padding:16px 12px;display:grid;gap:14px;align-content:start}
+.phone-venue{font:600 1.3rem/1.2 var(--display);color:var(--black);text-align:center}
+.phone-sec{display:grid;gap:6px}
+.phone-sec h3{font:600 .95rem/1.2 var(--body);color:var(--charcoal)}
+.phone-sec ul{list-style:none;padding:0;display:grid;gap:6px}
+.phone-dish{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;min-height:56px;padding:8px 10px;border:1px solid var(--edge);border-radius:14px;background:#fff;text-align:start;cursor:pointer;font:inherit;color:inherit}
+.phone-pic{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:var(--soft);color:var(--muted)}
+.phone-name{display:grid;gap:2px;font-weight:600;color:var(--black);min-width:0;overflow-wrap:anywhere}
+.phone-name .fine{font-weight:400}
+.phone-price{white-space:nowrap;font-weight:500}
+
+/* the QR card; outside production the table card carries the "demo" mark (backlog B5) */
+.tcard{position:relative}
+.tcard-demo{position:absolute;top:3%;inset-inline:0;margin:0 auto;width:max-content;padding:.2em .8em;border-radius:999px;background:#b4232a;color:#fff;font:700 5cqw/1.2 Arial,sans-serif;letter-spacing:.04em}
+@media print{html[data-print] .print-root .tcard-demo{font-size:4.6vw}}
+
 /* "not saved": one short line and its button beside it (below it, only where the line would not fit beside it) */
 .savebar-v2{gap:6px 8px;padding:8px;padding-inline-start:12px;font-size:.9rem;line-height:1.3}
 .savebar-v2 span{flex:1 1 auto;min-width:0}
