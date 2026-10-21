@@ -75,6 +75,65 @@
 .notices ul{display:grid;gap:6px}
 .price-row{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;align-items:start}
 
+/* availability: the red marker, what is off now, the sheet's choices */
+.dot-bad{background:var(--bad);box-shadow:0 0 0 4px var(--bad-bg)}
+.badge-out{white-space:normal}
+.offbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 14px;border-radius:var(--r);background:var(--bad-bg);color:#6d2014}
+.offbar-n{display:inline-flex;align-items:center;gap:10px;font-weight:600}
+.offnow{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 14px;border-radius:var(--r-sm);background:var(--ok-bg);color:var(--ok);font-weight:600}
+.offnow.is-off{background:var(--bad-bg);color:var(--bad)}
+.offhow{color:var(--black);font-size:1rem;margin-top:4px}
+.offchoices{display:grid;gap:8px}
+.offchoice{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;width:100%;min-height:56px;padding:8px 16px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:var(--black);text-align:start;font:inherit}
+.offchoice:hover:not(:disabled){border-color:var(--charcoal)}
+.offchoice[aria-expanded=true]{border-color:var(--black)}
+.offchoice-what{font-weight:600}
+.offpick{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 2px 4px}
+.offparts{display:grid;gap:10px;padding-top:8px;border-top:1px solid var(--line)}
+.offrow{min-height:56px}
+.sec-part{margin:-4px 2px 8px}
+
+/* hours: the week, a window, the day chips, the time pickers */
+input[type=time],input[type=date],input[type=number]{width:100%;min-height:var(--tap);padding:10px 14px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:var(--black);font-size:16px;line-height:1.4}
+.nowcard h2{font:600 1.15rem/1.25 var(--body)}
+.weekdays{display:grid}
+.weekday{display:grid;gap:8px;padding:8px 0}
+.weekday+.weekday{border-top:1px solid var(--line)}
+.weekday-line{display:flex;align-items:center;gap:12px;min-height:44px}
+.weekday-name{flex:0 0 4.4em;font-weight:600;color:var(--black)}
+.weekday-hours{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.hourchip{border:0;min-height:44px;padding:0 11px;font-size:.88rem;font-variant-numeric:tabular-nums;cursor:pointer}
+span.hourchip{cursor:default;min-height:0;padding:3px 11px}
+.hourchip[aria-expanded=true]{background:var(--black);color:var(--ivory)}
+.hoursedit,.card-in{display:grid;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--soft)}
+.card-in h3{color:var(--black);font-size:1rem}
+.timepair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.daychips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.daychip{min-width:44px;min-height:44px;padding:0 10px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--charcoal);font-weight:600;font-size:.9rem}
+.daychip[aria-pressed=true]{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.daychip-all[aria-pressed=true]{color:var(--black);text-decoration:underline}
+.windows{border:0;margin:0;padding:0;display:grid;gap:10px;min-width:0}
+.windows legend{font-weight:500;font-size:.88rem;color:var(--muted);margin-bottom:6px}
+.windowcard{display:grid;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--r-sm);background:#fff}
+
+/* suggestion rules */
+.row .rule-switch{flex:none;padding-inline:6px 12px}
+.rule-line{color:var(--charcoal);font-style:italic}
+.row-name[data-summary]{white-space:normal;overflow:visible;text-overflow:clip}
+.rule-summary-now{font:600 1.05rem/1.4 var(--body);color:var(--black);padding:10px 14px;border-radius:var(--r-sm);background:var(--soft)}
+.targets{display:grid;gap:8px;justify-items:start}
+.pickset{border:0;margin:0 0 10px;padding:0;display:grid;gap:6px;min-width:0}
+.pickset legend{font-weight:600;color:var(--black);margin-bottom:6px}
+.pickset .line-check .badge{flex:none}
+.sample{display:grid;gap:12px}
+.grid2-tight{grid-template-columns:1fr 1fr}
+.chip-x{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;margin-block:-6px;margin-inline:2px -8px;border:0;border-radius:50%;background:transparent;color:inherit}
+.chip-x:hover{background:rgba(0,0,0,.06)}
+.verdict{display:grid;gap:6px;padding:14px 16px;border-radius:var(--r);border:1px solid var(--line);background:var(--soft)}
+.verdict.is-yes{background:var(--ok-bg);border-color:transparent}
+.verdict.is-no{background:var(--warn-bg);border-color:transparent}
+.verdict-main{font:600 1.1rem/1.3 var(--display);color:var(--black)}
+
 /* an empty screen: the icon, a line, what to do, centred on a quiet card */
 .v2 .empty{display:grid;gap:10px;justify-items:center;text-align:center;padding:32px 18px;border-radius:var(--r);border:1.5px dashed var(--line-2)}
 .v2 .empty p{color:var(--muted);max-width:40ch}

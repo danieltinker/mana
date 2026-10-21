@@ -47,11 +47,13 @@ test('shekels typed by a person become agorot, and back; more than the schema al
   assert.equal(shekelsOf(null), '');
 });
 
-test('a section: names stripped, one language is enough, none is name_missing', () => {
+test('a section: names stripped, one language is enough, none is name_missing; its day part goes with it', () => {
   const row = { id: 's', venue_id: V, position: 0, name_he: 'עיקריות', name_en: '', kind: 'food', scene: 'auto', room: null, schedule_id: null, hidden: false, created_at: at(1), updated_at: at(1) };
   const f = sectionToForm(row);
-  assert.deepEqual(f, { nameHe: 'עיקריות', nameEn: '', kind: 'food', room: null, hidden: false });
-  assert.deepEqual(sectionFromForm({ ...f, nameEn: '  Mains‏ ', room: 'table' }), { ok: true, value: { name_he: 'עיקריות', name_en: 'Mains', kind: 'food', room: 'table', hidden: false } });
+  assert.deepEqual(f, { nameHe: 'עיקריות', nameEn: '', kind: 'food', room: null, scheduleId: null, hidden: false });
+  assert.deepEqual(sectionFromForm({ ...f, nameEn: '  Mains‏ ', room: 'table' }), { ok: true, value: { name_he: 'עיקריות', name_en: 'Mains', kind: 'food', room: 'table', schedule_id: null, hidden: false } });
+  assert.equal(sectionFromForm({ ...f, scheduleId: 'breakfast' }).value.schedule_id, 'breakfast');
+  assert.equal(sectionToForm({ ...row, schedule_id: 'breakfast' }).scheduleId, 'breakfast');
   assert.deepEqual(sectionFromForm({ ...f, nameHe: '  ' }).errors, [{ field: 'name', code: 'name_missing' }]);
   assert.deepEqual(sectionFromForm({ ...f, room: 'garden' }).errors, [{ field: 'room', code: 'enum_invalid' }]);
 });

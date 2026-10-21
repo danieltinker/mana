@@ -3,10 +3,12 @@
 // it in memory. Rows are typed with @mana/contracts.
 import type {
   AddonGroupRow, AddonOptionRow, DishAddonGroupRow, DishRelationRow, DishRow, EntitlementRow, Issue, MemberRole, MenuRevisionRow,
-  PublishWarning, SaveAddonGroupInput, SaveAddonGroupReply, ScheduleRow, SectionRow, SnapshotV2, StoredAddonGroup, VenueKind, VenueRow,
+  PublishWarning, SaveAddonGroupInput, SaveAddonGroupReply, ScheduleRow, SectionRow, SnapshotV2, StoredAddonGroup, UpsellRuleRow, VenueClosureRow,
+  VenueHoursRow, VenueKind, VenueRow,
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
+import { sameStored } from './rows.ts';
 
 export type Membership = { readonly venue: VenueRow; readonly role: MemberRole };
 export type RevisionInfo = Pick<MenuRevisionRow, 'id' | 'number' | 'note' | 'created_at'>;
@@ -22,11 +24,15 @@ export type MenuData = {
   dishGroups: DishAddonGroupRow[];
   relations: DishRelationRow[];
   schedules: ScheduleRow[];
+  rules: UpsellRuleRow[];
+  hours: VenueHoursRow[];
+  closures: VenueClosureRow[];
   revisions: RevisionInfo[];
 };
 
-/** The tables the menu editor writes (all under RLS: owner and manager). */
-export type MenuTable = 'sections' | 'dishes' | 'addon_groups' | 'addon_options' | 'dish_addon_groups' | 'dish_relations';
+/** The tables the owner app writes directly (all under RLS: owner and manager). */
+export type MenuTable = 'sections' | 'dishes' | 'addon_groups' | 'addon_options' | 'dish_addon_groups' | 'dish_relations' | 'schedules' | 'upsell_rules'
+  | 'venue_hours' | 'venue_closures';
 
 // ---------------------------------------------------------------- venues
 /** The places this account belongs to, oldest first, with its role in each. */
@@ -43,6 +49,8 @@ export function createVenue(v: { slug: string; nameHe: string; nameEn: string; k
 }
 
 export const venueRow = (id: string) => q<VenueRow>(sb.from('venues').select('*').eq('id', id).single());
+/** The place's own settings the owner may change (the columns the schema grants). */
+export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
 export const entitlementOf = (venueId: string) => q<EntitlementRow | null>(sb.from('entitlements').select('*').eq('venue_id', venueId).maybeSingle());
 export const revisionsOf = (venueId: string) =>
   q<RevisionInfo[]>(sb.from('menu_revisions').select('id, number, note, created_at').eq('venue_id', venueId).order('number', { ascending: false }).limit(50));
@@ -51,14 +59,15 @@ export const revisionsOf = (venueId: string) =>
 export async function loadMenu(venueId: string, role: MemberRole): Promise<MenuData> {
   const of = <T>(table: string) => q<T[]>(sb.from(table).select('*').eq('venue_id', venueId));
   const records = role === 'owner' || role === 'manager';
-  const [venue, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, revisions] = await Promise.all([
+  const [venue, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, rules, hours, closures, revisions] = await Promise.all([
     venueRow(venueId),
     records ? entitlementOf(venueId) : Promise.resolve(null),
     of<SectionRow>('sections'), of<DishRow>('dishes'), of<AddonGroupRow>('addon_groups'), of<AddonOptionRow>('addon_options'),
     of<DishAddonGroupRow>('dish_addon_groups'), of<DishRelationRow>('dish_relations'), of<ScheduleRow>('schedules'),
+    of<UpsellRuleRow>('upsell_rules'), of<VenueHoursRow>('venue_hours'), of<VenueClosureRow>('venue_closures'),
     records ? revisionsOf(venueId) : Promise.resolve([] as RevisionInfo[]),
   ]);
-  return { venue, role, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, revisions };
+  return { venue, role, entitlement, sections, dishes, groups, options, dishGroups, relations, schedules, rules, hours, closures, revisions };
 }
 
 // ---------------------------------------------------------------- rows
@@ -92,6 +101,31 @@ export async function insertOnceInfo<T extends { id: string }>(table: MenuTable,
       for (const c of uniqueBy) query = query.eq(c, row[c] as string);
       const [same] = await q<T[]>(query.limit(1));
       if (same) return { row: same, existed: true };
+    }
+    throw err;
+  }
+}
+
+/** One table's rows for a venue, as stored now. */
+export const venueRows = <T>(table: MenuTable, venueId: string, columns = '*') => q<T[]>(sb.from(table).select(columns).eq('venue_id', venueId));
+
+/**
+ * New rows with the client's own ids, in one statement. When an earlier try's answer was lost and they are all stored
+ * already, they answer, as long as they hold what this try sends; when the owner changed something before trying again,
+ * nothing is written and `stored_earlier` carries the rows as stored (the screen says so, or stores the change).
+ */
+export async function insertAllOnce<T extends { id: string }>(table: MenuTable, rows: readonly { id: string; [column: string]: unknown }[]): Promise<T[]> {
+  try {
+    return await insertRows<T>(table, rows as object[]);
+  } catch (e) {
+    const err = toV2Error(e);
+    if (err.code === 'duplicate') {
+      const had = await rowsById<T>(table, rows.map((r) => r.id));
+      if (had.length === rows.length) {
+        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameStored(v, h[k])); });
+        if (same) return had;
+        throw new V2Error('stored_earlier', had);
+      }
     }
     throw err;
   }

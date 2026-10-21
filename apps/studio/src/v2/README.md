@@ -25,7 +25,13 @@ makes this the app.
 | `data/nesting.ts` | The one nesting level as the editor applies it: what an option may open, never a second level |
 | `data/guest.ts` | A dish as the guest gets it (as `app.build_snapshot_full` builds it) and the guest's choices, priced with `priceDish` |
 | `data/draft.ts`, `data/changes.ts` | `preview_menu` beside the published revision: what stops a publish, what warns (with `lintSnapshotV2`), what would change; where the menu stands (never, pending approval, live, offline) |
-| `screens/` | start, new place, menu, dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, publish |
+| `data/rules.ts` | Suggestion rules (F06): rows ↔ the rule form and its checks, the rule as the snapshot builder publishes it (`ruleV2`), priority by order (`reprioritize`), and the live preview (`previewRule`): `matchSuggestion` on the draft menu with a sample basket, day, hour and the guest's tags (`passesTagFilter`), and the first reason when nothing would be suggested (the contracts' `whyNoSuggestion`, on which `matchSuggestion` is built) |
+| `data/hours.ts` | Opening hours (several windows a day, no overlap, across midnight too), closed dates and schedules (day parts, specials): rows ↔ forms with the schema's checks; `venueHoursOf` builds the hours exactly as `public_menu`'s live overlay does |
+| `data/availability.ts` | The quick actions (F05): the "until" choices and their `resolveUntil` moments, what is off now (`offState`, with the contracts' `isAvailable`), "taken off today", and `availabilityApi(rpc)`: `set_availability` and `restore_today` with the contracts' validators first (pure: the tests pass a fake RPC) |
+| `data/live.ts` | What is off at the open place, kept current (ADR-007): Realtime on `availability_overrides` when `runtime.realtime`, with the slow safety poll beside it (`LIVE_REFRESH.safetyMs`), else polling (`LIVE_REFRESH.pollMs`); visible pages only, `pollDelay`'s backoff; a channel removed with an earlier place changes nothing (`channelMode`, `liveDelay` in `data/availability.ts`, unit-tested); a `clock` that moves at the next "until"; `takeOff`, `bringBack`, `restoreToday` |
+| `data/rule-numbers.ts` | The slot for each rule's numbers (shown, accepted, dismissed) on the rules list; empty until the dashboard lane calls `setRuleNumbers` |
+| `words.ts` | A rule in one plain line ("After Coffee, suggest Croissant, 7–11"), days, times, dates and "until" moments in the venue's time zone; ranges are isolated left to right inside Hebrew |
+| `screens/` | start, new place, menu (with each row's availability one tap away, the red marker, "bring back everything taken off today"), dish (details, add-ons with the guest preview, goes well with), add-on library and group editor, availability sheet (`off.tsx`), hours (week, closed dates, what guests see of something unavailable, day parts and specials), suggestion rules (list and editor with its live preview), publish |
 
 **Shared with v1 and kept at the cutover** (not schema-specific): `lib/api.ts` (the client, `cfg`, `sibling`),
 `lib/i18n.ts` (language, dates, the base dictionary), `lib/money.ts`, `lib/slug.ts`, `lib/email.ts`, `lib/links.ts`,
@@ -103,17 +109,44 @@ makes this the app.
   (`openTargets`), and the form's rules before a write (`groupFromForm`). When another device changed the library in the
   meantime, the database's refusal is shown and the library reloads.
 - **Who may edit**: owners and managers (`canEdit()`). Any other member (a counter) sees every screen read-only. A new
-  screen does the same in three steps (all in `ui.tsx`, as `screens/dish.tsx` and `screens/addons.tsx` do):
+  screen does the same in three steps (all in `ui.tsx`, as `screens/dish.tsx`, `screens/addons.tsx`, `screens/rules.tsx`
+  and `screens/hours.tsx` do):
   1. wrap the editing area in `<ReadOnly when={!editable}>` (one fieldset: everything inside is disabled at once);
   2. put `disabled={!editable}` on each control too (`MoneyInput`, `Stepper`, `Seg`, `Switch` and the inputs take it), and
      do not render the buttons that only edit (save, delete, add, arrange);
-  3. `useEditOnly(onEditAddress, editable, back)` for an address that only edits (`#/menu/s/…`, `#/addons/new`).
+  3. `useEditOnly(onEditAddress, editable, back)` for an address that only edits (`#/menu/s/…`, `#/addons/new`,
+     `#/rules/new`, `#/hours/parts/new`).
   A store's writes start with `mayWrite()` (or go through `patchRow`, `write`), so the network is never asked; a write
   row-level security refuses anyway (a role changed meanwhile) is "not allowed", and the role is read again.
-  Sold-out actions are a counter's own (F05): those check the role themselves.
+  Sold-out actions are a counter's own (F05): `canOperate()` (owner, manager, counter) shows them, and `data/live.ts`
+  calls the RPCs directly, not through `write`.
+- **Rules and schedules save like dishes**: the editor sends only what changed since it opened (`saveNow`, the save
+  queue's `patchRow` saved at once and awaited), guarded by `updated_at`, and a conflict opens `conflict.tsx`; when the
+  menu was read again while the editor was open and a column the owner changed moved elsewhere too, the editor shows the
+  stored rule and says so instead of saving. Reordering rules goes one move at a time (`setPriorities`): a move waits for
+  this tab's earlier moves, then checks the whole order as stored against what this tab expects, so this tab's own quick
+  moves are never refused and another tab's reorder comes back with a notice; each rule is written only while it still
+  has the priority this tab gave it. **Opening hours** carry `updated_at` (phase-1 schema): they are read again when the
+  hours screen opens or comes back into view (`refreshHours`) and before hours are added (the overlap check runs on what
+  is stored now; the database's `venue_hours_overlap` trigger raises `hours_overlap` for what slips through); an open
+  window editor keeps the version it read, says when the window changed meanwhile, and its save is guarded on that
+  `updated_at` (`saveHours`): never written over a change made elsewhere. **Closed dates** have no `updated_at`: only
+  added or deleted.
+- **A lost answer is not "changed elsewhere"**: a guarded write that finds its own values already stored (its earlier
+  answer was lost) counts as saved. New rows keep their ids across tries; a try after a lost answer with other values
+  than the stored ones is not stored over them silently (`insertAllOnce` answers `stored_earlier` with the stored rows):
+  a new rule stores the change on the stored rule (guarded), new hours say what was stored.
 - **One place at a time**: switching place or account drops everything (what failed to save included, after the owner
   confirms it); late answers for the old one are ignored. A store of a later lane registers `onReset(fn)` to drop its own
   state with it.
+- **Availability is written by the RPCs only**: `set_availability` and `restore_today` (ADR-008), never table inserts
+  (those stay granted for the simulator). A whole add-on group is each of its choices, one call each. Overrides are
+  read, never patched on screen: every action fetches them again. The availability sheet reads the clock every second
+  while it is open, so the "back at" shown before the tap is the minute stored. "Taken off today" is the venue's
+  calendar day, as `restore_today` has it: at 00:30, what was taken off at 23:50 is yesterday's (a question for Rami
+  whether a service day should run past midnight; the contracts and the database would change together).
+- **Everything about time is the contracts'**: `resolveUntil`, `isOpenAt`, `nextOpening`, `isAvailable`,
+  `matchSuggestion`, in the venue's `time_zone`; the screens only say the moments in words (`words.ts`).
 
 ## How the next lanes plug in
 
@@ -129,9 +162,9 @@ The "today" column says what exists on this branch; the "to do" column is the la
 | Lane | Screens (to do) | Data (to do) | Today |
 |---|---|---|---|
 | **F03 onboarding and import** | `onboarding/<step>` (no nav); the import preview with its exceptions; make `landing()` return `onboarding` while steps are open | `onboarding_progress`, `menu_imports` in a new `data/onboarding.ts` (with `onReset`); imported dishes through `addDish(section, cols, id)`, imported option groups through `saveGroupForm(id, form, null)` (so the form rules, the nesting guard and the one-transaction save apply) | the empty menu's `Empty` in `screens/menu.tsx` is where "bring your menu" goes; `venue-new.tsx` goes to `landing()` after `create_venue` |
-| **F05 availability, schedules, hours** | `hours`, `schedules` (nav, order 40); sold-out quick actions | `venue_hours`, `venue_closures`, `schedules`, `availability_overrides` added to `MenuTable` and `KEY` in `data/store.ts` (a table with `updated_at` then gets the guarded `patchRow`); schedules are already loaded | the dish's day-part select reads `menu.schedules`; a counter (`role === 'counter'`) sees every screen read-only (`canEdit()`, `ReadOnly`): sold-out actions are the first thing a counter may do, so they check `role` themselves; `runtime.realtime` is false locally (poll instead) |
-| **F06 upsell rules** | `rules` (nav, order 50) | `upsell_rules` into `MenuTable` (today the store reads rules only to name them when deleting a choice they use, `api.rulesNamed`) | publishing lists the builder's `rule_left_out` warnings and `lintSnapshotV2`'s, in words (`issue.*` in `i18n.ts`); the group editor asks before deleting a choice a rule suggests |
-| **F08 dashboard, activity, export** | `home` (nav, order 10; make `landing()` return it), `activity`, export | `my_dashboard`, `activity_log` in `data/dashboard.ts`; the export reads `draft.value.snapshot` | the publish dot (`hasChanges`) and `standingOf()` say where the menu stands |
+| **F05 availability, schedules, hours** (built) | `hours` (nav, order 40; `hours/parts`, `hours/parts/<id>`); the availability sheet at `menu/a/<section\|dish\|option\|group>/<id>` (an add-on choice or group opened from a dish's sheet: `.../<id>/<dish id>`, so the focus returns to the dish's button) | `schedules`, `venue_hours`, `venue_closures` in `MenuTable`; overrides in `data/live.ts` | a counter operates (`canOperate()`) and sees the rest read-only; `runtime.realtime` is false locally (polling instead) |
+| **F06 upsell rules** (built) | `rules` (nav, order 50; `rules/<id>`, `rules/new`) | `upsell_rules` in `MenuTable` | publishing lists the builder's `rule_left_out` warnings and `lintSnapshotV2`'s, in words (`issue.*` in `i18n.ts`); the group editor asks before deleting a choice a rule suggests, and the rule leaves the list with it |
+| **F08 dashboard, activity, export** | `home` (nav, order 10; make `landing()` return it), `activity`, export | `my_dashboard`, `activity_log` in `data/dashboard.ts`; the export reads `draft.value.snapshot` | the publish dot (`hasChanges`) and `standingOf()` say where the menu stands; **quick actions**: link to `#/menu/a/<kind>/<id>` (the availability sheet) or call `takeOff` / `bringBack` / `restoreToday` (`data/live.ts`), and read `offNow()` and `clock` for "off now"; "add a special" (H53, the dashboard's short phone flow) links to `#/hours/parts/new-special`; **per-rule numbers**: `setRuleNumbers(dashboard.rules)` (`data/rule-numbers.ts`) and the rules list shows them |
 
 **Words.** New keys go in `i18n.ts` (a key lives in one dictionary; `node test/check-i18n.mjs` checks both). New Hebrew
 needs a native read before it reaches anyone.
@@ -141,9 +174,12 @@ they are. Browser tests live in `e2e/` (`startE2E()` serves the built `_site` wi
 simulator's stack): `e2e/studio-v2.test.mjs` is the whole scenario (the pattern), `e2e/studio-v2-edges.test.mjs` the
 edges (production boot, price parity with `public_menu`, two tabs, lost answers, offline, a counter, sign-up, RTL,
 keyboard, names, text never HTML), `e2e/studio-v2-saving.test.mjs` saving on a slow, failing or forgetful network
-(two edits in flight, answers lost, late or never, retries, roles that change, the session ending, the ways out).
+(two edits in flight, answers lost, late or never, retries, roles that change, the session ending, the ways out),
+`e2e/studio-v2-operate.test.mjs` the operating screens (suggestion rules, hours and day parts, the availability quick
+actions, and a counter: operates, edits nothing).
 
 ## Not here yet
 
 Pictures and reliefs on v2 dishes (the dish has no picture slot yet), the place's style and contact settings, team
-members, and everything listed above for the next lanes.
+members, the "pause ordering now" switch (with ordering, phase 2), a note on an availability override (the RPC takes
+one; the sheet does not ask yet), and everything listed above for the next lanes.

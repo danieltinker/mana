@@ -17,6 +17,15 @@ import { canEdit, formHolds, menu, removeRows, saveGroupForm } from '../data/sto
 import { langsOf, ruleLine, shekels } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
 import { Icon2, LangSeg, MoneyInput, ReadOnly, Stepper, useEditOnly, useEntryLang } from '../ui.tsx';
+import { ruleSummary } from '../words.ts';
+
+/** A suggestion rule as the rules list says it: its label, its line, or the rule in words. */
+function ruleName(r: { id: string; name: string }): string {
+  const d = menu.value, L = lang.value;
+  const row = d?.rules.find((x) => x.id === r.id);
+  if (r.name || !row || !d) return r.name || t('lib.rules.unnamed');
+  return ruleSummary(row, (kind, id) => named(kind === 'dish' ? d.dishes.find((x) => x.id === id) : kind === 'section' ? d.sections.find((x) => x.id === id) : d.options.find((x) => x.id === id), L));
+}
 
 export function AddonsScreen({ rest }: { rest: string[] }) {
   const editable = canEdit();
@@ -224,7 +233,7 @@ function GroupEditor({ id }: { id: string | null }) {
         {stale && <StaleGroup rows={stale} busy={busy} onKeep={keepMine} onTake={takeStored} />}
         {!stale && <Btn kind="primary" block busy={busy} disabled={!dirty && !!row} onClick={() => save()} data-action="save-group">{row ? t('lib.save') : t('lib.create')}</Btn>}
       </Sticky>}
-      <Confirm open={!!rules} title={t('lib.rules.title')} body={tn('lib.rules.body', rules?.length ?? 0, { names: (rules ?? []).map((r) => r.name || t('lib.rules.unnamed')).join(', ') })}
+      <Confirm open={!!rules} title={t('lib.rules.title')} body={tn('lib.rules.body', rules?.length ?? 0, { names: (rules ?? []).map(ruleName).join(', ') })}
         confirmLabel={t('lib.rules.go')} danger busy={busy} onConfirm={() => save({ confirmRules: true })} onClose={() => setRules(null)} />
       <Confirm open={del} title={t('lib.delete')} body={u.dishes.length ? tn('lib.deleteUsed', u.dishes.length, { name: named(row, UI) }) : t('lib.deleteConfirm', { name: named(row, UI) })}
         confirmLabel={t('app.delete')} danger busy={busy} onConfirm={remove} onClose={() => setDel(false)} />
