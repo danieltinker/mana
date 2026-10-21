@@ -12,6 +12,9 @@ import assert from 'node:assert/strict';
 import { draftExceptions, EMPTY_MENU, EXCEPTION_CHOICES, importKey, planApply, validateDraft, type ExistingMenu, type ImportDraft } from '../src/import.ts';
 import { applyPlan, copy, dish, draftOf, group, link, menuRuleBreaks, opt, planProblems, section } from './import-fixtures.ts';
 
+/** Another menu of the venue's, sharing no key or name with the generator's drafts. */
+const WINES = draftOf([section('x-wines', 'יינות', 'Wines', [dish('x-merlot', 'מרלו', 'Merlot', 3800)], { kind: 'wine' })]);
+
 /** `r2`: round 2's drafts (limits stated together or not at all; links without limits); `r3`: round 3's (limits each
  * on its own, dish links with limits); `r4`: round 3's with options taken up to 3 times, and openers added on re-import. */
 type Generator = 'r2' | 'r3' | 'r4';
@@ -115,7 +118,7 @@ function fuzz(start: number, n: number, kind: Generator, random: Random): { prob
     if (!r1.plan) { problems.push(`seed ${s0}: first import refused ${JSON.stringify(r1.errors)}`); continue; }
     planned += 1;
     for (const p of planProblems(r1.plan)) problems.push(`seed ${s0}: ${p}`);
-    const once = applyPlan(EMPTY_MENU, r1.plan);
+    const once = applyPlan(EMPTY_MENU, r1.plan, d);
     for (const m of [...menuProblems(once), ...unusedCreated(EMPTY_MENU, once)]) problems.push(`seed ${s0}: ${m}`);
     const r2 = planWith(d, once, { ...r1.choices });
     if (!r2.plan) { problems.push(`seed ${s0}: re-import refused`); continue; }
@@ -155,8 +158,18 @@ function fuzz(start: number, n: number, kind: Generator, random: Random): { prob
       continue;
     }
     for (const p of planProblems(r4.plan)) problems.push(`seed ${s0}: noisy ${p}`);
-    const after = applyPlan(once, r4.plan);
+    const after = applyPlan(once, r4.plan, nz);
     for (const m of [...menuProblems(after), ...unusedCreated(once, after)]) problems.push(`seed ${s0}: noisy ${m}`);
+    // the re-read again with the same answers, back to back and after an import of another menu of the venue's (its
+    // wines): nothing written (Hopa test 1; `previous` is every applied import's, `mergePrevious`)
+    const w = planWith(WINES, after, {});
+    if (!w.plan) { problems.push(`seed ${s0}: the wines refused ${JSON.stringify(w.errors)}`); continue; }
+    for (const [label, m] of [['back to back', after], ['after the wines', applyPlan(after, w.plan, WINES)]] as const) {
+      const again = planWith(nz, m, { ...ch });
+      const writes = again.plan ? again.plan.steps.filter((s) => s.op === 'create' || s.op === 'update') : [];
+      if (!again.plan) problems.push(`seed ${s0}: the re-read again, ${label}, refused ${JSON.stringify(again.errors)}`);
+      if (writes.length) problems.push(`seed ${s0}: the re-read again, ${label}, writes ${writes.map((s) => `${s.kind}:${s.key}:${s.op}`).join(', ')}`);
+    }
   }
   return { problems, planned, distinct: drafts.size };
 }
@@ -166,6 +179,8 @@ test('fuzz: the drafts QA found, replayed with the generator they were found wit
   assert.deepEqual(fuzz(1311955456, 1, 'r2', 'lcg').problems, []);
   // 834265856: a single choice's dish minimum of 2 (now an invalid draft); 146027584: a dish max above a guessed max
   for (const seed of [834265856, 146027584]) assert.deepEqual(fuzz(seed, 1, 'r3', 'lcg').problems, [], `seed ${seed}`);
+  // round 10c (QA's fuzz10, R10 L2): a section the re-read left empty, its dishes elsewhere, stays so on the next import
+  for (const seed of [299835044, -1496404110, -614020405]) assert.deepEqual(fuzz(seed, 1, 'r4', 'mulberry32').problems, [], `seed ${seed}`);
 });
 
 test('fuzz, round 2\'s drafts: 300 distinct drafts, every property holds', () => {
@@ -179,4 +194,92 @@ test('fuzz, round 4\'s drafts (dish limits, partly stated groups, quantities, ne
   assert.deepEqual(r.problems, []);
   assert.ok(r.distinct >= 2400, `only ${r.distinct} distinct drafts of 2500`);
   assert.ok(r.planned >= 1200, `only ${r.planned} of 2500 drafts were valid and planned`);
+});
+
+/**
+ * Round 10c (QA-M4): drafts where two draft groups land on one venue group (a global match and a dish's own group of
+ * the same name), each bringing openers: created options opening the venue's groups, options `add_options` adds, and
+ * venue options moved by `new_group`. Every answer at random, `nesting_too_deep` included; whatever is planned must be
+ * a menu the database accepts (`menuRuleBreaks`: one nesting level among them).
+ */
+function fuzzSameTarget(start: number, n: number): { problems: string[]; planned: number; nested: number } {
+  let seed = start;
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const pick = <T>(a: readonly T[]): T => a[Math.floor(rnd() * a.length)]!;
+  // the venue's groups, and what a draft's group of that name may hold: the venue's options, and one more
+  const KINDS: Array<{ name: [string, string]; options: Array<[string, string]>; extra: [string, string] }> = [
+    { name: ['רוטב', 'Sauce'], options: [['איולי', 'Aioli'], ['קטשופ', 'Ketchup']], extra: ['צ׳ילי', 'Chili'] },
+    { name: ['עשבים', 'Herbs'], options: [['פטרוזיליה', 'Parsley']], extra: ['נענע', 'Mint'] },
+    { name: ['מטבלים', 'Dips'], options: [['טחינה', 'Tahini']], extra: ['חומוס', 'Hummus'] },
+    { name: ['תוספת', 'Side'], options: [['צ׳יפס', 'Fries']], extra: ['סלט', 'Salad'] },
+  ];
+  const randomDraft = (prefix: string, ng: number): ImportDraft => {
+    const groups = Array.from({ length: ng }, (_, g) => {
+      const k = pick(KINDS);
+      const names = [...k.options.filter(() => rnd() < 0.8), ...(rnd() < 0.5 ? [k.extra] : [])];
+      if (names.length === 0) names.push(k.options[0]!);
+      return group(`${prefix}g${g}`, k.name[0], k.name[1], {
+        selection: 'multiple', min: 0, max: 2, options: names.map(([he, en], o) => opt(`${prefix}g${g}o${o}`, he, en, 0)),
+      });
+    });
+    // openers at random (more than one level now and then: the draft's own nesting_too_deep asks)
+    for (const g of groups) for (const o of g.options) if (rnd() < 0.35) {
+      const other = pick(groups);
+      if (other.key !== g.key) Object.assign(o, { opens: other.key, maxQty: 1 });
+    }
+    const dishes = Array.from({ length: 2 + Math.floor(rnd() * 3) }, (_, d) => dish(`d${d}`, `מנה ${d}`, `Dish ${d}`, 3000, {
+      groups: [...new Set(Array.from({ length: 1 + Math.floor(rnd() * 2) }, () => pick(groups).key))].map((key) => link(key)),
+    }));
+    return draftOf([section('s', 'עיקריות', 'Mains', dishes)], groups);
+  };
+  const planWith = (d: ImportDraft, m: ExistingMenu, choices: Record<string, string>) => {
+    for (let i = 0; i < 30; i++) {
+      const r = planApply(d, m, { v: 1, pricesConfirmed: true, choices: choices as never });
+      if (r.ok) {
+        const fresh = r.value.exceptions.filter((e) => !(`${e.code}@${e.key}` in choices));
+        if (fresh.length === 0 || i > 6) return { plan: r.value };
+        for (const e of fresh) choices[`${e.code}@${e.key}`] = pick(EXCEPTION_CHOICES[e.code]);
+        continue;
+      }
+      const un = r.errors.filter((e) => e.code === 'exception_unresolved');
+      if (un.length === 0) return { errors: r.errors };
+      for (const e of un) choices[`${e.message}@${e.path}`] = pick(EXCEPTION_CHOICES[e.message as keyof typeof EXCEPTION_CHOICES]);
+    }
+    return { errors: 'no plan' };
+  };
+  const problems: string[] = [];
+  let planned = 0, nested = 0;
+  for (let i = 0; i < n; i++) {
+    const s0 = seed;
+    const a = randomDraft('a', 1 + Math.floor(rnd() * 3));
+    if (!validateDraft(a).ok) continue;
+    const r1 = planWith(a, EMPTY_MENU, {});
+    if (!r1.plan) continue;
+    const m = applyPlan(EMPTY_MENU, r1.plan);
+    const b = randomDraft('b', 2 + Math.floor(rnd() * 4));
+    if (!validateDraft(b).ok) continue;
+    const r2 = planWith(b, m, {});
+    if (!r2.plan) {
+      const errs = r2.errors as Array<{ code: string }> | string;
+      if (typeof errs === 'string' || !errs.every((e) => e.code === 'too_many' || e.code === 'opener_qty')) problems.push(`seed ${s0}: refused ${JSON.stringify(errs).slice(0, 200)}`);
+      continue;
+    }
+    planned++;
+    if (r2.plan.exceptions.some((e) => e.code === 'nesting_too_deep' && e.key.startsWith('b'))) nested++;
+    for (const p of planProblems(r2.plan)) problems.push(`seed ${s0}: ${p}`);
+    for (const x of menuRuleBreaks(applyPlan(m, r2.plan))) problems.push(`seed ${s0}: ${x}`);
+  }
+  return { problems, planned, nested };
+}
+
+test('fuzz, round 10c: two draft groups on one venue group, openers everywhere: every plan keeps one nesting level', () => {
+  const r = fuzzSameTarget(101010, 3000);
+  assert.deepEqual(r.problems, []);
+  assert.ok(r.planned >= 1500, `only ${r.planned} planned`);
+  assert.ok(r.nested >= 50, `only ${r.nested} plans asked nesting_too_deep`);
 });

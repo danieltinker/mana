@@ -1,8 +1,9 @@
 // The owner app v2's saving on a slow, failing or forgetful network, on a 390 × 844 phone against the simulator's stack
-// (the QA review's second round, kept as tests): two edits in flight, answers that come back stale or never, retries
-// from inside an open sheet and when the connection returns, two tabs on a section and on a group, links and quick adds
-// tried again, a manager whose role changes or who is removed, a counter on every address, and the ways out of a screen
-// with changes (signing out, the bottom bar). Invented data only. Needs the built site (bash tools/build-site.sh).
+// (the QA review's second and third rounds, kept as tests): two edits in flight, answers that come back stale, lost, late
+// or never, retries from inside an open sheet and when the connection returns, two tabs on a section and on a group, links
+// and quick adds tried again, a manager whose role changes or who is removed, a counter on every address, the session
+// ending mid-save, and the ways out of a screen with changes (signing out, the bottom bar, the browser's Back, Escape).
+// Invented data only. Needs the built site (bash tools/build-site.sh).
 // Screenshots: e2e/.out/studio-v2-saving/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -431,5 +432,327 @@ test('signing out with a change that did not save asks first; leaving a changed 
   await until(async () => (await page.evaluate(() => location.hash)) === '#/menu', 'left after the owner said so');
   assert.equal((await groupRow('spare')).label, '');
   await reset('plain', { price: 900 });
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ round 3: answers that come late, or never
+const sectionRow = async (key) => (await owner.api.select('sections', { select: '*', id: `eq.${ids.sections[key]}` }))[0];
+/** Mains first, drinks second, with distinct positions: a tie would leave their order to the rows' random ids. */
+const sectionsInOrder = () => Promise.all([
+  owner.api.update('sections', { id: `eq.${ids.sections.mains}` }, { position: 0 }),
+  owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 1 }),
+]);
+
+test('a whole-menu read answered late (after a stale move) never puts back what the owner renamed meanwhile, nor asks about it', { timeout: 150000 }, async () => {
+  await sectionsInOrder();
+  const page = await signedIn();
+  await page.goto(e.webUrl + 'studio/#/menu');
+  await page.locator('[data-screen="menu"]').waitFor();
+  // the next whole-menu read of the dishes reaches the database at once, its answer reaches the phone 9 s later
+  let armed = false, heldAt = 0, releasedAt = 0;
+  const dishes = (u) => u.pathname.endsWith('/rest/v1/dishes');
+  await page.route(dishes, async (r) => {
+    if (!armed || r.request().method() !== 'GET' || !/venue_id=eq/.test(r.request().url())) return r.continue();
+    armed = false; heldAt = Date.now();
+    const answer = await r.fetch();
+    await sleep(9000);
+    releasedAt = Date.now();
+    return r.fulfill({ response: answer });
+  });
+  // another device moves the drinks section: this screen's move is stale, so the menu is read again
+  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 7 });
+  armed = true;
+  await page.locator('[data-tool="arrange"]').click();
+  await page.locator(`section[data-section="${ids.sections.mains}"] .sec-head [data-move="down"]`).click();
+  await until(async () => heldAt > 0, 'the menu read again');
+  await page.locator('[data-tool="arrange"]').click();
+  // meanwhile the owner renames the cola, and it is stored
+  const sheet = await openDish(page, 'cola');
+  const name = sheet.locator('[data-field="dish-name-he"]');
+  await name.fill('קולה זירו');
+  await until(async () => (await dishRow('cola')).name_he === 'קולה זירו', 'the new name stored', 8000);
+  assert.equal(releasedAt, 0, 'stored while the read was still on its way');
+  await until(async () => releasedAt > 0, 'the late answer', 15000);
+  await sleep(1500);
+  assert.equal(await name.inputValue(), 'קולה זירו', 'the form keeps what the owner saved');
+  await shot(page, '05-late-read');
+  // the next edit, another field: no "changed somewhere else" about the owner's own save
+  await priceOf(sheet).fill('11');
+  await until(async () => (await dishRow('cola')).price === 1100, 'the price stored');
+  await sleep(800);
+  assert.equal(await page.locator('dialog[data-conflict]').count(), 0);
+  await page.unroute(dishes);
+  await reset('cola', { name_he: 'קולה', price: 1000 });
+  await sectionsInOrder();                               // the move stored mains at 1: both go back
+  await page.context().close();
+});
+
+test('a write that never answers: after a while it is "not saved" with a retry; signing out says it is waiting, then asks', { timeout: 150000 }, async () => {
+  const page = await signedIn();
+  const sheet = await openDish(page, 'plain2');
+  const dishes = (u) => u.pathname.endsWith('/rest/v1/dishes');
+  let hold = true;
+  await page.route(dishes, async (r) => {
+    if (hold && r.request().method() === 'PATCH') return new Promise(() => {});      // no answer, ever
+    return r.continue();
+  });
+  await priceOf(sheet).fill('14');
+  await page.locator('[data-save="saving"]').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('[data-action="account"]').click();
+  const out = page.locator('[data-menu="sign-out"]');
+  await out.click();
+  await until(async () => /שומרים את השינויים האחרונים/.test(await out.innerText()), 'the sign-out says it is waiting', 3000);
+  await shot(page, '06-signing-out-waits');
+  const ask = page.getByRole('dialog', { name: 'יש שינויים שלא נשמרו' });
+  await ask.waitFor({ timeout: 25000 });                                             // the write counts as failed after 15 s
+  await ask.getByRole('button', { name: 'ביטול' }).click();
+  assert.equal(await page.locator('.shell').count(), 1, 'still signed in');
+  assert.equal(await page.locator('[data-save]').getAttribute('data-save'), 'failed');
+  hold = false;
+  await page.locator('[data-action="retry-saves"]').click();
+  await until(async () => (await dishRow('plain2')).price === 1400, 'stored by the retry');
+  await page.locator('[data-save="saved"]').waitFor();
+  await page.unroute(dishes);
+  await reset('plain2', { price: 800 });
+  await page.context().close();
+});
+
+test('the session ends (401) during an autosave: the start screen says so and names the dish whose change may not be saved', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const sheet = await openDish(page, 'plain2');
+  let n = 0;
+  await page.route((u) => u.pathname.endsWith('/rest/v1/dishes'), async (r) => {
+    if (r.request().method() !== 'PATCH' || n++ > 0) return r.continue();
+    return r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }) });
+  });
+  await priceOf(sheet).fill('17');
+  const note = page.locator('[data-screen="start"] [data-session-ended]');
+  await note.waitFor({ timeout: 15000 });
+  assert.match(await note.innerText(), /החיבור לחשבון הסתיים/);
+  assert.match(await page.locator('[data-session-unsaved]').innerText(), /"פשוט שני"/);
+  await shot(page, '07-session-ended');
+  assert.equal((await dishRow('plain2')).price, 800);
+  await page.context().close();
+});
+
+test('the browser\'s Back on a changed group form asks, and staying keeps the form; a section sheet asks on Escape and on Back', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  await page.goto(e.webUrl + 'studio/#/addons');
+  await page.locator('[data-screen="addons"]').waitFor();
+  const ed = await openGroup(page, 'spare');
+  const here = '#/addons/' + ids.groups.spare;
+  await ed.locator('[data-field="group-label"]').fill('לא נשמר בכלל');
+  const leave = page.getByRole('dialog', { name: 'לצאת בלי לשמור?' });
+  await page.goBack();
+  await leave.waitFor();
+  assert.equal(await page.evaluate(() => location.hash), here, 'the address is the form\'s again');
+  await leave.getByRole('button', { name: 'ביטול' }).click();
+  assert.equal(await ed.locator('[data-field="group-label"]').inputValue(), 'לא נשמר בכלל', 'staying keeps what was typed');
+  await page.goBack();                                                               // Back once more asks again
+  await leave.waitFor();
+  await leave.getByRole('button', { name: 'לצאת בלי לשמור' }).click();
+  await page.locator('[data-screen="addons"]').waitFor();
+  assert.equal(await page.evaluate(() => location.hash), '#/addons');
+  assert.equal((await groupRow('spare')).label, '');
+  // a section sheet with a changed name: Escape asks, Back asks
+  await page.goto(e.webUrl + 'studio/#/menu');
+  await page.locator('[data-screen="menu"]').waitFor();
+  await page.goto(e.webUrl + 'studio/#/menu/s/' + ids.sections.drinks);
+  const ss = page.locator('dialog[data-sheet="section"]');
+  await ss.waitFor();
+  await ss.locator('[data-field="section-name-he"]').fill('שתייה חמה');
+  await page.keyboard.press('Escape');
+  await leave.waitFor();
+  await leave.getByRole('button', { name: 'ביטול' }).click();
+  assert.equal(await ss.locator('[data-field="section-name-he"]').inputValue(), 'שתייה חמה');
+  await page.goBack();
+  await leave.waitFor();
+  assert.equal(await page.evaluate(() => location.hash), '#/menu/s/' + ids.sections.drinks);
+  await leave.getByRole('button', { name: 'לצאת בלי לשמור' }).click();
+  await until(async () => (await ss.count()) === 0, 'the sheet closed after the owner said so');
+  assert.equal((await sectionRow('drinks')).name_he, 'שתייה');
+  await page.context().close();
+});
+
+test('the owner\'s own group save whose answer was lost: the next save is not "saved on another screen"', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const ed = await openGroup(page, 'extras');
+  let lose = 1;
+  const rpc = (u) => u.pathname.endsWith('/rest/v1/rpc/save_addon_group');
+  await page.route(rpc, async (r) => {
+    if (lose-- > 0) { await r.fetch(); return r.abort('internetdisconnected'); }
+    return r.continue();
+  });
+  await ed.locator('[data-field="group-label"]').fill('תווית ראשונה');
+  await ed.locator('[data-action="save-group"]').click();
+  await ed.locator('[data-error]').waitFor();
+  assert.equal((await groupRow('extras')).label, 'תווית ראשונה', 'the first save reached the database');
+  await ed.locator('[data-field="group-name-he"]').fill('תוספות שלי');
+  await ed.locator('[data-action="save-group"]').click();
+  await until(async () => (await groupRow('extras')).name_he === 'תוספות שלי', 'the second save stored');
+  await sleep(800);
+  assert.equal(await ed.locator('[data-stale]').count(), 0, 'no "saved on another screen" about the owner\'s own save');
+  assert.equal((await groupRow('extras')).label, 'תווית ראשונה');
+  await page.unroute(rpc);
+  await owner.api.update('addon_groups', { id: `eq.${ids.groups.extras}` }, { name_he: 'תוספות', label: '' });
+  await page.context().close();
+});
+
+test('"changed somewhere else" lists only the owner\'s values that differ from what is stored (not their own lost save)', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const sheet = await openDish(page, 'plain3');
+  const net = await slowDishes(page, { ms: 0, slow: 0, lose: 1 });
+  await priceOf(sheet).fill('13');
+  await page.locator('[data-save="failed"]').waitFor();
+  assert.equal((await dishRow('plain3')).price, 1300, 'the lost save reached the database');
+  await owner.api.update('dishes', { id: `eq.${ids.dishes.plain3}` }, { name_he: 'פשוט שלישי משם' });
+  await sheet.locator('[data-field="dish-desc-he"]').fill('מכאן');
+  await sheet.locator('[data-action="retry-saves"]').click();
+  const dlg = page.locator('dialog[data-conflict]');
+  await dlg.waitFor();
+  assert.deepEqual(await dlg.locator('tr[data-col]').evaluateAll((rows) => rows.map((r) => r.dataset.col)), ['desc_he'], 'the price, stored already, is not a question');
+  assert.match(await dlg.locator('[data-there]').innerText(), /שם/);
+  await shot(page, '08-conflict-only-differs');
+  await dlg.locator('[data-action="keep-mine"]').click();
+  await until(async () => (await dishRow('plain3')).desc_he === 'מכאן', 'kept');
+  const r = await dishRow('plain3');
+  assert.deepEqual([r.name_he, r.price], ['פשוט שלישי משם', 1300]);
+  await net.stop();
+  await reset('plain3', { name_he: 'פשוט שלישי', price: 700, desc_he: '' });
+  await page.context().close();
+});
+
+test('a section saved after a failed save: the failed change and the new one go together (saveNow); the "not saved" line is one line at 390 px', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const bodies = [];
+  let fail = 1;
+  const sections = (u) => u.pathname.endsWith('/rest/v1/sections');
+  await page.route(sections, async (r) => {
+    if (r.request().method() !== 'PATCH') return r.continue();
+    bodies.push(JSON.parse(r.request().postData() || '{}'));
+    if (fail-- > 0) return r.abort('internetdisconnected');
+    return r.continue();
+  });
+  await page.goto(e.webUrl + 'studio/#/menu/s/' + ids.sections.drinks);
+  const ss = page.locator('dialog[data-sheet="section"]');
+  await ss.waitFor();
+  await ss.locator('[data-field="section-name-he"]').fill('שתייה חמה');
+  await ss.locator('[data-action="save-section"]').click();
+  const line = ss.locator('[data-save-failed]');
+  await line.waitFor();
+  assert.equal(await ss.count(), 1, 'the sheet stays open');
+  const [text, lh] = await line.evaluate((bar) => { const s = bar.querySelector(':scope > span'); return [s.getBoundingClientRect().height, parseFloat(getComputedStyle(s).lineHeight)]; });
+  assert.ok(text <= lh * 1.5, `one line (${text} px for a ${lh} px line)`);
+  await shot(page, '09-not-saved-line');
+  await ss.getByRole('switch').first().click();
+  await ss.locator('[data-action="save-section"]').click();
+  await until(async () => (await ss.count()) === 0, 'saved, the sheet closed');
+  assert.deepEqual(bodies.at(-1), { name_he: 'שתייה חמה', hidden: true }, 'one write with both');
+  const row = await sectionRow('drinks');
+  assert.deepEqual([row.name_he, row.hidden], ['שתייה חמה', true]);
+  await page.unroute(sections);
+  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { name_he: 'שתייה', hidden: false });
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ round 4
+test('a dish\'s own limits saved while a whole-menu read is late: the late read keeps them, and the next change is no question', { timeout: 150000 }, async () => {
+  await sectionsInOrder();                               // mains can move down, whatever ran before
+  const page = await signedIn();
+  await page.goto(e.webUrl + 'studio/#/menu');
+  await page.locator('[data-screen="menu"]').waitFor();
+  // the next whole-menu read of the dishes' group links (rows without a version) answers 10 s late
+  let armed = false, heldAt = 0, releasedAt = 0;
+  const links = (u) => u.pathname.endsWith('/rest/v1/dish_addon_groups');
+  await page.route(links, async (r) => {
+    if (!armed || r.request().method() !== 'GET' || !/venue_id=eq/.test(r.request().url())) return r.continue();
+    armed = false; heldAt = Date.now();
+    const answer = await r.fetch();
+    await sleep(10000);
+    releasedAt = Date.now();
+    return r.fulfill({ response: answer });
+  });
+  await owner.api.update('sections', { id: `eq.${ids.sections.drinks}` }, { position: 7 });      // the move is stale
+  armed = true;
+  await page.locator('[data-tool="arrange"]').click();
+  await page.locator(`section[data-section="${ids.sections.mains}"] .sec-head [data-move="down"]`).click();
+  await until(async () => heldAt > 0, 'the menu read again');
+  await page.locator('[data-tool="arrange"]').click();
+  const sheet = await openDish(page, 'burger', 'addons');
+  const limits = () => sheet.getByRole('button', { name: /הגבולות של/ }).first().click();
+  const lim = sheet.locator('[data-limits]');
+  const storedMax = async () => (await owner.api.select('dish_addon_groups', { select: 'max_units', dish_id: `eq.${ids.dishes.burger}` }))[0].max_units;
+  await limits();
+  await lim.locator('[data-field="dish-max"]').selectOption('2');
+  await lim.locator('[data-action="save-limits"]').click();
+  await sheet.locator('[data-tighter]').waitFor();
+  const rule = await sheet.locator('[data-rule]').first().innerText();
+  assert.equal(releasedAt, 0, 'saved while the read was still on its way');
+  await until(async () => releasedAt > 0, 'the late answer', 20000);
+  await sleep(1500);
+  assert.equal(await sheet.locator('[data-rule]').first().innerText(), rule, 'the limits the owner saved stay on screen');
+  assert.equal(await sheet.locator('[data-tighter]').count(), 1, 'and the "own limits" mark with them');
+  await shot(page, '10-limits-after-late-read');
+  await limits();
+  await lim.locator('[data-field="dish-max"]').selectOption('1');
+  await lim.locator('[data-action="save-limits"]').click();
+  await until(async () => (await storedMax()) === 1, 'the next limits stored');
+  assert.equal(await sheet.locator('.note-error').count(), 0, 'no "changed somewhere else"');
+  await page.unroute(links);
+  await owner.api.update('dish_addon_groups', { dish_id: `eq.${ids.dishes.burger}` }, { max_units: null });
+  await sectionsInOrder();
+  await page.context().close();
+});
+
+test('a reorder of a dish\'s groups whose answers come after the 15 s wait never takes back the limits saved since', { timeout: 180000 }, async () => {
+  const linksOf = () => owner.api.select('dish_addon_groups', { select: 'id,group_id,position,max_units', dish_id: `eq.${ids.dishes.burger}`, order: 'position' });
+  const [spareLink] = await owner.insert('dish_addon_groups', [{ dish_id: ids.dishes.burger, group_id: ids.groups.spare, position: 1 }]);
+  const extrasLink = (await linksOf()).find((l) => l.group_id === ids.groups.extras);
+  const page = await signedIn();
+  const sheet = await openDish(page, 'burger', 'addons');
+  // the move's two writes run at the database at once; their answers reach the phone 20 s later
+  let held = 0;
+  const links = (u) => u.pathname.endsWith('/rest/v1/dish_addon_groups');
+  await page.route(links, async (r) => {
+    if (r.request().method() !== 'PATCH' || held >= 2 || !/"position"/.test(r.request().postData() || '')) return r.continue();
+    held++;
+    const answer = await r.fetch();
+    await sleep(20000);
+    return r.fulfill({ response: answer }).catch(() => {});
+  });
+  const t0 = Date.now();
+  await sheet.getByRole('button', { name: 'סידור' }).click();
+  await sheet.locator(`li[data-row="${extrasLink.id}"] [data-move="down"]`).click();
+  await sheet.getByRole('button', { name: 'סיום הסידור' }).click();
+  await until(async () => (await linksOf())[0].group_id === ids.groups.spare, 'the move ran at the database', 10000);
+  await sleep(Math.max(0, 16500 - (Date.now() - t0)));                       // past the 15 s wait: the move gave up here
+  const row = sheet.locator(`li[data-row="${extrasLink.id}"]`);
+  await row.getByRole('button', { name: /הגבולות של/ }).click();
+  await sheet.locator('[data-limits] [data-field="dish-max"]').selectOption('2');
+  await sheet.locator('[data-limits] [data-action="save-limits"]').click();
+  await until(async () => (await linksOf()).find((l) => l.group_id === ids.groups.extras).max_units === 2, 'the limits stored', 10000);
+  const saved = await row.locator('[data-rule]').innerText();
+  assert.ok(Date.now() - t0 < 20000, 'saved before the move\'s late answers');
+  await sleep(Math.max(0, 23000 - (Date.now() - t0)));                       // the late answers have come
+  await sleep(1000);
+  assert.equal(await row.locator('[data-rule]').innerText(), saved, 'a late answer never takes the limits back');
+  await page.unroute(links);
+  await owner.api.remove('dish_addon_groups', { id: `eq.${spareLink.id}` });
+  await owner.api.update('dish_addon_groups', { id: `eq.${extrasLink.id}` }, { position: 0, max_units: null });
+  await page.context().close();
+});
+
+test('the session ends (401) during a group save: the start screen names the group', { timeout: 120000 }, async () => {
+  const page = await signedIn();
+  const ed = await openGroup(page, 'extras');
+  await page.route((u) => u.pathname.endsWith('/rest/v1/rpc/save_addon_group'), (r) =>
+    r.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ code: 'PGRST301', details: null, hint: null, message: 'JWT expired' }) }));
+  await ed.locator('[data-field="group-label"]').fill('תווית שלא תישמר');
+  await ed.locator('[data-action="save-group"]').click();
+  await page.locator('[data-screen="start"] [data-session-ended]').waitFor({ timeout: 15000 });
+  assert.match(await page.locator('[data-session-unsaved]').innerText(), /"תוספות"/);
+  assert.equal(await page.locator('dialog[open]').count(), 0, 'no question left over the start screen');
+  assert.equal((await groupRow('extras')).label, '');
   await page.context().close();
 });

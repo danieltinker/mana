@@ -604,7 +604,7 @@ describe('L5, L7, L8: logs without words, events once, retention', () => {
 
   test('onboarding_step_done is emitted once per venue and step', async () => {
     for (const state of ['done', 'todo', 'done', 'todo', 'done']) {
-      await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = $2 where venue_id = $1 and step = 'style'`, [w.B, state]));
+      assert.equal((await rpc(w.url, U.ownerB, 'set_onboarding_step', { p_venue: w.B, p_step: 'style', p_state: state })).ok, true);
     }
     const { rows } = await w.admin.query(`select count(*)::int as n from public.events where venue_id = $1 and name = 'onboarding_step_done' and props->>'step' = 'style'`, [w.B]);
     assert.equal(rows[0].n, 1);

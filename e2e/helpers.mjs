@@ -6,36 +6,37 @@
 //   const page = await e.page();                         // a phone-sized page on the web server
 //   … await e.stop();
 //
-// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, with a generated config.js that
-// points the apps at the local stack; without a build it serves only /mana/e2e/blank.html (enough for the smoke test).
+// The web server serves `_site/` (bash tools/build-site.sh) at /mana/ when it exists, and /m/<slug> as the guest menu
+// (the short links the apps make), with a generated config.js that points the apps at the local stack; without a
+// build it serves only /mana/e2e/blank.html (enough for the smoke test).
+// `mounts` serves one app's own build without the whole site (guest-menu.test.mjs: { view: apps/view, stock: stock }).
 // The browser may reach 127.0.0.1 only (no proxy; every other host fails to resolve).
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { loadSeed, readSeed, SEEDS } from '@mana/sim';
 import { startStack } from '@mana/sim/stack';
 import { startStatic } from '@mana/sim/stack/gateway';
+import { localConfigText } from '../tools/env.mjs';
+import { ARGS, CHROME, playwright } from '../tools/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..');
 export const OUT = path.join(HERE, '.out');
-export const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+export { CHROME, playwright };
 export const PHONE = { width: 390, height: 844 };
 export const PREFIX = '/mana/';
-const ARGS = ['--no-sandbox', '--no-proxy-server', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost',
-  '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-pings'];
+/** Software WebGL (SwiftShader), as the guest menu's own browser tests use it: slow, but the table is drawn. */
+export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
 
-/** playwright-core, found the way the apps' browser tests find it: this workspace, the apps' installs, the machine's tools. */
-export function playwright() {
-  const tries = [import.meta.url, path.join(ROOT, 'apps/ops/package.json'), path.join(ROOT, 'apps/studio/package.json'), '/opt/npm-tools/node_modules/'];
-  for (const from of tries) {
-    try { return createRequire(from)('playwright-core'); } catch { /* next */ }
-  }
-  throw new Error('playwright-core not found (npm ci at the root installs it for apps/ops and apps/studio)');
-}
-
-export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site') } = {}) {
+/**
+ * @param o.seed    a synthetic seed of sim/seeds (null = none)
+ * @param o.site    the built site, served at /mana/ when it has an index.html
+ * @param o.mounts  more folders by first path segment, e.g. { view: 'apps/view', stock: 'stock' } (a built app without the whole site)
+ * @param o.config  more fields for the local config.js (on top of localConfigText's: env local, schema 2, realtime off)
+ * @param o.gl      true: the browser draws WebGL in software (without it, a page that needs WebGL falls back as a phone would)
+ */
+export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_site'), mounts = {}, config: extra = {}, gl = false } = {}) {
   const stack = await startStack({ ports: 'auto' });
   let web = null, browser = null;
   const stop = async () => {
@@ -45,12 +46,14 @@ export async function startE2E({ seed = 'bistro-sim', site = path.join(ROOT, '_s
   };
   try {
     const venue = seed ? await loadSeed(stack, readSeed(path.join(SEEDS, `${seed}.json`)).seed) : null;
-    const config = `window.HALOM_MENUS_CONFIG = ${JSON.stringify({ env: 'local', schema: 2, realtime: false, supabaseUrl: stack.apiUrl, supabaseKey: stack.anonKey, shortBase: `http://127.0.0.1:${stack.ports.web}/m/`,
-      shortLive: false, viewPath: '../view/', genPath: '../gen/', stockPath: '../stock/', sitePath: '../', auth: { providers: [] }, features: { scan: false } }, null, 2)};\n`;
+    /* the local settings, as npm run dev:local writes them (env local, schema 2, realtime off), and a test's own extra
+       fields on top (e.g. liveEveryMs) */
+    const config = localConfigText({ apiUrl: stack.apiUrl, anonKey: stack.anonKey })
+      + (Object.keys(extra).length ? `Object.assign(window.HALOM_MENUS_CONFIG, ${JSON.stringify(extra)});\n` : '');
     const hasSite = fs.existsSync(path.join(site, 'index.html'));
-    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: hasSite ? { '': site } : {},
+    web = await startStatic({ port: stack.ports.web, prefix: PREFIX, mounts: { ...(hasSite ? { '': site } : {}), ...mounts }, shortLinks: true,
       virtual: { 'config.js': config, 'e2e/blank.html': '<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>e2e</title><body></body>' } });
-    browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: ARGS });
+    browser = await playwright().chromium.launch({ executablePath: CHROME, headless: true, args: gl ? ARGS.concat(GL_ARGS) : ARGS });
     fs.mkdirSync(OUT, { recursive: true });
     const webUrl = `http://127.0.0.1:${stack.ports.web}${PREFIX}`;
     return {

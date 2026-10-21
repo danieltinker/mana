@@ -52,22 +52,34 @@ makes this the app.
 - **Every write goes through `data/store.ts`**, which puts the rows the database returned on screen (names come back
   stripped, positions as stored) and bumps `edits`, which the draft preview follows.
 - **A form sends only what its owner changed.** `patchRow(table, id, patch)` (autosave, 600 ms) and `saveNow(table, id,
-  patch)` (at once; answers 'saved' or 'conflict') take the columns of one edit (`dishEdit` for a dish, the section
-  sheet's own diff), never a whole row.
+  patch)` (the section sheet's Save: at once, with the row's failed patch if it has one; answers 'saved' or 'conflict',
+  throws a failure or a refusal) take the columns of one edit (`dishEdit` for a dish, the section sheet's own diff),
+  never a whole row.
 - **One queue for the rows' writes** (`data/saves.ts`, unit-tested with a fake API in `test/unit/v2-saves.test.mjs`):
   - one write in flight per row; what is typed meanwhile waits as one patch (the latest value of each column) and goes
     when that write is answered, over the version it left; moves, dish limits and group saves wait in the same lane;
-  - a failure (no connection, or an answer that never came) takes in everything typed after it for that row; nothing
-    more is sent for that row until the owner retries (the "not saved" line, on the page and inside an open sheet) or
-    the connection comes back (`online`); the retry sends all of it as one patch, so a later value always wins;
+  - a failure (no connection, a lost answer, or no answer within 15 s, `ANSWER_MS`) takes in everything typed after it
+    for that row; nothing more is sent for that row until the owner retries (the "not saved" line, on the page and inside
+    an open sheet) or the connection comes back (`online`); the retry sends all of it as one patch, so a later value
+    always wins. Any other write (a move, a group save, a new row) also gives up after 15 s, and so do the re-reads after
+    a refusal (the role, the row, the menu), so nothing (a flush, signing out, switching place, a deletion) waits
+    forever; signing out says it is waiting meanwhile;
   - a write that stored a column takes it out of the failed patch.
+- **An answer that comes late never takes the screen back.** A row the database returned is put on screen only when it
+  is not older (`updated_at`, at full precision: `stampOrder`) than the one there, and the queue's baseline (what this
+  screen last read) never moves back either. A whole menu read again (`reloadMenuQuietly`) is merged by
+  `rowsAfterRead`: a read sent before one already shown is dropped, a row deleted here after the read was sent does not
+  come back, a row added here after it stays, and a row without a version (a dish's link to a group with its own
+  limits, "goes well with", their order) that this screen stored after the read was sent stays as stored here.
+  Known gap: a row edited here after a read was sent and deleted elsewhere before it ran stays until the next read.
 - **Every change of a row is guarded** (`api.updateIf`): it is written only while the row still has the `updated_at` this
   screen read (a move: the position it started from; a dish's limits: the limits it read). Zero rows back is read again:
   - changed elsewhere (`stale`): nothing of it is written, and nothing typed after it is sent; `conflicts` holds the
     owner's latest values beside the stored row and `conflict.tsx` asks (no close button): keep mine (sent over the
-    stored version; asked again if it moved once more) or take the stored one. Two cases are not "changed elsewhere":
-    the row already holds what was typed, and the row moved only because of this screen's own write whose answer was
-    lost (every column that moved holds what this screen sent): then what is still to send goes, unasked;
+    stored version; asked again if it moved once more) or take the stored one; only the owner's values that differ from
+    what is stored are listed. Two cases are not "changed elsewhere": the row already holds what was typed, and the row
+    moved only because of this screen's own writes whose answers were lost (every column that moved holds a value this
+    screen sent, any of them): then what is still to send goes, unasked;
   - still there, unchanged: row-level security said no, so it is "not allowed" (`forbidden`);
   - not readable any more: the membership is read again; "not allowed" when the account may no longer edit here (the
     place stays on screen, read-only), "no longer exists" only when someone who may edit deleted the row (the menu is
@@ -80,18 +92,25 @@ makes this the app.
   codes, shown at the form's fields by `groupFieldError`) and the loaded menu with `addonGroupMenuIssues` (a second
   nesting level; a dish whose own limits the change would break, named: `dish_limits`). Answers: saved; `stale` with the
   stored group (the editor shows it, and "save my changes over it" sends the stored group with only what the owner
-  changed in this form put over it, field by field and choice by choice: `mergeGroupForms`; or take it);
-  `option_in_rules` (the editor names the rules and asks before sending again with `confirmRules`); or a refusal that
-  changed nothing. The same input sent twice is answered "saved", so a retry after a lost answer is safe.
+  changed in this form put over it, field by field and choice by choice: `mergeGroupForms`, prices compared as agorot,
+  the owner's pre-selection whole when they changed it; or take it); `option_in_rules` (the editor names the rules and
+  asks before sending again with `confirmRules`); or a refusal that changed nothing. The same input sent twice is
+  answered "saved", so a retry after a lost answer is safe; and a group stored exactly as one of this screen's saves whose
+  answer was lost is not "saved elsewhere": the form goes over it.
 - **New rows carry ids made here** (`newId`; `insertOnceInfo`): quick-add of a dish, a new section, a new group and its
   choices keep their id until stored, so trying again after a lost answer never stores a second row; when the owner
-  retyped it meanwhile, what they typed last goes over the stored one. A link (a group on a dish, "goes well with") tried
-  again finds the one already stored by its pair.
+  retyped it meanwhile, what they typed last goes over the stored one, through the row's queue like any edit. A link (a
+  group on a dish, "goes well with") tried again finds the one already stored by its pair.
 - **A refusal is a code, said in plain words**: `toV2Error` maps it (the schema's `not_allowed` and row-level security's
   refusal are one code, `forbidden`), `errText` (v2 `i18n.ts`) says it (`refused`, and `resync` makes a form read its
   row again).
-- **Ways out ask first**: signing out or switching place with a change that did not save, and leaving a group form with
-  changes (its back link, the bottom bar, the brand, the account sheet: `leave.ts`).
+- **Ways out ask first**: signing out or switching place with a change that did not save, and leaving a group form or a
+  section sheet with changes (its back link or close, Escape, the bottom bar, the brand, the account sheet, and the
+  browser's Back, Forward or a typed address: `leave.ts`, which puts the address back on `popstate` before the router
+  hears of it).
+- **The session ending by itself** (a 401 during a save) signs out and says so on the start screen, naming the rows
+  whose latest changes may not be saved (`sessionEnded`): those in the save queue, and the forms holding changes not
+  sent yet (a group form, a section sheet: `formHolds`).
 - **Publishing waits for saving**: while a change is on its way, failed, or waiting for a decision, the publish button
   is off and the screen says which.
 - **Prices are agorot**, typed in shekels (`agorotOf`, `shekelsOf`), never floats.
@@ -166,9 +185,10 @@ they are. Browser tests live in `e2e/` (`startE2E()` serves the built `_site` wi
 simulator's stack): `e2e/studio-v2.test.mjs` is the whole scenario (the pattern), `e2e/studio-v2-edges.test.mjs` the
 edges (production boot, price parity with `public_menu`, two tabs, lost answers, offline, a counter, sign-up, RTL,
 keyboard, names, text never HTML), `e2e/studio-v2-saving.test.mjs` saving on a slow, failing or forgetful network
-(two edits in flight, retries, roles that change, the ways out), `e2e/studio-v2-operate.test.mjs` the operating screens
-(suggestion rules, hours and day parts, the availability quick actions, and a counter: operates, edits nothing), and
-`e2e/studio-v2-dashboard.test.mjs` Home, the activity log, getting help, the export and approval.
+(two edits in flight, answers lost, late or never, retries, roles that change, the session ending, the ways out),
+`e2e/studio-v2-operate.test.mjs` the operating screens (suggestion rules, hours and day parts, the availability quick
+actions, and a counter: operates, edits nothing), and `e2e/studio-v2-dashboard.test.mjs` Home, the activity log, getting
+help, the export and approval.
 
 ## Not here yet
 

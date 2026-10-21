@@ -210,7 +210,7 @@ describe('rollups', () => {
   });
 
   test('server events: onboarding steps are emitted by the database itself', async () => {
-    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'hours'`, [w.B]));
+    assert.equal((await rpc(w.url, U.ownerB, 'set_onboarding_step', { p_venue: w.B, p_step: 'hours', p_state: 'done' })).ok, true);
     const { rows } = await w.admin.query(`select name, props from public.events where venue_id = $1 and source = 'server' and name = 'onboarding_step_done' order by at, name`, [w.B]);
     // create_venue finished "venue", the venue's first dish "menu", the first publish "publish", this test "hours"
     assert.deepEqual(rows.map((r) => r.props.step).sort(), ['hours', 'menu', 'publish', 'venue']);
