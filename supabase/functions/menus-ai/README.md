@@ -16,7 +16,8 @@ owner app ──upload──► menu-private/<venue>/imports/<import id>/<file> 
                   import's source against the mode, uploaded|failed → parsing. Nothing is read before it.
                3. the claim's paths checked, all of them, before any download: each exactly
                   <claimed venue>/imports/<this import>/<name> (name: letters, digits, ".", "_", "-"; not "." or "..");
-                  the claim's import is the one asked; 1 to IMPORT_IMAGES_MAX images (scan 8, wolt_screenshots 24)
+                  the claim's import is the one asked; 1 to IMPORT_IMAGES_MAX images (scan 8, wolt_screenshots 24),
+                  as many as the claim charged (`images`)
                4. the images, read with the owner's own token (Storage's row-level security decides), at most
                   MAX_IMAGE_BYTES (3.75 MB) each, refused by their declared size or while they stream, JPEG, PNG,
                   WebP or GIF
@@ -39,7 +40,7 @@ nothing else. It never fetches a Wolt address (D33): it reads only images the ow
 |---|---|---|
 | `status` | anyone | `{ ok, configured }` |
 | `scan_menu`, `wolt_screenshots` + `import_id`, optional `stock` | the owner or a manager, with their own token | the draft's counts, exceptions and the reader's notes, or a code |
-| `purge` + optional `import_id` | the service role only (a schedule) | `{ ok, purged, failed, kept, more }`: see below |
+| `purge` + optional `import_id`, optional `after` | the service role only (a schedule) | `{ ok, purged, failed, next }`: see below |
 
 Codes besides the scan errors: `bad_request`, `not_allowed`, `not_configured`, `too_big` (a request body past 64,000
 bytes, however its length is declared), `failed` (a 500, with the CORS headers like every answer); after a claim:
@@ -47,18 +48,16 @@ bytes, however its length is declared), `failed` (a 500, with the CORS headers l
 (`import_unknown`, `not_scannable`, `import_busy`, `import_closed`, `rate_limited` with the `cap` reached), passed
 through.
 
-**Purge.** The imports to purge are the ones `list_purgeable_imports` names (the database's rule, oldest first, at
-most 500 a page). Each one's images are deleted through the Storage API, only files of the import's own folder
+**Purge.** The imports to purge are the ones `list_purgeable_imports(p_limit, p_after)` names: the database's rule,
+the retention included (finished, or left waiting, longer ago than `import_raw_retention_days`, 30 by default), oldest
+first by `(finishedAt, importId)`. Each one's images are deleted through the Storage API, only files of the import's own folder
 (`<venue_id>/imports/<id>/…`), and only of an import applied, discarded, failed, uploaded or parsed, never one being
 read (a row with any other path or status is left as it is and reported in `failed`); then the import
 records it (`raw_paths` emptied, `raw_purged_at` set) only on a row not purged and not being read (the table's guard
-refuses anything else). The retention holds whatever the list says: an import goes only once it finished
-(`applied_at`, else `updated_at`, read from `menu_imports`) more than `import_raw_retention_days` ago (30 by default),
-the daily job's measure for pasted text; one the list names sooner is counted in `kept` and left for a later run. The
-list has no cursor: one call reads it again while a full page purged something (what was purged leaves it), at most 4
-times, and answers `more` when a next call would find more. A row that keeps failing is tried once per call and never
-holds back the rows after it on its page; a whole page of such rows holds back what is behind it until they leave
-the list (an open item for the backend: a cursor).
+refuses anything else). The pages are walked with the list's own cursor (the last row's `{finishedAt, importId}`, as
+it came; the query is the contracts' `validateListPurgeableQuery`), so rows that keep failing never hold back the rows
+behind them. One call reads at most 20 pages of 100 and works at most 100 s; it answers `next`, the cursor to pass
+back as `after`, while rows may remain.
 
 ## Files
 
@@ -90,7 +89,7 @@ JSR release of the npm version of that number, 25 Sep 2026) was the one line Den
 Nothing here is deployed by an agent. What it needs, in order:
 
 1. **The backend lane's migration on `mana`** (ADR-008): `create_import`, `claim_import_scan(p_import, p_mode)`,
-   `save_import_draft(p_import, p_draft, p_notes)`, `list_purgeable_imports(p_limit)`, `menu_imports.raw_purged_at`
+   `save_import_draft(p_import, p_draft, p_notes)`, `list_purgeable_imports(p_limit, p_after)`, `menu_imports.raw_purged_at`
    and `notes`, the `menu-private` read policy for members (`can_see_records`), and the service role's column grants
    (`status`, `error_code`, `raw_paths`, `raw_purged_at`). Until then the claim answers an error and nothing is read.
 2. **Daniel's yes on paid calls**, then the secret: `supabase secrets set ANTHROPIC_API_KEY=… --project-ref <mana>`
@@ -104,8 +103,8 @@ Nothing here is deployed by an agent. What it needs, in order:
    Check once on `mana` that the bundle resolves `deno.json`'s imports. As for v1, the gate is the claim (with the
    caller's own token), not the platform's `verify_jwt` flag.
 4. **The purge schedule** (optional, later): a daily `POST {action: "purge"}` with the service role key (for
-   example pg_cron with pg_net, the key in Vault), called again while `more` is true. Until it runs, the images stay
-   in `menu-private`, which only members who edit and Halom staff can read.
+   example pg_cron with pg_net, the key in Vault), called again with `after: next` while `next` is not null. Until
+   it runs, the images stay in `menu-private`, which only members who edit and Halom staff can read.
 5. **One check on `mana` with demo data** (an invented menu photographed or screenshotted, never a real venue's):
    one scan per mode, then the import preview.
 

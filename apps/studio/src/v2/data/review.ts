@@ -139,16 +139,19 @@ export type Preview = {
  * out, too many for the venue's limits), its questions still show, from the plan with only the draft's own answers, so
  * the owner can change the answer that stops it; a refusal tied to one question (`opener_qty`) is said at that question.
  */
-export function preview(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[]): Preview {
+/** `planApply` itself; a test may count the calls (a large menu takes a while to plan, so the screen plans as little as it can). */
+export type Planner = typeof planApply;
+
+export function preview(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[], planner: Planner = planApply): Preview {
   const own = draftExceptions(draft, { langs });
-  const { plan, errors } = provisionalPlan(draft, existing, decisions, own, langs);
+  const { plan, errors } = provisionalPlan(draft, existing, decisions, own, langs, planner);
   let questions = plan;
   const refused = new Map<string, string>();
   if (!plan && errors.some((x) => x.code !== 'exception_unresolved')) {
     for (const x of errors) if (x.code === 'opener_qty' && x.message) refused.set(`${x.message}@${x.path}`, x.code);
     const ownIds = new Set(own.map(exceptionId));
     const choices = Object.fromEntries(Object.entries(decisions.choices).filter(([id]) => ownIds.has(id)));
-    questions = provisionalPlan(draft, existing, { ...decisions, choices }, own, langs).plan;
+    questions = provisionalPlan(draft, existing, { ...decisions, choices }, own, langs, planner).plan;
   }
   const rows: ExceptionRow[] = own.map((e) => row(draft, e, decisions, false, existing));
   if (questions) for (const e of questions.exceptions.slice(questions.fromDraft)) rows.push(row(draft, e, decisions, true, existing, refused.get(exceptionId(e)) ?? null));
@@ -156,15 +159,29 @@ export function preview(draft: ImportDraft, existing: ExistingMenu, decisions: I
   return { rows, plan, planErrors: errors.filter((x) => x.code !== 'exception_unresolved' && !(x.code === 'opener_qty' && said.has(`${x.message}@${x.path}`))) };
 }
 
+/**
+ * The preview and the gate together, planning as few times as possible: with every answer in, the gate's plan is the
+ * preview's (one plan); with only the prices to confirm, the preview plans once more, with them confirmed; otherwise
+ * the preview plans as it does on its own. The same result as `preview` and `gate` called one after the other.
+ */
+export function review(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[], planner: Planner = planApply): { readonly pv: Preview; readonly gt: Gate } {
+  const gt = gate(draft, existing, decisions, langs, planner);
+  if (!gt.ok) return { gt, pv: preview(draft, existing, decisions, langs, planner) };
+  const own = draftExceptions(draft, { langs });
+  const rows: ExceptionRow[] = own.map((e) => row(draft, e, decisions, false, existing));
+  for (const e of gt.plan.exceptions.slice(gt.plan.fromDraft)) rows.push(row(draft, e, decisions, true, existing));
+  return { gt, pv: { rows, plan: gt.plan, planErrors: [] } };
+}
+
 /** The plan with every open `fix` given its first answer (the draft's and the plan's own), or why there is none. */
-function provisionalPlan(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, own: readonly ImportException[], langs: readonly Lang[]): { plan: ImportPlan | null; errors: readonly Issue[] } {
+function provisionalPlan(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, own: readonly ImportException[], langs: readonly Lang[], planner: Planner): { plan: ImportPlan | null; errors: readonly Issue[] } {
   const open = new Map<string, ImportExceptionCode>();
   for (const e of own) if (e.severity === 'fix') open.set(exceptionId(e), e.code);
   let errors: readonly Issue[] = [];
   // the plan's own `fix` questions come out as `exception_unresolved` (path = the key, message = the code): give them their
   // first answer too and plan again, until no new one appears (each round adds at least one, so this ends)
   for (let round = 0; round < 8; round++) {
-    const r = planApply(draft, existing, provisional(decisions, open), { langs });
+    const r = planner(draft, existing, provisional(decisions, open), { langs });
     if (r.ok) return { plan: r.value, errors: [] };
     const more = r.errors.filter((x) => x.code === 'exception_unresolved' && x.message && !open.has(`${x.message}@${x.path}`));
     errors = r.errors;
@@ -182,8 +199,8 @@ export type Gate =
  * May the owner apply now? Only with every `fix` answered (or edited away), the prices confirmed when the draft carries
  * any, and a plan the contracts accept: exactly what `apply_import` checks again (`plan_invalid`).
  */
-export function gate(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[]): Gate {
-  const r = planApply(draft, existing, decisions, { langs });
+export function gate(draft: ImportDraft, existing: ExistingMenu, decisions: ImportDecisions, langs: readonly Lang[], planner: Planner = planApply): Gate {
+  const r = planner(draft, existing, decisions, { langs });
   if (r.ok) return { ok: true, plan: r.value };
   const open = r.errors.filter((x) => x.code === 'exception_unresolved').length;
   const prices = r.errors.some((x) => x.code === 'prices_unconfirmed');
@@ -197,6 +214,51 @@ export function choose(d: ImportDecisions, id: string, c: ImportChoice | null): 
   return { ...d, choices };
 }
 export const confirmPrices = (d: ImportDecisions, on: boolean): ImportDecisions => ({ ...d, pricesConfirmed: on });
+
+/**
+ * Leave a section, a dish, an add-on group or a choice (by its key) out of the import,
+ * or put it back (ADR-006 `ImportDecisions.skip`): the plan says it "left out, as you chose", and what is inside it goes
+ * with it.
+ */
+export function leaveOut(d: ImportDecisions, key: string, out: boolean): ImportDecisions {
+  const now = new Set(d.skip ?? []);
+  if (out) now.add(key); else now.delete(key);
+  return { ...d, skip: [...now].sort() };
+}
+export const leftOut = (d: ImportDecisions): ReadonlySet<string> => new Set(d.skip ?? []);
+
+/**
+ * The answers that fit this draft and this screen: a key left out is kept only when it is a section, dish, add-on group
+ * or choice the draft has. A key the draft no longer has (it changed meanwhile) is dropped, and so is a dish's own link
+ * (`<dish>><group>`): the screen never leaves one out, so one read back from storage would act unseen (SEC-L4).
+ */
+export function fitAnswers(d: ImportDecisions, draft: ImportDraft): ImportDecisions {
+  const keys = new Set<string>();
+  for (const s of draft.sections) { keys.add(s.key); for (const x of s.dishes) keys.add(x.key); }
+  for (const g of draft.groups) { keys.add(g.key); for (const o of g.options) keys.add(o.key); }
+  const skip = (d.skip ?? []).filter((k) => keys.has(k));
+  return skip.length === (d.skip ?? []).length ? d : { ...d, skip };
+}
+
+/** Did applying do what the preview said (the same counts of every kind and op, and of what was left out and why)? */
+export function sameSummary(a: ImportPlan['summary'], b: ImportPlan['summary']): boolean {
+  return (Object.keys(a) as PlanKind[]).every((k) => (['create', 'update', 'keep', 'skip'] as const).every((op) => a[k][op] === b[k]?.[op])
+    && SKIP_REASONS.every((r) => a[k].skipped[r] === b[k]?.skipped[r]));
+}
+
+/**
+ * Applying would add no dish to a place that has none (everything left out, or nothing read): the menu step would be
+ * marked done with an empty menu, so applying waits and the screen says so (QA L2).
+ */
+export const addsNoDish = (plan: ImportPlan, existing: Pick<ExistingMenu, 'dishes'>): boolean =>
+  existing.dishes.length === 0 && plan.summary.dish.create === 0;
+
+/** Nothing of the import would reach the menu, and nothing of it is there already: everything is left out. */
+export const allLeftOut = (plan: ImportPlan): boolean =>
+  changesNothing(plan) && (['section', 'dish', 'group', 'option'] as const).every((k) => plan.summary[k].keep === 0);
+
+/** The venue has nothing yet (no section, dish or group): "too many" is then the draft's alone, not "with what you have". */
+export const isEmptyMenu = (m: Pick<ExistingMenu, 'sections' | 'dishes' | 'groups'>): boolean => !m.sections.length && !m.dishes.length && !m.groups.length;
 
 /** Does the draft carry a price the owner must see before applying (a dish's, or a paid choice's)? */
 export const carriesPrices = (draft: ImportDraft): boolean =>

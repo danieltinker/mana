@@ -37,6 +37,11 @@ export const dashError = signal('');
 
 let venue: string | null = null, watching: string | null = null, generation = 0;
 let live: Refresher | null = null, channel: RealtimeChannel | null = null;
+/**
+ * Each subscription gets its own topic: removing a channel finishes later than a quick return to Home asks for a new
+ * one, and supabase-js hands back a channel that is still open under the same topic, which is then removed.
+ */
+let topics = 0;
 
 async function fetchDashboard(): Promise<void> {
   const id = venue, gen = generation, r = range.value;
@@ -47,7 +52,7 @@ async function fetchDashboard(): Promise<void> {
     if (gen !== generation || r !== range.value) return;
     dashboard.value = d;
     dashError.value = '';
-    setRuleNumbers(d.rules);
+    setRuleNumbers(d.rules, d.range);
     catchUp(d);
   } catch (e) {
     if (gen !== generation) return;
@@ -96,7 +101,7 @@ function watch(id: string) {
   document.addEventListener('visibilitychange', onVisible);
   if (runtime.realtime) {
     const filter = venueFilter(id);
-    let ch = sb.channel('dash:' + id);
+    let ch = sb.channel(`dash:${id}:${++topics}`);
     for (const table of LIVE_REFRESH.realtimeTables) ch = ch.on('postgres_changes' as any, { event: '*', schema: 'public', table, filter }, () => live?.signal());
     channel = ch.subscribe((status: string) => live?.status(status));
   }

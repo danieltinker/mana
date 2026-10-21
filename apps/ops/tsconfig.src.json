@@ -1,0 +1,6 @@
+{
+  "//": "src/v2 alone, as the browser runs it: ES2021 (Safari and iOS 15.0) and no Node types (they add Array.prototype.at), so Object.hasOwn, Array/String.prototype.at and structuredClone (iOS 15.4) do not type-check in the page's code. npm run check runs it after tsconfig.json.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": [] },
+  "include": ["src/v2"]
+}

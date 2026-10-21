@@ -22,6 +22,14 @@ export function addLine(lines, dishId, selection, qty = 1, name = null) {
   const n = lines.reduce((m, l) => Math.max(m, l.n), 0) + 1;
   return lines.concat({ key: 'l' + n, n, dishId, name, selection: { quantity: 1, groups: selection.groups }, quantity: Math.min(LIMITS.lineQuantity, qty) });
 }
+/**
+ * How many more of a dish with these choices its line can take (LIMITS.lineQuantity a line). `except`: a line not to
+ * count (the one being changed). The page asks before an add, a change or a split, so nothing is silently capped.
+ */
+export function room(lines, dishId, selection, except = null) {
+  const k = selectionKey(selection), twin = lines.find((l) => l.key !== except && l.dishId === dishId && selectionKey(l.selection) === k);
+  return LIMITS.lineQuantity - (twin ? twin.quantity : 0);
+}
 /** A new quantity for a line; 0 removes it. */
 export function setQuantity(lines, key, qty) {
   const q = Math.max(0, Math.min(LIMITS.lineQuantity, qty | 0));

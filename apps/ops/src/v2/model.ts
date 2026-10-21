@@ -8,7 +8,8 @@ import {
   type ActForOwnerAction, type ActivityEntry, type ActorKind, type AnalyticsResolution, type CaseStatus, type CaseTopic, type DemoScope,
   type EntitlementStatus, type EventName, type ImportExceptionCode, type ImportSource, type ImportStatus, type LiveOverlay, type NudgeCode,
   type OnboardingState, type OnboardingStep, type OpsAnalyticsQuery, type OpsVenueRow, type OpsWarning, type Plan, type ReviewState,
-  type SnapshotV2, type TargetKind, type Text, type TimelineKind, type UntilSpec,
+  type SnapshotV2, type TargetKind, type Text, type TimelineKind, type UntilSpec, type AddonGroupV2, type AssetV2, type IdMatch, type SelectionKind,
+  type Tag, type TimeWindow, type Trigger, type UpsellRuleV2, type Weekday,
 } from '@mana/contracts';
 
 export const PRODUCT = { name: 'Mana', by: 'Halom' } as const;
@@ -95,6 +96,18 @@ export const PLAN_LABEL: Readonly<Record<Plan, string>> = { trial: 'Trial', pilo
 export const PLAN_STATE_LABEL: Readonly<Record<EntitlementStatus, string>> = {
   pending: 'not started', trialing: 'trial running', active: 'active', expired: 'expired', suspended: 'suspended',
 };
+/** A trial's length when no date is given: the database's `trial_days` setting (30). */
+export const TRIAL_DAYS = 30;
+/**
+ * What a plan change does to its end, as `ops_set_plan` does it: a trial ends on the date given or, with none, a
+ * trial's length from now (QA-L2: a running trial's end moves too); an active plan runs until the date given or, with
+ * none, with no end (an end set before is cleared); the other states keep the trial's end as it is.
+ */
+export function planEnd(state: EntitlementStatus, end: string | null, now: number): string {
+  if (state === 'trialing') return `: the trial end moves to ${fmtDate(end ?? new Date(now + TRIAL_DAYS * 86_400_000).toISOString())}${end ? '' : ` (${TRIAL_DAYS} days from now, the trial’s length)`}`;
+  if (state === 'active') return end ? `, until ${fmtDate(end)}` : ', with no end date (an end set before is cleared)';
+  return '';
+}
 export const CASE_STATUS_LABEL: Readonly<Record<CaseStatus, string>> = {
   open: 'Open', waiting_owner: 'Waiting for the owner', waiting_halom: 'Waiting for Halom', resolved: 'Resolved',
 };
@@ -440,6 +453,194 @@ export function compareSnapshots(base: SnapshotV2, next: SnapshotV2): MenuDiff {
 export const diffSize = (d: MenuDiff): number =>
   d.sectionsAdded.length + d.sectionsRemoved.length + d.dishesAdded.length + d.dishesRemoved.length + d.prices.length + d.renamed.length;
 
+// ---------------------------------------------------------------- a stored revision, read in full
+
+export const TAG_LABEL: Readonly<Record<Tag, string>> = { vegan: 'vegan', vegetarian: 'vegetarian', spicy: 'spicy', gf: 'gluten free' };
+const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
+const NUMBER_WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'] as const;
+/** 5 → "five"; past ten, the digits. */
+export const countWord = (n: number): string => NUMBER_WORD[n] ?? fmtInt(n);
+
+/** Days as words: every day, Sun–Thu, or a list. */
+export function daysWords(days: readonly Weekday[]): string {
+  const d = [...new Set(days)].sort((a, b) => a - b);
+  if (d.length === 0 || d.length === 7) return 'every day';
+  const run = d.every((x, i) => i === 0 || x === (d[i - 1] ?? 0) + 1);
+  return run && d.length > 2 ? `${DAY_SHORT[d[0]!]}–${DAY_SHORT[d[d.length - 1]!]}` : d.map((x) => DAY_SHORT[x]).join(', ');
+}
+export const windowsWords = (ws: readonly TimeWindow[]): string => ws.map((w) => `${daysWords(w.days)} ${w.from}–${w.to}`).join('; ');
+
+/**
+ * A sentence with owner names in it: the page's own words as strings, each name the owner typed as `{ name }`, so the
+ * screen puts each name in its own <bdi> (SEC-N13: a Hebrew or a right-to-left-override name never reorders the words
+ * around it). `wordsText` is the plain sentence.
+ */
+export type Word = string | { readonly name: string };
+export type Words = readonly Word[];
+export const wordsText = (w: Words): string => w.map((x) => (typeof x === 'string' ? x : x.name)).join('');
+const named = (t: Text): Word => ({ name: names(t).main });
+const quoted = (t: Text): Words => ['“', named(t), '”'];
+/** a, b or c (each item its own words); `none` when there is none. */
+const orWords = (items: readonly Words[], none: Words): Words =>
+  items.length === 0 ? none : items.flatMap((it, i) => [...(i === 0 ? [] : [i === items.length - 1 ? ' or ' : ', ']), ...it]);
+
+/** Where a menu's pictures live in a Supabase project: its public bucket `menu-public` (the database's `public_base`). */
+export const STORAGE_PATH = '/storage/v1/object/public/menu-public/';
+/** The configured project's public picture storage (SEC-N14), or null when the configured address is not an http(s) one. */
+export function storageOf(supabaseUrl: unknown): string | null {
+  if (typeof supabaseUrl !== 'string') return null;
+  try { const u = new URL(supabaseUrl); return u.protocol === 'https:' || u.protocol === 'http:' ? u.origin + STORAGE_PATH : null; } catch { return null; }
+}
+
+/**
+ * A picture's address, only when it is plainly the revision's own public storage: `assetBase` exactly this
+ * environment's (`storage`, from the configured Supabase project: SEC-N14; anything else is refused), the path a plain
+ * relative one (no `..`, no scheme, no leading `/`). Anything else is not shown.
+ */
+export function assetUrl(base: string | null | undefined, path: string | null | undefined, storage: string | null): string | null {
+  if (!base || !path || !storage || base !== storage) return null;
+  if (!/^[A-Za-z0-9._~\-/]+$/.test(path) || path.startsWith('/') || path.split('/').some((p) => p === '..' || p === '.' || p === '')) return null;
+  try { const u = new URL(path, base); return u.href.startsWith(base) ? u.href : null; } catch { return null; }
+}
+
+/** What guests see for a picture: a dish's photo, relief from one photo or library illustration; the logo; the table. */
+export type PictureRead = { readonly kind: 'photo' | 'relief' | 'stock' | 'logo' | 'table'; readonly label: string; readonly src: string | null } | null;
+export function pictureOf(a: AssetV2 | null, assetBase: string | null, storage: string | null): PictureRead {
+  if (!a) return null;
+  if (a.state === 'stock') {
+    return { kind: 'stock', label: 'an illustration from Mana’s library, labelled as one for guests', src: /^[a-z0-9-]{1,60}$/.test(a.id) ? `../stock/img/${a.id}_t.jpg` : null };
+  }
+  return a.state === 'relief'
+    ? { kind: 'relief', label: 'a relief from one photo', src: assetUrl(assetBase, a.thumb, storage) }
+    : { kind: 'photo', label: 'a photo', src: assetUrl(assetBase, a.thumb, storage) };
+}
+
+export type OptionRead = {
+  readonly id: string; readonly name: Text; readonly price: number; readonly maxQty: number; readonly default: boolean;
+  /** The one nesting level: choosing it opens this group (whose options open nothing). */
+  readonly opens: GroupRead | null;
+};
+export type GroupRead = {
+  readonly id: string; readonly name: Text; readonly selection: SelectionKind;
+  /** On a dish: the dish's limits (it may tighten the group's own); for an opened group, the group's. */
+  readonly min: number; readonly max: number;
+  readonly options: readonly OptionRead[];
+};
+export type DishRead = {
+  readonly id: string; readonly name: Text; readonly desc: Text; readonly price: number | null; readonly priceNote: Text;
+  readonly tags: readonly string[]; readonly allergens: Text;
+  /** Wine and beer details, as plain words (key: value), only the plain values. */
+  readonly details: readonly (readonly [string, string])[];
+  readonly picture: PictureRead;
+  /** Shown only in these hours (a schedule's name and windows), or always. */
+  readonly when: Words | null;
+  readonly addons: readonly GroupRead[];
+  readonly related: readonly Text[];
+};
+export type SectionRead = { readonly id: string; readonly name: Text; readonly when: Words | null; readonly dishes: readonly DishRead[] };
+export type RuleRead = { readonly id: string; readonly words: Words; readonly line: Text; readonly active: boolean };
+/** The block guests see at the top of the menu: the venue's name, logo, area, cuisine, links, phone and table. */
+export type VenueRead = {
+  readonly name: Text; readonly area: Text; readonly cuisine: Text; readonly logo: PictureRead;
+  readonly orderUrl: string | null; readonly bookUrl: string | null; readonly phone: string | null;
+  /** The table under the dishes: a look's name, or the owner's own photo. */
+  readonly table: { readonly look: string; readonly photo: PictureRead };
+  readonly soldOut: 'bottom' | 'hide';
+};
+export type MenuRead = { readonly venue: VenueRead; readonly sections: readonly SectionRead[]; readonly rules: readonly RuleRead[] };
+
+const NO_TEXT: Text = { he: '', en: '' };
+const plain = (v: unknown): string | null =>
+  typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v)
+    : v && typeof v === 'object' && !Array.isArray(v) && typeof (v as Text).en === 'string' ? names(v as Text).main : null;
+
+/** A limit in words: "choose 1", "up to 3", "1 to 3", "any". */
+export function limitWords(min: number, max: number): string {
+  if (min === max) return `choose ${min}`;
+  if (min === 0) return `up to ${max}`;
+  return `${min} to ${max}`;
+}
+
+/**
+ * A stored revision as staff review it before guests see it: every section and dish in both languages, descriptions,
+ * prices and price notes, tags, allergens, wine and beer details, pictures, hours, "goes well with", each dish's add-on
+ * groups with their options, limits, prices and the one nesting level, and the suggestion rules in words.
+ */
+export function readMenu(s: SnapshotV2, storage: string | null): MenuRead {
+  const groups = new Map(s.addonGroups.map((g) => [g.id, g] as const));
+  const schedules = new Map(s.schedules.map((x) => [x.id, x] as const));
+  const dishNames = new Map(allDishes(s).map(({ dish }) => [dish.id, dish.name] as const));
+  const when = (id: string | null): Words | null => {
+    const sc = id ? schedules.get(id) : undefined;
+    return sc ? [named(sc.name), ` (${windowsWords(sc.windows)})`] : null;
+  };
+  const sv = s.venue, th = s.theme;
+  const picture = (kind: 'logo' | 'table', label: string, path: string | null): PictureRead =>
+    path ? { kind, label, src: assetUrl(s.assetBase, path, storage) } : null;
+  const venue: VenueRead = {
+    name: sv.name, area: sv.area ?? NO_TEXT, cuisine: sv.cuisine ?? NO_TEXT, logo: picture('logo', 'the logo', sv.logo),
+    orderUrl: sv.orderUrl, bookUrl: sv.bookUrl, phone: sv.phone,
+    table: { look: th.surface === 'custom' ? 'the owner’s own table photo' : `the “${th.surface}” table`,
+      photo: th.surface === 'custom' ? picture('table', 'the owner’s table photo', th.tableImg) : null },
+    soldOut: sv.soldOut === 'hide' ? 'hide' : 'bottom',
+  };
+  const group = (g: AddonGroupV2, min: number, max: number, nested: boolean): GroupRead => ({
+    id: g.id, name: g.name, selection: g.selection, min, max,
+    options: g.options.map((o): OptionRead => {
+      const opened = !nested && o.opensGroupId ? groups.get(o.opensGroupId) : undefined;
+      return { id: o.id, name: o.name, price: o.price, maxQty: o.maxQty, default: o.default, opens: opened ? group(opened, opened.min, opened.max, true) : null };
+    }),
+  });
+  const sections = s.sections.map((sec): SectionRead => ({
+    id: sec.id, name: sec.name, when: when(sec.scheduleId),
+    dishes: sec.dishes.map((d): DishRead => ({
+      id: d.id, name: d.name, desc: d.desc ?? NO_TEXT, price: d.price?.amount ?? null, priceNote: d.price?.note ?? NO_TEXT,
+      tags: d.tags.map((t) => TAG_LABEL[t] ?? String(t)), allergens: d.allergens ?? NO_TEXT,
+      details: Object.entries(d.details ?? {}).flatMap(([k, v]) => { const p = plain(v); return p !== null && p !== '' ? [[k.replace(/_/g, ' '), p] as const] : []; }),
+      picture: pictureOf(d.asset, s.assetBase, storage), when: when(d.scheduleId),
+      addons: d.addons.flatMap((a) => { const g = groups.get(a.groupId); return g ? [group(g, a.min, a.max, false)] : []; }),
+      related: d.related.flatMap((id) => { const n = dishNames.get(id); return n ? [n] : []; }),
+    })),
+  }));
+  const sectionNames = new Map(s.sections.map((x) => [x.id, x.name] as const));
+  return { venue, sections, rules: s.upsellRules.map((r) => ({ id: r.id, words: ruleWords(r, { dish: (id) => dishNames.get(id), section: (id) => sectionNames.get(id), groups }), line: r.line, active: r.active })) };
+}
+
+const TRIGGER_WORDS: Readonly<Record<Trigger, string>> = {
+  sheet: 'opens the sheet of', add: 'adds', checkout: 'opens “my table” with',
+};
+
+/** One suggestion rule in plain words, each owner name its own piece (`Words`). */
+export function ruleWords(r: UpsellRuleV2, n: {
+  readonly dish: (id: string) => Text | undefined; readonly section: (id: string) => Text | undefined; readonly groups: ReadonlyMap<string, AddonGroupV2>;
+}): Words {
+  const known = (xs: readonly (Text | undefined)[]): Text[] => xs.filter((x): x is Text => !!x);
+  const list = (xs: readonly (Text | undefined)[], none: string): Words => orWords(known(xs).map(quoted), [none]);
+  const match = (m: IdMatch): Words => orWords([
+    ...known(m.dishes.map(n.dish)).map(quoted),
+    ...known(m.sections.map(n.section)).map((x): Words => ['anything from ', named(x)]),
+  ], ['something']);
+  const scope: Words = r.scope.kind === 'all' ? ['any dish']
+    : r.scope.kind === 'dish' ? list(r.scope.ids.map(n.dish), 'a dish that is gone')
+      : ['a dish from ', ...list(r.scope.ids.map(n.section), 'a section that is gone')];
+  const time = r.when ? `${daysWords(r.when.days)}${r.when.from || r.when.to ? ` ${r.when.from ?? '00:00'}–${r.when.to ?? '24:00'}` : ''}` : 'any time';
+  let suggest: Words;
+  if (r.suggest.kind === 'dish') suggest = list([n.dish(r.suggest.dishId)], 'a dish that is gone');
+  else {
+    const sg = r.suggest;
+    const g = n.groups.get(sg.groupId);
+    const o = g?.options.find((x) => x.id === sg.optionId);
+    suggest = o && g ? ['the add-on ', ...quoted(o.name), ' (', named(g.name), ')'] : ['an add-on that is gone'];
+  }
+  return [
+    `When a guest ${TRIGGER_WORDS[r.trigger]} `, ...scope, `, ${time}`,
+    ...(r.basketHas ? [', if their table has ', ...match(r.basketHas)] : []),
+    ...(r.basketLacks ? [', unless their table has ', ...match(r.basketLacks)] : []),
+    ': suggest ', ...suggest,
+    `. Priority ${r.priority}, at most ${r.cap === 1 ? 'once' : `${r.cap} times`} a visit${r.active ? '' : '; switched off'}.`,
+  ];
+}
+
 /** The choices for "until" when Halom takes something off for the owner. */
 export const UNTIL_CHOICES: ReadonlyArray<{ readonly id: string; readonly label: string; readonly spec: UntilSpec }> = [
   { id: '1h', label: 'For 1 hour', spec: { kind: 'duration', minutes: 60 } },
@@ -486,6 +687,19 @@ export function analyticsQuery(range: AnalyticsRangeId, now: number, o: { venueI
   return { ...base, resolution: 'day', from: addDays(today, -(r.days - 1)), to: today };
 }
 
-/** A bucket's label on the axis and in the table: a minute as HH:MM (Israel), a day as "16 Oct". */
-export const bucketLabel = (b: string, resolution: AnalyticsResolution, long = false): string =>
-  resolution === 'minute' ? (long ? fmtDateTime(b) : fmtTime(b)) : fmtDay(b, long);
+/**
+ * The second time an Israel wall-clock minute occurs: when the clocks go back (the last Sunday of October), 01:00–01:59
+ * comes twice, and the second one is marked.
+ */
+export const secondOccurrence = (t: number): boolean => hmFmt.format(t) === hmFmt.format(t - 3_600_000);
+
+/**
+ * A bucket's label on the axis and in the table: a minute as HH:MM (Israel), a day as "16 Oct". The long form (the
+ * read-out and the table) marks the second 01:xx of the night the clocks go back.
+ */
+export const bucketLabel = (b: string, resolution: AnalyticsResolution, long = false): string => {
+  if (resolution !== 'minute') return fmtDay(b, long);
+  if (!long) return fmtTime(b);
+  const t = Date.parse(b);
+  return `${fmtDateTime(b)}${Number.isFinite(t) && secondOccurrence(t) ? ' (2nd, after the clocks went back)' : ''}`;
+};

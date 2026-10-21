@@ -14,6 +14,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HalomBot, OwnerBot, asAnon, loadSeed, readSeed, runRandom, SEEDS } from '@mana/sim';
 import { OUT, startE2E } from './helpers.mjs';
+import { withStorageImages } from '../apps/ops/tools/csp.mjs';
+import { PRODUCTION, retargetCsp } from '../tools/env.mjs';
+import { totp, wrongCode } from '../apps/ops/test/v2/totp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'apps/ops/dist');
@@ -30,17 +33,20 @@ before(async () => {
   site = fs.mkdtempSync(path.join(os.tmpdir(), 'mana-ops-e2e-'));
   fs.writeFileSync(path.join(site, 'index.html'), '<!doctype html><meta charset="utf-8"><title>e2e</title>');
   e = await startE2E({ seed: null, site });
-  // the built back office, its Content-Security-Policy opened to the local stack (a local build does the same: the
-  // platform lane's tools/site-env.mjs)
+  // the built back office, its Content-Security-Policy as a local build has it (tools/site-env.mjs): connect-src the
+  // stack over http and ws, no wildcard (retargetCsp), and img-src the stack's storage for the revision's pictures
   fs.cpSync(DIST, path.join(site, 'ops'), { recursive: true });
   const index = path.join(site, 'ops/index.html');
-  fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace(/connect-src 'self'/, `connect-src 'self' ${e.stack.apiUrl}`));
+  const html = retargetCsp(fs.readFileSync(index, 'utf8'), new URL(PRODUCTION.supabaseUrl).origin, e.stack.apiUrl);
+  fs.writeFileSync(index, withStorageImages(html, e.stack.apiUrl));
 
   staff = await HalomBot.firstAdmin(e.stack, e.stack, STAFF);
   const seed = readSeed(path.join(SEEDS, 'cafe-demo.json')).seed;
   for (const [tag, slug] of [['desk', 'cafe-demo'], ['phone', 'cafe-demo-phone']]) {
     // built by its owner bot and published: the first publish waits for Halom's approval
-    const v = await loadSeed(e.stack, { ...seed, publish: false }, { slug, halom: staff });
+    // the owner went through every step but the phone test (a step already done stays done: set_onboarding_step answers
+    // `kept` to a "doing" over "done", 9365621)
+    const v = await loadSeed(e.stack, { ...seed, publish: false, onboarding: seed.onboarding.filter((s) => s !== 'test') }, { slug, halom: staff });
     // the owner is still testing the menu on a phone: one step left for Halom to follow
     assert.equal((await v.owner.setStep('test', 'doing')).ok, true);
     const pub = await v.owner.publish('first publish');
@@ -121,17 +127,45 @@ test('desk: leads from the product page are read (the read is logged) and update
   await p.context().close();
 });
 
-test('desk: with staff_require_aal2 on, a staff password-only session is refused by the database, and the page says why', async () => {
+test('desk: with staff_require_aal2 on, the second step (B118): set up TOTP in GoTrue, enter its code, the staff calls answer; the next sign-in asks for the code only', async () => {
   await e.stack.setConfig('staff_require_aal2', true);
   try {
+    // a password-only session: the database refuses it as staff, and the gate shows the second step (no factor yet)
     const p = await page(DESK);
     await p.goto(e.webUrl + 'ops/#/leads');
     await signIn(p, STAFF);
-    await p.locator('[data-refused=aal1]').waitFor();
-    assert.match(await p.locator('[data-refused]').innerText(), /password only \(aal1\).*second step \(MFA\)/s);
-    assert.equal(await p.locator('[data-page]').count(), 0);
-    await shot(p, 'ops-refused-aal1-desk');
+    await p.locator('[data-mfa-enroll]').waitFor();
+    assert.equal(await p.locator('[data-page]').count(), 0, 'nothing of the back office before the second step');
+    // GoTrue's QR, as an image under the page's own CSP (img-src 'self' data:), and the key as text
+    await until(() => p.locator('img[data-mfa-qr]').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
+    const secret = (await p.locator('[data-mfa-secret]').textContent()).trim();
+    assert.match(secret, /^[A-Z2-7]{16,}$/, 'a base32 key');
+    await shot(p, 'ops-second-step-enroll-desk');
+    // the code an authenticator app would show (RFC 6238, node:crypto)
+    await p.locator('[data-mfa-code]').fill(totp(secret));
+    await p.locator('[data-mfa-go]').click();
+    await p.locator('[data-page=leads]').waitFor();
+    await p.locator('[data-page=leads] [data-lead], [data-page=leads] .empty, [data-page=leads] [data-count]').first().waitFor();
+    assert.equal(await p.locator('[data-mfa-secret]').count(), 0, 'the key is gone with the screen');
+    const [factor] = await e.stack.sql(`select f.status, f.factor_type from auth.mfa_factors f join auth.users u on u.id = f.user_id where u.email = $1`, [STAFF.email]);
+    assert.deepEqual({ ...factor }, { status: 'verified', factor_type: 'totp' });
+    assert.deepEqual(p.problems, []);
     await p.context().close();
+
+    // the next sign-in: the code only; a wrong one is refused in plain words (a fresh 30-second step, so no code is reused)
+    const q = await page(DESK);
+    await signIn(q, STAFF);
+    await q.locator('[data-second-step=verify]').waitFor();
+    assert.equal(await q.locator('[data-mfa-secret], img[data-mfa-qr]').count(), 0);
+    await new Promise((r) => setTimeout(r, (31 - (Math.floor(Date.now() / 1000) % 30)) * 1000));
+    await q.locator('[data-mfa-code]').fill(wrongCode(secret));
+    await q.locator('[data-mfa-go]').click();
+    await until(() => q.locator('[data-mfa-error]').innerText().catch(() => ''), 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.', 'a wrong code');
+    await q.locator('[data-mfa-code]').fill(totp(secret));
+    await q.locator('[data-mfa-go]').click();
+    await q.locator('[data-page=clients] [data-count]').waitFor();
+    assert.deepEqual(q.problems.filter((x) => !/status of 422/.test(x)), []);
+    await q.context().close();
   } finally {
     await e.stack.setConfig('staff_require_aal2', false);
   }
@@ -191,6 +225,10 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.ok(!again.ok && again.kind === 'refused' && again.code === 'already_approved');
 
   // act for owner: the payload names are act_for_owner's
+  const { actWant, logMark, ownEntry } = await import('../apps/ops/src/v2/landed.ts');
+  const staffBefore = await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 });
+  assert.ok(staffBefore.ok, JSON.stringify(staffBefore));
+  const markAct = logMark(staffBefore.data.entries);
   const espresso = v.ids.dishes.espresso;
   assert.equal((await v.owner.setAvailability('dish', espresso, { kind: 'duration', minutes: 120 })).ok, true);
   const menu = await admin.api.publicMenu('cafe-demo-api');
@@ -219,6 +257,43 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   const log = await v.owner.activity();
   assert.equal(log.filter((r) => r.action === 'support.act_for_owner' && r.reason === 'Owner asked, api').length, 4, 'each is in the owner’s log with the reason');
 
+  // QA-M5 on the real log: a lost write is recognised by its own entry (the reader's, the reason, what it set), and a
+  // write that set something else, or was never made, is not
+  const staffLog = await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 });
+  assert.ok(staffLog.ok, JSON.stringify(staffLog));
+  const atAct = { reason: 'Owner asked, api', mark: markAct };
+  const want = (action, payload) => actWant({ venueId: v.venueId, reason: '', action, payload });
+  const lemonade = v.ids.dishes.lemonade;
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: lemonade, until: { kind: 'duration', minutes: 60 } })), 'yes',
+    JSON.stringify(staffLog.data.entries.slice(0, 6)));
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: lemonade, until: { kind: 'indefinite' } })), 'no', 'another "until"');
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.set', { targetKind: 'dish', targetId: espresso, until: { kind: 'duration', minutes: 60 } })), 'no', 'another target');
+  assert.equal(ownEntry(staffLog.data, atAct, want('availability.restore', { targetKind: 'dish', targetId: espresso })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('dish.update', { dishId: espresso, patch: { price: 1300 }, expectedUpdatedAt: '' })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('dish.update', { dishId: espresso, patch: { hidden: true }, expectedUpdatedAt: '' })), 'no', 'another column');
+  assert.equal(ownEntry(staffLog.data, atAct, want('onboarding.set', { step: 'photos', state: 'skipped', expectedUpdatedAt: null })), 'yes');
+  assert.equal(ownEntry(staffLog.data, atAct, want('onboarding.set', { step: 'photos', state: 'doing', expectedUpdatedAt: null })), 'no', 'another state');
+  assert.equal(ownEntry(staffLog.data, { ...atAct, reason: 'Another reason' }, want('availability.restore', { targetKind: 'dish', targetId: espresso })), 'no', 'another reason');
+  const ownerReads = await owner.api.activity({ venueId: v.venueId, limit: 100 });
+  assert.ok(!ownerReads.ok || ownerReads.data.entries.every((x) => x.action !== 'support.act_for_owner' || !x.you), 'Halom\'s entries are never the owner\'s own');
+
+  // a case carries its version (L4, backend 050b7ad): the updatedAt staff read, sent back exactly; a second page with the
+  // version it read is refused with the case as stored, and never overwrites the first answer
+  const opened = await v.owner.askForHelp('photos', 'Photos for the drinks?', 'Invented for the test');
+  assert.equal(opened.ok, true, JSON.stringify(opened));
+  const withCase = await admin.api.venue(v.venueId);
+  const theCase = withCase.ok ? withCase.data.cases.find((c) => c.id === opened.caseId) : null;
+  assert.ok(theCase, JSON.stringify(withCase).slice(0, 300));
+  const first = await admin.api.updateCase({ caseId: theCase.id, status: 'resolved', reason: 'Sent the photo guide, api', expectedUpdatedAt: theCase.updatedAt });
+  assert.ok(first.ok && first.data.case.status === 'resolved', JSON.stringify(first));
+  const second = await admin.api.updateCase({ caseId: theCase.id, status: 'waiting_owner', reason: 'Asked the owner, api', expectedUpdatedAt: theCase.updatedAt });
+  assert.ok(!second.ok && second.kind === 'refused' && second.code === 'stale' && second.reply?.current?.status === 'resolved', JSON.stringify(second));
+  const [caseRow] = await e.stack.sql('select status from public.support_cases where id = $1', [theCase.id]);
+  assert.equal(caseRow.status, 'resolved', 'the first answer stands');
+  const third = await admin.api.updateCase({ caseId: theCase.id, status: 'waiting_owner', reason: 'Asked the owner, api',
+    expectedUpdatedAt: first.ok ? first.data.case.updatedAt : null });
+  assert.ok(third.ok && third.data.case.status === 'waiting_owner', 'the version the answer carried is accepted as sent: ' + JSON.stringify(third));
+
   // the owner's switch: refused plainly, nothing written
   await v.owner.updateVenue({ support_can_act: false });
   const declined = await admin.api.actForOwner({ venueId: v.venueId, reason: 'Owner asked, api', action: 'availability.restore',
@@ -226,8 +301,14 @@ test('the v2 data layer on the real schema: staff role, approve, act for owner, 
   assert.ok(!declined.ok && declined.kind === 'refused' && declined.code === 'owner_declined');
 
   // plans: admins only (a support member is refused as not_admin)
+  const markPlan = logMark((await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 })).data.entries);
   const plan = await admin.api.setPlan({ venueId: v.venueId, state: 'active', until: null, plan: 'pilot', reason: 'Pilot agreed, api' });
   assert.deepEqual(plan, { ok: true, data: { ok: true, state: 'active' } });
+  // its own entry: the state, the plan and the date it set (an active plan's end never comes back on the venue's row)
+  const planLog = (await admin.api.activity({ venueId: v.venueId, actor: 'staff', limit: 100 })).data;
+  const planWant = (state, p, until) => ({ action: 'plan.set', match: (x) => x.detail.state === state && (x.detail.plan ?? null) === p && (x.detail.until ?? null) === until });
+  assert.equal(ownEntry(planLog, { reason: 'Pilot agreed, api', mark: markPlan }, planWant('active', 'pilot', null)), 'yes', JSON.stringify(planLog.entries.slice(0, 3)));
+  assert.equal(ownEntry(planLog, { reason: 'Pilot agreed, api', mark: markPlan }, planWant('active', 'pilot', '2027-01-31T21:59:59Z')), 'no', 'another date');
   const notStaff = await owner.api.setPlan({ venueId: v.venueId, state: 'active', until: null, plan: 'pilot', reason: 'Pilot agreed, api' });
   assert.ok(!notStaff.ok && notStaff.kind === 'not_admin');
   const ownerApprove = await owner.api.approve({ venueId: v.venueId, reason: 'Trying as the owner', expectedRevision: 1 });
@@ -244,7 +325,10 @@ for (const [tag, viewport] of [['desk', DESK], ['phone', PHONE]]) {
     await p.locator('[data-page=clients]').waitFor();
 
     // find it
+    // the search is asked after a pause in the typing, and the list starts again from nothing: wait for its answer
+    const searched = p.waitForResponse((r) => r.url().includes('/rpc/ops_venues') && (r.request().postData() ?? '').includes(`"q":"${v.slug}"`));
     await p.locator('[data-search]').fill(v.slug);
+    await searched;
     const row = p.locator(`[data-venue="${v.slug}"]`).first();
     await row.waitFor();
     assert.match(await row.innerText(), /Café Demo/);

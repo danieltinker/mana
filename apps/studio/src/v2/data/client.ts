@@ -20,7 +20,18 @@ export async function q<T>(p: PromiseLike<{ data: unknown; error: unknown }>): P
   return r.data as T;
 }
 
-/** An RPC whose answer may be `{ ok: false, code }`: that refusal is thrown as a V2Error with the code. */
+/**
+ * An RPC whose answer may be `{ ok: false, code }`: that refusal is thrown as a V2Error with the code. A call the
+ * database rolled back whole because another transaction held what it needed (`busy`: a deadlock or a serialization
+ * failure, nothing written) goes again, twice at most, a moment later; then `busy` is said in plain words.
+ */
 export async function rpc<T = any>(fn: string, args: Record<string, unknown>): Promise<T> {
-  return refusal(await q<T>(sb.rpc(fn, args)));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return refusal(await q<T>(sb.rpc(fn, args)));
+    } catch (e) {
+      if (toV2Error(e).code !== 'busy' || attempt >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 150 * (attempt + 1) + Math.random() * 100));
+    }
+  }
 }

@@ -13,13 +13,29 @@ import { agorotOf, changed, newSectionForm, sectionFromForm, sectionToForm, type
 import { menuPrice } from '../data/guest.ts';
 import { clock, offNow, overrides, restoreToday } from '../data/live.ts';
 import { byPosition, named, newId } from '../data/rows.ts';
-import { addDish, addSection, canEdit, canOperate, menu, moveRow, patchRow, removeRows } from '../data/store.ts';
+import { addDish, addSection, canEdit, canOperate, formHolds, menu, moveRow, patchRow, removeRows, saveNow } from '../data/store.ts';
+import { leave, pass, useLeaveGuard } from '../leave.ts';
 import { langsOf } from '../format.ts';
 import { errText, lang, t, tn } from '../i18n.ts';
-import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
+import { GlyphBtn, LangSeg, MoneyInput, Price, ReorderList, focusOnReturn, refocusMove, useEditOnly, useEntryLang } from '../ui.tsx';
 import { SaveFailedLine } from '../saving.tsx';
 import { DishSheet } from './dish.tsx';
-import { OffBadge, OffSheet } from './off.tsx';
+import { OffBadge, OffSheet, offText, stateOf } from './off.tsx';
+
+/** The availability button's name: what it opens, and what is off now (a screen reader hears the red marker too). */
+function offLabel(kind: 'section' | 'dish', id: string, name: string): string {
+  const s = stateOf(kind, id);
+  return s.off ? t('off.open', { name }) + '. ' + offText(s) : t('off.open', { name });
+}
+
+/** After the availability sheet closes, the focus goes back to the button that opened it. */
+function refocusOff(id: string) {
+  focusOnReturn(`[data-off-open="${id}"]`);           // instead of the menu's heading when the address changes back
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const b = document.querySelector(`[data-off-open="${id}"]`) as HTMLElement | null;
+    if (b && document.activeElement !== b) b.focus();
+  }));
+}
 
 export function MenuScreen({ rest }: { rest: string[] }) {
   const d = menu.value!;
@@ -34,7 +50,8 @@ export function MenuScreen({ rest }: { rest: string[] }) {
   const sheetSection = rest[0] === 's' && rest[1] && editable ? rest[1] : null;
   useEditOnly(rest[0] === 's', editable, 'menu');
   // the availability sheet is for everyone who operates the place (a counter too)
-  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2] } : null;
+  // an add-on choice or group opened from a dish's sheet carries the dish (rest[3]): closing returns to the dish's button
+  const sheetOff = operate && rest[0] === 'a' && rest[1] && rest[2] ? { kind: rest[1], id: rest[2], from: rest[3] } : null;
   const fail = (e: unknown) => toast(errText(toV2Error(e).code), 'error');
 
   const moveSection = (i: number, to: number) => {
@@ -81,7 +98,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
                   <IconBtn icon="up" label={t('menu.up', { name })} disabled={si === 0} data-move="up" onClick={() => moveSection(si, si - 1)} />
                   <IconBtn icon="down" label={t('menu.down', { name })} disabled={si === sections.length - 1} data-move="down" onClick={() => moveSection(si, si + 1)} />
                 </>}
-                {operate && !arranging && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/section/' + sec.id)} data-off-open={sec.id} />}
+                {operate && !arranging && <GlyphBtn icon="pause" label={offLabel('section', sec.id, name)} onClick={() => go('menu/a/section/' + sec.id)} data-off-open={sec.id} />}
                 {editable && <IconBtn icon="edit" label={t('menu.cat.edit') + ': ' + name} onClick={() => go('menu/s/' + sec.id)} />}
               </div>}
             </header>
@@ -96,7 +113,7 @@ export function MenuScreen({ rest }: { rest: string[] }) {
 
       {sheetDish && <DishSheet id={sheetDish} tab={rest[2]} onClose={() => go('menu')} />}
       {sheetSection && <SectionSheet id={sheetSection === 'new' ? null : sheetSection} onClose={() => go('menu')} />}
-      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => go('menu')} />}
+      {sheetOff && <OffSheet key={sheetOff.kind + sheetOff.id} kind={sheetOff.kind} id={sheetOff.id} onClose={() => { go('menu'); refocusOff(sheetOff.from || sheetOff.id); }} />}
     </div>
   );
 }
@@ -108,20 +125,21 @@ function DishLine({ dish, quick }: { dish: DishRow; quick: boolean }) {
   const part = dish.schedule_id ? d.schedules.find((s) => s.id === dish.schedule_id) : null;
   return (
     <>
-      <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} data-dish={dish.id}>
+      <a class="row-main" href={'#/menu/d/' + dish.id} aria-label={t('menu.item.edit', { name })} aria-describedby={'dish-sub-' + dish.id} data-dish={dish.id}>
         <span class="row-text">
           <span class="row-name">{name}</span>
-          <span class="row-sub">
+          {/* the price, add-ons, day part, hidden and the red marker: the link's description for a screen reader */}
+          <span class="row-sub" id={'dish-sub-' + dish.id}>
             <span data-price><Price p={menuPrice(d, dish.id)} /></span>
-            {groups > 0 && <span class="badge badge-todo">{tn('menu2.groups', groups)}</span>}
-            {part && <span class="badge badge-ok">{named(part, L)}</span>}
-            {dish.hidden && <span class="badge badge-warn">{t('menu2.hidden')}</span>}
-            <OffBadge kind="dish" id={dish.id} />
+            {groups > 0 && <>{' '}<span class="badge badge-todo">{tn('menu2.groups', groups)}</span></>}
+            {part && <>{' '}<span class="badge badge-ok">{named(part, L)}</span></>}
+            {dish.hidden && <>{' '}<span class="badge badge-warn">{t('menu2.hidden')}</span></>}
+            {' '}<OffBadge kind="dish" id={dish.id} />
           </span>
         </span>
         {!quick && <Icon name="chev" size={18} flip />}
       </a>
-      {quick && <GlyphBtn icon="pause" label={t('off.open', { name })} onClick={() => go('menu/a/dish/' + dish.id)} data-off-open={dish.id} />}
+      {quick && <GlyphBtn icon="pause" label={offLabel('dish', dish.id, name)} onClick={() => go('menu/a/dish/' + dish.id)} data-off-open={dish.id} />}
     </>
   );
 }
@@ -197,38 +215,54 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
   const langs = langsOf(d.venue);
   const [L, setL] = useEntryLang(langs);
   const [form, setForm] = useState<SectionForm>(() => (row ? sectionToForm(row) : newSectionForm()));
-  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays)
-  const [opened] = useState(() => (row ? sectionToForm(row) : null));
+  // what the sheet opened with: only what the owner changed here is saved (a change made elsewhere meanwhile stays); once
+  // saved (or handed to the save queue after a failure, which keeps it for a retry) the form holds nothing to lose
+  const [opened, setOpened] = useState<SectionForm>(() => form);
   const [newSectionId] = useState(newId);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [nameErr, setNameErr] = useState(''), [del, setDel] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const leaveTo = useRef<(() => void) | null>(null);
+  // a changed name (or kind, room, switch) is not dropped by Escape, the close button, Back or another tab: asked first
+  const holds = canEdit() && JSON.stringify(form) !== JSON.stringify(opened);
+  useLeaveGuard(holds, (proceed) => { leaveTo.current = proceed; setAsking(true); });
+  // named on the start screen if the session ends before it is saved
+  useEffect(() => {
+    if (!holds) return;
+    const key = 'sections:' + (row?.id ?? newSectionId);
+    formHolds(key, { he: form.nameHe || row?.name_he || '', en: form.nameEn || row?.name_en || '' });
+    return () => formHolds(key, null);
+  }, [holds, form.nameHe, form.nameEn]);
   if (id && !row) return <Sheet open onClose={onClose} title={t('menu.cat.edit')} name="section"><p class="muted">{t('item.notFound')}</p></Sheet>;
   const dishes = row ? d.dishes.filter((x) => x.section_id === row.id).length : 0;
   const set = (patch: Partial<SectionForm>) => { setForm({ ...form, ...patch }); setError(''); setNameErr(''); };
+  const close = () => leave(onClose);
 
   async function save() {
     const m = sectionFromForm(form);
     if (!m.ok) { if (m.errors.some((x) => x.field === 'name')) setNameErr(t('menu.cat.nameMissing')); else setError(errText(m.errors[0]!.code)); return; }
     setBusy(true);
     try {
-      if (row && opened) {
+      if (row) {
         const was = sectionFromForm(opened);
         const patch = was.ok ? changed(was.value, m.value) : m.value;
-        patchRow('sections', row.id, patch, { now: true });
-        onClose();
-      } else { await addSection(m.value, newSectionId); onClose(); }
+        setOpened(form);
+        // saved, or the owner is asked about a change made elsewhere (the conflict dialog): either way the sheet is done
+        await saveNow('sections', row.id, patch);
+        pass(onClose);
+      } else { await addSection(m.value, newSectionId); pass(onClose); }
     } catch (e) { setError(errText(toV2Error(e).code)); }
     finally { setBusy(false); }
   }
   async function remove() {
     setBusy(true);
-    try { await removeRows('sections', [row!.id]); setDel(false); onClose(); }
+    try { await removeRows('sections', [row!.id]); setDel(false); pass(onClose); }
     catch (e) { setError(errText(toV2Error(e).code)); setDel(false); }
     finally { setBusy(false); }
   }
   const nameField = L === 'he' ? 'nameHe' : 'nameEn';
   const confirmKey = dishes === 0 ? 'menu.cat.deleteConfirm0' : dishes === 1 ? 'menu.cat.deleteConfirm1' : 'menu.cat.deleteConfirm';
   return (
-    <Sheet open onClose={onClose} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
+    <Sheet open onClose={close} title={row ? t('menu.cat.edit') : t('menu.addCategory')} name="section" side head={<LangSeg value={L} onChange={setL} langs={langs} />}
       foot={<>{row && <Btn kind="ghost" icon="trash" onClick={() => setDel(true)} data-action="delete-section">{t('app.delete')}</Btn>}
         <Btn kind="primary" busy={busy} onClick={save} data-action="save-section">{row ? t('app.save') : t('menu.cat.add')}</Btn></>}>
       <SaveFailedLine />
@@ -260,6 +294,8 @@ function SectionSheet({ id, onClose }: { id: string | null; onClose: () => void 
       {error && <Note kind="error">{error}</Note>}
       <Confirm open={del} title={t('menu.cat.delete')} body={t(confirmKey, { name: named(row, lang.value), n: dishes })} confirmLabel={t('app.delete')} danger busy={busy}
         onConfirm={remove} onClose={() => setDel(false)} />
+      <Confirm open={asking} title={t('lib.leave.title')} body={t('sec.leave.body')} confirmLabel={t('lib.leave.go')}
+        onConfirm={() => { setAsking(false); const to = leaveTo.current; leaveTo.current = null; to?.(); }} onClose={() => { setAsking(false); leaveTo.current = null; }} />
     </Sheet>
   );
 }

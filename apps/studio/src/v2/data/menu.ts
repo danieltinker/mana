@@ -8,6 +8,7 @@ import type {
 } from '@mana/contracts';
 import { q, rpc, sb } from './client.ts';
 import { toV2Error, V2Error } from './errors.ts';
+import { sameStored } from './rows.ts';
 
 export type Membership = { readonly venue: VenueRow; readonly role: MemberRole };
 export type RevisionInfo = Pick<MenuRevisionRow, 'id' | 'number' | 'note' | 'created_at'>;
@@ -48,8 +49,11 @@ export function createVenue(v: { slug: string; nameHe: string; nameEn: string; k
 }
 
 export const venueRow = (id: string) => q<VenueRow>(sb.from('venues').select('*').eq('id', id).single());
-/** The place's own settings the owner may change (the columns the schema grants). */
-export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
+/**
+ * The place's own settings the owner may change (the columns the schema grants). `support_can_act` is the owner's
+ * alone: the database refuses anyone else (`owner_only`), and logs the change.
+ */
+export const updateVenue = (id: string, patch: Partial<Pick<VenueRow, 'sold_out_display' | 'support_can_act'>>) => q<VenueRow>(sb.from('venues').update(patch).eq('id', id).select().single());
 export const entitlementOf = (venueId: string) => q<EntitlementRow | null>(sb.from('entitlements').select('*').eq('venue_id', venueId).maybeSingle());
 export const revisionsOf = (venueId: string) =>
   q<RevisionInfo[]>(sb.from('menu_revisions').select('id, number, note, created_at').eq('venue_id', venueId).order('number', { ascending: false }).limit(50));
@@ -105,13 +109,27 @@ export async function insertOnceInfo<T extends { id: string }>(table: MenuTable,
   }
 }
 
-/** New rows with the client's own ids, in one statement; when an earlier try's answer was lost and they are all stored, they answer. */
+/** One table's rows for a venue, as stored now. */
+export const venueRows = <T>(table: MenuTable, venueId: string, columns = '*') => q<T[]>(sb.from(table).select(columns).eq('venue_id', venueId));
+
+/**
+ * New rows with the client's own ids, in one statement. When an earlier try's answer was lost and they are all stored
+ * already, they answer, as long as they hold what this try sends; when the owner changed something before trying again,
+ * nothing is written and `stored_earlier` carries the rows as stored (the screen says so, or stores the change).
+ */
 export async function insertAllOnce<T extends { id: string }>(table: MenuTable, rows: readonly { id: string; [column: string]: unknown }[]): Promise<T[]> {
   try {
     return await insertRows<T>(table, rows as object[]);
   } catch (e) {
     const err = toV2Error(e);
-    if (err.code === 'duplicate') { const had = await rowsById<T>(table, rows.map((r) => r.id)); if (had.length === rows.length) return had; }
+    if (err.code === 'duplicate') {
+      const had = await rowsById<T>(table, rows.map((r) => r.id));
+      if (had.length === rows.length) {
+        const same = rows.every((r) => { const h = had.find((x) => x.id === r.id) as Record<string, unknown> | undefined; return !!h && Object.entries(r).every(([k, v]) => sameStored(v, h[k])); });
+        if (same) return had;
+        throw new V2Error('stored_earlier', had);
+      }
+    }
     throw err;
   }
 }

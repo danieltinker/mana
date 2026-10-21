@@ -3,13 +3,14 @@
  * screen), the shell (sections, account), and the hash routes, which work under any path prefix.
  *
  * Who counts as staff is the database's answer, not this page's: a person with a staff row whose session the database
- * refuses (42501 from a staff RPC; today, when `staff_require_aal2` is on and the session is password-only, aal1) is
- * shown the same screen with the reason.
+ * refuses (42501 from a staff RPC) is shown why. When the refusal is the second step (`staff_require_aal2` on, and this
+ * session password-only, aal1), the gate shows the second step instead (mfa.tsx, B118), then runs again on the aal2
+ * session. A removed staff row always reads "Staff access removed" (SEC-N4), before and after the second step.
  */
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { configFlags, type StaffRole } from '@mana/contracts';
-import { opsApi, type Fail } from './api.ts';
+import { opsApi } from './api.ts';
 import { PRODUCT, parseRoute, type Route } from './model.ts';
 import { connect, currentUser, onSignedOut, signIn, signOut, type Connection, type User } from './session.ts';
 import { Brand, CtxContext, Icon, Mark, Notice, T, useCtx, type Ctx } from './ui.tsx';
@@ -17,6 +18,7 @@ import { Clients } from './clients.tsx';
 import { Venue } from './venue.tsx';
 import { Analytics } from './analytics.tsx';
 import { Leads } from './leads.tsx';
+import { SecondStep } from './mfa.tsx';
 
 type SignedIn = User & { readonly aal: string | null };
 type Phase =
@@ -25,7 +27,10 @@ type Phase =
   | { readonly at: 'signin'; readonly notice?: string }
   | { readonly at: 'checking'; readonly user: SignedIn }
   | { readonly at: 'gate-error'; readonly user: SignedIn; readonly message: string }
-  | { readonly at: 'not-staff'; readonly user: SignedIn; readonly refused: Fail | null }
+  /** `why`: none (never staff), removed (the staff row is gone), other. */
+  | { readonly at: 'not-staff'; readonly user: SignedIn; readonly why: Refused }
+  /** A staff row, but the database wants a second step (aal2) for this password-only session. */
+  | { readonly at: 'second-step'; readonly user: SignedIn }
   | { readonly at: 'app'; readonly user: SignedIn; readonly role: StaffRole };
 
 export function App({ config }: { config: unknown }) {
@@ -33,7 +38,8 @@ export function App({ config }: { config: unknown }) {
   const [phase, setPhase] = useState<Phase>(conn.ok ? { at: 'boot' } : { at: 'config', message: conn.message });
   const api = useMemo(() => (conn.ok ? opsApi(conn.value.backend) : null), [conn]);
 
-  const check = useCallback(async (user: SignedIn) => {
+  /** `wasStaff`: this person had a staff row earlier in this session (the second step), so none now means removed. */
+  const check = useCallback(async (user: SignedIn, wasStaff = false) => {
     if (!api) return;
     setPhase({ at: 'checking', user });
     const r = await api.staffRole(user.id);
@@ -42,7 +48,23 @@ export function App({ config }: { config: unknown }) {
       setPhase({ at: 'gate-error', user, message: r.message });
       return;
     }
-    setPhase(r.data ? { at: 'app', user, role: r.data } : { at: 'not-staff', user, refused: null });
+    if (!r.data) { setPhase({ at: 'not-staff', user, why: wasStaff ? 'removed' : 'none' }); return; }
+    // a password-only session: one staff call first, so a database that wants the second step says so before any of
+    // the back office is drawn (R4-L5); any other answer opens the app, whose pages say what went wrong
+    if (user.aal !== 'aal2') {
+      const probe = await api.venues({ limit: 1 });
+      if (!probe.ok && probe.kind === 'not_staff') { setPhase({ at: 'second-step', user }); return; }
+    }
+    setPhase({ at: 'app', user, role: r.data });
+  }, [api]);
+
+  /** The database refused a staff call (42501): why, from the caller's own staff row, which RLS always lets them read. */
+  const refusedWhy = useCallback(async (user: SignedIn): Promise<Refused> => {
+    if (!api) return 'other';
+    const r = await api.staffRole(user.id);
+    if (!r.ok) return 'other';
+    if (r.data === null) return 'removed';
+    return user.aal !== 'aal2' ? 'aal1' : 'other';
   }, [api]);
 
   useEffect(() => {
@@ -76,12 +98,26 @@ export function App({ config }: { config: unknown }) {
         </Center>
       );
     case 'not-staff':
-      return <NotStaff user={phase.user} refused={phase.refused} api={api} onRetry={() => void check(phase.user)} onLeave={() => void leave()} />;
+      return <NotStaff user={phase.user} why={phase.why} api={api} onRetry={() => void check(phase.user)} onLeave={() => void leave()} />;
+    case 'second-step':
+      return (
+        <Center>
+          <Brand />
+          <SecondStep conn={conn.value} email={phase.user.email} onDone={(u) => void check(u, true)} onLeave={() => void leave()} />
+        </Center>
+      );
     case 'app': {
+      const user = phase.user;
       const ctx: Ctx = {
-        conn: conn.value, api, user: phase.user, role: phase.role, realtime: configFlags(conn.value.config).realtime,
-        notStaff: (f) => setPhase({ at: 'not-staff', user: phase.user, refused: f }),
+        conn: conn.value, api, user, role: phase.role, realtime: configFlags(conn.value.config).realtime,
+        notStaff: () => { void refusedWhy(user).then((why) => setPhase(why === 'aal1' ? { at: 'second-step', user } : { at: 'not-staff', user, why })); },
         signedOut: () => void leave('Your session ended. Sign in again.'),
+        recheck: async () => {
+          const r = await api.staffRole(user.id);
+          if (r.ok && r.data === null) { setPhase({ at: 'not-staff', user, why: 'removed' }); return false; }
+          if (!r.ok && r.kind === 'signed_out') { void leave('Your session ended. Sign in again.'); return false; }
+          return true;
+        },
       };
       return <CtxContext.Provider value={ctx}><Shell onLeave={() => void leave()} /></CtxContext.Provider>;
     }
@@ -127,9 +163,13 @@ function SignIn({ conn, onDone, notice }: { conn: Connection; onDone: (u: Signed
   );
 }
 
-function NotStaff({ user, refused, api, onRetry, onLeave }: {
-  user: SignedIn; refused: Fail | null; api: ReturnType<typeof opsApi>; onRetry: () => void; onLeave: () => void;
+/** Why the database refused: never staff, the staff row removed, the second step wanted (aal1), or something else. */
+type Refused = 'none' | 'removed' | 'aal1' | 'other';
+
+function NotStaff({ user, why, api, onRetry, onLeave }: {
+  user: SignedIn; why: Refused; api: ReturnType<typeof opsApi>; onRetry: () => void; onLeave: () => void;
 }) {
+  const refused = why !== 'none';
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,19 +181,17 @@ function NotStaff({ user, refused, api, onRetry, onLeave }: {
     setBusy(false);
     if (r.ok) onRetry(); else setMsg(r.message);
   };
-  const passwordOnly = user.aal !== 'aal2';
   return (
     <Center>
       <Brand />
-      <h1 data-not-staff>{refused ? 'Not accepted as staff' : 'Not Halom staff'}</h1>
+      <h1 data-not-staff>{why === 'removed' ? 'Staff access removed' : refused ? 'Not accepted as staff' : 'Not Halom staff'}</h1>
       <p>Signed in as <T>{user.email}</T>.</p>
       {refused ? (
-        <div class="stack-s" data-refused={passwordOnly ? 'aal1' : 'other'}>
+        <div class="stack-s" data-refused={why}>
           <Notice tone="warn">
-            This account has a staff row, but the database did not accept this session as staff.{' '}
-            {passwordOnly
-              ? `It was signed in with a password only (${user.aal ?? 'no assurance level'}), and staff access needs a second step (MFA). This back office does not offer that step yet.`
-              : 'Your staff access may have been removed, or the session may be out of date.'}
+            {why === 'removed'
+              ? 'This account is no longer on Halom’s staff: its staff access was removed, so nothing of the back office is shown. If that is a mistake, ask a Halom admin.'
+              : 'This account is on Halom’s staff, but the database did not accept this session as staff. The session may be out of date: sign out and in again.'}
           </Notice>
           <div class="row"><button type="button" class="btn btn-primary" onClick={onRetry}>Try again</button><button type="button" class="btn" onClick={onLeave}>Sign out</button></div>
         </div>

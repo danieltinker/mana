@@ -11,6 +11,7 @@ import { shortText, shortUrl } from '../../lib/links.ts';
 import { toast } from '../../lib/store.ts';
 import { Btn, Confirm, CopyIcon, Icon, Ltr, Note, Seg, Sheet } from '../../ui.tsx';
 import { Columns } from '../chart.tsx';
+import { oneLinePerApproval } from '../data/activity.ts';
 import { backAt, offToday, untilSpecOf } from '../data/availability.ts';
 import { standingOf } from '../data/changes.ts';
 import { dayBars, hasVisits, minuteBars, nudgeHref, share, type Bar } from '../data/dashboard.ts';
@@ -305,7 +306,7 @@ function Numbers({ d }: { d: ClientDashboard }) {
         <p class="dt-label"><Icon name="trend" size={16} />{t('home2.opens')}</p>
         <p class="dt-big"><Num k="menuOpens" n={T.menuOpens} /></p>
         <ul class="glance-minis">
-          <li><Num k="qr" n={o.qr} /><span><Icon name="qr" size={14} />{t('home2.qr')}{qr !== null && <> · <Ltr>{qr}%</Ltr></>}</span></li>
+          <li><Num k="qr" n={o.qr} /><span><Icon name="qr" size={14} /><em class="glance-lbl">{t('home2.qr')}{qr !== null && <> · <bdi class="glance-pct" dir="ltr" data-share={qr}>{qr}%</bdi></>}</em></span></li>
           <li><Num k="link" n={o.link} /><span><Icon name="link" size={14} />{t('home2.link')}</span></li>
           <li><Num k="he" n={o.he} /><span><Icon name="globe" size={14} />{t('home2.he')}</span></li>
           <li><Num k="en" n={o.en} /><span><Icon name="globe" size={14} />{t('home2.en')}</span></li>
@@ -386,7 +387,7 @@ function Recent() {
   const v = menu.value!.venue;
   const d = dashboard.value;
   if (!d || d.venueId !== v.id) return null;
-  const list = d.activity.slice(0, 5);
+  const list = oneLinePerApproval(d.activity).slice(0, 5);
   return (
     <section class="card" aria-labelledby="recent-h" data-recent>
       <div class="row-between"><h2 id="recent-h">{t('home2.recent')}</h2>

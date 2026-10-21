@@ -3,7 +3,9 @@
 // - schema 1 (production, halom.io/mana on halom-studio): the v1 back office, bundled here as it always was;
 // - schema 2 (the demo database `mana`, the simulator's stack): the v2 command center, a bundle of its own (v2.js and
 //   v2.css), fetched only then, so production downloads and runs exactly the v1 back office.
-import { configFlags } from '@mana/contracts';
+// config.ts alone, not the contracts' index: production's app.js runs nothing of the contracts but these flags (the
+// index sets up every contract module at load; test/v2/entry.test.ts keeps it that way)
+import { configFlags } from '../../../packages/contracts/src/config.ts';
 import { startV1 } from './main.jsx';
 
 const mount = document.getElementById('app');

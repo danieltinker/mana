@@ -5,14 +5,14 @@
  *   { action: "status" }                                          → { ok, configured }
  *   { action: "scan_menu" | "wolt_screenshots", import_id, stock? } → { ok, importId, counts, exceptions, notes, dropped, calls, usage }
  *                                                                    | { ok: false, code }
- *   { action: "purge", import_id? }  (service role only)            → { ok, purged, failed, kept, more } | { ok: false, code }
+ *   { action: "purge", import_id?, after? }  (service role only)   → { ok, purged, failed, next } | { ok: false, code }
  *
  * The read modes run with the owner's own token (the claim checks it, and Storage's row-level security decides which
  * images it reads) and read images the owner already uploaded to `menu-private`; the request carries no image. No
  * code here fetches a Wolt address (D33). stock = [{ id, label }]: the placeholder pictures the owner app has; the
  * model may propose one per dish. Every answer, an unexpected error's too, carries the CORS headers.
  */
-import { isUuid } from '@mana/contracts';
+import { isUuid, validateListPurgeableQuery, type PurgeCursor } from '@mana/contracts';
 import { SCAN_MODES, type ScanMode, type StockHint } from '@mana/import';
 import type { Deps } from './deps.ts';
 import { isServiceCaller, purge } from './purge.ts';
@@ -81,9 +81,10 @@ async function route(req: Request, d: Deps): Promise<Response> {
 
   if (action === 'purge') {
     if (!isServiceCaller(authorization, d.env.serviceKey)) return json({ ok: false, code: 'not_allowed' }, 403);
-    const id = body.import_id ?? null;
-    if (id !== null && !isUuid(id)) return json({ ok: false, code: 'bad_request' }, 400);
-    return json(await purge(d, id === null ? null : id.toLowerCase()));
+    const id = body.import_id ?? null, after = body.after ?? null;
+    // `after`: the `next` of the last call, the list's own cursor (the contracts' check)
+    if ((id !== null && !isUuid(id)) || !validateListPurgeableQuery({ after }).ok) return json({ ok: false, code: 'bad_request' }, 400);
+    return json(await purge(d, id === null ? null : id.toLowerCase(), after as PurgeCursor | null));
   }
 
   if (!(SCAN_MODES as readonly string[]).includes(action)) return json({ ok: false, code: 'bad_request' }, 400);

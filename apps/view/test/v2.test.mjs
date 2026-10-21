@@ -4,13 +4,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cafeDemo, liveOf, ID } from '@mana/contracts/fixtures';
-import { EVENT_PROPS, priceDish, validateBatch } from '@mana/contracts';
+import { EVENT_PROPS, defaultSelection, priceDish, validateBatch } from '@mana/contracts';
 import { text, asset, assetUrl, details, httpsUrl } from '../src/snapshot.js';
 import { ROOM_IDS } from '../src/scenes/rooms.js';
-import { buildModel, createStore, initialState } from '../src/store.js';
+import { buildModel, checkState, createStore, initialState } from '../src/store.js';
 import { closedText, filtered, filteredOut, loadMenu, poll, readLive, setLive, toModel } from '../src/v2/menu.js';
 import { chosenList, deadOpeners, issues, qtyOf, runningPrice, selectionKey, setOption, startOf } from '../src/v2/choices.js';
-import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, setQuantity, splitOne, storedLines } from '../src/v2/basket.js';
+import { addLine, counts, lineOf, priced, readLines, removeLine, replaceSelection, room, setQuantity, splitOne, storedLines } from '../src/v2/basket.js';
 import { createEvents, isoAt, newId } from '../src/v2/events.js';
 import { createVisit } from '../src/v2/visit.js';
 import { isV2 } from '../src/v2/guest.js';
@@ -236,7 +236,7 @@ test('a suggestion on screen is checked again: sold out, filtered out, chosen me
 test('events: the contract\'s props only, an offset in every time, batches of 50, a failed send retried with the same ids, a refused one not', async () => {
   assert.equal(isoAt(at('2026-10-14T06:00:00.000Z'), 'Asia/Jerusalem'), '2026-10-14T09:00:00.000+03:00');
   assert.equal(isoAt(at('2026-12-01T10:00:00.250Z'), 'Asia/Jerusalem'), '2026-12-01T12:00:00.250+02:00');
-  assert.match(newId({ getRandomValues: (b) => globalThis.crypto.getRandomValues(b) }), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.match(newId(), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   const sent = [], timers = { set: () => 1, clear: () => {} };
   let answer = { ok: true, status: 200 };
   const ev = createEvents({ venueId: ID.venue, tz: 'Asia/Jerusalem', now: () => Date.now(), timers, send: async (batch) => { sent.push(batch.map((e) => e.id)); if (answer === 'throw') throw new Error('offline'); return answer; } });
@@ -341,4 +341,61 @@ test('the schema switch is the contracts\' configFlags; "from" joins the price a
   assert.equal(isV2({ env: 'local', schema: '2' }), false, 'a broken value is the default');
   assert.equal(word('he', 'fromPrefix') + '68 ₪', 'החל מ־68 ₪');
   assert.equal(word('en', 'fromPrefix') + '₪68', 'from ₪68');
+});
+
+test('closed: a view-only menu stays readable; a menu that takes orders does not take them while the venue is closed (the contracts\' rule)', () => {
+  const t = at('2026-10-14T03:30:00Z');                          // Wednesday 06:30: Café Demo opens at 07:00
+  const view = menuAt(t), orders = menuAt(t, liveOf(), (s) => { s.venue.mode = 'standalone'; });
+  assert.equal(item(view, ID.burger).available, true, 'view only: readable');
+  const b = item(orders, ID.burger);
+  assert.deepEqual([b.available, b.availKind, b.availLabel.en, b.availLabel.he], [false, 'later', 'Served from 07:00', 'מוגש החל מ־07:00']);
+  assert.equal(orders.v2.unavailable.dishes.has(ID.burger), true, 'so it is never priced, added or suggested');
+  const open = menuAt(at('2026-10-14T06:00:00Z'), liveOf(), (s) => { s.venue.mode = 'standalone'; });
+  assert.equal(item(open, ID.burger).available, true);
+});
+
+test('a line holds at most LIMITS.lineQuantity: room() says how many more fit, so an add, a change or a split past it is refused', () => {
+  const m = menuAt(), g = m.v2, burger = g.menu.dishes.get(ID.burger), plain = startOf(burger, g.ctx), egg = setOption(plain, g.ctx, { groupId: ID.extras, optionId: ID.egg });
+  let lines = addLine([], ID.burger, plain, 50);
+  lines = addLine(lines, ID.burger, egg, 2);
+  assert.equal(room(lines, ID.burger, plain), 0, 'the plain line is full');
+  assert.equal(room(lines, ID.burger, egg), 48);
+  assert.equal(room(lines, ID.burger, plain, 'l1'), 50, 'the line being changed does not count');
+  assert.equal(room(lines, ID.burger, plain, 'l2') < 2, true, 'the egg line changed to plain would not fit: refused, never 52 → 50');
+  assert.equal(room([], ID.lemonade, { quantity: 1, groups: [] }), 50);
+});
+
+test('the store\'s invariants agree with traySync: in schema 2 the tray may hold a dish the filter hides', () => {
+  const v2model = buildModel(filtered(menuAt(), ['vegan']));
+  const s = Object.assign(initialState(v2model), { tray: { [ID.burger]: 2, [ID.espresso]: 1 } });
+  assert.deepEqual(checkState(s, v2model), []);
+  assert.deepEqual(checkState(Object.assign({}, s, { tray: { [ID.burger]: 0 } }), v2model), ['tray entry invalid']);
+  assert.deepEqual(checkState(Object.assign({}, s, { tray: { [ID.burger]: 1.5 } }), v2model), ['tray entry invalid']);
+});
+
+test('the dead-opener rule and the nested start are the contracts\' own: deadOpeners and setOption agree with defaultSelection on every shape', () => {
+  // a group of four openers (two into a required group of min 2 with a 2-unit option, one into an optional group, one
+  // plain), every combination of options off: each opener is dead exactly when defaultSelection skips it, and the nested
+  // group an opener starts with is exactly defaultSelection's
+  const id = (n) => `00000000-0000-4000-8000-00000000c${String(n).padStart(3, '0')}`;
+  const o = (n, extra = {}) => ({ id: id(n), name: { he: 'א', en: 'o' + n }, price: 100 * n, maxQty: 1, default: false, opensGroupId: null, ...extra });
+  const dips = { id: id(900), name: { he: 'א', en: 'Dips' }, selection: 'multiple', min: 2, max: 3, options: [o(1, { maxQty: 2, default: true }), o(2)] };
+  const herbs = { id: id(901), name: { he: 'א', en: 'Herbs' }, selection: 'single', min: 0, max: 1, options: [o(3, { default: true })] };
+  const all = [o(10, { opensGroupId: dips.id }), o(11, { opensGroupId: dips.id }), o(12, { opensGroupId: herbs.id }), o(13)];
+  const ids = [1, 2, 3, 10, 11, 12, 13].map(id);
+  for (let mask = 0; mask < 2 ** ids.length; mask++) {
+    const offIds = new Set(ids.filter((_, i) => mask & (1 << i)));
+    for (const opener of all) {
+      const probe = { id: id(950), name: { he: 'א', en: 'Probe' }, selection: 'single', min: 0, max: 1, options: [Object.assign({}, opener, { default: true })] };
+      const groups = new Map([dips, herbs, probe].map((gr) => [gr.id, gr]));
+      const ctx = { groups, unavailable: { dishes: new Set(), options: offIds }, vatBasisPoints: 0 };
+      const theirs = defaultSelection({ addons: [{ groupId: probe.id, min: 0, max: 1 }] }, ctx).groups[0].options;
+      const skipped = theirs.length === 0;
+      if (!offIds.has(opener.id)) assert.equal(deadOpeners(ctx).has(opener.id), skipped, `mask ${mask} o${opener.id.slice(-2)}: dead`);      // an opener that is off is skipped for that alone
+      if (!skipped) {
+        const mine = setOption({ quantity: 1, groups: [] }, ctx, { groupId: probe.id, optionId: opener.id }).groups[0].options[0];
+        assert.deepEqual(mine.nested, theirs[0].nested, `mask ${mask}: the nested start`);
+      }
+    }
+  }
 });

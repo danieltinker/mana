@@ -9,6 +9,7 @@ import { createStub as createV1Stub } from '../stub.mjs';
 import { launch, open, signIn, shot, closeAll, until, DESKTOP, PHONE } from '../helpers.mjs';
 import { ID } from '@mana/contracts/fixtures';
 import { VENUE } from './fake.ts';
+import { newSecret, totp, wrongCode } from './totp.mjs';
 
 let stub, base, browser;
 before(async () => { stub = createStub(); base = `http://127.0.0.1:${await stub.listen(Number(process.env.OPS_V2_TEST_PORT) || 0)}`; browser = await launch(); });
@@ -81,23 +82,251 @@ for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
   });
 }
 
-test('gate: a staff row whose password-only session the database refuses (MFA required) is told why', async () => {
+// ------------------------------------------------------------------ the second step (B118): staff TOTP
+
+/** Signs in with a password while the database wants aal2; the gate shows the second step. */
+async function secondStep(who = ACCOUNTS.support, opts = {}) {
   await control({ requireAal2: true });
-  const { page } = await open(browser, base, { prefix: '/mana' });
-  await signIn(page, ACCOUNTS.support);
-  await page.locator('[data-refused=aal1]').waitFor();
-  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Not accepted as staff');
-  assert.match(await page.locator('[data-refused]').innerText(), /password only \(aal1\).*second step \(MFA\)/s);
-  assert.equal(await page.locator('[data-page]').count(), 0, 'nothing of the back office is shown');
-  await shot(page, 'v2-gate-aal1-desk');
+  const s = await open(browser, base, { prefix: '/mana', ...opts });
+  await signIn(s.page, who);
+  await s.page.locator('[data-second-step=enroll], [data-second-step=verify]').waitFor();
+  return s;
+}
+const codeField = (page) => page.locator('[data-mfa-code]');
+async function typeCode(page, code) {
+  await codeField(page).fill(code);
+  await page.locator('[data-mfa-go]').click();
+}
+
+for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
+  test(`second step (B118, ${tag}): no factor yet: set it up (QR and key), then the code; the gate passes and the staff calls work`, async () => {
+    const { page, problems } = await secondStep(ACCOUNTS.support, { viewport });
+    assert.equal(await page.locator('[data-page]').count(), 0, 'nothing of the back office before the second step');
+    const enroll = page.locator('[data-mfa-enroll]');
+    assert.match(await enroll.innerText(), /add this account to an authenticator app \(scan the code, or type the key\), then enter the 6-digit code/);
+    // the QR: an <img> of a data: URL (the SVG percent-encoded), never markup in the page; its script never runs
+    const qr = page.locator('img[data-mfa-qr]');
+    assert.match(await qr.getAttribute('src'), /^data:image\/svg\+xml;charset=utf-8,%3C%3Fxml%20/, 'percent-encoded, as GoTrue writes it (an XML declaration first)');
+    assert.doesNotMatch(await qr.getAttribute('src'), /[<>#"]/);
+    await until(() => qr.evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the QR is drawn');
+    assert.equal(await page.locator('svg script, [data-second-step] svg').count(), 0, 'no SVG markup in the page');
+    assert.equal(await page.evaluate(() => window.__xss), undefined);
+    const secret = (await page.locator('[data-mfa-secret]').textContent()).trim();
+    assert.match(secret, /^[A-Z2-7]{32}$/, 'the key as text');
+    const field = codeField(page);
+    assert.deepEqual(await field.evaluate((i) => [i.inputMode, i.autocomplete, i.type]), ['numeric', 'one-time-code', 'text']);
+    assert.ok(await field.evaluate((i) => i === document.activeElement), 'the code field has the focus');
+    await shot(page, `v2-second-step-enroll-${tag}`);
+    await typeCode(page, totp(secret));
+    await page.locator('[data-page=clients] [data-count]').waitFor();
+    assert.equal(await page.locator('[data-table=clients] tbody tr, [data-page=clients] .card').count() > 0, true, 'the staff calls answer at aal2');
+    assert.ok(calls('ops_venues').length >= 1);
+    assert.deepEqual(calls('mfa.enroll').map((c) => c.args), [{ friendly_name: 'Mana back office', factor_type: 'totp' }]);
+    // the key never stays: not in the page, the address, or the browser's storage
+    assert.equal(await page.locator('[data-mfa-secret]').count(), 0);
+    assert.doesNotMatch(page.url(), new RegExp(secret));
+    assert.equal(await page.evaluate((s) => JSON.stringify({ ...localStorage }).includes(s) || JSON.stringify({ ...sessionStorage }).includes(s), secret), false);
+    clean(problems);
+  });
+}
+
+test('second step (B118): a verified factor: only the code; a wrong one says so and asks for the newest; the field is cleared', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret } });
+  const { page, problems } = await secondStep(ACCOUNTS.support);
+  assert.equal(await page.locator('[data-second-step]').getAttribute('data-second-step'), 'verify');
+  assert.equal(await page.locator('[data-mfa-secret], img[data-mfa-qr]').count(), 0, 'no key and no QR once it is set up');
+  assert.match(await page.locator('[data-mfa-verify]').innerText(), /Enter the 6-digit code it shows now/);
+  await typeCode(page, '12');
+  assert.equal(await page.locator('[data-mfa-error]').innerText(), 'Enter the 6 digits from your authenticator app.');
+  assert.equal(await codeField(page).inputValue(), '', 'cleared');
+  await typeCode(page, wrongCode(secret));
+  await until(() => page.locator('[data-mfa-error]').innerText(), 'That code was not accepted. Codes change every 30 seconds: enter the newest one from your authenticator app.', 'wrong code');
+  assert.equal(await codeField(page).inputValue(), '', 'cleared after a wrong code');
+  await codeField(page).fill('123 456');
+  assert.equal(await codeField(page).inputValue(), '123456', 'digits only, as pasted');
+  await typeCode(page, totp(secret));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  assert.equal(calls('mfa.enroll').length, 0, 'nothing set up again');
+  clean(problems.filter((p) => !/status of 422/.test(p)));
 });
 
-test('gate: staff access removed mid-session drops to the refused screen with the data gone', async () => {
+test('second step (B118): too many tries (429) says to wait; the next code after the wait works', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret }, mfaRateLimit: 1 });
+  const { page, problems } = await secondStep(ACCOUNTS.support);
+  await typeCode(page, totp(secret));
+  await until(() => page.locator('[data-mfa-error]').innerText(), 'Too many tries. Wait a minute, then enter the newest code.', '429');
+  assert.equal(await codeField(page).inputValue(), '');
+  await typeCode(page, totp(secret));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(problems.filter((p) => !/status of 429/.test(p)));
+});
+
+test('second step (B118): a set-up left half done is removed before a new one; Sign out is always there', async () => {
+  const first = await secondStep(ACCOUNTS.support);
+  await first.page.locator('[data-mfa-enroll]').waitFor();
+  await first.page.getByRole('button', { name: 'Sign out' }).click();
+  await first.page.getByRole('heading', { name: 'Sign in' }).waitFor();
+  await first.ctx.close();
+  const again = await open(browser, base, { prefix: '/mana' });
+  await signIn(again.page, ACCOUNTS.support);
+  await again.page.locator('[data-mfa-enroll]').waitFor();
+  assert.equal(calls('mfa.unenroll').length, 1, 'the leftover, by its name');
+  assert.equal(calls('mfa.enroll').length, 2);
+  const secret = (await again.page.locator('[data-mfa-secret]').textContent()).trim();
+  await typeCode(again.page, totp(secret));
+  await again.page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(again.problems);
+});
+
+test('second step (B118, SEC-N4): staff access removed before or after the second step still reads "Staff access removed"', async () => {
+  const secret = newSecret();
+  await control({ factor: { userId: ACCOUNTS.support.id, secret } });
+  const { page } = await secondStep(ACCOUNTS.support);
+  await control({ revokeStaff: ACCOUNTS.support.id });            // removed while on the second step
+  await typeCode(page, totp(secret));
+  await page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Staff access removed');
+  assert.equal(await page.locator('[data-page]').count(), 0);
+  // and after it: in the back office at aal2, then removed
+  const secret2 = newSecret();
+  await control({ factor: { userId: ACCOUNTS.admin.id, secret: secret2 } });
+  const B = await secondStep(ACCOUNTS.admin);
+  await typeCode(B.page, totp(secret2));
+  await B.page.locator('[data-page=clients] [data-count]').waitFor();
+  await control({ revokeStaff: ACCOUNTS.admin.id });
+  await B.page.locator('[data-refresh]').click();
+  await B.page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await B.page.locator('[data-not-staff]').innerText(), 'Staff access removed');
+  assert.doesNotMatch(await B.page.locator('[data-refused]').innerText(), /MFA|second step/i);
+});
+
+test('second step (B118): an account that is not staff never sees it', async () => {
+  await control({ requireAal2: true });
+  const { page } = await open(browser, base, { prefix: '/mana' });
+  await signIn(page, ACCOUNTS.owner);
+  await page.locator('[data-not-staff]').waitFor();
+  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Not Halom staff');
+  assert.equal(await page.locator('[data-second-step]').count(), 0);
+  assert.equal(calls('mfa.enroll').length, 0);
+});
+
+test('second step (R4-L5): nothing of the back office is drawn before it; the gate asks one staff call first', async () => {
+  await control({ requireAal2: true });
+  const { page } = await open(browser, base, { prefix: '/mana' });
+  await page.getByRole('heading', { name: 'Sign in' }).waitFor();
+  await page.evaluate(() => {
+    window.__sawPage = false;
+    new MutationObserver(() => { if (document.querySelector('[data-page]')) window.__sawPage = true; }).observe(document.body, { subtree: true, childList: true });
+  });
+  await signIn(page, ACCOUNTS.support);
+  await page.locator('[data-mfa-enroll]').waitFor();
+  assert.equal(await page.evaluate(() => window.__sawPage), false, 'the clients page was never drawn');
+  assert.deepEqual(calls('ops_venues').map((c) => c.args.p_filters?.limit), [1], 'one small staff call, no clients list');
+});
+
+test('second step (N16): the key leaves the page on pagehide; a page brought back from the back-forward cache starts over', async () => {
+  const { page } = await secondStep(ACCOUNTS.support);
+  const first = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  assert.equal((await page.content()).includes(first), false, 'the key is not in the page that the cache would keep');
+  assert.equal(await page.locator('img[data-mfa-qr][src]').count(), 0, 'nor its QR');
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const second = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  assert.notEqual(second, first, 'a new set-up');
+  assert.equal(calls('mfa.unenroll').length, 1, 'the one left behind is removed first');
+  await typeCode(page, totp(second));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+});
+
+test('second step (R4-L1): a set-up replaced on another tab or device says so in plain words, and starts again here on request', async () => {
+  const A = await secondStep(ACCOUNTS.support);
+  const keyA = (await A.page.locator('[data-mfa-secret]').textContent()).trim();
+  const B = await open(browser, base, { prefix: '/mana' });            // the same person, on another device
+  await signIn(B.page, ACCOUNTS.support);
+  await B.page.locator('[data-mfa-enroll]').waitFor();                   // its set-up removes A's
+  await typeCode(A.page, totp(keyA));
+  await A.page.locator('[data-mfa-restart]').waitFor();
+  assert.equal(await A.page.locator('[data-mfa-error]').innerText(),
+    'This set-up was replaced: it was started again on another tab or device. Finish it there, or start it again here (that replaces the other one).');
+  assert.equal(await A.page.locator('[data-mfa-restart]').innerText(), 'Start again here');
+  assert.equal(await A.page.locator('[data-mfa-secret], [data-mfa-code]').count(), 0, 'the old key and field are gone');
+  await A.page.locator('[data-mfa-restart]').click();
+  await A.page.locator('[data-mfa-enroll]').waitFor();
+  const keyA2 = (await A.page.locator('[data-mfa-secret]').textContent()).trim();
+  await typeCode(A.page, totp(keyA2));
+  await A.page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(A.problems.filter((p) => !/status of 404/.test(p)));
+});
+
+test('second step (R4-L2): only the newest key works: the set-up says so, and a code from an older key is answered for the set-up', async () => {
+  const { page } = await secondStep(ACCOUNTS.support);
+  assert.equal(await page.locator('[data-mfa-newest]').innerText(),
+    'Only this key works, and it is shown only here. A reload or another tab starts a new one: if the app already has an older entry for this account, delete it.');
+  const old = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await page.reload();                                                      // a new key
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const now = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  assert.notEqual(now, old);
+  await typeCode(page, totp(old));
+  await until(() => page.locator('[data-mfa-error]').innerText(),
+    'That code was not accepted. Enter the newest code for the key shown here: only this key works, so if the app has an older entry for this account, delete it and use this one.', 'a code from the old key');
+  await typeCode(page, totp(now));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+});
+
+test('second step (R4-L3): a timeout while setting up says to try again, with no word of a code', async () => {
+  await control({ requireAal2: true, enrollDelay: 2500 });
+  const { page, problems } = await open(browser, base, { prefix: '/mana', init: { __OPS_TIMEOUT_MS: 1500 } });
+  await signIn(page, ACCOUNTS.support);
+  await page.locator('[data-second-step=failed]').waitFor({ timeout: 8000 });
+  assert.equal(await page.locator('[data-mfa-error]').innerText(), 'The server did not answer in time. Try again.');
+  assert.equal(await page.locator('[data-mfa-restart]').innerText(), 'Try again');
+  await control({ enrollDelay: 0 });
+  await page.locator('[data-mfa-restart]').click();
+  await page.locator('[data-mfa-enroll]').waitFor();
+  const key = (await page.locator('[data-mfa-secret]').textContent()).trim();
+  await typeCode(page, totp(key));
+  await page.locator('[data-page=clients] [data-count]').waitFor();
+  clean(problems);
+});
+
+test('second step (R4-L4, phone): the key reads in groups of four, never broken inside a group, and copies as one string', async () => {
+  const { page } = await secondStep(ACCOUNTS.support, { viewport: PHONE });
+  const key = page.locator('[data-mfa-secret]');
+  const raw = (await key.textContent()).trim();
+  assert.match(raw, /^[A-Z2-7]{32}$/);
+  assert.deepEqual(await key.locator('span').allTextContents(), raw.match(/.{4}/g), 'eight groups of four');
+  const fit = await key.evaluate((el) => ({ over: el.scrollWidth > el.clientWidth + 1,
+    split: [...el.querySelectorAll('span')].some((s) => s.getClientRects().length !== 1 || s.getBoundingClientRect().right > el.getBoundingClientRect().right + 1) }));
+  assert.deepEqual(fit, { over: false, split: false }, 'each group whole on its line, inside the box');
+  const copied = await key.evaluate((el) => { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return s.toString(); });
+  assert.equal(copied, raw, 'a copy is the key itself: no spaces or line breaks from the grouping');
+  await shot(page, 'v2-second-step-key-phone');
+});
+
+test('gate (SEC-N4): staff access removed mid-session says so (not "MFA needed"), with the data gone', async () => {
   const { page } = await staff(ACCOUNTS.support);
   await control({ revokeStaff: ACCOUNTS.support.id });
   await page.locator('[data-refresh]').click();
-  await page.locator('[data-refused]').waitFor();
+  await page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await page.locator('[data-not-staff]').innerText(), 'Staff access removed');
+  assert.match(await page.locator('[data-refused]').innerText(), /no longer on Halom’s staff: its staff access was removed/);
+  assert.doesNotMatch(await page.locator('[data-refused]').innerText(), /MFA/);
   assert.equal(await page.locator('[data-page]').count(), 0);
+});
+
+test('leads (SEC-N4): access is checked again when the page is looked at again, and before a lead is changed', async () => {
+  const { page } = await staff(ACCOUNTS.support);
+  await page.locator('[data-tab=leads]').click();
+  await page.locator('[data-lead="MN-2026-0001"]').waitFor();
+  await control({ revokeStaff: ACCOUNTS.support.id });
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.locator('[data-refused=removed]').waitFor();
+  assert.equal(await page.locator('[data-lead]').count(), 0, 'the personal data is gone from the screen');
+  assert.equal(calls('ops_update_lead').length, 0);
 });
 
 // ------------------------------------------------------------------ clients
@@ -357,6 +586,15 @@ test('approve: after a restore, the menu to approve and the approval are the pub
   await until(() => panel.locator('[data-diff]').evaluate((el) => el.textContent.includes('(the published one)')), true, 'the comparison names the published revision');
   const approve = page.locator('[data-write=approve]');
   await approve.locator('[data-reason]').fill('Menu checked with the owner by phone');
+  // SEC-N11: the approval names the revision on screen; revision 3 is not the published one, so it is refused
+  await approve.locator('[data-review]').click();
+  assert.match(await approve.locator('[data-write-error]').innerText(),
+    /The menu on screen is revision 3, but the published one, which guests would see, is revision 2\. Read revision 2 below/);
+  assert.equal(calls('ops_approve_venue').length, 0);
+  const reads = calls('ops_revision').length;
+  await panel.locator('[data-revision-pick]').selectOption('published');
+  await panel.locator('[data-revision="2"]').waitFor();
+  assert.equal(calls('ops_revision').length, reads, 'revision 2 was read already on this page: not read (and logged) again');
   await approve.locator('[data-review]').click();
   assert.match(await approve.locator('[data-what]').innerText(), /\(revision 2, the published one\): guests see that revision at once/);
   await approve.locator('[data-go]').click();
@@ -399,7 +637,7 @@ test('act for owner (M4): a dish change starts from the owner\'s dish now; a cha
   await act.locator('[data-go]').click();
   await act.locator('[data-write-error]').waitFor();
   assert.match(await act.locator('[data-write-error]').innerText(),
-    /Not done: The owner changed this since your review\. Nothing was changed: review it again\. Now the owner’s price is ₪74 and it is shown to guests\./);
+    /Not done: This changed since your review\. Nothing was changed: review it again\. Now the price in the owner’s menu is ₪74 and it is shown to guests\./);
   assert.deepEqual(calls('act_for_owner')[0].args.p_payload, { dishId: ID.burger, patch: { price: 7000 }, expectedUpdatedAt: seen });
   assert.equal(await act.locator('[data-review]').count(), 1, 'back to the fields');
   await act.locator('[data-review]').click();
@@ -427,7 +665,7 @@ test('act for owner: an onboarding step carries the updatedAt the page read; a c
   await control({ ownerStep: { venueId: VENUE.demo, step: 'photos', state: 'doing' } });
   await act.locator('[data-go]').click();
   await act.locator('[data-write-error]').waitFor();
-  assert.match(await act.locator('[data-write-error]').innerText(), /Not done: The owner changed this since your review\. Nothing was changed: review it again\. Now the step is doing\./);
+  assert.match(await act.locator('[data-write-error]').innerText(), /Not done: This changed since your review\. Nothing was changed: review it again\. Now the step is doing\./);
   assert.deepEqual(calls('act_for_owner')[0].args.p_payload, { step: 'photos', state: 'skipped', expectedUpdatedAt: seen });
   await until(() => page.locator('[data-step=photos]').getAttribute('data-state'), 'doing', 'the page refreshed');
   await act.locator('[data-review]').click();
@@ -447,7 +685,7 @@ test('what the owner sees (M5): their dashboard with the venue; their menu as it
   assert.match(await owner.locator('[data-nudge=onboarding_step]').innerText(), /5 onboarding steps left/);
   assert.match(await owner.locator('[data-owner-off]').innerText(), /Espresso \(dish\) · until \d\d:\d\d/);
   assert.match(await owner.locator('[data-export]').innerText(), /Read the owner’s menu now/);
-  assert.match(await owner.innerText(), /The owner sees each read in their activity log/);
+  assert.match(await owner.locator('[data-logged-reads]').innerText(), /Reading it is an export, which the owner sees in their activity log \(“Menu exported”\)/);
   const polls = calls('ops_venue').length;
   await until(() => calls('ops_venue').length >= polls + 2, true, 'two polls');
   assert.equal(calls('export_menu').length, 0, 'not read by itself');
@@ -535,9 +773,10 @@ test('cases: change a case with a reason; its words are shown as text', async ()
   assert.match(await c.locator('[data-case-body]').innerText(), /<img src=x/);
   await c.locator('summary').click();
   await c.locator('[data-case-status]').selectOption('waiting_owner');
-  await write(c, 'Asked the owner for the drinks photos', /Set the case to waiting for the owner/);
+  await write(c, 'Asked the owner for the drinks photos', /Set the case from open to waiting for the owner\./);
   await until(() => c.getAttribute('data-status'), 'waiting_owner', 'status');
   assert.deepEqual(calls('ops_update_case')[0].args.p_status, 'waiting_owner');
+  assert.equal(calls('ops_update_case')[0].args.p_expected_updated_at, stub.world.venues[0].cases[0].openedAt, 'the case’s version as read (L4)');
   await noHtmlFromData(page);
 });
 
@@ -613,6 +852,431 @@ test('leads: loaded once (each read is logged), an edit says what it will save f
   assert.deepEqual(calls('ops_update_lead')[0].args, { p_id: stub.world.leads[0].id, p_status: 'contacted', p_owner: 'Halom team', p_notes: null });
   await noHtmlFromData(page);
   await shot(page, 'v2-leads-desk');
+  clean(problems);
+});
+
+// ------------------------------------------------------------------ the fourth QA round and the security review
+
+/** Requests give up after 3 s, and a lost write is believed not to have happened 3 s after it was lost; no polls. A slow
+ * write below is applied 4.5 s after it was sent: after the page gave up, before its second look (6 s). */
+const LOST = { __OPS_TIMEOUT_MS: 3000, __OPS_RETRY_GAP_MS: 3000, __OPS_POLL_MS: 600000 };
+const actLog = () => stub.world.venues[0].activity.filter((e) => e.action === 'support.act_for_owner');
+
+test('a lost answer (QA-M1): the change was made; the page says the outcome is unknown, finds the change, and never sends it twice', async () => {
+  await control({ approve: VENUE.demo });
+  const { page, problems } = await staff(ACCOUNTS.support, { init: LOST });
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('dish.update');
+  await act.locator('[data-act-dish]').selectOption(ID.burger);
+  await act.locator('[data-act-price]').fill('77');
+  await act.locator('[data-reason]').fill('Owner asked by phone for the new price');
+  await act.locator('[data-review]').click();
+  await act.locator('[data-what]').waitFor();
+  await control({ delays: { act_for_owner: 4500 } });          // the database applies it after the page has given up waiting
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-lost]').waitFor({ timeout: 10000 });
+  assert.match(await act.locator('[data-write-lost]').innerText(), /The answer did not arrive: the change may or may not have been made/);
+  assert.equal(await act.locator('[data-go]').count(), 0, 'no second send while the outcome is not known');
+  await act.locator('[data-write-result]').waitFor({ timeout: 15000 });
+  assert.equal(await act.locator('[data-write-result]').innerText(), 'Done. The answer did not arrive, but the change is there now: it was made once.');
+  await control({ delays: {} });
+  assert.equal(calls('act_for_owner').length, 1, 'sent once');
+  assert.equal(stub.world.venues[0].dishes.find((d) => d.id === ID.burger).price, 7700);
+  assert.equal(actLog().length, 1, 'one entry in the owner’s log');
+  assert.doesNotMatch(await act.innerText(), /owner changed/i, 'Halom’s own change is never put on the owner');
+  clean(problems);
+});
+
+test('a lost answer (QA-M1, QA-L1): not made; after the wait "not there yet, it may still arrive", and a second send only after its own confirm', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support, { init: LOST });
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('onboarding.set');
+  await act.locator('[data-act-step]').selectOption('photos');
+  await act.locator('[data-act-state]').selectOption('skipped');
+  await act.locator('[data-reason]').fill('The owner will add the photos later');
+  await act.locator('[data-review]').click();
+  await act.locator('[data-what]').waitFor();
+  await control({ faults: { act_for_owner: { mode: 'timeout', times: 1 } } });   // never answers, never applies
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-lost=waiting]').waitFor({ timeout: 10000 });
+  assert.equal(await act.locator('[data-go], [data-send-again]').count(), 0, 'nothing offered while the server may still be working on it');
+  await act.locator('[data-write-lost=absent]').waitFor({ timeout: 15000 });
+  assert.equal(await act.locator('[data-write-lost=absent]').innerText(),
+    'The answer did not arrive, and the change is not there yet. It may still arrive: a slow server can make it later. Check again before you send it again.');
+  assert.doesNotMatch(await act.innerText(), /nothing was made/, 'never "nothing was made": it may still arrive');
+  assert.equal(await act.locator('[data-go]').count(), 0, 'no plain Go while the first send is unresolved');
+  assert.equal(actLog().length, 0);
+  await act.locator('[data-send-again]').click();
+  assert.equal(await act.locator('[data-confirm-again]').innerText(), 'If the first send still arrives, this change is made twice. Send it again anyway?');
+  await act.locator('[data-cancel-again]').click();
+  assert.equal(await act.locator('[data-go-again]').count(), 0, 'cancelled: nothing sent');
+  assert.equal(calls('act_for_owner').length, 1);
+  await act.locator('[data-send-again]').click();
+  await act.locator('[data-go-again]').click();
+  await act.locator('[data-write-result]').waitFor();
+  assert.equal(calls('act_for_owner').length, 2);
+  assert.equal(actLog().length, 1, 'made once');
+  await until(() => page.locator('[data-step=photos]').getAttribute('data-state'), 'skipped', 'skipped for the owner');
+  clean(problems);
+});
+
+test('a write that lands after the wait (QA-L1): "not there yet", no second send offered without a confirm; Check again finds it, made once', async () => {
+  await control({ approve: VENUE.demo });
+  const { page, problems } = await staff(ACCOUNTS.support, { init: LOST });
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('availability.set');
+  await act.locator('[data-act-target]').selectOption(`dish:${ID.burger}`);
+  await act.locator('[data-reason]').fill('The grill is down for an hour');
+  await act.locator('[data-review]').click();
+  await act.locator('[data-what]').waitFor();
+  await control({ delays: { act_for_owner: 9000 } });   // applied 9 s after the call: after the page gave up (3 s) and its wait (6 s)
+  const sent = Date.now();
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-lost=absent]').waitFor({ timeout: 15000 });
+  assert.ok(Date.now() - sent < 9000, 'said before the write landed');
+  assert.equal(await act.locator('[data-go]').count(), 0);
+  await control({ delays: {} });
+  await until(() => actLog().length, 1, 'the slow write lands', 8000);
+  await act.locator('[data-check-again]').click();
+  await act.locator('[data-write-result]').waitFor({ timeout: 8000 });
+  assert.equal(await act.locator('[data-write-result]').innerText(), 'Done. The answer did not arrive, but the change is there now: it was made once.');
+  assert.equal(calls('act_for_owner').length, 1, 'sent once');
+  clean(problems);
+});
+
+test('Check again (SEC-N15) waits out the gap from when the answer was lost, not from the click', async () => {
+  await control({ approve: VENUE.demo });
+  const { page, problems } = await staff(ACCOUNTS.support, { init: LOST });
+  await toVenue(page, 'cafe-demo');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('availability.set');
+  await act.locator('[data-act-target]').selectOption(`dish:${ID.burger}`);
+  await act.locator('[data-reason]').fill('The grill is down for an hour');
+  await act.locator('[data-review]').click();
+  await act.locator('[data-what]').waitFor();
+  // the write never happens, and the first look at the log fails: the page cannot tell
+  await control({ faults: { act_for_owner: { mode: 'timeout', times: 1 }, venue_activity: { mode: 'error', times: 1 } } });
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-lost=unknown]').waitFor({ timeout: 10000 });
+  await act.locator('[data-check-again]').click();          // well inside the 3 s since the answer was lost
+  await act.locator('[data-write-lost=waiting]').waitFor({ timeout: 4000 });
+  assert.equal(await act.locator('[data-write-lost=absent]').count(), 0, 'not "not there yet" at once');
+  await act.locator('[data-write-lost=absent]').waitFor({ timeout: 8000 });
+  assert.equal(calls('act_for_owner').length, 1);
+  clean(problems.filter((p) => !/status of 500/.test(p)));     // the log read's injected failure
+});
+
+test('a lost answer that was never made (QA-M5): a plan moved by its date only, and a take-off of an item already off, are never reported as done', async () => {
+  // the plan: the probe's C1 (bistro, trial running; only the date changes)
+  const A = await staff(ACCOUNTS.admin, { init: LOST });
+  await toVenue(A.page, 'bistro-sim');
+  const was = stub.world.venues.find((v) => v.row.id === VENUE.bistro).row.plan.trialEndsAt;
+  const pl = A.page.locator('[data-write=plan]');
+  await pl.locator('[data-plan-until]').fill('2026-12-31');
+  await pl.locator('[data-reason]').fill('Trial extended with the owner');
+  await pl.locator('[data-review]').click();
+  assert.match(await pl.locator('[data-what]').innerText(), /to Pilot, trial running: the trial end moves to 31 Dec 2026\./);
+  await control({ faults: { ops_set_plan: { mode: 'timeout', times: 1 } } });
+  await pl.locator('[data-go]').click();
+  await pl.locator('[data-write-lost=absent]').waitFor({ timeout: 15000 });
+  assert.equal(await pl.locator('[data-write-result]').count(), 0, 'never "done": the state and the plan were already so, the date was not');
+  assert.equal(stub.world.venues.find((v) => v.row.id === VENUE.bistro).row.plan.trialEndsAt, was);
+  // the take-off: the probe's C2 (the espresso is off already; a new "until")
+  await control({ approve: VENUE.demo });
+  const B = await staff(ACCOUNTS.support, { init: LOST });
+  await toVenue(B.page, 'cafe-demo');
+  const act = B.page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('availability.set');
+  await act.locator('[data-act-target]').selectOption(`dish:${ID.espresso}`);
+  await act.locator('[data-act-until]').selectOption('indefinite');
+  await act.locator('[data-reason]').fill('Owner asked by phone');
+  await act.locator('[data-review]').click();
+  await act.locator('[data-what]').waitFor();
+  const before = JSON.stringify(stub.world.venues[0].off);
+  await control({ faults: { act_for_owner: { mode: 'timeout', times: 1 } } });
+  await act.locator('[data-go]').click();
+  await act.locator('[data-write-lost=absent]').waitFor({ timeout: 15000 });
+  assert.equal(await act.locator('[data-write-result]').count(), 0, 'never "done": it was off before, and its "until" is not this one');
+  assert.equal(JSON.stringify(stub.world.venues[0].off), before);
+  clean(A.problems);
+  clean(B.problems);
+});
+
+test('a lost plan that was made (QA-M5): found by its own entry, with its state, plan and date', async () => {
+  const { page, problems } = await staff(ACCOUNTS.admin, { init: LOST });
+  await toVenue(page, 'bistro-sim');
+  const pl = page.locator('[data-write=plan]');
+  await pl.locator('[data-plan-state]').selectOption('active');
+  await pl.locator('[data-plan-until]').fill('2027-01-31');
+  await pl.locator('[data-reason]').fill('Signed the paid plan by phone');
+  await pl.locator('[data-review]').click();
+  assert.match(await pl.locator('[data-what]').innerText(), /to Pilot, active, until 31 Jan 2027\./);
+  await control({ delays: { ops_set_plan: 4500 } });
+  await pl.locator('[data-go]').click();
+  await pl.locator('[data-write-result]').waitFor({ timeout: 15000 });
+  assert.equal(await pl.locator('[data-write-result]').innerText(), 'Done. The answer did not arrive, but the change is there now: it was made once.');
+  assert.equal(calls('ops_set_plan').length, 1);
+  await control({ delays: {} });
+  clean(problems);
+});
+
+test('the plan\'s review (QA-L2): a running trial without a date says its end moves; a date with a state that keeps none is refused', async () => {
+  const { page } = await staff(ACCOUNTS.admin);
+  await toVenue(page, 'bistro-sim');
+  const pl = page.locator('[data-write=plan]');
+  await pl.locator('[data-reason]').fill('Trial restarted with the owner');
+  await pl.locator('[data-review]').click();
+  assert.match(await pl.locator('[data-what]').innerText(), /to Pilot, trial running: the trial end moves to \d{1,2} \w{3} \d{4} \(30 days from now, the trial’s length\)\./);
+  await pl.locator('[data-back]').click();
+  await pl.locator('[data-plan-state]').selectOption('suspended');
+  await pl.locator('[data-plan-until]').fill('2026-12-31');
+  await pl.locator('[data-review]').click();
+  assert.match(await pl.locator('[data-write-error]').innerText(), /A date applies only to a running trial or an active plan; suspended keeps no date/);
+  assert.equal(calls('ops_set_plan').length, 0);
+});
+
+test('a lost answer on approve (QA-M1), then a second staff member approving (L4): both end as approved, never as an error', async () => {
+  const A = await staff(ACCOUNTS.support, { init: LOST });
+  const B = await staff(ACCOUNTS.admin, { viewport: PHONE, init: { __OPS_POLL_MS: 600000 } });
+  for (const s of [A, B]) {
+    await toVenue(s.page, 'cafe-demo');
+    await s.page.locator('[data-panel=revision] [data-revision="2"]').waitFor();
+    const ap = s.page.locator('[data-write=approve]');
+    await ap.locator('[data-reason]').fill('Menu checked with the owner by phone');
+    await ap.locator('[data-review]').click();
+    await ap.locator('[data-what]').waitFor();
+  }
+  await control({ delays: { ops_approve_venue: 4500 } });
+  await A.page.locator('[data-write=approve] [data-go]').click();
+  await A.page.locator('[data-write=approve] [data-write-lost]').waitFor({ timeout: 10000 });
+  await A.page.locator('[data-panel=approved] [data-write-result]').waitFor({ timeout: 18000 });
+  assert.equal(await A.page.locator('[data-panel=approved] [data-write-result]').innerText(),
+    'Approved: guests can open the menu now. (The answer did not arrive, but the venue is approved.)');
+  await control({ delays: {} });
+  // B's page still shows the venue waiting, with B's review open
+  await B.page.locator('[data-write=approve] [data-go]').click();
+  await B.page.locator('[data-panel=approved] [data-write-result]').waitFor();
+  assert.equal(await B.page.locator('[data-panel=approved] [data-write-result]').innerText(),
+    'Already approved (by another Halom staff member, or by a send whose answer was lost): guests can open the menu.');
+  assert.equal(await B.page.locator('[data-write-error]').count(), 0);
+  assert.equal(calls('ops_approve_venue').length, 2);
+  assert.equal(stub.world.venues[0].activity.filter((e) => e.action === 'venue.approve').length, 1, 'approved once');
+  clean(A.problems);
+  clean(B.problems);
+});
+
+test('two staff on one case (L4): the second is refused with the case as it is now, never as the owner\'s doing', async () => {
+  const A = await staff(ACCOUNTS.support, { init: { __OPS_POLL_MS: 600000 } });
+  const B = await staff(ACCOUNTS.admin, { init: { __OPS_POLL_MS: 600000 } });
+  for (const s of [A, B]) { await toVenue(s.page, 'cafe-demo'); await s.page.locator('[data-case] summary').first().click(); }
+  const ca = A.page.locator('[data-case]').first(), cb = B.page.locator('[data-case]').first();
+  await ca.locator('[data-case-status]').selectOption('resolved');
+  await write(ca, 'Sent the owner the photo guide', /Set the case from open to resolved/);
+  await cb.locator('[data-case-status]').selectOption('waiting_owner');
+  await cb.locator('[data-reason]').fill('Asked the owner for the drinks photos');
+  await cb.locator('[data-review]').click();
+  await cb.locator('[data-go]').click();
+  await cb.locator('[data-write-error]').waitFor();
+  assert.equal(await cb.locator('[data-write-error]').innerText(),
+    'Not done: This changed since your review. Nothing was changed: review it again. It is resolved now, under photos.');
+  assert.equal(stub.world.venues[0].cases[0].status, 'resolved', 'A’s change stands');
+  const [a, b] = calls('ops_update_case');
+  assert.equal(typeof a.args.p_expected_updated_at, 'string');
+  assert.equal(b.args.p_expected_updated_at, a.args.p_expected_updated_at, 'each sent the version it read');
+  await until(() => cb.getAttribute('data-status'), 'resolved', 'B’s page shows the case as it is');
+  // B tries again, from the case as it is now: accepted
+  await cb.locator('[data-case-status]').selectOption('waiting_owner');
+  await cb.locator('[data-reason]').fill('Asked the owner for the drinks photos');
+  await cb.locator('[data-review]').click();
+  assert.match(await cb.locator('[data-what]').innerText(), /Set the case from resolved to waiting for the owner/);
+  await cb.locator('[data-go]').click();
+  await cb.locator('[data-write-result]').waitFor();
+  assert.equal(stub.world.venues[0].cases[0].status, 'waiting_owner');
+});
+
+test('a chart that starts empty draws when its first traffic arrives on a poll (QA-M2)', async () => {
+  await control({ reset: { traffic: false } });
+  const { page, problems } = await staff(ACCOUNTS.support, { init: { __OPS_POLL_MS: 1000 } });
+  await page.locator('[data-tab=analytics]').click();
+  await page.locator('[data-range="1h"]').click();
+  await page.locator('[data-chart=menu_opened] [data-empty]').waitFor();
+  assert.equal(await page.locator('[data-chart=menu_opened] svg').count(), 0);
+  await control({ traffic: { venueId: VENUE.bistro, counts: { menu_opened: 5 } } });
+  await page.locator('[data-chart=menu_opened] svg').waitFor({ timeout: 8000 });
+  assert.ok(await page.locator('[data-chart=menu_opened] svg path.col').count() > 0, 'the column is drawn');
+  const { svg, plot } = await page.locator('[data-chart=menu_opened] .chart-plot').evaluate((el) =>
+    ({ svg: Number(el.querySelector('svg').getAttribute('width')), plot: Math.floor(el.getBoundingClientRect().width) }));
+  assert.equal(svg, Math.max(plot, 240), 'at the plot’s own width');
+  clean(problems);
+});
+
+for (const [tag, viewport] of [['desk', DESKTOP], ['phone', PHONE]]) {
+  test(`long words (QA-M3, ${tag}): a lead's whole message and a case's whole body are always reachable`, async () => {
+    stub.world.leads[0].message = 'We run a small invented café with two rooms and a garden. We would like the menu with a picture of every dish, in Hebrew and English, '
+      + 'and a code on each table. Our busiest hours are Friday mornings, so please call on a weekday afternoon. THE LAST SENTENCE IS HERE.';
+    stub.world.leads[1].message = 'Short.';
+    stub.world.venues[0].cases[0].body = 'One\nTwo\nThree\nFour: the important part';
+    const { page, problems } = await staff(ACCOUNTS.support, { viewport });
+    await toVenue(page, 'cafe-demo');
+    const body = page.locator('[data-case-body]').first();
+    await until(() => body.evaluate((e) => e.scrollHeight > e.clientHeight + 1), true, 'four short lines are more than three');
+    await page.locator('[data-panel=cases] [data-show-all]').first().click();
+    assert.equal(await body.evaluate((e) => e.scrollHeight <= e.clientHeight + 1), true, 'shown in full');
+    assert.match(await body.innerText(), /Four: the important part/);
+    assert.equal(await page.locator('[data-panel=cases] [data-show-all]').first().innerText(), 'Show less');
+    await page.locator('[data-tab=leads]').click();
+    const dream = page.locator('[data-lead="MN-2026-0001"] [data-dream]');
+    await dream.waitFor();
+    await until(() => dream.evaluate((e) => e.scrollHeight > e.clientHeight + 1), true, 'the long message is clipped');
+    await page.locator('[data-lead="MN-2026-0001"] [data-show-all]').click();
+    assert.equal(await dream.evaluate((e) => e.scrollHeight <= e.clientHeight + 1), true);
+    assert.match(await dream.innerText(), /THE LAST SENTENCE IS HERE/);
+    assert.equal(await page.locator('[data-lead="MN-2026-0002"] [data-show-all]').count(), 0, 'a message that fits has no expander');
+    await shot(page, `v2-leads-long-${tag}`);
+    clean(problems);
+  });
+}
+
+test('the menu to approve, in full (QA-M4): both languages, notes, allergens, add-ons and their nesting, rules; pictures, or why not', async () => {
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const rev = page.locator('[data-panel=revision] [data-revision="2"]');
+  await rev.waitFor();
+  const burger = rev.locator(`.mr-dish[data-id="${ID.burger}"]`);
+  const text = await burger.innerText();
+  for (const want of [/Burger · המבורגר/, /Beef, brioche, pickles · בקר, בריוש, חמוצים/, /₪68 · with a side · עם תוספת/,
+    /Allergens, in the owner’s words: gluten, sesame · גלוטן, שומשום/, /Goes well with: Lemonade, Schnitzel/,
+    /Side · תוספת · one choice · choose 1 \(required\)/, /Fries · צ׳יפס · free · pre-selected/, /Choosing it opens:\s*Sauce · רוטב · one choice · choose 1 \(required\)/,
+    /Chipotle · צ׳יפוטלה · \+₪2/, /Extras · תוספות · several choices · up to 3 \(optional\)/, /Cheese · גבינה · \+₪4 · up to 2 of it/]) assert.match(text, want);
+  // the photo loads from the menu's own storage; the relief whose file is missing says so; the library's illustration shows
+  await burger.scrollIntoViewIfNeeded();
+  await until(() => burger.locator('[data-picture=photo] img').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the burger’s photo');
+  const schnitzel = rev.locator(`.mr-dish[data-id="${ID.schnitzel}"]`);
+  await schnitzel.scrollIntoViewIfNeeded();
+  await until(() => schnitzel.locator('[data-picture]').getAttribute('data-picture'), 'unavailable', 'the relief whose file is missing');
+  assert.match(await schnitzel.locator('[data-picture]').innerText(), /^A relief from one photo: cannot be shown here/);
+  const croissant = rev.locator(`.mr-dish[data-id="${ID.croissant}"]`);
+  await croissant.scrollIntoViewIfNeeded();
+  await until(() => croissant.locator('[data-picture=stock] img').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the illustration');
+  assert.match(await croissant.innerText(), /Tags: vegetarian/);
+  assert.match(await rev.locator(`.mr-dish[data-id="${ID.fridayCake}"]`).innerText(), /Shown Friday \(Fri 07:00–15:00\)/);
+  assert.match(await rev.locator(`[data-section="${ID.morning}"]`).innerText(), /Shown Breakfast \(every day 07:00–12:00\)/);
+  const rules = await rev.locator('[data-rules]').innerText();
+  assert.match(rules, /When a guest opens the sheet of “Burger”, any time: suggest the add-on “Cheese” \(Extras\)\. Priority 40, at most 2 times a visit\./);
+  assert.match(rules, /The line guests read: “Add cheese\?” · “להוסיף גבינה\?”/);
+  assert.match(rules, /When a guest opens “my table” with a dish from “Mains”, any time, unless their table has anything from Drinks: suggest “Lemonade”\./);
+  // the block guests see at the top (QA-L3)
+  const top = rev.locator('[data-venue-block]');
+  assert.match(await top.locator('[data-venue-name-read]').innerText(), /Café Demo · קפה דמו/);
+  assert.match(await top.locator('[data-venue-area]').innerText(), /Test Quarter · רובע הבדיקה/);
+  assert.match(await top.locator('[data-venue-cuisine]').innerText(), /Café · בית קפה/);
+  assert.equal(await top.locator('[data-venue-order]').innerText(), 'https://order.example.invalid/cafe-demo');
+  assert.equal(await top.locator('[data-venue-book]').innerText(), 'https://book.example.invalid/cafe-demo');
+  assert.equal(await top.locator('[data-venue-phone]').innerText(), '+972-3-000-0000');
+  assert.equal(await top.locator('[data-venue-table]').innerText(), 'the owner’s own table photo');
+  assert.equal(await top.locator('[data-venue-order] a').count(), 0, 'a link is shown as text, never followed from here');
+  await until(() => top.locator('[data-picture=logo] img').evaluate((i) => i.complete && i.naturalWidth > 0), true, 'the logo');
+  await until(() => top.locator('[data-picture=unavailable][data-picture-of=table]').count(), 1, 'the table photo whose file is missing says so');
+  // each owner name in its own <bdi> (SEC-N13): the rule's three names, the schedule's, each diff entry's
+  const cheese = rev.locator('[data-rule-words]').nth(1);
+  assert.deepEqual(await cheese.locator('bdi').allInnerTexts(), ['Burger', 'Cheese', 'Extras']);
+  assert.deepEqual(await rev.locator(`[data-section="${ID.morning}"] > [data-when] bdi`).allInnerTexts(), ['Breakfast']);
+  assert.deepEqual(await page.locator('[data-panel=revision] [data-diff] li').nth(1).locator('bdi').allInnerTexts(), ['Lemonade']);
+  await shot(page, 'v2-menu-to-approve-desk');
+  await noHtmlFromData(page);
+  clean(problems);
+});
+
+test('pictures from anywhere but this environment\'s own storage are never loaded (SEC-N14)', async () => {
+  const foreign = 'https://evil.example.invalid/storage/v1/object/public/menu-public/';
+  for (const r of stub.world.venues[0].revisions) r.snapshot.assetBase = foreign;
+  const { page, problems } = await staff(ACCOUNTS.support);
+  const asked = [];
+  page.on('request', (r) => { if (r.url().includes('evil.example.invalid')) asked.push(r.url()); });
+  await toVenue(page, 'cafe-demo');
+  const rev = page.locator('[data-panel=revision] [data-revision="2"]');
+  await rev.waitFor();
+  const burger = rev.locator(`.mr-dish[data-id="${ID.burger}"] [data-picture]`);
+  assert.equal(await burger.getAttribute('data-picture'), 'unavailable');
+  assert.match(await burger.innerText(), /A photo: cannot be shown here \(its address is not this environment’s own picture storage\)/);
+  assert.equal(await rev.locator('[data-venue-block] [data-picture=unavailable][data-picture-of=logo]').count(), 1);
+  assert.equal(await rev.locator(`.mr-dish[data-id="${ID.croissant}"] [data-picture=stock]`).count(), 1, 'the library\'s own illustrations still show');
+  assert.deepEqual(asked, [], 'nothing was even asked of another host');
+  clean(problems);
+});
+
+test('words (L2, L8, SEC-L1): five actions; a waiting venue\'s timeline names its dishes from the revision read; reads said truthfully', async () => {
+  const { page } = await staff(ACCOUNTS.support);
+  await toVenue(page, 'cafe-demo');
+  const head = await page.locator('[data-panel=act] .panel-head').innerText();
+  assert.match(head, /one of five actions/);
+  assert.doesNotMatch(head, /only here/);
+  await page.locator('[data-panel=revision] [data-revision="2"]').waitFor();
+  await until(() => page.locator('[data-panel=timeline] [data-action="availability_overrides.insert"]').first().innerText().then((t) => /Taken off: Espresso/.test(t)), true,
+    'named from the revision on screen, though guests cannot see the menu yet');
+  assert.match(await page.locator('[data-logged-reads]').innerText(), /Not every back-office read is logged: the dish a change for them starts from is read without an entry\./);
+  assert.doesNotMatch(await page.locator('[data-panel=owner]').innerText(), /sees each read/);
+});
+
+test('one column (L3): below 1000 px the order on screen is the order in the page, for the keyboard and screen readers', async () => {
+  const { page } = await staff(ACCOUNTS.support, { viewport: PHONE });
+  await toVenue(page, 'cafe-demo');
+  await page.locator('[data-panel=revision] [data-revision="2"]').waitFor();
+  const panels = await page.locator('[data-layout=one] > section[data-panel]').evaluateAll((els) => els.map((e) => [e.dataset.panel, e.getBoundingClientRect().top]));
+  assert.deepEqual(panels.map(([p]) => p), ['approve', 'revision', 'guests', 'owner', 'act', 'onboarding', 'timeline', 'cases', 'imports', 'admin']);
+  for (let i = 1; i < panels.length; i++) assert.ok(panels[i][1] > panels[i - 1][1], `${panels[i][0]} is below ${panels[i - 1][0]} on screen`);
+  // the keyboard: each panel's first control comes after the one above it
+  const firsts = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('a[href], button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), summary, [tabindex="0"]')];
+    return [...document.querySelectorAll('[data-layout=one] > section[data-panel]')].map((p) => all.findIndex((el) => p.contains(el))).filter((i) => i >= 0);
+  });
+  assert.ok(firsts.length >= 6);
+  assert.deepEqual(firsts, [...firsts].sort((a, b) => a - b));
+});
+
+test('after an approval (L5, L9): the dish list fills when the menu arrives, the plan form starts from the new plan; prices as typed (L10)', async () => {
+  const { page, problems } = await staff(ACCOUNTS.admin);
+  await toVenue(page, 'cafe-demo');
+  assert.equal(await page.locator('[data-plan-state]').inputValue(), 'pending', 'a venue waiting for approval starts from its own state');
+  const act = page.locator('[data-write=act]');
+  await act.locator('[data-act-action]').selectOption('dish.update');   // before guests can see a menu: no dishes yet
+  assert.equal(await act.locator('[data-act-dish]').count(), 0);
+  await page.locator('[data-panel=revision] [data-revision="2"]').waitFor();
+  const ap = page.locator('[data-write=approve]');
+  await ap.locator('[data-reason]').fill('Menu checked with the owner by phone');
+  await ap.locator('[data-review]').click();
+  await ap.locator('[data-go]').click();
+  await page.locator('[data-panel=approved] [data-write-result]').waitFor();
+  await until(() => page.locator('[data-plan-state]').inputValue(), 'trialing', 'the plan form starts again from the plan the approval started');
+  await until(() => act.locator('[data-act-dish]').inputValue(), ID.shakshuka, 'the menu arrived: its first dish is chosen, not a blank');
+  for (const bad of ['1e3', '0x10', '-2', '5.', '1.234']) {
+    await act.locator('[data-act-price]').fill(bad);
+    await act.locator('[data-reason]').fill('Owner asked by phone for the new price');
+    await act.locator('[data-review]').click();
+    await act.locator('[data-review]:not([disabled])').waitFor();
+    assert.equal(await act.locator('[data-write-error]').innerText(),
+      'Write the price in shekels with digits and at most one decimal point (for example 54 or 54.50), or leave it empty for no price.', bad);
+  }
+  await act.locator('[data-act-price]').fill('54,5');
+  await act.locator('[data-review]').click();
+  assert.match(await act.locator('[data-what]').innerText(), /Change the price of “Shakshuka” from ₪54 to ₪54\.50\./);
+  assert.equal(calls('act_for_owner').length, 0);
+  clean(problems);
+});
+
+test('leads (L7): more than the page reads is said, and the counts are of those it read', async () => {
+  const first = stub.world.leads[0];
+  for (let i = 0; i < 305; i++) stub.world.leads.push({ ...first, id: `00000000-0000-4000-8000-${(0x9000 + i).toString(16).padStart(12, '0')}`, ref: `MN-2026-${1000 + i}` });
+  const { page, problems } = await staff(ACCOUNTS.support);
+  await page.locator('[data-tab=leads]').click();
+  await page.locator('[data-leads-capped]').waitFor();
+  assert.equal(await page.locator('[data-leads-capped]').innerText(),
+    'Showing the newest 300 enquiries only: older ones are not on this page, and the counts below are of these 300.');
+  assert.equal(calls('ops_leads').at(-1).args.p_limit, 300);
+  assert.equal(await page.locator('[data-lead]').count(), 300);
   clean(problems);
 });
 

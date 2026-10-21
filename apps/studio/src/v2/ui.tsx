@@ -118,6 +118,15 @@ export function useEditOnly(onEditAddress: boolean, editable: boolean, back: str
   useEffect(() => { if (onEditAddress && !editable) go(back, true); }, [onEditAddress, editable, back]);
 }
 
+let nextFocus: string | null = null;
+/**
+ * Where the focus goes at the next change of screen instead of the screen's heading (app.tsx): the button that opened a
+ * sheet the owner just closed (a quick action, Escape, the close button).
+ */
+export const focusOnReturn = (selector: string) => { nextFocus = selector; };
+/** The element asked for by `focusOnReturn`, once. */
+export const takeFocusOnReturn = (): string | null => { const s = nextFocus; nextFocus = null; return s; };
+
 /**
  * After a move made with the up or down button: the focus stays on the moved row's button, or goes to the other one when
  * the row reached the first or last place (a disabled button cannot hold it).

@@ -165,7 +165,10 @@ export function checkState(s, model) {              // invariants; returns a lis
   if (s.open != null && !OPEN[s.open]) bad.push('unknown thing open');
   if (s.open === 'list' && s.simple) bad.push('the list is open over the list');
   if (!Number.isInteger(s.pourSeq) || s.pourSeq < 0) bad.push('pour counter');
-  Object.keys(s.tray).forEach((id) => { if (!model.itemById.has(id) || !(s.tray[id] > 0)) bad.push('tray entry invalid'); });
+  /* v1: the tray holds dishes of this model. Schema 2: it mirrors the basket (traySync), which also holds dishes the tag
+     filter hides and lines whose dish left the menu (marked in "my table"): any id, a count of 1 to 99 */
+  const v2 = !!(model.snapshot && model.snapshot.v === 2);
+  Object.keys(s.tray).forEach((id) => { const q = s.tray[id]; if ((!v2 && !model.itemById.has(id)) || !(q > 0) || (v2 && !(Number.isInteger(q) && q <= 99))) bad.push('tray entry invalid'); });
   return bad;
 }
 

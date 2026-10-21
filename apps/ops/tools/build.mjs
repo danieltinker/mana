@@ -11,12 +11,7 @@ const dist = path.join(root, 'dist');
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, 'fonts'), { recursive: true });
 
-const js = {
-  bundle: true, format: 'esm', target: ['es2020'], minify: true, legalComments: 'none',
-  jsx: 'automatic', jsxImportSource: 'preact',
-  define: { 'process.env.NODE_ENV': '"production"' },
-  logLevel: 'warning',
-};
+import { JS as js } from './esbuild-options.mjs';
 await build({ ...js, entryPoints: [path.join(root, 'src/entry.js')], outfile: path.join(dist, 'app.js') });
 await build({ ...js, entryPoints: [path.join(root, 'src/v2/main.tsx')], outfile: path.join(dist, 'v2.js') });
 const css = { bundle: true, minify: true, external: ['*.woff2'], logLevel: 'warning' };

@@ -10,22 +10,24 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
   ACTIVITY_PAGE_MAX, SLUG_RE, TIMELINE_KINDS, isUuid, venueFilter, type ActivityEntry, type ApproveVenueInput, type ApproveVenueReply,
-  type ClientDashboard, type OpsVenueDetail, type PublicMenuResponse, type TimelineKind,
+  type ClientDashboard, type OpsRevision, type OpsVenueDetail, type PublicMenuResponse, type TimelineKind,
 } from '@mana/contracts';
 import type { Fail, Ok, Result } from './api.ts';
 import { useLive, type LiveData } from './hooks.ts';
 import {
-  ACTOR_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STATE_LABEL, STEP_LABEL, TIMELINE_LABEL, ago, describe, fmtDate, fmtDateTime, fmtDay,
-  fmtInt, fmtPct, fmtTime, menuState, names, snapshotNames, timeline, timelineDays, warningChips, EXCEPTION_LABEL, IMPORT_SOURCE_LABEL,
+  ACTOR_LABEL, PLAN_LABEL, PLAN_STATE_LABEL, REVIEW_LABEL, STATE_LABEL, STEP_LABEL, TIMELINE_LABEL, ago, countWord, describe, fmtDate, fmtDateTime,
+  fmtDay, fmtInt, fmtPct, fmtTime, menuState, names, snapshotNames, timeline, timelineDays, warningChips, EXCEPTION_LABEL, IMPORT_SOURCE_LABEL,
   IMPORT_STATUS_LABEL, type NameOf, type TimelineItem,
 } from './model.ts';
 import { realtime } from './session.ts';
-import { Badge, DemoLabel, Ext, Icon, LoadError, Name, Notice, T, WarningChip, useCtx } from './ui.tsx';
+import { Badge, DemoLabel, Ext, Icon, LoadError, Name, Notice, T, WarningChip, useCtx, useNarrow } from './ui.tsx';
 import { Freshness } from './freshness.tsx';
 import { Write } from './write.tsx';
 import { ActForOwner, type Preset } from './act.tsx';
+import { FORM_ACTIONS } from './act-model.ts';
+import { checkLog, logMark } from './landed.ts';
 import { Admin, Cases, GuestsSee, OwnerSees } from './panels.tsx';
-import { Revisions } from './revision.tsx';
+import { Revisions, type OnScreen } from './revision.tsx';
 
 export type VenueData = { readonly detail: OpsVenueDetail; readonly menu: Result<PublicMenuResponse>; readonly dash: Result<ClientDashboard> };
 
@@ -54,7 +56,13 @@ function VenuePage({ id }: { id: string }) {
   }, [id], { subscribe });
   const [preset, setPreset] = useState<Preset | null>(null);
   const [approved, setApproved] = useState<string | null>(null);
+  // the revision "The menu to approve" shows: what the approval names (SEC-N11) and where a pending venue's names come from
+  const [onScreen, setOnScreen] = useState<OnScreen | null>(null);
+  // stored revisions never change: each is read (and logged) once per page, whatever the panels' remounts
+  const revCache = useRef(new Map<number, Ok<OpsRevision>>());
   const actRef = useRef<HTMLElement>(null);
+  // below 1000 px one column, in the order it is shown (the source order is the reading and keyboard order)
+  const narrow = useNarrow(1000);
 
   if (!live.data) {
     return (
@@ -67,40 +75,48 @@ function VenuePage({ id }: { id: string }) {
   const { detail, menu, dash } = live.data;
   const v = detail.venue;
   const snapshot = menu.ok && menu.data.state === 'ok' ? menu.data.snapshot : null;
-  const nameOf = snapshotNames(snapshot);
+  // a venue waiting for approval has no menu guests can see: its names come from the revision on screen
+  const nameOf = snapshotNames(snapshot ?? onScreen?.snapshot ?? null);
   const restore = (p: Preset) => {
     setPreset({ ...p, key: Date.now() });
     actRef.current?.scrollIntoView({ block: 'start' });
   };
+  const pending = v.review === 'pending';
+
+  const approve = pending
+    ? <Approve detail={detail} onScreen={onScreen} refresh={live.refresh} onApproved={(text) => { setApproved(text); return live.refresh(); }} />
+    : approved && <Approved text={approved} />;
+  const revisions = <Revisions detail={detail} onRead={live.refresh} onShown={setOnScreen} cache={revCache.current} />;
+  const onboarding = <Onboarding detail={detail} />;
+  const tl = <Timeline key={v.id} detail={detail} nameOf={nameOf} />;
+  const imports = <Imports detail={detail} />;
+  const guests = <GuestsSee detail={detail} menu={menu} onRestore={restore} />;
+  const owner = <OwnerSees detail={detail} dash={dash} onRead={live.refresh} />;
+  const act = (
+    <section class="panel p-act" aria-labelledby="act-h" ref={actRef} tabIndex={-1} data-panel="act">
+      <div class="panel-head"><h2 id="act-h">Act for the owner</h2>
+        <p class="muted small">Changes Halom makes in the owner’s menu, onboarding or cases on their behalf: one of {countWord(FORM_ACTIONS.length)} actions,
+          each with a reason the owner sees in their activity log. The approval, the cases, the plan and the demo label have their own panels.</p></div>
+      <div class="panel-body"><ActForOwner detail={detail} snapshot={snapshot} menu={menu} preset={preset} onDone={live.refresh} /></div>
+    </section>
+  );
+  const cases = <Cases detail={detail} onDone={live.refresh} />;
+  const admin = <Admin detail={detail} onDone={live.refresh} />;
 
   return (
     <div class="stack venue" data-page="venue" data-venue={v.slug}>
       <a class="link back" href="#/clients"><Icon name="back" size={14} /> All clients</a>
       <Head data={live.data} live={live} />
       {live.fail && <Notice tone="bad">Refresh failed: {live.fail.message} Showing the last answer.</Notice>}
-      <div class="venue-grid">
-        <div class="col col-main">
-          {v.review === 'pending'
-            ? <Approve detail={detail} refresh={live.refresh} onApproved={(text) => { setApproved(text); return live.refresh(); }} />
-            : approved && <Approved text={approved} />}
-          {v.review === 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
-          <Onboarding detail={detail} />
-          <Timeline key={v.id} detail={detail} nameOf={nameOf} />
-          <Imports detail={detail} />
+      {narrow ? (
+        // one column: the actions before the history, in this order on screen, for the keyboard and for screen readers
+        <div class="venue-col" data-layout="one">{approve}{revisions}{guests}{owner}{act}{onboarding}{tl}{cases}{imports}{admin}</div>
+      ) : (
+        <div class="venue-grid" data-layout="two">
+          <div class="col col-main">{approve}{pending && revisions}{onboarding}{tl}{imports}</div>
+          <div class="col col-side">{guests}{owner}{!pending && revisions}{act}{cases}{admin}</div>
         </div>
-        <div class="col col-side">
-          <GuestsSee detail={detail} menu={menu} onRestore={restore} />
-          <OwnerSees detail={detail} dash={dash} onRead={live.refresh} />
-          {v.review !== 'pending' && <Revisions detail={detail} onRead={live.refresh} />}
-          <section class="panel p-act" aria-labelledby="act-h" ref={actRef} tabIndex={-1} data-panel="act">
-            <div class="panel-head"><h2 id="act-h">Act for the owner</h2>
-              <p class="muted small">Halom writes into a venue only here: one of six actions, with a reason the owner sees in their activity log.</p></div>
-            <div class="panel-body"><ActForOwner detail={detail} snapshot={snapshot} menu={menu} preset={preset} onDone={live.refresh} /></div>
-          </section>
-          <Cases detail={detail} onDone={live.refresh} />
-          <Admin detail={detail} onDone={live.refresh} />
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -157,34 +173,58 @@ const approvedText = (d: Ok<ApproveVenueReply>): string =>
   `Approved. Guests can open the menu now${d.trialEndsAt ? `; the trial runs until ${fmtDate(d.trialEndsAt)}` : ''}.`;
 
 /**
- * Approves the revision the review named, and only that one (`p_expected_revision`): the venue's published revision
- * (`menu.revision`), the one guests will see, which after a restore is not the newest stored one. If the published
- * revision changes while the review is open, the review is dropped; if it changed just before the call, the database
- * refuses (`revision_changed`, with the published number).
+ * Approves the revision staff have on screen in "The menu to approve" (`onScreen`), and only when it is the venue's
+ * published revision (`menu.revision`), the one guests will see; after a restore that is not the newest stored one.
+ * The approval sends that number (`p_expected_revision`), never one staff have not read: if the read on screen failed
+ * or shows another revision, the review says so and asks for a read of the published one. If the published revision or
+ * the one on screen changes while the review is open, the review is dropped; if the published one changed just before
+ * the call, the database refuses (`revision_changed`, with the published number). Another staff member's approval, or
+ * a send whose answer was lost, ends as "approved", never as an error.
  */
-function Approve({ detail, refresh, onApproved }: { detail: OpsVenueDetail; refresh: () => Promise<boolean>; onApproved: (text: string) => Promise<boolean> }) {
+function Approve({ detail, onScreen, refresh, onApproved }: {
+  detail: OpsVenueDetail; onScreen: OnScreen | null; refresh: () => Promise<boolean>; onApproved: (text: string) => Promise<boolean>;
+}) {
   const { api } = useCtx();
   const v = detail.venue;
   const name = names(v.name, v.slug).main;
-  const rev = v.menu.revision;
+  const published = v.menu.revision;
+  const shown = onScreen?.number ?? null;
+  const reviewedPublished = useRef<number | null>(published);
+  const said = useRef<string | null>(null);
+  const note = published !== reviewedPublished.current
+    ? `The owner’s published menu is now revision ${published ?? '—'}: it changed while you were reviewing. Nothing was approved: read it below, then review again.`
+    : `The revision on screen is now ${shown ?? 'none'}. Nothing was approved: review again.`;
   return (
     <section class="panel p-approve is-attention" aria-labelledby="approve-h" data-panel="approve">
       <div class="panel-head"><h2 id="approve-h">First publish waits for your approval</h2>
         <p class="muted small">First published {fmtDateTime(v.menu.firstPublishedAt)}. Until you approve, guests who open the menu see “menu not available”.
-          Read the menu below first: approving lets guests see revision {rev ?? '—'}, the published one.</p></div>
+          Read the menu below first: approving lets guests see revision {published ?? '—'}, the published one.</p></div>
       <div class="panel-body">
         <Write<ApproveVenueInput, Ok<ApproveVenueReply>> id="approve" submit="Approve"
-          changed={{ key: rev, note: `The owner’s published menu is now revision ${rev ?? '—'}: it changed while you were reviewing. Nothing was approved: read it below, then review again.` }}
-          plan={() => (rev === null ? { ok: false, why: 'Nothing is published to approve yet.' }
-            : { ok: true, what: `Approve ${name}’s first publish (revision ${rev}, the published one): guests see that revision at once, and the trial starts.`,
-              input: { venueId: v.id, reason: '', expectedRevision: rev } })}
+          changed={{ key: `${published}|${shown}`, note }}
+          plan={() => {
+            reviewedPublished.current = published;
+            if (published === null) return { ok: false, why: 'Nothing is published to approve yet.' };
+            if (shown === null) return { ok: false, why: 'The menu to approve has not loaded on this page: read it below before approving.' };
+            if (shown !== published) {
+              return { ok: false, why: `The menu on screen is revision ${shown}, but the published one, which guests would see, is revision ${published}. Read revision ${published} below (“The published one”) before approving.` };
+            }
+            return { ok: true, what: `Approve ${name}’s first publish (revision ${shown}, the published one): guests see that revision at once, and the trial starts.`,
+              input: { venueId: v.id, reason: '', expectedRevision: shown } };
+          }}
           run={(input, reason) => api.approve({ ...input, reason })}
           done={approvedText}
+          landed={(input, at) => checkLog(api, v.id, at, { action: 'venue.approve', match: (e) => e.detail.revision === input.expectedRevision })}
+          mark={() => logMark(detail.activity)}
+          already={(f) => {
+            said.current = f.code === 'already_approved' ? 'Already approved (by another Halom staff member, or by a send whose answer was lost): guests can open the menu.' : null;
+            return said.current;
+          }}
           onFail={(f) => {
             if (f.kind === 'refused') void refresh();
             return f.code === 'revision_changed' && typeof f.reply?.revision === 'number' ? `The published one is revision ${f.reply.revision} now.` : null;
           }}
-          onDone={(d) => onApproved(approvedText(d))} />
+          onDone={(d) => onApproved(d ? approvedText(d) : said.current ?? 'Approved: guests can open the menu now. (The answer did not arrive, but the venue is approved.)')} />
       </div>
     </section>
   );

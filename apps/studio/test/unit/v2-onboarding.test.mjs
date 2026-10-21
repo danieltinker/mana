@@ -7,16 +7,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
-  BLOCKER_RE, EMPTY_MENU, EXCEPTION_CHOICES, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, READER_NOTE_CODES, SKIP_REASONS,
+  BLOCKER_RE, EMPTY_MENU, EXCEPTION_CHOICES, planApply, IMPORT_TEXT_MAX, ONBOARDING_AUTO_STEPS, ONBOARDING_STEPS, onboardingProgress, READER_NOTE_CODES, SKIP_REASONS,
   validateSetStep,
 } from '@mana/contracts';
 import { applyPlan, dish, draftOf, group, link, opt, section } from '../../../../packages/contracts/test/import-fixtures.ts';
 import { parsePaste, parseWoltText } from '@mana/import';
 import { DEMO_MARK, marksDemo, withDemoBand } from '../../src/v2/data/demo-mark.ts';
+import { answersKey, forgetAnswersBut, readAnswers, writeAnswers } from '../../src/v2/data/answers.ts';
 import { blockersOf, endWrite, nextOpenAfter, openStep, resumeStep, stepEnd, visitWrite } from '../../src/v2/data/flow.ts';
+import { keptProgress, stepWriter } from '../../src/v2/data/step-writes.ts';
+import { toV2Error } from '../../src/v2/data/errors.ts';
 import { imagePath, imagesHash, importsApi, isEmptyDraft, readText, storableNotes } from '../../src/v2/data/imports.ts';
 import {
-  aboutOf, carriesPrices, changesNothing, choose, confirmPrices, gate, NO_DECISIONS, noteLines, planLines, preview, priceDiffs, sameDraft, withDishPrice,
+  aboutOf, addsNoDish, allLeftOut, carriesPrices, changesNothing, choose, confirmPrices, fitAnswers, gate, isEmptyMenu, leaveOut, NO_DECISIONS, noteLines, planLines,
+  preview, priceDiffs, review, sameDraft, sameSummary, withDishPrice,
 } from '../../src/v2/data/review.ts';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from '../../../../e2e/fixtures/wolt-text-cafe.mjs';
 
@@ -93,13 +97,13 @@ test('every write the flow makes is one set_onboarding_step takes: never an auto
     }
     for (const state of ['todo', 'doing', 'done', 'skipped']) {
       const v = visitWrite(step, state, NOTHING);
-      if (state !== 'todo' || step === 'venue') { assert.equal(v, null, `${step} ${state}`); continue; }
+      if (state !== 'todo' || ONBOARDING_AUTO_STEPS.includes(step)) { assert.equal(v, null, `${step} ${state}`); continue; }
       assert.equal(v.state, 'doing');
       assert.equal(validateSetStep({ venueId: VENUE, step, state: v.state, blockers: v.blockers }).ok, true, step);
     }
   }
-  // blockers only on the owner's own steps: the database finishes its own without clearing them
-  assert.deepEqual(visitWrite('menu', 'todo', NOTHING), { state: 'doing', blockers: [] });
+  // the database's own steps are never written by a visit (QA2-M1: a visit's `publish: doing` beside publish_menu deadlocked)
+  for (const step of ['venue', 'menu', 'review', 'publish']) assert.equal(visitWrite(step, 'todo', NOTHING), null, step);
   assert.deepEqual(visitWrite('addons', 'todo', { ...NOTHING, groupsUnconfirmed: 1 }), { state: 'doing', blockers: ['group_without_limits'] });
   assert.deepEqual(endWrite('review', 'review_skip'), { step: 'review', state: 'skipped' });
   assert.equal(endWrite('menu', 'review_skip'), null);
@@ -322,6 +326,151 @@ test('an answer the plan refuses is said at its question, which stays on screen:
   const g = gate(draft, venue, moved, LANGS);
   assert.deepEqual([g.ok, g.errors.map((e) => e.code)], [false, ['opener_qty']]);
   assert.equal(preview(draft, venue, choose(moved, id, 'keep_mine'), LANGS).rows.find((x) => x.id === id).refused, null);
+});
+
+test('the answers kept on the device: per account and import, read back through the validator; another account\'s go', () => {
+  const imp = '00000000-0000-4000-8000-0000000000e1', me = '00000000-0000-4000-8000-0000000000a1', other = '00000000-0000-4000-8000-0000000000a2';
+  assert.equal(answersKey(me, imp), `mana-import-answers:${me}:${imp}`);
+  const d = leaveOut(choose(NO_DECISIONS, 'dish_repeated@s0d1', 'keep_both'), 's0', true);
+  const back = readAnswers(writeAnswers({ ...d, pricesConfirmed: true }));
+  assert.deepEqual(back, { v: 1, pricesConfirmed: false, choices: { 'dish_repeated@s0d1': 'keep_both' }, skip: ['s0'] }, 'the prices are confirmed again on every visit');
+  assert.ok(!writeAnswers({ ...d, pricesConfirmed: true }).includes('pricesConfirmed'), 'the confirmation is never stored');
+  // what was written by hand, or by an older version, is checked again: anything the validator refuses drops them all
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: { 'dish_repeated@s0d1': 'delete_everything' } })), NO_DECISIONS);
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: { '__proto__': 'skip' } })), NO_DECISIONS);
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: ['s0', 'NOT A KEY; drop table'] })), NO_DECISIONS, 'a key left out is checked too');
+  assert.deepEqual(readAnswers(JSON.stringify({ choices: {}, skip: 's0' })), NO_DECISIONS);
+  assert.deepEqual(readAnswers('not json'), NO_DECISIONS);
+  assert.deepEqual(readAnswers('[1,2]'), NO_DECISIONS);
+  assert.deepEqual(readAnswers(null), NO_DECISIONS);
+  // a device's store: the signed-in account keeps its own; signed out, none is left
+  const store = (keys) => {
+    const m = new Map(keys.map((k) => [k, '{}']));
+    return { get length() { return m.size; }, key: (i) => [...m.keys()][i] ?? null, removeItem: (k) => { m.delete(k); }, keys: () => [...m.keys()].sort() };
+  };
+  const s = store([answersKey(me, imp), answersKey(other, imp), `mana-import-answers:${imp}`, 'mana-studio-v2-venue:' + me]);
+  forgetAnswersBut(me, s);
+  assert.deepEqual(s.keys(), [answersKey(me, imp), 'mana-studio-v2-venue:' + me].sort(), 'another account\'s, and the old unkeyed ones, are gone');
+  forgetAnswersBut(null, s);
+  assert.deepEqual(s.keys(), ['mana-studio-v2-venue:' + me], 'signed out: no answer is left');
+});
+
+test('leaving things out (ADR-006 skip): a section and a dish, with what is inside them; the plan says "as you chose"; put back', () => {
+  let draft = cafe();
+  draft = withDishPrice(draft, dishNamed(draft, 'Seasonal cake').key, 2800);
+  const drinks = draft.sections.find((x) => x.name.en === 'Coffee' || x.dishes.some((d) => d.name.en === 'Cappuccino'));
+  const shakshuka = dishNamed(draft, 'Shakshuka');
+  let d = confirmPrices(NO_DECISIONS, true);
+  d = leaveOut(leaveOut(d, drinks.key, true), shakshuka.key, true);
+  assert.deepEqual(d.skip, [drinks.key, shakshuka.key].sort());
+  const g = gate(draft, EMPTY_MENU, d, LANGS);
+  assert.equal(g.ok, true);
+  const created = g.plan.steps.filter((x) => x.kind === 'dish' && x.op === 'create').map((x) => x.key);
+  assert.ok(!created.includes(shakshuka.key) && !drinks.dishes.some((x) => created.includes(x.key)), 'neither the dish nor the section\'s dishes are created');
+  const out = planLines(g.plan).filter((x) => x.op === 'skip' && x.reason === 'choice').map((x) => x.kind);
+  assert.ok(out.includes('section') && out.includes('dish'), JSON.stringify(planLines(g.plan)));
+  assert.deepEqual(leaveOut(d, shakshuka.key, false).skip, [drinks.key], 'put back');
+  // keys the draft no longer has (it changed on another device) are dropped before they reach the plan
+  assert.deepEqual(fitAnswers(leaveOut(d, 'gone-key', true), draft).skip, d.skip);
+  assert.equal(fitAnswers(d, draft), d, 'unchanged when every key is there');
+});
+
+test('a fix with one answer: "too many" (a dish with 9 add-on groups) is answered by leaving the 9th out, then applying is allowed', () => {
+  const groups = Array.from({ length: 9 }, (_, i) => group('g' + i, 'קבוצה ' + i, 'Group ' + i, { options: [opt('o' + i + 'a', 'א' + i, 'A' + i, 0), opt('o' + i + 'b', 'ב' + i, 'B' + i, 0)] }));
+  const draft = draftOf([section('s1', 'עיקריות', 'Mains', [dish('d1', 'המבורגר', 'Burger', 6000, { groups: groups.map((x) => link(x.key)) })])], groups);
+  const ready = confirmPrices(NO_DECISIONS, true);
+  const row = preview(draft, EMPTY_MENU, ready, LANGS).rows.find((r) => r.e.code === 'too_many');
+  assert.deepEqual([row.id, row.e.severity, row.choices, row.open], ['too_many@d1>g8', 'fix', ['skip'], true], 'one answer, still the owner\'s to give');
+  const blocked = gate(draft, EMPTY_MENU, ready, LANGS);
+  assert.equal(blocked.ok, false);
+  assert.ok(isEmptyMenu(EMPTY_MENU), 'nothing yet: "too many" is said without "with what you already have"');
+  const answered = choose(ready, row.id, 'skip');
+  const g = gate(draft, EMPTY_MENU, answered, LANGS);
+  assert.equal(g.ok, true);
+  assert.equal(g.plan.steps.filter((x) => x.kind === 'dish_group' && x.op === 'create').length, 8);
+});
+
+test('the preview and the gate plan once when every answer is in (a large menu takes a while to plan), with the same result', () => {
+  let draft = cafe();
+  draft = withDishPrice(draft, dishNamed(draft, 'Seasonal cake').key, 2800);
+  let calls = 0;
+  const counted = (...a) => { calls++; return planApply(...a); };
+  const all = confirmPrices(NO_DECISIONS, true);
+  const r = review(draft, EMPTY_MENU, all, LANGS, counted);
+  assert.equal(calls, 1, 'every answer in: one plan');
+  assert.deepEqual(r, { pv: preview(draft, EMPTY_MENU, all, LANGS), gt: gate(draft, EMPTY_MENU, all, LANGS) });
+  calls = 0;
+  const unconfirmed = review(draft, EMPTY_MENU, NO_DECISIONS, LANGS, counted);
+  assert.equal(calls, 2, 'only the prices to confirm: the gate, then the preview once');
+  assert.deepEqual(unconfirmed, { pv: preview(draft, EMPTY_MENU, NO_DECISIONS, LANGS), gt: gate(draft, EMPTY_MENU, NO_DECISIONS, LANGS) });
+  const open = review(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS);
+  assert.deepEqual(open, { pv: preview(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS), gt: gate(cafe(), EMPTY_MENU, NO_DECISIONS, LANGS) }, 'a fix open: as before');
+});
+
+test('a step\'s writes go out one after another: a late visit never reopens a step the owner finished (QA2-M2)', async () => {
+  const defer = () => { let resolve; const p = new Promise((r) => { resolve = r; }); return { p, resolve }; };
+  const at = (states) => progressOf(states);
+  let shown = at({ venue: 'done' });
+  const sent = [], answers = [];
+  const writer = stepWriter((step, state) => { sent.push(`${step}:${state}`); const d = defer(); answers.push(d); return d.p; }, () => shown, (p) => { shown = p; });
+  // the visit goes out; the owner taps "later" before its answer: the end waits for the visit's answer, never beside it
+  const visit = writer('photos', 'doing', []);
+  const end = writer('photos', 'skipped');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent, ['photos:doing'], 'the end is not sent while the visit is in flight');
+  answers[0].resolve(at({ venue: 'done', photos: 'doing' }));
+  await visit;
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent, ['photos:doing', 'photos:skipped']);
+  answers[1].resolve(at({ venue: 'done', photos: 'skipped' }));
+  await end;
+  assert.equal(shown.steps.find((x) => x.step === 'photos').state, 'skipped', 'the last answer on screen is the owner\'s');
+  // a visit asked after the step finished is not sent at all
+  assert.equal((await writer('photos', 'doing', [])).steps.find((x) => x.step === 'photos').state, 'skipped');
+  assert.equal(sent.length, 2);
+  // other steps do not wait for this one
+  const hours = writer('hours', 'doing', []);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent.slice(2), ['hours:doing']);
+  answers[2].resolve(at({ venue: 'done', photos: 'skipped', hours: 'doing' }));
+  await hours;
+  // a failed write does not stop the step's next one
+  const failing = stepWriter(async (step, state) => { if (state === 'doing') throw new Error('network'); return at({ venue: 'done', [step]: state }); }, () => null, () => {});
+  await assert.rejects(failing('style', 'doing', []));
+  assert.equal((await failing('style', 'skipped')).steps.find((x) => x.step === 'style').state, 'skipped');
+});
+
+test('a call the database rolled back for another transaction (deadlock, serialization) is "busy": said plainly, sent again', () => {
+  assert.equal(toV2Error({ code: '40P01', message: 'deadlock detected' }).code, 'busy');
+  assert.equal(toV2Error({ code: '40001', message: 'could not serialize access' }).code, 'busy');
+  assert.equal(toV2Error({ code: 'XX000', message: 'boom' }).code, 'unknown');
+});
+
+test('a refusal that keeps the stored state carries the progress, which becomes the answer on screen', () => {
+  const p = progressOf({ venue: 'done', photos: 'skipped' });
+  assert.equal(keptProgress({ ok: false, code: 'state_kept', progress: p }), p);
+  assert.equal(keptProgress({ ok: false, code: 'forbidden' }), null);
+  assert.equal(keptProgress(null), null);
+  assert.equal(keptProgress({ ok: false, progress: { steps: 'no' } }), null);
+});
+
+test('this round\'s review rules: a link left out is never kept (SEC-L4); the plan applied compared (N-a); nothing to add (L2)', () => {
+  let draft = cafe();
+  draft = withDishPrice(draft, dishNamed(draft, 'Seasonal cake').key, 2800);
+  const plate = dishNamed(draft, 'Schnitzel plate');
+  const linkKey = `${plate.key}>${plate.groups[0].group}`;
+  const d = leaveOut(leaveOut(confirmPrices(NO_DECISIONS, true), linkKey, true), plate.key, true);
+  assert.deepEqual(fitAnswers(d, draft).skip, [plate.key], 'a dish\'s own link, which the screen never leaves out, is dropped');
+  const g = gate(draft, EMPTY_MENU, confirmPrices(NO_DECISIONS, true), LANGS);
+  assert.equal(sameSummary(g.plan.summary, g.plan.summary), true);
+  const other = JSON.parse(JSON.stringify(g.plan.summary));
+  other.dish.create -= 1; other.dish.skip += 1; other.dish.skipped.choice += 1;
+  assert.equal(sameSummary(g.plan.summary, other), false);
+  assert.equal(addsNoDish(g.plan, EMPTY_MENU), false);
+  const allOut = draft.sections.reduce((x, sec) => leaveOut(x, sec.key, true), confirmPrices(NO_DECISIONS, true));
+  const none = gate(draft, EMPTY_MENU, allOut, LANGS);
+  assert.equal(none.ok, true);
+  assert.deepEqual([addsNoDish(none.plan, EMPTY_MENU), allLeftOut(none.plan), changesNothing(none.plan)], [true, true, true], 'everything left out: said, and applying waits');
 });
 
 test('every note, question, answer, reason and refusal the contracts can send has words in both languages', () => {

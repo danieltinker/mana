@@ -6,15 +6,22 @@
 // its nested sauce, the typed price). The main path is timed. Then: leaving mid-flow and coming back on another device
 // (the same step, the typed price there); the same menu imported again adds nothing (Hopa test 1); "get help" opens a
 // case the back office's RPC reads, and sent again after a lost answer (the request's own id) opens no second one; the
-// scanner's path with a stub (the real handler, a recorded reply, no paid call), and plainly "not available here"
-// without one; a counter can run none of the flow's writes.
+// scanner's path with a stub (the real handler, a recorded reply, no paid call; every picture drawn again, so no EXIF
+// leaves the phone), and plainly "not available here" without one; a counter can run none of the flow's writes. The
+// security round: an import of another place is never checked or applied while this one is open; the answers kept on
+// the device are the account's own and gone at sign-out; a name with a direction control in it is isolated. The QA
+// round: leaving out a section, a dish and a dish's 9th group (too many, its one answer a button); giving up asks
+// first; an apply whose import changed on another device, or whose answer is lost, is read again; imports that cannot
+// be read are said, with a retry; a HEIC is refused when chosen; sentences keep the screen's direction.
 // Needs the built site (bash tools/build-site.sh). Screenshots: e2e/.out/studio-v2-onboarding/.
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseWoltText } from '@mana/import';
 import { asAnon, asUser, createUser, HalomBot, OwnerBot, signIn } from '@mana/sim';
 import { WOLT_TEXT, WOLT_TEXT_REORDERED } from './fixtures/wolt-text-cafe.mjs';
+import { dish, draftOf, group, link, opt, section } from '../packages/contracts/test/import-fixtures.ts';
 import { OUT, startE2E } from './helpers.mjs';
 import { CAFE_SCREENSHOTS, scanStub, TINY_PNG } from './scan-stub.mjs';
 
@@ -39,6 +46,16 @@ const rowsOf = (owner, table, venueId, extra = {}) => owner.api.select(table, { 
 async function signInPage(email, { lang = 'he', ctx = null } = {}) {
   const page = ctx ? await ctx.newPage() : await e.page(e.webUrl + 'studio/');
   if (ctx) { page.problems = []; await page.goto(e.webUrl + 'studio/'); }
+  // a server error names its request (the browser's own console line does not): its method and path, and the database's
+  // error code and message only; never a request body or a whole answer (an auth call carries a credential)
+  page.on('response', async (r) => {
+    if (r.status() < 500) return;
+    const what = `http ${r.status()} ${r.request().method()} ${new URL(r.url()).pathname}`;
+    page.problems.push(what);
+    let said = '';
+    try { const j = JSON.parse(await r.text()); said = [j.code, j.message].filter((x) => typeof x === 'string').join(' ').slice(0, 160); } catch { /* not JSON */ }
+    console.log('# ' + what, said);
+  });
   await page.locator('[data-screen="start"]').waitFor();
   // the start screen's language switch names the other language (lang="en" while the page is Hebrew)
   if (lang === 'en' && (await page.evaluate(() => document.documentElement.lang)) !== 'en') await page.locator('[data-screen="start"] button[lang="en"]').click();
@@ -55,6 +72,14 @@ async function stored(owner, venueId) {
 }
 
 const CAFE_DISHES = ['Cappuccino', 'Cheesecake', 'Espresso', 'Schnitzel plate', 'Seasonal cake', 'Shakshuka'];
+
+/** A JPEG with an EXIF segment carrying `marker` right after its start, the way a camera writes where a photo was taken. */
+function withExif(jpeg, marker) {
+  const tiff = Buffer.concat([Buffer.from('MM\0\x2a\0\0\0\x08', 'latin1'), Buffer.alloc(6), Buffer.from(marker, 'latin1')]);
+  const body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+  const len = body.length + 2;
+  return Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff, 0xe1, len >> 8, len & 0xff]), body, jpeg.subarray(2)]);
+}
 
 /** Import the café's Wolt text from the menu step: paste, read; the preview opens. Returns the import's id. */
 async function importWoltText(page, text = WOLT_TEXT) {
@@ -103,11 +128,10 @@ for (const lang of ['he', 'en']) {
     assert.equal(await page.locator('[data-source]').count(), 4, 'four ways in');
     assert.ok(await page.locator('[data-never-wolt]').isVisible());
     await shot(page, `${lang}-01-bring-the-menu`);
-    // the step the owner is on is saved (doing) before anything else
-    await assert.doesNotReject(async () => {
-      for (let i = 0; i < 50; i++) { const [r] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.menu' }); if (r?.state === 'doing') return; await new Promise((ok) => setTimeout(ok, 100)); }
-      throw new Error('menu step not marked doing');
-    });
+    // the database's own steps are never written by a visit (QA2-M1: a visit's write beside the database's deadlocked)
+    await page.waitForTimeout(500);
+    const [menuRow] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.menu' });
+    assert.ok(!menuRow || menuRow.state === 'todo', JSON.stringify(menuRow));
 
     // ---- 2. bring the menu: the text of the owner's own Wolt page
     const importId = await importWoltText(page);
@@ -122,10 +146,20 @@ for (const lang of ['he', 'en']) {
     assert.equal(await page.locator('[data-check] [data-code="allergens_check"]').count(), 1, 'allergens only in the source\'s own words');
     await page.locator('[data-plan-line="create:dish"][data-n="6"]').waitFor();
     await shot(page, `${lang}-02-review`);
+    // a sentence that begins with a Latin name keeps the screen's direction; the name inside it is isolated
+    const repeated = page.locator('[data-check] [data-code="dish_repeated"] .exc-text');
+    assert.equal(await repeated.getAttribute('dir'), null);
+    assert.equal(await repeated.evaluate((el) => getComputedStyle(el).direction), lang === 'he' ? 'rtl' : 'ltr');
+    assert.match(await repeated.textContent(), /\u2068Espresso\u2069/);
 
     // ---- 3. fix in place, confirm the prices, apply
     await fixAndApply(page);
     await step(page, 'addons');
+    // the owner's own step is saved as visited (doing), with what holds it back
+    await assert.doesNotReject(async () => {
+      for (let i = 0; i < 50; i++) { const [r] = await rowsOf(owner, 'onboarding_progress', venueId, { step: 'eq.addons' }); if (r?.state === 'doing') return; await new Promise((ok) => setTimeout(ok, 100)); }
+      throw new Error('addons step not marked doing');
+    });
     let s = await stored(owner, venueId);
     assert.deepEqual(s.names, CAFE_DISHES, 'every dish once, "Most ordered" left out');
     assert.equal(s.dishes.find((d) => d.name_en === 'Seasonal cake').price, 2800, 'the typed price');
@@ -368,7 +402,304 @@ test('"get help" from a step opens a case on the step\'s topic, and the back off
   const stored = await owner.api.select('support_cases', { select: 'id', venue_id: `eq.${made.id}`, subject: `eq.${subject}` });
   assert.deepEqual(stored.map((x) => x.id), [ids[0]], 'one case');
   assert.equal(await sent.getAttribute('data-case-sent'), ids[0]);
+
+  // the same lost answer, but the owner changes the words before sending again: a new request with a new id, so the
+  // new words are stored (the database would answer `reused` for the old id, and the new words would be lost)
+  await page.locator('[data-back-to-setup="menu"]').click();
+  await step(page, 'menu');
+  await page.locator('[data-flow-help="import"]').click();
+  await page.locator('[data-help-form]').waitFor();
+  await page.locator(`[data-cases] [data-case="${caseId}"]`).waitFor();
+  ids.length = 0; replies.length = 0; lose = true;
+  await page.route(toCase, async (r) => {
+    ids.push(JSON.parse(r.request().postData()).p_id);
+    const res = await r.fetch();
+    replies.push(await res.json());
+    if (lose) { lose = false; return r.abort('internetdisconnected'); }
+    return r.fulfill({ response: res });
+  });
+  await page.locator('[data-field="help-subject"]').fill('The dessert prices are wrong');
+  await page.route(toList, (r) => r.abort('internetdisconnected'));
+  await page.locator('[data-action="send-help"]').click();
+  await page.locator('[data-help-form] .note-error').waitFor();
+  await page.unroute(toList);
+  await page.locator('[data-field="help-subject"]').fill('The dessert prices are wrong, all three');
+  await page.locator('[data-action="send-help"]').click();
+  await sent.waitFor();
+  await page.unroute(toCase);
+  assert.equal(ids.length, 2);
+  assert.ok(ids[0] && ids[1] && ids[0] !== ids[1], 'changed words: a new id');
+  assert.deepEqual(replies.map((x) => x.reused), [false, false]);
+  const now = await owner.api.select('support_cases', { select: 'id,subject', venue_id: `eq.${made.id}`, subject: 'like.The dessert*', order: 'created_at' });
+  assert.deepEqual(now.map((x) => [x.id, x.subject]), [[ids[0], 'The dessert prices are wrong'], [ids[1], 'The dessert prices are wrong, all three']],
+    'the first (its answer lost) and the corrected one, each with its own words');
   assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ the security round: one place's import, one person's answers
+/** An import of `venue` read by the phone's own reader and stored, waiting for its check (as the app would leave it). */
+async function parsedImport(owner, venue, text) {
+  owner.forVenue(venue);
+  const made = await owner.createImport({ source: 'wolt_text', text });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const { draft } = parseWoltText(text);
+  const saved = await owner.api.rpc('save_import_draft', { p_import: made.importId, p_draft: draft, p_notes: [] });
+  assert.equal(saved.ok, true, JSON.stringify(saved).slice(0, 300));
+  return { id: made.importId, draft };
+}
+const answerKeys = (page) => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('mana-import-answers:')).sort());
+
+test('an import of another place is never checked or applied here: said plainly, with the way to its place; answers are the account\'s own, gone at sign-out', { timeout: 600000 }, async () => {
+  const email = 'onboard-two-places@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const A = (await owner.createVenue({ slug: 'two-places-a', name: { he: '', en: 'Two Places A' }, kind: 'cafe' })).id;
+  const B = (await owner.createVenue({ slug: 'two-places-b', name: { he: '', en: 'Two Places B' }, kind: 'cafe' })).id;
+  // B has the café's menu already (imported through the database's own path); A has the same menu read, and no dish
+  const b1 = await parsedImport(owner, B, WOLT_TEXT);
+  const fixes = (await owner.api.select('menu_imports', { select: 'exceptions', id: `eq.${b1.id}` }))[0].exceptions.filter((x) => x.severity === 'fix');
+  const choices = Object.fromEntries(fixes.map((x) => [`${x.code}@${x.key}`, x.code === 'price_unreadable' || x.code === 'price_missing' ? 'no_price' : 'skip']));
+  assert.equal((await owner.api.rpc('apply_import', { p_import: b1.id, p_draft: b1.draft, p_decisions: { v: 1, pricesConfirmed: true, choices, skip: [] } })).ok, true);
+  const a1 = await parsedImport(owner, A, WOLT_TEXT_REORDERED);
+  const dishesOf = async (v) => (await owner.api.select('dishes', { select: 'name_en', venue_id: `eq.${v}` })).map((x) => x.name_en).sort();
+  const bBefore = await dishesOf(B);
+  assert.deepEqual(await dishesOf(A), []);
+
+  // B open (the account's last place), A's import by its address (Back after switching place, or a link)
+  const page = await signInPage(email, { lang: 'en' });
+  await page.locator('.shell').waitFor();
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), ['mana-studio-v2-venue:' + owner.userId, B]);
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + a1.id);
+  await page.reload();
+  await page.locator(`.shell[data-venue="${B}"]`).waitFor();
+  const elsewhere = page.locator(`[data-import-elsewhere="${A}"]`);
+  await elsewhere.waitFor();
+  assert.equal(await page.locator('[data-review]').count(), 0, 'no preview planned against B\'s menu');
+  assert.equal(await page.locator('[data-action="apply-import"]').count(), 0, 'nothing to apply here');
+  assert.match(await elsewhere.innerText(), /another place[\s\S]*Two Places A/);
+  await shot(page, 'sec-01-another-place');
+  assert.deepEqual(await dishesOf(A), []);
+  assert.deepEqual(await dishesOf(B), bBefore);
+
+  // the way to its place: A opens, and A's import is checked against A's own menu (every dish is new there)
+  await elsewhere.locator('[data-action="open-import-place"]').click();
+  await page.locator(`.shell[data-venue="${A}"]`).waitFor();
+  await page.locator(`[data-review="${a1.id}"]`).waitFor();
+  await page.locator('[data-plan-line="create:dish"]').first().waitFor();
+  assert.ok(Number(await page.locator('[data-plan-line="create:dish"]').getAttribute('data-n')) > 0);
+  assert.equal(await page.locator('[data-plan-nothing]').count(), 0);
+
+  // an answer is kept for this account and this import only
+  await page.locator('[data-exception^="price_unreadable@"] [data-choose="no_price"]').click();
+  await page.waitForFunction((k) => !!localStorage.getItem(k), `mana-import-answers:${owner.userId}:${a1.id}`);
+  assert.deepEqual(await answerKeys(page), [`mana-import-answers:${owner.userId}:${a1.id}`]);
+  // signing out leaves none on the device
+  await page.locator('[data-action="account"]').click();
+  await page.locator('[data-menu="sign-out"]').click();
+  await page.locator('[data-screen="start"]').waitFor();
+  assert.deepEqual(await answerKeys(page), [], 'gone at sign-out');
+  // answers left by another account, or by an older version of the app, are gone once this account signs in
+  await page.evaluate((keys) => { for (const k of keys) localStorage.setItem(k, JSON.stringify({ choices: {}, skip: ['s0'] })); },
+    [`mana-import-answers:00000000-0000-4000-8000-00000000beef:${a1.id}`, `mana-import-answers:${a1.id}`]);
+  await page.locator('input[type="email"]').fill(email);
+  await page.locator('input[name="password"]').fill(PASSWORD);
+  await page.locator('form.start-form button[type="submit"]').click();
+  await page.locator('.shell').waitFor();
+  // (the review this account opens on keeps its own answers at once: only those may be there)
+  await page.waitForFunction((own) => !Object.keys(localStorage).some((k) => k.startsWith('mana-import-answers:') && !k.startsWith(own)),
+    `mana-import-answers:${owner.userId}:`);
+  const left = await answerKeys(page);
+  assert.ok(left.every((k) => k.startsWith(`mana-import-answers:${owner.userId}:`)), JSON.stringify(left));
+  // back on A's import: the answer given before signing out is asked again, and applying writes to A, never to B
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + a1.id);
+  const cake = page.locator('[data-exception^="price_unreadable@"]');
+  if (!(await page.locator(`.shell[data-venue="${A}"]`).count())) await page.locator(`[data-import-elsewhere="${A}"] [data-action="open-import-place"]`).click();
+  await cake.waitFor();
+  assert.equal(await cake.getAttribute('data-open'), 'yes', 'not answered: the answer did not outlive the sign-out');
+  await cake.locator('[data-choose="no_price"]').click();
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await page.locator('[data-screen="onboarding"]:not([data-step="review"])').waitFor();
+  assert.ok((await dishesOf(A)).length > 0, 'A has its menu');
+  assert.deepEqual(await dishesOf(B), bBefore, 'B is as it was');
+  assert.deepEqual(await answerKeys(page), [], 'applied: the answers are dropped');
+  assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+test('a name read with a direction control in it never turns the sentence round: each name is isolated', { timeout: 300000 }, async () => {
+  const email = 'onboard-bidi@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'bidi-sim', name: { he: '', en: 'Bidi Sim' }, kind: 'cafe' });
+  const imp = await parsedImport(owner, made.id, WOLT_TEXT.replace('Seasonal cake', 'Seasonal‮ cake'));
+  const page = await signInPage(email, { lang: 'en' });
+  await page.goto(e.webUrl + 'studio/#/onboarding/review/' + imp.id);
+  const what = page.locator('[data-exception^="price_unreadable@"] .exc-what .exc-text');
+  await what.waitFor();
+  const text = await what.textContent();
+  assert.match(text, /^We could not read the price of "⁨[^⁩]*⁩"\.$/, JSON.stringify(text));
+  assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+// ------------------------------------------------------------------ the QA round: leaving things out, a lost or stale apply, the imports unread
+/** An import whose stored draft is `draft` (made with the contracts' own builders), waiting for its check. */
+async function draftImport(owner, venue, draft) {
+  owner.forVenue(venue);
+  const made = await owner.createImport({ source: 'wolt_text', text: 'invented ' + draft.sections.map((x) => x.key).join(' ') + ' ' + Date.now() });
+  assert.equal(made.ok, true, JSON.stringify(made));
+  const saved = await owner.api.rpc('save_import_draft', { p_import: made.importId, p_draft: draft, p_notes: [] });
+  assert.equal(saved.ok, true, JSON.stringify(saved).slice(0, 300));
+  return made.importId;
+}
+
+test('the owner leaves things out: a dish\'s 9th add-on group (too many) with its one answer, a section and a dish by choice; giving up asks first', { timeout: 300000 }, async () => {
+  const email = 'onboard-leave@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'leave-sim', name: { he: '', en: 'Leave Sim' }, kind: 'cafe' });
+  const groups = Array.from({ length: 9 }, (_, i) => group('g' + i, 'קבוצה ' + i, 'Group ' + i, { options: [opt(`o${i}a`, `א${i}`, `A${i}`, 0), opt(`o${i}b`, `ב${i}`, `B${i}`, 0)] }));
+  const imp = await draftImport(owner, made.id, draftOf([
+    section('s1', 'עיקריות', 'Mains', [dish('d1', 'המבורגר', 'Burger', 6000, { groups: groups.map((g) => link(g.key)) }), dish('d2', 'סלט', 'Salad', 4200)]),
+    section('s2', 'קינוחים', 'Desserts', [dish('d3', 'עוגה', 'Cake', 3200), dish('d4', 'גלידה', 'Ice cream', 2400)]),
+  ], groups));
+  const page = await signInPage(email, { lang: 'en' });
+  await page.locator(`[data-review="${imp}"]`).waitFor({ timeout: 20000 });
+  // too many: one answer, still a button; with nothing on the menu yet, said without "with what you already have"
+  const many = page.locator('[data-exception="too_many@d1>g8"]');
+  assert.equal(await many.getAttribute('data-open'), 'yes');
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  assert.equal(await page.locator('[data-action="apply-import"]').isDisabled(), true);
+  assert.match(await page.locator('[data-apply-blocked] [data-blocked="too_many"]').innerText(), /^This is more than one menu holds/);
+  await shot(page, 'qa-01-too-many');
+  await many.locator('[data-choose="skip"]').click();
+  await page.locator('[data-exception="too_many@d1>g8"][data-open="no"]').waitFor();
+  // the desserts and the salad left out; the salad put back, then left out again
+  await page.locator('[data-leave="s2"]').click();
+  await page.locator('[data-draft-section="s2"][data-out="yes"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="yes"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="no"]').waitFor();
+  await page.locator('[data-leave="d2"]').click();
+  await page.locator('[data-draft-dish="d2"][data-out="yes"]').waitFor();
+  assert.equal(await page.locator('[data-leave="d2"]').getAttribute('aria-pressed'), 'true');
+  assert.match(await page.locator('[data-plan-line="skip:section"][data-reason="choice"]').innerText(), /Left out: 1 section · as you chose/);
+  assert.match(await page.locator('[data-plan-line="skip:dish"][data-reason="choice"]').innerText(), /Left out: 1 dish · as you chose/);
+  assert.match(await page.locator('[data-plan-line="skip:dish"][data-reason="parent_skipped"]').innerText(), /Left out: 2 dishes · with what they belong to/);
+  const kept = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), `mana-import-answers:${owner.userId}:${imp}`);
+  assert.deepEqual(kept.skip, ['d2', 's2'], 'kept for this account and this import');
+  // a group's button says it leaves the group out of every dish that has it
+  assert.equal((await page.locator('[data-leave="g0"]').innerText()).trim(), 'Leave out of every dish');
+  await shot(page, 'qa-02-left-out');
+  // everything left out: said plainly, and applying waits (a menu with no dish is never marked done)
+  await page.locator('[data-leave="s1"]').click();
+  await page.locator('[data-plan-nothing="left-out"]').waitFor();
+  await page.locator('[data-apply-blocked="no-dish"]').waitFor();
+  assert.equal(await page.locator('[data-action="apply-import"]').isDisabled(), true);
+  await page.locator('[data-leave="s1"]').click();
+  await page.locator('[data-draft-section="s1"][data-out="no"]').waitFor();
+  // giving up asks first: kept on "Cancel"
+  await page.locator('[data-action="discard-import"]').click();
+  const ask = page.locator('dialog[open]');
+  await ask.waitFor();
+  assert.match(await ask.innerText(), /Give up this import\?/);
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await ask.waitFor({ state: 'detached' });
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${imp}` }))[0].status, 'parsed');
+  // applied: the burger with eight groups, no salad, no desserts
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  const s = await stored(owner, made.id);
+  assert.deepEqual([s.names, s.sections.length], [['Burger'], 1]);
+  assert.equal((await rowsOf(owner, 'dish_addon_groups', made.id)).length, 8);
+  // one dish in one section: said in the singular
+  await page.goto(e.webUrl + 'studio/#/onboarding/menu');
+  assert.match(await page.locator('[data-menu-has]').innerText(), /Your menu has 1 dish in 1 section/);
+  assert.deepEqual(problems(page), []);
+  await page.context().close();
+});
+
+test('applying when the import changed on another device, or when the answer is lost: read again, then shown as stored, or on as applied', { timeout: 300000 }, async () => {
+  const email = 'onboard-lost@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'lost-sim', name: { he: '', en: 'Lost Sim' }, kind: 'cafe' });
+  owner.forVenue(made.id);
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const id = await importWoltText(page);
+  // another device types the cake's price and stores the draft while this one is still checking it
+  const [row] = await owner.api.select('menu_imports', { select: 'parsed', id: `eq.${id}` });
+  const other = JSON.parse(JSON.stringify(row.parsed));
+  for (const sec of other.sections) for (const d of sec.dishes) if (d.name.en === 'Seasonal cake') { d.price = 3100; d.priceText = null; }
+  assert.equal((await owner.api.rpc('save_import_draft', { p_import: id, p_draft: other, p_notes: [] })).ok, true);
+  await page.locator('[data-exception^="price_unreadable@"] [data-choose="no_price"]').click();
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await page.locator('[data-reread]').waitFor();
+  assert.equal(await page.locator('[data-exception^="price_unreadable@"]').count(), 0, 'the other device\'s price is there');
+  assert.ok((await page.locator('[data-draft-dish]', { hasText: 'Seasonal cake' }).innerText()).includes('31'));
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 0, 'nothing applied from the draft that was out of date');
+  await shot(page, 'qa-03-changed-elsewhere');
+  // the answer to "add to my menu" is lost after the database applied it: read again, and on as applied
+  let lose = true;
+  const toApply = (u) => u.pathname.endsWith('/rest/v1/rpc/apply_import');
+  await page.route(toApply, async (r) => { const res = await r.fetch(); if (lose) { lose = false; return r.abort('internetdisconnected'); } return r.fulfill({ response: res }); });
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  await page.unroute(toApply);
+  assert.equal(lose, false, 'the answer was lost');
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 6);
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${id}` }))[0].status, 'applied');
+  assert.equal(await page.locator('[data-ob-group]').count(), 3, 'the app reads the applied menu: its groups are on the add-ons step');
+  assert.equal(await page.locator('[data-ob-group][data-confirmed="no"]').count(), 2);
+  assert.deepEqual(problems(page).filter((p) => !/ERR_INTERNET_DISCONNECTED|Failed to fetch/.test(p)), []);
+  await page.context().close();
+});
+
+test('a lost answer to "add" after this device stored a price itself: on as applied, never "changed on another device" (QA L1)', { timeout: 300000 }, async () => {
+  const email = 'onboard-lost-own@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  const made = await owner.createVenue({ slug: 'lost-own-sim', name: { he: '', en: 'Lost Own Sim' }, kind: 'cafe' });
+  owner.forVenue(made.id);
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const id = await importWoltText(page);
+  // this device types the cake's price, and stores the draft itself (the import's updated_at moves)
+  const saved = page.waitForResponse((r) => r.url().endsWith('/rest/v1/rpc/save_import_draft') && r.request().method() === 'POST');
+  const fix = page.locator('[data-exception^="price_unreadable@"]');
+  await fix.locator('input[data-field^="fix-price-"]').fill('28');
+  await fix.locator('[data-action="set-price"]').click();
+  await saved;
+  await page.locator('[data-prices-confirm] button[role="switch"]').click();
+  let lose = true;
+  const toApply = (u) => u.pathname.endsWith('/rest/v1/rpc/apply_import');
+  await page.route(toApply, async (r) => { const res = await r.fetch(); if (lose) { lose = false; return r.abort('internetdisconnected'); } return r.fulfill({ response: res }); });
+  await page.locator('[data-action="apply-import"]:not([disabled])').click();
+  await step(page, 'addons');
+  await page.unroute(toApply);
+  assert.equal(lose, false, 'the answer was lost');
+  assert.equal((await rowsOf(owner, 'dishes', made.id)).length, 6);
+  assert.equal((await owner.api.select('menu_imports', { select: 'status', id: `eq.${id}` }))[0].status, 'applied');
+  await page.context().close();
+});
+
+test('when the imports cannot be read, the review step says so and tries again', { timeout: 300000 }, async () => {
+  const email = 'onboard-unread@sim.local';
+  const owner = await OwnerBot.signUp(e.stack, { email, password: PASSWORD });
+  await owner.createVenue({ slug: 'unread-sim', name: { he: '', en: 'Unread Sim' }, kind: 'cafe' });
+  const page = await signInPage(email, { lang: 'en' });
+  await step(page, 'menu');
+  const toImports = (u) => u.pathname.endsWith('/rest/v1/menu_imports');
+  await page.route(toImports, (r) => r.abort('internetdisconnected'));
+  await page.goto(e.webUrl + 'studio/#/onboarding/review');
+  await page.reload();
+  const err = page.locator('[data-screen="onboarding"][data-step="review"] .note-error');
+  await err.waitFor();
+  await shot(page, 'qa-04-imports-unread');
+  await page.unroute(toImports);
+  await err.getByRole('button').click();
+  await page.locator('[data-review-none]').waitFor();
   await page.context().close();
 });
 
@@ -408,9 +739,25 @@ test('Wolt screenshots through the scanner (a stub: the real handler, a recorded
   await step(page, 'menu');
   await page.locator('[data-source="wolt_screenshots"][data-available="yes"]').click();
   await page.locator('[data-image-import="wolt_screenshots"] [data-no-wolt-photos]').waitFor();
+  // a HEIC is refused when it is chosen, never shown as a broken picture to fail only on "Read"
+  const heic = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypheic'), Buffer.from([0, 0, 0, 0]), Buffer.from('mif1heic'), Buffer.alloc(200)]);
+  await page.locator('[data-field="import-files"]').setInputFiles([{ name: 'IMG_0001.HEIC', mimeType: 'image/heic', buffer: heic }]);
+  await page.locator('[data-image-import="wolt_screenshots"] .note-error').waitFor();
+  assert.match(await page.locator('[data-image-import="wolt_screenshots"] .note-error').innerText(), /HEIC/);
+  assert.deepEqual([await page.locator('[data-chosen]').getAttribute('data-chosen'), await page.locator('[data-image-import] .thumbs img').count()], ['0', 0]);
+  // a screenshot, and a photo straight from a camera: a JPEG with EXIF saying where it was taken (an invented place)
+  const plain = Buffer.from(await page.evaluate(async () => {
+    const c = document.createElement('canvas'); c.width = 16; c.height = 16;
+    const x = c.getContext('2d'); x.fillStyle = '#b4232a'; x.fillRect(0, 0, 16, 16);
+    const b = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    return [...new Uint8Array(await b.arrayBuffer())];
+  }));
+  const WHERE = 'GPS 31.0000 N 34.0000 E invented';
+  const camera = withExif(plain, WHERE);
+  assert.ok(camera.includes('Exif') && camera.includes(WHERE));
   await page.locator('[data-field="import-files"]').setInputFiles([
     { name: 'shot-1.png', mimeType: 'image/png', buffer: TINY_PNG },
-    { name: 'shot-2.png', mimeType: 'image/png', buffer: TINY_PNG },
+    { name: 'photo-2.jpg', mimeType: 'image/jpeg', buffer: camera },
   ]);
   await page.locator('[data-chosen="2"]').waitFor();
   await shot(page, 'scan-01-chosen');
@@ -420,7 +767,13 @@ test('Wolt screenshots through the scanner (a stub: the real handler, a recorded
   const importId = await page.locator('[data-review]').getAttribute('data-review');
   const [imp] = await owner.api.select('menu_imports', { select: 'status,source,raw_paths', id: `eq.${importId}` });
   assert.equal(imp.status, 'parsed');
-  assert.deepEqual(imp.raw_paths, [`${made.id}/imports/${importId}/01.png`, `${made.id}/imports/${importId}/02.png`]);
+  assert.deepEqual(imp.raw_paths, [`${made.id}/imports/${importId}/01.png`, `${made.id}/imports/${importId}/02.jpg`]);
+  // every picture was drawn again before it left the phone: what the camera wrote beside the photo never arrives
+  for (const p of imp.raw_paths) {
+    const up = Buffer.from(stub.files.get(p).bytes);
+    assert.ok(!up.includes('Exif') && !up.includes(WHERE), p + ': no EXIF, no place');
+  }
+  assert.equal(stub.files.get(imp.raw_paths[1]).type, 'image/jpeg');
   await shot(page, 'scan-02-review');
   await page.locator('[data-prices-confirm] button[role="switch"]').click();
   await page.locator('[data-action="apply-import"]:not([disabled])').click();

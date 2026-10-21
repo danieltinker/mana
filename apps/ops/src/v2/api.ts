@@ -82,7 +82,9 @@ export const CODE_TEXT: Readonly<Record<string, string>> = {
   revision_unknown: 'That revision does not exist.',
   revision_changed: 'The owner’s published revision changed since your review. Nothing was approved: read it and review again.',
   approval_first: 'A plan does not approve a venue: approve its first publish first, after reading its menu.',
-  stale: 'The owner changed this since your review. Nothing was changed: review it again.',
+  stale: 'This changed since your review. Nothing was changed: review it again.',
+  own_venue: 'You are a member of this venue (its owner, a manager or the counter), so you cannot approve it or change its plan or demo label: another Halom staff member must.',
+  case_changed: 'This case changed since your review. Nothing was changed: review it again.',
   revision_invalid: 'That is not a revision number.',
   text_invalid: 'Some text holds characters that cannot be stored.',
   already_approved: 'This venue was already approved.',
@@ -228,11 +230,13 @@ export function opsApi(backend: Backend) {
       return write<ActForOwnerReply>('act_for_owner', { p_venue: input.venueId, p_reason: stripBlank(input.reason), p_action: input.action, p_payload: input.payload });
     },
 
+    /** With the case's `updatedAt` as read (`expectedUpdatedAt`, sent back unchanged): a change since answers `stale`. */
     updateCase(input: UpdateCaseInput): Promise<Result<Ok<UpdateCaseReply>>> {
       const v = validateUpdateCase(input);
       if (!v.ok) return Promise.resolve(invalid(v.errors));
       return write<UpdateCaseReply>('ops_update_case', {
         p_case: input.caseId, p_status: input.status ?? null, p_topic: input.topic ?? null, p_reason: input.reason ? stripBlank(input.reason) : null,
+        p_expected_updated_at: input.expectedUpdatedAt ?? null,
       });
     },
 

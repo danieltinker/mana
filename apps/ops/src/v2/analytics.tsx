@@ -15,12 +15,15 @@ import { Columns, Funnel } from './charts.tsx';
 import { Freshness } from './freshness.tsx';
 import { LoadError, Notice, useCtx } from './ui.tsx';
 
+/** The most venues the picker lists (the contract's largest page); past it, the page says so. */
+export const PICKER_MAX = 500;
+
 export function Analytics({ venue }: { venue: string | null }) {
   const { api } = useCtx();
   const [range, setRange] = useState<AnalyticsRangeId>('24h');
   const [demo, setDemo] = useState<DemoScope>('exclude');
   const venueId = venue && isUuid(venue) ? venue.toLowerCase() : null;
-  const list = useLive<OpsVenues>(() => api.venues({ sort: 'name', limit: 500, demo: 'include' }), [], { poll: false });
+  const list = useLive<OpsVenues>(() => api.venues({ sort: 'name', limit: PICKER_MAX, demo: 'include' }), [], { poll: false });
   // the answer keeps the range it was asked for, so the labels always describe the numbers on screen
   const live = useLive<{ range: AnalyticsRangeId; a: OpsAnalytics }>(async () => {
     const r = await api.analytics(analyticsQuery(range, Date.now(), { venueId, demo }));
@@ -44,6 +47,7 @@ export function Analytics({ venue }: { venue: string | null }) {
         <label class="field field-inline"><span class="sr">Venue</span>
           <select value={venueId ?? ''} onChange={(e) => pick(e.currentTarget.value)} data-filter="venue" aria-label="Venue">
             <option value="">All venues</option>
+            {venueId && !venues.some((v) => v.id === venueId) && <option value={venueId}>The venue opened from its page</option>}
             {venues.map((v) => <option key={v.id} value={v.id}>{names(v.name, v.slug).main}{v.isDemo ? ' (demo)' : ''}</option>)}
           </select>
         </label>
@@ -58,6 +62,10 @@ export function Analytics({ venue }: { venue: string | null }) {
           </select>
         </label>
       </div>
+      {list.data && list.data.total > list.data.venues.length && (
+        <p class="muted small" data-picker-capped>The venue list holds the first {fmtInt(list.data.venues.length)} of {fmtInt(list.data.total)} venues by name; open any other one’s
+          analytics from its own page (Clients, then the venue, then “Analytics”).</p>
+      )}
       {a && chosen?.isDemo && a.demo === 'exclude' && (
         <Notice tone="info">{names(chosen.name, chosen.slug).main} is a demo venue: its guests are demo traffic. Choose “{DEMO_LABEL.include}” or “{DEMO_LABEL.only}” to see them.</Notice>
       )}

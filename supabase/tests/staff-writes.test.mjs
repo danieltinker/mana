@@ -194,8 +194,9 @@ describe('a version read is a version sent back', () => {
     const fromDash = (dash.onboarding.steps ?? dash.onboarding).find((s) => s.step === 'hours');
     assert.equal(fromDash.updatedAt, seen.updatedAt, 'the owner and staff read the same version');
     const r = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'onboarding.set',
-      p_payload: { step: 'hours', state: 'doing', expectedUpdatedAt: seen.updatedAt } });
+      p_payload: { step: 'hours', state: 'todo', expectedUpdatedAt: seen.updatedAt } });
     assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.result.kept, undefined, 'written (a todo always is; a doing on a done step is kept)');
     const again = await rpc(w.url, U.support, 'act_for_owner', { p_venue: A, p_reason: 'Owner asked by phone', p_action: 'onboarding.set',
       p_payload: { step: 'hours', state: 'done', expectedUpdatedAt: seen.updatedAt } });
     assert.equal(again.code, 'stale', 'the version moved with the change');

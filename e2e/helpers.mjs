@@ -33,7 +33,7 @@ export const GL_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-u
  * @param o.seed    a synthetic seed of sim/seeds (null = none)
  * @param o.site    the built site, served at /mana/ when it has an index.html
  * @param o.mounts  more folders by first path segment, e.g. { view: 'apps/view', stock: 'stock' } (a built app without the whole site)
- * @param o.config  more fields for the generated config.js
+ * @param o.config  more fields for the local config.js (on top of localConfigText's: env local, schema 2, realtime off)
  * @param o.gl      true: the browser draws WebGL in software (without it, a page that needs WebGL falls back as a phone would)
  * @param o.signup  'open': the stack's public sign-up is on, every address confirmed at once (sim/stack/start.mjs)
  */

@@ -5,14 +5,19 @@
 // parts. Invented data only: the contracts' synthetic Café Demo.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultSelection, indexMenu, isAvailable, isOpenAt, isUntilSpec, matchSuggestion, nextOpening, resolveUntil, zonedTime } from '@mana/contracts';
+import {
+  defaultSelection, indexMenu, isAvailable, isOpenAt, isUntilSpec, matchSuggestion, menuAvailability, nextOpening, passesTagFilter, resolveUntil, unavailableOf, zonedTime,
+} from '@mana/contracts';
 import { DISHES, ID, cafeDemo, liveOf } from '@mana/contracts/fixtures';
 import { lang } from '../../src/lib/i18n.ts';
-import { UNTIL_CHOICES, availabilityApi, backAt, liveOverlayOf, offEntries, offState, offToday, targetsOf, untilSpecOf } from '../../src/v2/data/availability.ts';
+import {
+  UNTIL_CHOICES, availabilityApi, backAt, channelMode, liveDelay, liveOverlayOf, offEntries, offState, offToday, targetsOf, untilSpecOf,
+} from '../../src/v2/data/availability.ts';
+import { sameStored } from '../../src/v2/data/rows.ts';
 import { V2Error } from '../../src/v2/data/errors.ts';
-import { closureFromForm, hoursFromForm, newScheduleForm, scheduleFromForm, scheduleToForm, venueHoursOf } from '../../src/v2/data/hours.ts';
+import { closureFromForm, hoursFromForm, isAllDay, newScheduleForm, scheduleFromForm, scheduleToForm, venueHoursOf } from '../../src/v2/data/hours.ts';
 import { newRuleForm, nextPriority, previewRule, ranked, reprioritize, ruleFromForm, ruleToForm, ruleV2, sampleAt, shownOf } from '../../src/v2/data/rules.ts';
-import { daysText, momentText, orList, ruleSummary } from '../../src/v2/words.ts';
+import { daysText, momentText, orList, ruleSummary, whenText } from '../../src/v2/words.ts';
 
 const TZ = 'Asia/Jerusalem';
 const V = ID.venue;
@@ -46,7 +51,13 @@ test('a rule reads as one plain line, in Hebrew and in English', () => {
   assert.deepEqual(both(row({ trigger: 'sheet', scope_kind: 'dish', scope_ids: [ID.burger], suggest_kind: 'option', suggest_option_id: ID.cheese, days: [5, 6, 0], from_time: '18:30:00', to_time: '23:00:00' })),
     ['כשפותחים את המבורגר, להציע את התוספת גבינה, ו׳–א׳ 18:30–23', 'When Burger is opened, suggest the add-on Cheese, Fri–Sun 18:30–23']);
   assert.deepEqual(both(row({ trigger: 'checkout', scope_kind: 'section', scope_ids: [ID.mains], basket_has_dishes: [ID.espresso, ID.burger], basket_has_sections: [ID.pastries], suggest_dish_id: ID.lemonade, days: [1, 3] })),
-    ['בסיום הזמנה עם עיקריות, אם יש בהזמנה מאפים, אספרסו או המבורגר, להציע לימונדה, ב׳, ד׳', 'At checkout with Mains, if the basket has Pastries, Espresso or Burger, suggest Lemonade, Mon, Wed']);
+    ['בסיום הזמנה עם מנה מתוך עיקריות, אם יש בהזמנה מאפים, אספרסו או המבורגר, להציע לימונדה, ב׳, ד׳', 'At checkout with anything from Mains, if the basket has Pastries, Espresso or Burger, suggest Lemonade, Mon, Wed']);
+  // a section scope says "anything in it"; a window past midnight on chosen days says which day it runs into
+  assert.deepEqual(both(row({ trigger: 'sheet', scope_kind: 'section', scope_ids: [ID.mains], days: [5], from_time: '22:00:00', to_time: '02:00:00', suggest_dish_id: ID.lemonade })),
+    ['כשפותחים מנה מתוך עיקריות, להציע לימונדה, ו׳ 22–2 (ממשיך לשבת)', 'When anything in Mains is opened, suggest Lemonade, Fri 22–2 (into Saturday)']);
+  assert.deepEqual(both(row({ scope_kind: 'section', scope_ids: [ID.mains], days: [4, 5], from_time: '22:00:00', to_time: '02:00:00', suggest_dish_id: ID.lemonade })),
+    ['אחרי מנה מתוך עיקריות, להציע לימונדה, ה׳, ו׳ 22–2 (ממשיך ליום שאחרי)', 'After anything from Mains, suggest Lemonade, Thu, Fri 22–2 (into the next day)']);
+  assert.equal(inLang('en', () => plain(ruleSummary(row({ from_time: '22:00:00', to_time: '02:00:00', suggest_dish_id: ID.lemonade }), nameOf))), 'After any dish, suggest Lemonade, 22–2', 'every day: nothing to add');
   assert.deepEqual(both(row({ trigger: 'sheet', suggest_dish_id: ID.lemonade, days: [0, 1, 2, 3, 4, 5, 6] })), ['כשפותחים מנה כלשהי, להציע לימונדה', 'When any dish is opened, suggest Lemonade']);
   // something deleted since reads as such, never as nothing (a condition must not read as "always")
   assert.deepEqual(both(row({ scope_kind: 'dish', scope_ids: [uid()], suggest_dish_id: uid() })), ['אחרי משהו שנמחק, להציע משהו שנמחק', 'After something deleted, suggest something deleted']);
@@ -153,7 +164,7 @@ test('priority by order: one write when there is room, everything numbered again
 
 // ---------------------------------------------------------------- the live preview
 const NOW = at('2026-10-15', '09:00');                                              // Thursday morning
-const sample = (o = {}) => ({ dishId: ID.espresso, basket: [], weekday: 4, time: '08:00', filter: null, fromSuggestion: false, ...o });
+const sample = (o = {}) => ({ dishId: ID.espresso, basket: [], weekday: 4, time: '08:00', tags: [], fromSuggestion: false, ...o });
 const optionGroup = new Map([[ID.cheese, ID.extras], [ID.egg, ID.extras], [ID.single, ID.size], [ID.double, ID.size], [ID.regularMilk, ID.milk]]);
 function preview(r, o = {}, { snapshot = { ...cafeDemo(), upsellRules: [] }, off = [] } = {}) {
   const write = ruleFromForm(ruleToForm(r)).value;
@@ -174,7 +185,13 @@ test('the preview runs matchSuggestion: the morning rule says yes at 08:00 and n
   assert.deepEqual(preview(r, { dishId: ID.lemonade }).why, { code: 'scope' });
   assert.deepEqual(preview(r, { fromSuggestion: true }).why, { code: 'chained' }, 'never in a chain');
   assert.deepEqual(preview(r, { basket: [ID.croissant] }).why, { code: 'in_basket' }, 'never what the basket has');
-  assert.deepEqual(preview(r, { filter: 'vegan' }).why, { code: 'filtered' }, 'never what the guest\'s filter hides (the croissant is vegetarian)');
+  assert.deepEqual(preview(r, { tags: ['vegan'] }).why, { code: 'filtered' }, 'never what the guest\'s filter hides (the croissant is vegetarian)');
+  assert.equal(preview(r, { tags: ['vegetarian'] }).mine?.suggest.dishId, ID.croissant, 'a vegetarian dish passes "vegetarian"');
+  assert.deepEqual(preview(r, { tags: ['vegetarian', 'gf'] }).why, { code: 'filtered' }, 'every tag asked for (AND)');
+  // a vegan dish counts as vegetarian, as the guest menu's filter (passesTagFilter) has it
+  const lemon = row({ id: uid(), scope_kind: 'dish', scope_ids: [ID.espresso], suggest_dish_id: ID.lemonade });
+  assert.equal(passesTagFilter(DISHES.lemonade, ['vegetarian']), true);
+  assert.equal(preview(lemon, { tags: ['vegetarian'] }).mine?.suggest.dishId, ID.lemonade, 'vegan lemonade passes "vegetarian"');
   const off = preview(r, {}, { off: [{ kind: 'dish', id: ID.croissant, from: '2026-10-15T00:00:00Z', until: '2026-10-15T12:00:00Z' }] });
   assert.equal(off.why.code, 'unavailable');
   assert.equal(off.why.reason, 'off');
@@ -221,7 +238,51 @@ test('the preview: rules compete (the higher priority is what the guest sees), a
   assert.deepEqual([hidden.why, hidden.mine], [{ code: 'left_out', reason: 'suggestion_hidden' }, null]);
 });
 
-test('the reason always agrees with matchSuggestion: over every day, hour, basket, filter and trigger', () => {
+// The reason, found another way: matchSuggestion asked again with one condition at a time (the others lifted, and a
+// suggestion that always fits), then the suggestion itself checked directly. The preview's reason (the contracts'
+// whyNoSuggestion) must be this one.
+const PROBE = '00000000-0000-4000-8000-00000000f06f';
+const PROBE_DISH = { id: PROBE, name: { he: '', en: '' }, desc: { he: '', en: '' }, price: { amount: 1, note: { he: '', en: '' } }, tags: [], allergens: { he: '', en: '' }, details: {}, asset: null, scheduleId: null, addons: [], related: [] };
+function oracle(rule, ctx) {
+  if (ctx.fromSuggestion) return { code: 'chained' };
+  if (ctx.trigger !== 'checkout' && ctx.dishId == null) return { code: 'no_dish' };
+  if (ctx.trigger === 'checkout' && ctx.basket.length === 0) return { code: 'basket_empty' };
+  const menu = { ...ctx.menu, dishes: new Map([...ctx.menu.dishes, [PROBE, PROBE_DISH]]) };
+  const open = { ...rule, active: true, scope: { kind: 'all' }, when: null, basketHas: null, basketLacks: null, suggest: { kind: 'dish', dishId: PROBE } };
+  const passes = (r) => matchSuggestion([r], { ...ctx, menu, tags: [] }) !== null;
+  if (!passes({ ...open, scope: rule.scope })) return { code: 'scope' };
+  if (!passes({ ...open, when: rule.when })) return { code: 'when' };
+  if (!passes({ ...open, basketHas: rule.basketHas })) return { code: 'has' };
+  if (!passes({ ...open, basketLacks: rule.basketLacks })) {
+    const m = rule.basketLacks;
+    return { code: 'lacks', found: ctx.basket.map((l) => l.dishId).filter((id) => m.dishes.includes(id) || m.sections.includes(ctx.menu.sectionOf.get(id) ?? '')) };
+  }
+  const sg = rule.suggest;
+  if (sg.kind === 'dish') {
+    const d = ctx.menu.dishes.get(sg.dishId);
+    if (!d) return { code: 'hidden' };
+    if (d.price === null) return { code: 'no_price' };
+    if (sg.dishId === ctx.dishId) return { code: 'same_dish' };
+    if (ctx.basket.some((l) => l.dishId === sg.dishId)) return { code: 'in_basket' };
+    if (ctx.unavailable.dishes.has(sg.dishId)) return { code: 'unavailable' };
+    if (!passesTagFilter(d, ctx.tags)) return { code: 'filtered' };
+    return null;
+  }
+  const dish = ctx.dishId ? ctx.menu.dishes.get(ctx.dishId) : undefined;
+  const attached = dish?.addons.find((a) => a.groupId === sg.groupId);
+  const group = ctx.menu.groups.get(sg.groupId);
+  if (ctx.trigger === 'checkout' || !dish || !attached || !group) return { code: 'option_not_on_dish' };
+  if (!group.options.some((o) => o.id === sg.optionId)) return { code: 'hidden' };
+  if (ctx.unavailable.options.has(sg.optionId)) return { code: 'option_unavailable' };
+  const chosen = ctx.selection?.groups.find((g) => g.groupId === sg.groupId)?.options ?? [];
+  const units = chosen.reduce((n, o) => n + (o.qty ?? 1), 0);
+  if (chosen.some((o) => o.optionId === sg.optionId)) return { code: 'option_chosen' };
+  if (group.selection === 'single' && units > 0) return { code: 'option_would_replace' };
+  if (units + 1 > attached.max) return { code: 'option_full' };
+  return null;
+}
+
+test('the reason is the right one and always agrees with matchSuggestion: over every day, hour, basket, filter and trigger', () => {
   const s = { ...cafeDemo(), upsellRules: [] };
   const rules = [
     morning, noDrink,
@@ -234,15 +295,27 @@ test('the reason always agrees with matchSuggestion: over every day, hour, baske
   const baskets = [[], [ID.croissant], [ID.espresso, ID.burger], [ID.lemonade, ID.croissant]];
   const dishes = [ID.espresso, ID.burger, ID.croissant];
   const off = [{ kind: 'dish', id: ID.lemonade, from: '2026-10-15T00:00:00Z', until: null }];
-  const guests = [[null, []], ['vegan', []], [null, off]];
+  const guests = [[[], []], [['vegetarian', 'gf'], []], [['vegetarian'], off]];
+  const seen = new Set();
   let checked = 0;
-  for (const r of rules) for (const [weekday, time] of moments) for (const basket of baskets) for (const dishId of dishes) for (const [filter, offs] of guests) {
-    const p = preview(row({ ...r, id: r.id }), { weekday, time, basket, dishId, filter }, { snapshot: s, off: offs });
-    assert.equal(p.mine === null, p.why !== null);
-    if (p.why) assert.notEqual(p.why.code, 'other', JSON.stringify({ r: r.id, weekday, time, basket, dishId, filter }));
+  for (const r of rules) for (const [weekday, time] of moments) for (const basket of baskets) for (const dishId of dishes) for (const [tags, offs] of guests) {
+    const where = JSON.stringify({ r: r.id, weekday, time, basket, dishId, tags });
+    const p = preview(row({ ...r, id: r.id }), { weekday, time, basket, dishId, tags }, { snapshot: s, off: offs });
+    assert.equal(p.mine === null, p.why !== null, where);
+    // the same moment as the guest's phone has it, and the reason found the other way
+    const menu = indexMenu(s), unavailable = unavailableOf(menuAvailability(s, liveOf(offs), p.at), s.venue.mode !== 'view_only');
+    const trigger = r.trigger, ctxDish = trigger === 'checkout' ? null : dishId;
+    const lines = [...new Set(trigger === 'add' ? [...basket, dishId] : basket)].map((d) => ({ dishId: d }));
+    const d = ctxDish ? menu.dishes.get(ctxDish) : undefined;
+    const rule = ruleV2(r.id, ruleFromForm(ruleToForm(r)).value, shownOf(s), optionGroup).rule;
+    const want = oracle(rule, { trigger, menu, dishId: ctxDish, selection: d ? defaultSelection(d, { groups: menu.groups, unavailable }) : null, basket: lines, now: p.at, unavailable, tags });
+    assert.deepEqual(p.why ? (p.why.code === 'lacks' ? { code: 'lacks', found: p.why.found } : { code: p.why.code }) : null, want, where);
+    if (p.why) seen.add(p.why.code);
     checked++;
   }
   assert.equal(checked, 864);
+  // the grid reaches the reasons that matter
+  for (const code of ['scope', 'when', 'has', 'lacks', 'basket_empty', 'same_dish', 'in_basket', 'unavailable', 'filtered']) assert.ok(seen.has(code), code);
 });
 
 test('this week\'s sample day: today when it is that day, else the coming one', () => {
@@ -405,9 +478,12 @@ test('opening hours: several windows a day; no overlap, across midnight and Satu
   assert.deepEqual(codes([5], '17:00', '22:00'), [{ weekday: 5, opens: '17:00', closes: '22:00' }], 'Friday evening beside Friday morning: a split day');
   assert.deepEqual(codes([5], '10:00', '12:00'), ['hours_overlap']);
   assert.deepEqual(codes([5], '11:00', '12:00'), [{ weekday: 5, opens: '11:00', closes: '12:00' }], 'touching is not overlapping');
-  assert.deepEqual(codes([0], '01:00', '09:00'), ['hours_overlap'], 'Saturday 22:00–02:00 runs into Sunday');
+  assert.deepEqual(codes([0], '01:00', '09:00'), ['hours_overlap_night'], 'Saturday 22:00–02:00 runs into Sunday: said as the night before');
   assert.deepEqual(codes([0], '02:00', '09:00'), [{ weekday: 0, opens: '02:00', closes: '09:00' }]);
-  assert.deepEqual(codes([4], '20:00', '08:00'), ['hours_overlap'], 'Thursday overnight runs into Friday morning');
+  assert.deepEqual(codes([4], '20:00', '08:00'), ['hours_overlap_next'], 'Thursday overnight runs into Friday morning');
+  assert.deepEqual(codes([1], '08:00', '08:00'), [{ weekday: 1, opens: '08:00', closes: '08:00' }], 'the same time twice: 24 hours');
+  assert.equal(isAllDay('08:00', '08:00'), true);
+  assert.equal(isAllDay('08:00', '17:00'), false);
   assert.deepEqual(codes([5], '08:00', '10:30', 'a'), [{ weekday: 5, opens: '08:00', closes: '10:30' }], 'a window changed is not checked against itself');
   assert.deepEqual(codes([1, 2], '09:00', '10:00').map((x) => x.weekday), [1, 2], 'several days in one go');
   assert.deepEqual(codes([3, 4], '20:00', '06:00').map((x) => x.weekday), [3, 4], 'two nights in a row, each past midnight');
@@ -460,4 +536,49 @@ test('the contracts decide: a stored rule written back as rows and previewed ans
     });
     assert.deepEqual(p.shown, want, `${time} ${basket}`);
   }
+});
+
+test('"off now" kept current: a removed channel\'s CLOSED changes nothing; the safety poll beside Realtime (ADR-007)', () => {
+  // this place's channel
+  assert.equal(channelMode('SUBSCRIBED', true), 'realtime');
+  for (const st of ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED']) assert.equal(channelMode(st, true), 'polling', st);
+  // a channel removed with an earlier place or account: its CLOSED (and anything else) starts nothing
+  for (const st of ['CLOSED', 'CHANNEL_ERROR', 'SUBSCRIBED']) assert.equal(channelMode(st, false), null, st);
+  assert.equal(channelMode('JOINING', true), null);
+  // beside a subscription the slow safety poll (60 s), alone every 15 s; doubled per failure, never above two minutes
+  const mid = () => 0.5;
+  assert.equal(liveDelay('realtime', 0, mid), 60_000);
+  assert.equal(liveDelay('polling', 0, mid), 15_000);
+  assert.equal(liveDelay('polling', 2, mid), 60_000);
+  assert.equal(liveDelay('realtime', 3, mid), 120_000);
+});
+
+test('a retried insert compares what was sent with what is stored: times with seconds, blank ends, jsonb keys in any order', () => {
+  assert.equal(sameStored('07:00', '07:00:00'), true);
+  assert.equal(sameStored('07:00', '07:30:00'), false);
+  assert.equal(sameStored(' בוקר ', 'בוקר'), true);
+  // Postgres gives a jsonb object's keys back in its own order
+  const sent = [{ days: [0, 2, 3], from: '07:00', to: '11:00' }];
+  const stored = [{ to: '11:00', days: [0, 2, 3], from: '07:00' }];
+  assert.equal(JSON.stringify(sent) === JSON.stringify(stored), false, 'what the old comparison saw');
+  assert.equal(sameStored(sent, stored), true);
+  assert.equal(sameStored(sent, [{ to: '12:00', days: [0, 2, 3], from: '07:00' }]), false);
+  assert.equal(sameStored(sent, [{ to: '11:00', days: [0, 3, 2], from: '07:00' }]), false, 'an array keeps its order');
+  assert.equal(sameStored(null, undefined), true);
+  assert.equal(sameStored([1], [1, 2]), false);
+});
+
+test('a rule\'s days and hours, in the summary and in the preview\'s "not at this time": past midnight it says the day it runs into', () => {
+  inLang('en', () => {
+    assert.equal(plain(whenText([5], '22:00:00', '02:00:00')), 'Fri 22–2 (into Saturday)');
+    assert.equal(plain(whenText([4, 5], '22:00', '02:00')), 'Thu, Fri 22–2 (into the next day)');
+    assert.equal(plain(whenText([], '07:00', '11:00')), '7–11');
+    assert.equal(plain(whenText([0, 1, 2, 3, 4], null, null)), 'Sun–Thu');
+    assert.equal(whenText([], null, null), '');
+  });
+  inLang('he', () => assert.equal(plain(whenText([5], '22:00', '02:00')), 'ו׳ 22–2 (ממשיך לשבת)'));
+  // the preview's reason reads the same words (rules.tsx whyText: why.when with whenText)
+  const r = row({ trigger: 'sheet', days: [5], from_time: '22:00:00', to_time: '02:00:00', suggest_dish_id: ID.lemonade });
+  const p = preview(r, { weekday: 3, time: '12:00', dishId: ID.espresso });
+  assert.deepEqual(p.why, { code: 'when' });
 });

@@ -186,6 +186,9 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .glance-minis li,.glance-tiles li{display:grid;gap:3px;min-width:0}
 .glance-minis bdi,.glance-tiles bdi{font:600 1.25rem/1 var(--display);color:var(--black)}
 .glance-minis span,.glance-tiles span{display:flex;align-items:flex-start;gap:4px;font-size:.8rem;line-height:1.3;color:var(--muted)}
+/* a label with its share ("From the QR code · 71%") wraps as one line of text, the share in the label's own type */
+.glance-lbl{font-style:normal;min-width:0}
+.glance-minis .glance-pct{font:inherit;color:inherit;white-space:nowrap}
 .glance-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 0 0;border-top:1px solid var(--line)}
 .glance-sugg{display:grid;gap:8px}
 .glance-sugg .glance-tiles{border-top:0;padding-top:0}
@@ -238,7 +241,8 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .flow-bar{height:6px;border-radius:999px;background:var(--soft);border:1px solid var(--line);overflow:hidden}
 .flow-bar span{display:block;height:100%;background:var(--black);border-radius:999px;transition:width .3s}
 .flow-steps summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;cursor:pointer;font-weight:600;color:var(--black)}
-.flow-steps ol{list-style:none;padding:0;display:grid}
+.flow-steps{display:block}
+.flow-steps ol{list-style:none;padding:0;margin:8px 0 0;display:grid}
 .flow-steps li a{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:48px;color:inherit;text-decoration:none}
 .flow-steps li+li a{border-top:1px solid var(--line)}
 .flow-steps li[aria-current=step] .flow-name{font-weight:600;color:var(--black)}
@@ -293,6 +297,13 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .draftdish-price{flex:none}
 .draftgroup{padding-inline-start:12px;border-inline-start:2px solid var(--line);display:grid;gap:2px}
 .draftgroup ul{list-style:none;padding:0}
+/* leaving something out of an import (ADR-006 skip): a small toggle beside it; what is left out is greyed and struck */
+.leaverow{display:flex;justify-content:flex-end;align-items:center;gap:8px}
+.leavebtn{min-height:40px;min-width:44px;padding:0 12px;border-radius:999px;border:1px solid var(--line-2);background:#fff;color:var(--charcoal);font-size:.82rem;font-weight:600}
+.leavebtn[aria-pressed=true]{background:var(--black);border-color:var(--black);color:var(--ivory)}
+.draftgroup-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.draftgroup li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:40px}
+.is-out>.draftdish-line .strong,.draftsec.is-out>summary .strong,.draftgroup.is-out>.draftgroup-head>span[dir],li.is-out>span[dir]{text-decoration:line-through;color:var(--muted)}
 
 /* trying it on a phone: the guest's view in a phone's frame */
 .phoneframe{justify-self:center;width:min(100%,340px);border-radius:34px;padding:10px;background:var(--table);box-shadow:var(--lift)}
@@ -311,3 +322,8 @@ html[data-app=v2] .toast{pointer-events:none;padding:10px 16px;font-size:.9rem}
 .tcard{position:relative}
 .tcard-demo{position:absolute;top:3%;inset-inline:0;margin:0 auto;width:max-content;padding:.2em .8em;border-radius:999px;background:#b4232a;color:#fff;font:700 5cqw/1.2 Arial,sans-serif;letter-spacing:.04em}
 @media print{html[data-print] .print-root .tcard-demo{font-size:4.6vw}}
+
+/* "not saved": one short line and its button beside it (below it, only where the line would not fit beside it) */
+.savebar-v2{gap:6px 8px;padding:8px;padding-inline-start:12px;font-size:.9rem;line-height:1.3}
+.savebar-v2 span{flex:1 1 auto;min-width:0}
+.savebar-v2 .btn{flex:none;margin-inline-start:auto}

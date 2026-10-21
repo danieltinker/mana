@@ -7,7 +7,7 @@ reach any host but 127.0.0.1.
 npm run test:unit            # prices, menu address, pasted lists, dashboard sums, "what changed", name comparison,
                              # what a chosen file really is, and the menus-ai function itself against canned API answers;
                              # v2-data: the v2 app's data layer (rows <-> forms, the nesting guard, the guest's prices);
-                             # v2-saves: its save queue against a fake API (slow, failing, lost and stale answers)   ~4 s
+                             # v2-saves: its save queue against a fake API (slow, failing, lost, stale, missing answers)   ~4 s
 node test/check-i18n.mjs     # every t('key') in the sources exists in both languages (lib/i18n.ts and v2/i18n.ts)
 npm run build && npm run test:e2e    # browser tests against the local stack below               ~25 min on 2 cores
 node test/shots.mjs          # the screenshot tour into .shots/v2/                               ~3 min
@@ -90,8 +90,8 @@ dish photo → relief; the numbers are "headless, this machine", an upper bound.
 Chromium: `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (override with `CHROME`), started with SwiftShader so the diner
 viewer's WebGL runs. Each file starts its own stack. Screenshots and logs land in `test/.out/` (git-ignored).
 These suites are the v1 app on the old schema; the v2 app (`src/v2/`, the clean schema) is driven by
-`e2e/studio-v2.test.mjs`, `e2e/studio-v2-edges.test.mjs`, `e2e/studio-v2-operate.test.mjs` and
-`e2e/studio-v2-saving.test.mjs` on the simulator's stack.
+`e2e/studio-v2.test.mjs`, `e2e/studio-v2-edges.test.mjs`, `e2e/studio-v2-saving.test.mjs`, `e2e/studio-v2-operate.test.mjs`,
+`e2e/studio-v2-dashboard.test.mjs` and `e2e/studio-v2-onboarding.test.mjs` on the simulator's stack.
 
 | File | What it proves |
 |---|---|

@@ -12,7 +12,7 @@ import { canHoldOpeners, nestingProblem, openTargets } from '../../src/v2/data/n
 import { choose, clearGroup, guestModel, menuPrice, pricingOf, setQty, unitsIn } from '../../src/v2/data/guest.ts';
 import { menuChanges, standingOf, anyChange } from '../../src/v2/data/changes.ts';
 import { refusal, toV2Error, V2Error } from '../../src/v2/data/errors.ts';
-import { byPosition, newId, reorder } from '../../src/v2/data/rows.ts';
+import { byPosition, newId, reorder, rowsAfterRead, stampOrder } from '../../src/v2/data/rows.ts';
 
 // ---------------------------------------------------------------- an invented menu, as stored rows
 const V = '00000000-0000-4000-8000-0000000000aa';
@@ -266,6 +266,7 @@ test('errors come back in the app\'s codes', () => {
   assert.equal(code({ code: '42501', message: 'new row violates row-level security policy for table "dishes"' }), 'forbidden');
   assert.equal(code({ code: '23505', message: 'duplicate key value violates unique constraint "dish_relations_dish_id_related_dish_id_key"' }), 'duplicate');
   assert.equal(code({ code: 'PGRST116', message: 'JSON object requested, multiple (or no) rows returned' }), 'not_found');
+  assert.equal(code({ name: 'TimeoutError', message: 'no answer in time' }), 'timeout', 'no answer in time is its own code (not "no connection")');
   assert.equal(code({ code: 'PGRST301', message: 'JWT expired' }), 'signed_out');
   assert.equal(code({ name: 'AuthApiError', code: 'email_not_confirmed', status: 400, message: 'Email not confirmed' }), 'email_unconfirmed');
   assert.equal(code({ name: 'AuthApiError', code: 'invalid_credentials', status: 400, message: 'Invalid login credentials' }), 'bad_login');
@@ -296,4 +297,60 @@ test('a snapshot built from these rows passes the contracts\' validator (the pre
   };
   const v = validateSnapshotV2(s);
   assert.equal(v.ok, true, JSON.stringify(v.ok ? [] : v.errors));
+});
+
+test('"save my changes over it": the owner\'s pre-selection wins whole (one default in a choose-one group); prices compare as agorot', () => {
+  const tahini = option(sauce, { position: 2, name_en: 'Tahini' });
+  const opened = groupToForm(sauce, [...rows.options, tahini]);                          // ketchup pre-selected
+  const [K, A, Th] = opened.options;
+  const only = (id) => (o) => ({ ...o, isDefault: o.id === id });
+  const mine = { ...opened, options: opened.options.map(only(A.id)) };                   // here: aioli
+  const stored = { ...opened, options: opened.options.map(only(Th.id)) };                // elsewhere: tahini
+  const m = mergeGroupForms(opened, mine, stored);
+  assert.deepEqual(m.options.filter((o) => o.isDefault).map((o) => o.nameEn), ['Aioli'], 'never both');
+  assert.equal(groupFromForm(m, sauce.id).ok, true, 'the merged group is valid (not defaults_invalid)');
+  // the owner did not touch the pre-selection: the one made elsewhere stays
+  const renamed = { ...opened, options: opened.options.map((o) => (o.id === K.id ? { ...o, nameEn: 'Ketchup!' } : o)) };
+  assert.deepEqual(mergeGroupForms(opened, renamed, stored).options.filter((o) => o.isDefault).map((o) => o.nameEn), ['Tahini']);
+  // aioli read as "3": typed back as "3.0" is no change, and the price set elsewhere stays
+  const retyped = { ...opened, options: opened.options.map((o) => (o.id === A.id ? { ...o, price: '3.0' } : o)) };
+  const dearer = { ...opened, options: opened.options.map((o) => (o.id === A.id ? { ...o, price: '4' } : o)) };
+  assert.equal(mergeGroupForms(opened, retyped, dearer).options.find((o) => o.id === A.id).price, '4');
+});
+
+test('versions in order at full precision; a read answered late never takes the screen back to an older state', () => {
+  assert.ok(stampOrder('2026-10-16T10:00:00.000002+00:00', '2026-10-16T10:00:00.000001+00:00') > 0, 'microseconds count');
+  assert.ok(stampOrder('2026-10-16T10:00:00.5+00:00', '2026-10-16T10:00:00.123456+00:00') > 0, 'fewer digits');
+  assert.equal(stampOrder('2026-10-16T10:00:00+00:00', '2026-10-16T10:00:00.000000Z'), 0);
+  assert.ok(stampOrder('2026-10-16T12:00:00+02:00', '2026-10-16T10:00:00.000001+00:00') < 0, 'time zones');
+  assert.equal(stampOrder(undefined, '2026-10-16T10:00:00+00:00'), 0, 'unknown: neither is later');
+
+  const v = (i) => `2026-10-16T10:00:00.${String(i).padStart(6, '0')}+00:00`;
+  const clock = (since, stored = {}, dropped = {}) => ({ since, storedAt: (x) => stored[x] ?? 0, droppedAt: (x) => dropped[x] ?? 0 });
+  const cola = { id: 'cola', name_he: 'קולה', updated_at: v(1) }, zero = { ...cola, name_he: 'קולה זירו', updated_at: v(2) };
+  const tea = { id: 'tea', name_he: 'תה', updated_at: v(1) }, teaThere = { ...tea, name_he: 'תה קר', updated_at: v(3) };
+  const added = { id: 'added', name_he: 'חדש כאן', updated_at: v(4) }, there = { id: 'there', name_he: 'חדש שם', updated_at: v(1) };
+  const gone = { id: 'gone', name_he: 'נמחק כאן', updated_at: v(1) };
+  // the read was sent when the clock was 4; since then this screen stored the cola's new name (5), added a row (6) and
+  // deleted one (7)
+  const { rows, taken } = rowsAfterRead([zero, tea, added], [cola, teaThere, there, gone], clock(4, { cola: 5, added: 6 }, { gone: 7 }));
+  assert.deepEqual(rows.map((r) => r.name_he), ['קולה זירו', 'תה קר', 'חדש שם', 'חדש כאן'], 'the later version stays; a change made elsewhere comes in; a row added here stays');
+  assert.deepEqual(taken.map((r) => r.id), ['tea', 'there']);
+  assert.equal(rows.some((r) => r.id === 'gone'), false, 'a row deleted here after the read was sent does not come back');
+  // a row on screen the read does not have, put there before the read was sent: deleted elsewhere, it goes
+  assert.deepEqual(rowsAfterRead([zero, tea], [zero], clock(9, { tea: 3 })).rows.map((r) => r.id), ['cola']);
+});
+
+test('a link without a version (a dish\'s own limits, the order of its groups, "goes well with"): what this screen stored after a late read was sent stays', () => {
+  const clock = (since, stored = {}) => ({ since, storedAt: (x) => stored[x] ?? 0, droppedAt: () => 0 });
+  const saved = { id: 'link', dish_id: 'burger', group_id: 'extras', position: 0, min_units: null, max_units: 2 };
+  const old = { ...saved, max_units: null };
+  // stored here (9) after the read was sent (5): the late read does not put the old limits back
+  assert.equal(rowsAfterRead([saved], [old], clock(5, { link: 9 })).rows[0].max_units, 2);
+  // stored before the read was sent: the read is the newer one, and it is taken
+  assert.equal(rowsAfterRead([saved], [old], clock(5, { link: 3 })).rows[0].max_units, null);
+  // an order moved here after the read was sent stays too
+  const moved = [{ id: 'r1', dish_id: 'burger', related_dish_id: 'cola', position: 1 }, { id: 'r2', dish_id: 'burger', related_dish_id: 'fries', position: 0 }];
+  const before = [{ ...moved[0], position: 0 }, { ...moved[1], position: 1 }];
+  assert.deepEqual(rowsAfterRead(moved, before, clock(5, { r1: 7, r2: 8 })).rows.map((r) => [r.id, r.position]), [['r1', 1], ['r2', 0]]);
 });

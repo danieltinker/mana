@@ -18,7 +18,7 @@ import { draft, refreshDraft } from '../data/draft.ts';
 import { toV2Error } from '../data/errors.ts';
 import { blockersOf, endWrite, FLOW_STEPS, isFinished, isStep, nextOpenAfter, openStep, stateOf, stepEnd, stepNumber, visitWrite, type PlaceFacts } from '../data/flow.ts';
 import { guestModel } from '../data/guest.ts';
-import { imports, loadImports, loadProgress, progress, progressError, returnTo, setStep } from '../data/onboarding.ts';
+import { imports, importsError, loadImports, loadProgress, progress, progressError, returnTo, setStep } from '../data/onboarding.ts';
 import { byCreated, byPosition, named } from '../data/rows.ts';
 import { canEdit, menu } from '../data/store.ts';
 import { langsOf, ruleLine } from '../format.ts';
@@ -215,7 +215,7 @@ function MenuStep({ p, facts }: { p: OnboardingProgress; facts: PlaceFacts }) {
       <ImportsWaiting />
       {facts.dishes > 0 && (
         <section class="card" data-menu-has>
-          <p class="status"><span class="dot dot-on" aria-hidden="true" />{t('ob.menu.has', { n: facts.dishes, c: sections })}</p>
+          <p class="status"><span class="dot dot-on" aria-hidden="true" />{t('ob.menu.has', { dishes: tn('imp.n.dishes', facts.dishes), inSections: tn('ob.menu.inSections', sections) })}</p>
           <p class="fine">{t('ob.menu.hasMore')}</p>
           <Actions><NextBtn step="menu" p={p} /></Actions>
         </section>
@@ -236,7 +236,9 @@ function ReviewStep({ p, facts }: { p: OnboardingProgress; facts: PlaceFacts }) 
   const state = stateOf(p, 'review');
   const waiting = (imports.value ?? []).filter((i) => i.status === 'parsed');
   useEffect(() => { if (waiting.length === 1) go('onboarding/review/' + waiting[0]!.id, true); }, [waiting.length]);
-  if (imports.value === null) return <Loading />;
+  if (imports.value === null) {
+    return importsError.value ? <ErrorLine code={importsError.value} onRetry={() => { loadImports().catch(() => {}); }} /> : <Loading />;
+  }
   if (waiting.length > 0) return <ImportsWaiting />;
   const end = stepEnd('review', facts);
   return (
