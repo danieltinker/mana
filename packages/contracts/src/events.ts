@@ -13,7 +13,7 @@
  * - the database emits `SERVER_EVENTS` itself (publish, onboarding, import), never a client;
  * - `LATER_EVENTS` are reserved names for phases 2–3 (ordering, payment, printing); nobody may send them yet.
  */
-import { Issues, isInt, isObject, isString, isUuid, oneOf, type Issue, type Validation } from './common.ts';
+import { hasOwn, Issues, isInt, isObject, isString, isUuid, newUuid, oneOf, type Issue, type Validation } from './common.ts';
 import { IMPORT_SOURCES, ONBOARDING_STEPS, TRIGGERS, type ImportSource, type OnboardingStep, type Trigger } from './enums.ts';
 
 export const GUEST_EVENTS = [
@@ -91,7 +91,34 @@ export const MAX_COUNT = 1_000_000;
 const PERSONAL = new Set<string>(PERSONAL_KEYS.map((k) => k.toLowerCase()));
 const TOP = new Set(['id', 'name', 'venueId', 'at', 'props']);
 /** An instant with an explicit offset: `Z` or `±HH:MM`. A time without one would be read in the reader's own zone. */
-export const EVENT_TIME_RE = /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d{1,6})?)?(Z|[+-]\d\d:\d\d)$/;
+export const EVENT_TIME_RE = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.(\d{1,6}))?)?(Z|([+-])(\d\d):(\d\d))$/;
+
+/**
+ * The instant an `EVENT_TIME_RE` string names, in milliseconds since the epoch (microseconds as the fraction), exactly
+ * when PostgreSQL's `timestamptz` reads it; NaN otherwise. PostgreSQL 16 reads: years 0001–9999; a real date of the
+ * Gregorian calendar (2026-02-29 and 2026-02-30 are not); hours 00–24, minutes 00–59, seconds 00–60, and a time of
+ * day of at most 24:00:00 (24:00 is the next midnight; :60 the next minute; 23:59:60.5 is refused); an offset of at
+ * most ±15:59 (minutes 00–59).
+ */
+export function instantMs(v: unknown): number {
+  const m = isString(v) ? EVENT_TIME_RE.exec(v) : null;
+  if (!m) return NaN;
+  const [y, mo, d, h, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number) as [number, number, number, number, number];
+  const s = Number(m[6] ?? 0);
+  const micros = Number((m[7] ?? '').padEnd(6, '0'));
+  if (y < 1 || mo < 1 || mo > 12 || d < 1 || h > 24 || mi > 59 || s > 60) return NaN;
+  if ((h * 3600 + mi * 60 + s) * 1_000_000 + micros > 86_400_000_000) return NaN;
+  const day = new Date(0);
+  day.setUTCFullYear(y, mo - 1, d); // years below 100 as they are (Date.UTC would add 1900)
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return NaN;
+  let offset = 0;
+  if (m[8] !== 'Z') {
+    const oh = Number(m[10]), om = Number(m[11]);
+    if (oh > 15 || om > 59) return NaN;
+    offset = (m[9] === '-' ? -1 : 1) * (oh * 60 + om) * 60_000;
+  }
+  return day.getTime() + (h * 3600 + mi * 60 + s) * 1000 + micros / 1000 - offset;
+}
 
 function propOk(kind: PropKind, v: unknown): boolean {
   switch (kind) {
@@ -127,7 +154,7 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   }
   if (!names.includes(raw.name)) x.add('name_not_allowed', 'name');
   const now = opts.now ?? Date.now();
-  const at = isString(raw.at) && EVENT_TIME_RE.test(raw.at) ? Date.parse(raw.at) : NaN;
+  const at = instantMs(raw.at);
   if (Number.isNaN(at)) x.add('time_invalid', 'at');
   else if (at < now - MAX_AGE_MS || at > now + MAX_SKEW_MS) x.add('time_out_of_range', 'at');
 
@@ -137,9 +164,9 @@ export function validateEvent(raw: unknown, opts: EventCheck = {}): Validation<T
   else {
     // own keys only: "constructor", "__proto__" or "toString" are not properties of the contract
     for (const k of Object.keys(props))
-      if (!Object.hasOwn(spec, k)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
+      if (!hasOwn(spec, k)) x.add(PERSONAL.has(k.toLowerCase()) ? 'personal_field' : 'field_not_allowed', `props.${k}`);
     for (const [k, kind] of Object.entries(spec)) {
-      if (!Object.hasOwn(props, k)) x.add('prop_missing', `props.${k}`);
+      if (!hasOwn(props, k)) x.add('prop_missing', `props.${k}`);
       else if (!propOk(kind, props[k])) x.add('prop_invalid', `props.${k}`);
     }
   }
@@ -164,7 +191,7 @@ export function validateBatch(raw: unknown, opts: EventCheck = {}): Validation<B
   let duplicates = 0;
   raw.forEach((e, index) => {
     const r = validateEvent(e, opts);
-    if (!r.ok) return void rejected.push({ index, errors: r.errors });
+    if (r.ok === false) return void rejected.push({ index, errors: r.errors });
     if (seen.has(r.value.id)) return void (duplicates += 1);
     seen.add(r.value.id);
     accepted.push(r.value);
@@ -196,5 +223,24 @@ export function rollupKeys(name: EventName, props: Readonly<Record<string, unkno
   return keys;
 }
 
+/**
+ * What `track_events(batch)` answers. Every event of the batch is in exactly one of: accepted (stored now), a
+ * duplicate (its id was stored before, or earlier in this batch), capped (dropped by a cap), or rejected (with the
+ * first problem's code). The three lists name events by their index in the batch, so a phone (or the simulator's
+ * ledger) knows exactly which ones counted; the counts stay for phase-0 readers. The two index lists arrive with the
+ * phase-1 migration (`20261016120000_phase1.sql`); the phase-0 reply has only the counts.
+ */
+export type TrackEventsReply =
+  | {
+      readonly ok: true;
+      readonly accepted: number;
+      readonly duplicates: number;
+      readonly capped: number;
+      readonly rejected: ReadonlyArray<{ readonly index: number; readonly code: string }>;
+      readonly duplicateIndexes: readonly number[];
+      readonly cappedIndexes: readonly number[];
+    }
+  | { readonly ok: false; readonly code: 'batch_invalid' };
+
 /** A fresh dedupe id (random, never derived from the person or the device). */
-export const newEventId = (): string => crypto.randomUUID();
+export const newEventId = (): string => newUuid();

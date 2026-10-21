@@ -10,7 +10,7 @@
  */
 import type { Text } from './common.ts';
 import { LIMITS } from './enums.ts';
-import { choicesExhausted, type Unavailable } from './availability.ts';
+import { choicesExhausted, groupCapacity, type Unavailable } from './availability.ts';
 import type { AddonGroupV2, AddonOptionV2, DishV2, SnapshotV2 } from './snapshot.ts';
 
 export type ChosenOption = {
@@ -203,12 +203,19 @@ export function priceDish(dish: DishV2, selection: DishSelection, ctx: PricingCo
 /**
  * The owner's defaults as a starting selection for the guest's sheet (available options only; an opener's nested
  * group starts from its own defaults). The guest changes it before anything is priced; it is never an upsell.
+ * A default opener whose own required group cannot be satisfied now (every sauce sold out) is not pre-selected either:
+ * it could not be added, so the guest starts from a choice that can.
  */
 export function defaultSelection(dish: DishV2, ctx: Pick<PricingContext, 'groups'> & { readonly unavailable?: Unavailable }): DishSelection {
   const off = ctx.unavailable?.options ?? new Set<string>();
+  const dead = (o: AddonOptionV2): boolean => {
+    if (o.opensGroupId === null) return false;
+    const nested = ctx.groups.get(o.opensGroupId);
+    return !nested || (nested.min > 0 && groupCapacity(nested, ctx.groups, off, 1) < nested.min);
+  };
   const pick = (g: AddonGroupV2, depth: number): ChosenOption[] =>
     g.options
-      .filter((o) => o.default && !off.has(o.id))
+      .filter((o) => o.default && !off.has(o.id) && !(depth === 0 && dead(o)))
       .slice(0, g.max)
       .map((o) => {
         const nested = depth === 0 && o.opensGroupId !== null ? ctx.groups.get(o.opensGroupId) : undefined;

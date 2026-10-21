@@ -15,6 +15,8 @@ export type Validation<T> = { readonly ok: true; readonly value: T } | { readonl
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 export const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+/** A stock illustration's id (`stock/<id>`): a dish's `stock_id`, a draft's `illustration`, a snapshot's stock asset. */
+export const STOCK_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -37,8 +39,59 @@ export class Issues {
   }
 }
 
+/**
+ * A text's length in code points: what PostgreSQL's `char_length` counts, so a limit means the same on both sides (a
+ * burger emoji is 1, not 2). **Every length limit in the contracts is measured this way.**
+ */
+export function textLength(s: string): number {
+  let n = s.length;
+  for (let i = 0; i < s.length - 1; i++) {
+    const c = s.charCodeAt(i);
+    const d = s.charCodeAt(i + 1);
+    if (c >= 0xd800 && c <= 0xdbff && d >= 0xdc00 && d <= 0xdfff) {
+      n -= 1;
+      i += 1;
+    }
+  }
+  return n;
+}
+
+/** Text PostgreSQL can store: no NUL character and no lone surrogate (half of an emoji: a high surrogate not followed
+ * by a low one, or a low one not right after a high one). Validators of typed text refuse anything else as
+ * `text_invalid`. A scan, not a regular expression: old Safari (before 16.4) has no lookbehind. */
+export function isStorableText(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c === 0 || (c >= 0xdc00 && c <= 0xdfff)) return false;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const d = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (d < 0xdc00 || d > 0xdfff) return false;
+      i += 1;
+    }
+  }
+  return true;
+}
+
+/** An own property of `o` (the static `hasOwn` of `Object` is missing in Safari and iOS before 15.4). */
+export const hasOwn = (o: object, k: PropertyKey): boolean => Object.prototype.hasOwnProperty.call(o, k);
+
+/**
+ * A random uuid (RFC 4122, version 4): `crypto.randomUUID` where there is one, else made from
+ * `crypto.getRandomValues` (Safari and iOS before 15.4 have no `randomUUID`, and no browser has it outside a secure
+ * context).
+ */
+export function newUuid(): string {
+  const c = globalThis.crypto;
+  if (typeof c.randomUUID === 'function') return c.randomUUID();
+  const b = c.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6]! & 0x0f) | 0x40;
+  b[8] = (b[8]! & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 export function textOk(v: unknown, max: number): v is Text {
-  return isObject(v) && isString(v.he) && isString(v.en) && v.he.length <= max && v.en.length <= max;
+  return isObject(v) && isString(v.he) && isString(v.en) && textLength(v.he) <= max && textLength(v.en) <= max;
 }
 
 /**
@@ -63,6 +116,7 @@ export const BLANK_EXTENDERS = '\\uFE00-\\uFE0F\\u{E0020}-\\u{E007F}';
 const BLANK_LEAD = new RegExp(`^[${BLANK_CLASS}]+`, 'u');
 const BLANK_TRAIL = new RegExp(`([^${BLANK_CLASS}][${BLANK_EXTENDERS}]*)[${BLANK_CLASS}]*$`, 'u');
 const BLANK_ONE = new RegExp(`^[${BLANK_CLASS}]$`, 'u');
+const BLANK_ALL = new RegExp(`^[${BLANK_CLASS}]*$`, 'u');
 
 /** Is this one character blank? */
 export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
@@ -71,8 +125,8 @@ export const isBlankChar = (ch: string): boolean => BLANK_ONE.test(ch);
  * and tags that finish the last visible character. The database's app.strip_blank() does the same.
  */
 export const stripBlank = (s: string): string => s.replace(BLANK_LEAD, '').replace(BLANK_TRAIL, '$1');
-/** Nothing but blank characters (or nothing at all). */
-export const isBlank = (s: string): boolean => stripBlank(s) === '';
+/** Nothing but blank characters (or nothing at all): exactly when `stripBlank(s)` is ''. */
+export const isBlank = (s: string): boolean => BLANK_ALL.test(s);
 /** Both languages' text with blank edges removed: what the client app saves. */
 export const cleanText = (t: Text): Text => ({ he: stripBlank(t.he), en: stripBlank(t.en) });
 
