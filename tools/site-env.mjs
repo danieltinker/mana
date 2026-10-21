@@ -9,13 +9,17 @@
       Supabase project (https://*.supabase.co), allows exactly this environment's origin instead, over https and wss
       (local: http and ws) for Realtime. No other directive changes (tools/env.mjs retargetCsp). Production's files,
       the back office's included, are not touched until the cutover.
-   3. demo and local only: no page's Content-Security-Policy may allow a Supabase host but the environment's own (no
+   3. demo and local only: the back office's img-src (ops/index.html: 'self' data:) also allows this environment's
+      menu picture storage, and only it (<origin>/storage/v1/object/public/menu-public/), so "The menu to approve"
+      shows the revision's pictures (apps/ops/tools/csp.mjs withStorageImages). No other page's img-src changes.
+   4. demo and local only: no page's Content-Security-Policy may allow a Supabase host but the environment's own (no
       wildcard, no other project), and nothing in _site may name halom-studio any more. A build for a demo never talks
       to production.
    Exit 1 on a problem. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { configProblems, envOf, PRODUCTION, readConfig, realtimeOf, retargetCsp, schemaOf } from './env.mjs';
+import { storageOf, withStorageImages } from '../apps/ops/tools/csp.mjs';
 
 const [siteArg, env] = process.argv.slice(2);
 const site = path.resolve(siteArg || '_site');
@@ -35,8 +39,14 @@ const files = walk(site);
 const to = new URL(cfg.supabaseUrl).origin, from = new URL(PRODUCTION.supabaseUrl).origin;
 let pages = 0;
 const strays = [], own = new URL(to).hostname.toLowerCase();
+const ops = path.join(site, 'ops', 'index.html');
+if (!fs.existsSync(ops)) fail(`no ${ops}`);
 for (const f of files.filter((f) => /\.html?$/i.test(f))) {
-  const html = fs.readFileSync(f, 'utf8'), next = retargetCsp(html, from, to);
+  const html = fs.readFileSync(f, 'utf8');
+  let next = retargetCsp(html, from, to);
+  if (f === ops) {
+    try { next = withStorageImages(next, to); } catch (e) { fail(`the back office's page: ${e.message}`); }
+  }
   if (next !== html) { fs.writeFileSync(f, next); pages++; }
   /* after the rewrite, a policy may name no Supabase host but this environment's (no wildcard, no other project) */
   for (const m of next.matchAll(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"/gi))
@@ -46,4 +56,4 @@ if (strays.length) fail(`a ${env} build's Content-Security-Policy still allows a
 const host = new URL(PRODUCTION.supabaseUrl).hostname, left = [];
 for (const f of files.filter((f) => /\.(html?|css|m?js|json|svg|txt|md|xml|webmanifest)$/i.test(f))) if (fs.readFileSync(f, 'utf8').includes(host)) left.push(path.relative(site, f));
 if (left.length) fail(`a ${env} build still names halom-studio (${host}) in: ${left.join(', ')}`);
-console.log(`✓ environment ${say}; ${pages} page${pages === 1 ? '' : 's'}' Content-Security-Policy retargeted; nothing names halom-studio`);
+console.log(`✓ environment ${say}; ${pages} page${pages === 1 ? '' : 's'}' Content-Security-Policy retargeted; the back office shows pictures from ${storageOf(to)}; nothing names halom-studio`);

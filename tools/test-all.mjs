@@ -36,6 +36,7 @@ const SUITES = [
   // heavy, because the GoTrue release is a Linux binary (sim/README.md)
   ['sim', 'sim', 'npm test', !(process.platform === 'linux' && process.arch === 'x64')],
   ['studio-check', 'apps/studio', 'npm run -s check', false],
+  ['ops-check', 'apps/ops', 'npm run -s check', false],         // the v2 back office (src/v2), strict TypeScript
   ['view-unit', 'apps/view', 'npm test', false],
   ['studio-unit', 'apps/studio', 'npm run -s test:unit', false],
   ['studio-i18n', 'apps/studio', 'node test/check-i18n.mjs', false],

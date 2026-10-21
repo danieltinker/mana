@@ -163,9 +163,11 @@ stops the build before `_site/` is touched. Then the build:
 3. for demo and local only, the pages whose Content-Security-Policy names halom-studio (the product page, the photo
    guide, privacy, terms) name the environment's Supabase origin instead; the back office's `connect-src`, which in
    production allows any Supabase project (`https://*.supabase.co`), allows exactly the environment's origin over
-   https and wss (local: http and ws), for Realtime, and the wildcard is gone. No other directive changes, and the
-   build fails if anything in `_site/` still names halom-studio. A demo build cannot talk to production. Production's
-   pages, the back office's wildcard included, stay as they are until the cutover narrows it the same way.
+   https and wss (local: http and ws), for Realtime, and the wildcard is gone. The back office's `img-src` (`'self'
+   data:`) also allows that project's menu picture bucket, and only it (`<origin>/storage/v1/object/public/menu-public/`),
+   so its "menu to approve" shows the revision's pictures (`apps/ops/tools/csp.mjs`). No other directive changes, and the build fails if anything in
+   `_site/` still names halom-studio. A demo build cannot talk to production. Production's pages, the back office's
+   included, stay as they are until the cutover narrows them the same way.
 
 A production build is byte for byte what it was before the environments existed.
 
