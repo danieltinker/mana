@@ -108,18 +108,20 @@ test('placeholders: {state:"stock", id} survives the loader and is resolved from
 
 test('counting: open and add, at most once per dish and kind, never for a demo or a preview, and nothing waits for it', async () => {
   const s = await listen(0), cfg = { supabaseUrl: s.origin + '/stub', supabaseKey: s.key }; const sent = [];
-  const spy = (url, init) => { sent.push({ url, init }); return fetch(url, init); };
+  const spy = (url, init) => { const answer = fetch(url, init); sent.push({ url, init, answer }); return answer; };
   try {
     const track = createTracker({ kind: 'slug', slug: 'olea' }, { fetch: spy, config: cfg });
     assert.equal(track('hummus', 'open'), true); assert.equal(track('hummus', 'open'), false, 'the same dish again: not sent'); assert.equal(track('hummus', 'add'), true); assert.equal(track('kebab', 'open'), true);
     assert.equal(track('kebab', 'look'), false); assert.equal(track(null, 'open'), false);
     assert.equal(sent.length, 3); assert.ok(sent.every((c) => c.init.keepalive === true && c.init.method === 'POST' && c.init.headers.apikey === s.key && c.url === s.origin + '/stub/rest/v1/rpc/track_item'));
     assert.deepEqual(sent.map((c) => JSON.parse(c.init.body)), [{ p_slug: 'olea', p_item: 'hummus', p_kind: 'open' }, { p_slug: 'olea', p_item: 'hummus', p_kind: 'add' }, { p_slug: 'olea', p_item: 'kebab', p_kind: 'open' }]);
-    await new Promise((r) => setTimeout(r, 150)); assert.deepEqual(s.server.calls.map((c) => c.fn + ':' + c.args.p_item + ':' + c.args.p_kind), ['track_item:hummus:open', 'track_item:hummus:add', 'track_item:kebab:open']);
+    /* the calls arrive: the test waits for their answers, not for a set time (the stub keeps a call before it answers) */
+    await Promise.all(sent.map((c) => c.answer)); assert.deepEqual(s.server.calls.map((c) => c.fn + ':' + c.args.p_item + ':' + c.args.p_kind), ['track_item:hummus:open', 'track_item:hummus:add', 'track_item:kebab:open']);
     for (const src of [{ kind: 'demo', name: 'olea' }, { kind: 'preview' }, { kind: 'none' }]) assert.equal(createTracker(src, { fetch: spy, config: cfg })('hummus', 'open'), false);
     assert.equal(createTracker({ kind: 'slug', slug: 'olea' }, { fetch: spy, config: undefined })('hummus', 'open'), false); assert.equal(sent.length, 3);
     const dead = createTracker({ kind: 'slug', slug: 'olea' }, { fetch: () => Promise.reject(new Error('offline')), config: cfg }); assert.equal(dead('hummus', 'open'), true, 'a failed call is swallowed');
     const thrown = createTracker({ kind: 'slug', slug: 'olea' }, { fetch: () => { throw new Error('no fetch'); }, config: cfg }); assert.equal(thrown('hummus', 'open'), true);
+    const hung = createTracker({ kind: 'slug', slug: 'olea' }, { fetch: () => new Promise(() => {}), config: cfg }); assert.equal(hung('hummus', 'open'), true, 'a call that never answers holds nothing up');
   } finally { s.server.close(); }
 });
 

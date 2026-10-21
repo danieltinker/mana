@@ -49,7 +49,8 @@ const SUITES = [
   ['old-phones', '.', 'bash tools/build-site.sh && node --test tools/check-old-phones.mjs', true],
   // brand/ is outside the workspace with a lock of its own (qrcode, the fonts, opentype.js): installed here when missing
   ['brand', 'brand', '([ -d node_modules ] || npm ci --no-audit --no-fund --loglevel=error) && node tools/test-site.mjs', true],
-  ['e2e', 'e2e', 'npm test', true],             // the browser on the simulator's stack (phase 0: one smoke test)
+  // the browser on the simulator's stack, over the built site (the owner app v2 among it)
+  ['e2e', 'e2e', 'bash ../tools/build-site.sh > /dev/null && npm test', true],
 ];
 /* the seating contracts' tests run inside view-unit (apps/view/package.json names them) */
 

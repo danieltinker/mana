@@ -4,6 +4,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 import { as, q, rpc } from './harness/cluster.mjs';
 import { A, count, ID, U, world } from './harness/world.mjs';
 import { ACTIVITY_ACTIONS, isActivityAction, NUDGE_CODES } from '../../packages/contracts/src/index.ts';
@@ -63,8 +64,11 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     assert.deepEqual(await set('menu', 'todo'), { ok: false, code: 'step_done' }, 'the first dish marked it done');
     assert.equal((await set('review', 'skipped')).ok, true, 'a menu built by hand skips the review');
     assert.deepEqual(await set('publish', 'skipped'), { ok: false, code: 'step_automatic' }, 'of the automatic steps only the review is skipped');
-    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'skipped' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '',
-      /step_automatic/, 'nor by a direct write');
+    // no direct write at all: set_onboarding_step is the clients' only writer (its lock order, its rules; QA2-M1)
+    assert.equal((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'skipped' where venue_id = $1 and step = 'menu'`, [w.B])).error?.code, '42501');
+    assert.equal((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'style'`, [w.B])).error?.code, '42501');
+    assert.equal((await q(w.url, U.managerA, `insert into public.onboarding_progress (venue_id, step, state) values ($1, 'style', 'done')`, [A])).error?.code, '42501');
+    assert.equal((await q(w.url, U.ownerB, `insert into public.onboarding_progress (venue_id, step, state) values ($1, 'style', 'done') on conflict (venue_id, step) do update set state = 'done'`, [w.B])).error?.code, '42501');
     assert.deepEqual(await set('hours', 'blocked', ['Free text!']), { ok: false, code: 'blocker_invalid' });
     assert.deepEqual(await set('hours', 'blocked', Array(21).fill('a_b')), { ok: false, code: 'too_many' });
     assert.deepEqual(await set('party', 'done'), { ok: false, code: 'enum_invalid' });
@@ -84,7 +88,15 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     /** The step's updatedAt as staff read it (ops_venue), to the microsecond; null for a step never written. */
     const seen = async (step) => (await rpc(w.url, U.support, 'ops_venue', { p_venue: w.B })).onboarding.steps.find((s) => s.step === step).updatedAt;
     assert.deepEqual(await afo({ step: 'publish', state: 'done', expectedUpdatedAt: await seen('publish') }), { ok: false, code: 'step_automatic' });
-    assert.deepEqual(await afo({ step: 'menu', state: 'doing', expectedUpdatedAt: await seen('menu') }), { ok: false, code: 'step_done' });
+    assert.deepEqual(await afo({ step: 'menu', state: 'todo', expectedUpdatedAt: await seen('menu') }), { ok: false, code: 'step_done' });
+    // a "doing" on a done step is kept, as for the owner (QA2-M2)
+    const acts = async () => (await w.admin.query(`select count(*)::int as n from public.activity_log where venue_id = $1 and action = 'support.act_for_owner'`, [w.B])).rows[0].n;
+    const actsBefore = await acts();
+    const keptMenu = await afo({ step: 'menu', state: 'doing', expectedUpdatedAt: await seen('menu') });
+    assert.deepEqual([keptMenu.ok, keptMenu.result.step, keptMenu.result.state, keptMenu.result.kept], [true, 'menu', 'done', true]);
+    // nothing changed, so nothing is logged: the owner's activity does not say Halom acted (QA-L11)
+    assert.equal(keptMenu.logId, null);
+    assert.equal(await acts(), actsBefore);
     assert.deepEqual(await afo({ step: 'nope', state: 'done', expectedUpdatedAt: null }), { ok: false, code: 'enum_invalid' });
     assert.deepEqual(await afo({ step: 'style', state: 'done' }), { ok: false, code: 'payload_invalid' }, 'expectedUpdatedAt is required');
     const at0 = await seen('style');   // null when never written
@@ -105,6 +117,77 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     assert.equal((await w.admin.query(`select state from public.onboarding_progress where venue_id = $1 and step = 'style'`, [w.B])).rows[0].state, 'skipped');
   });
 
+  test('a late "doing" never reopens a step the owner finished: kept, nothing written; "todo" reopens it (QA2-M2)', async () => {
+    const O = '22222222-2222-4222-8222-2222222222b4';
+    const v = await newVenue(O, 'late-doing');
+    const set = (step, state) => rpc(w.url, O, 'set_onboarding_step', { p_venue: v, p_step: step, p_state: state });
+    const state = async (step) => (await w.admin.query(`select state, updated_at from public.onboarding_progress where venue_id = $1 and step = $2`, [v, step])).rows[0];
+    for (const tap of ['skipped', 'done']) {
+      const step = tap === 'skipped' ? 'photos' : 'hours';
+      // the owner's tap lands first, the "doing" sent when the step opened lands after it
+      assert.equal((await set(step, tap)).ok, true);
+      const before = await state(step);
+      const late = await set(step, 'doing');
+      assert.deepEqual([late.ok, late.kept, late.progress.steps.find((s) => s.step === step).state], [true, true, tap], `${tap}, then a late doing`);
+      assert.deepEqual(await state(step), before, 'nothing written');
+      assert.equal((await set(step, 'todo')).ok, true, 'an explicit todo reopens it');
+      assert.equal((await state(step)).state, 'todo');
+      assert.equal((await set(step, 'doing')).kept, undefined, 'and then doing is written');
+      assert.equal((await state(step)).state, 'doing');
+    }
+  });
+
+  test('a publish and a step write on the same venue never deadlock: the venue\'s row before the step\'s, in every writer (QA2-M1)', async () => {
+    /** A fresh venue of a fresh owner with a small menu, and two sessions of that owner. */
+    const fresh = async (round, dishes) => {
+      const O = randomUUID();
+      const v = await newVenue(O, `dl-${round}-${O.slice(0, 8)}`);
+      await as(w.url, O, async (c) => {
+        const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [v])).rows[0].id;
+        await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) select $1, $2, 'Dish ' || g, 1000 + g from generate_series(1, $3) g`, [v, s, dishes]);
+      });
+      const session = async () => {
+        const c = new pg.Client({ connectionString: w.url });
+        await c.connect();
+        await c.query(`select set_config('request.jwt.claims', $1, false), set_config('role', 'authenticated', false)`, [JSON.stringify({ sub: O, role: 'authenticated', aal: 'aal1' })]);
+        return c;
+      };
+      return [v, await session(), await session()];
+    };
+    for (let round = 0; round < 6; round++) {
+      let [v, pub, step] = await fresh(round, 20);
+      try {
+        // publish holds the venue first (as app.publish does), the step write starts, then publish writes its step
+        await pub.query('begin');
+        await pub.query('select 1 from public.venues where id = $1 for update', [v]);
+        const late = step.query(`select public.set_onboarding_step($1, 'publish', 'doing', '{}') v`, [v]).then((r) => r.rows[0].v, (e) => ({ error: e.code }));
+        await new Promise((r) => setTimeout(r, 150));
+        const published = await pub.query(`select public.publish_menu($1) v`, [v]).then((r) => r.rows[0].v, (e) => ({ error: e.code }));
+        await pub.query(published.error ? 'rollback' : 'commit');
+        const wrote = await late;
+        assert.notEqual(published.error, '40P01', `round ${round}: publish`);
+        assert.notEqual(wrote.error, '40P01', `round ${round}: the step write`);
+        assert.equal(published.ok, true, JSON.stringify(published));
+        assert.deepEqual([wrote.ok, wrote.kept], [true, true], 'the step write waited for publish, then found the step done');
+      } finally {
+        await pub.end();
+        await step.end();
+      }
+      // and both at once, as the API races them
+      [v, pub, step] = await fresh(round, 1);
+      try {
+        const both = await Promise.all([
+          pub.query(`select public.publish_menu($1) v`, [v]).then((r) => r.rows[0].v, (e) => ({ error: e.code })),
+          step.query(`select public.set_onboarding_step($1, 'publish', 'doing', '{}') v`, [v]).then((r) => r.rows[0].v, (e) => ({ error: e.code })),
+        ]);
+        assert.ok(both.every((r) => r.error === undefined), JSON.stringify(both));
+      } finally {
+        await pub.end();
+        await step.end();
+      }
+    }
+  });
+
   test('the venue\'s first dish marks "menu" done; clients never write an automatic step done', async () => {
     const O = '22222222-2222-4222-8222-2222222222a2';
     const v = await newVenue(O, 'first-dish');
@@ -116,7 +199,7 @@ describe('onboarding: set_onboarding_step and the steps the database marks itsel
     });
     assert.equal(await step(), 'done');
     assert.equal((await w.admin.query(`select count(*)::int as n from public.events where venue_id = $1 and name = 'onboarding_step_done' and props->>'step' = 'menu'`, [v])).rows[0].n, 1);
-    assert.match((await q(w.url, O, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'publish'`, [v])).error?.message ?? '', /step_automatic/);
+    assert.deepEqual(await rpc(w.url, O, 'set_onboarding_step', { p_venue: v, p_step: 'publish', p_state: 'done' }), { ok: false, code: 'step_automatic' });
   });
 });
 
@@ -215,6 +298,24 @@ describe('opening hours: updated_at, and windows never overlap (hours_overlap)',
       const own = await q(w.url, U.ownerA, `insert into public.sections (venue_id, name_en) values ($1, 'One more')`, [A]);
       assert.match(own.error?.message ?? '', /limit_sections/, 'the owner still meets the limit');
     });
+  });
+
+  test('a row naming another venue\'s group reads as missing in the definer triggers: the foreign key answers, never single_max or nesting_too_deep (N8)', async () => {
+    // venue A: a single choice group, and a group whose option opens another
+    const [single, opener, opened] = await Promise.all(['single', 'multiple', 'single'].map(async (sel, i) =>
+      (await w.admin.query(`insert into public.addon_groups (venue_id, name_en, selection, min_units, max_units) values ($1, $2, $3, 0, 1) returning id`, [A, 'N8 ' + i, sel])).rows[0].id));
+    await w.admin.query(`insert into public.addon_options (venue_id, group_id, name_en, price, opens_group_id) values ($1, $2, 'Opens', 0, $3)`, [A, opener, opened]);
+    try {
+      // a member of B links B's dish to A's single choice group with a max of 5: A's selection would answer single_max
+      const link = await q(w.url, U.ownerB, `insert into public.dish_addon_groups (venue_id, dish_id, group_id, max_units) values ($1, $2, $3, 5)`, [w.B, w.b.dish, single]);
+      assert.equal(link.error?.code, '23503', JSON.stringify(link.error));
+      // a member of B opens A's opener group from B's option: A's options would answer nesting_too_deep
+      const opt = await q(w.url, U.ownerB, `insert into public.addon_options (venue_id, group_id, name_en, price, opens_group_id) values ($1, $2, 'Probe', 0, $3)`, [w.B, w.b.group, opener]);
+      assert.equal(opt.error?.code, '23503', JSON.stringify(opt.error));
+    } finally {
+      await w.admin.query(`delete from public.addon_options where venue_id = $1 and group_id = $2`, [A, opener]);
+      await w.admin.query(`delete from public.addon_groups where id = any ($1::uuid[])`, [[single, opener, opened]]);
+    }
   });
 });
 
@@ -614,6 +715,40 @@ describe('the via labels of the staff RPCs (simulator follow-up)', () => {
     assert.deepEqual([...new Set(rows.map((r) => r.action))].sort(), ['leads.read', 'leads.update', 'staff.insert', 'staff.join', 'staff_invite.create']);
     assert.ok(rows.every((r) => r.via === 'rpc'), JSON.stringify(rows));
     await w.admin.query(`delete from public.staff where user_id = $1`, [X]);
+  });
+});
+
+describe('the size limits count the rows an update moves (SEC-N11)', () => {
+  test('options moved into a full group, a link moved onto a full dish: refused; a swap or an update that moves nothing passes', async () => {
+    const O = '22222222-2222-4222-8222-2222222222b7';
+    const v = await newVenue(O, 'limits-move');
+    const lim = await cfg('limits');
+    const [nOpt, nLink] = [lim.options_per_group, lim.groups_per_dish];
+    await as(w.url, O, async (c) => {
+      const grp = async (name) => (await c.query(`insert into public.addon_groups (venue_id, name_en, selection, min_units, max_units) values ($1, $2, 'multiple', 0, 10) returning id`, [v, name])).rows[0].id;
+      const g1 = await grp('Full one'), g2 = await grp('Full two');
+      for (const g of [g1, g2]) {
+        await c.query(`insert into public.addon_options (venue_id, group_id, name_en, price) select $1, $2, 'Option ' || i, 0 from generate_series(1, $3) i`, [v, g, nOpt]);
+      }
+      const s = (await c.query(`insert into public.sections (venue_id, name_en) values ($1, 'Food') returning id`, [v])).rows[0].id;
+      const d1 = (await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Full dish', 1000) returning id`, [v, s])).rows[0].id;
+      const d2 = (await c.query(`insert into public.dishes (venue_id, section_id, name_en, price) values ($1, $2, 'Other dish', 1000) returning id`, [v, s])).rows[0].id;
+      const links = [];
+      for (let i = 0; i <= nLink; i++) links.push(await grp('Link ' + i));
+      await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id) select $1, $2, g from unnest($3::uuid[]) g`, [v, d1, links.slice(0, nLink)]);
+      await c.query(`insert into public.dish_addon_groups (venue_id, dish_id, group_id) values ($1, $2, $3)`, [v, d2, links[nLink]]);
+      const tryIt = async (sql, params) => { await c.query('savepoint t'); try { await c.query(sql, params); await c.query('release savepoint t'); return 'ok'; } catch (e) { await c.query('rollback to savepoint t'); return e.message; } };
+      assert.equal(await tryIt(`update public.addon_options set group_id = $1 where group_id = $2`, [g1, g2]), 'limit_options_per_group', 'all of one full group into another');
+      assert.equal(await tryIt(`update public.addon_options set group_id = $1 where id = (select id from public.addon_options where group_id = $2 limit 1)`, [g1, g2]), 'limit_options_per_group', 'one is enough');
+      assert.equal(await tryIt(`update public.dish_addon_groups set dish_id = $1 where dish_id = $2`, [d1, d2]), 'limit_groups_per_dish');
+      // a swap between two full groups leaves both full, and an update that moves nothing checks nothing
+      const a = (await c.query(`select id from public.addon_options where group_id = $1 order by id limit 1`, [g1])).rows[0].id;
+      const b = (await c.query(`select id from public.addon_options where group_id = $1 order by id limit 1`, [g2])).rows[0].id;
+      assert.equal(await tryIt(`update public.addon_options set group_id = case when id = $1 then $4::uuid else $3::uuid end where id in ($1, $2)`, [a, b, g1, g2]), 'ok');
+      assert.equal(await tryIt(`update public.addon_options set price = 100 where group_id in ($1, $2)`, [g1, g2]), 'ok');
+      const counts = (await c.query(`select group_id, count(*)::int as n from public.addon_options where group_id in ($1, $2) group by 1`, [g1, g2])).rows.map((r) => r.n);
+      assert.deepEqual(counts, [nOpt, nOpt]);
+    });
   });
 });
 

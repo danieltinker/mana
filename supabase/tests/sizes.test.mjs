@@ -9,6 +9,10 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { rpc } from './harness/cluster.mjs';
 import { U, world } from './harness/world.mjs';
+import {
+  ADDON_GROUP_BYTES_MAX, addonGroupSizeFail, applyImportSizeFail, DECISIONS_BYTES_MAX, DRAFT_BYTES_MAX, draftBytes, NOTES_BYTES_MAX, NOTES_MAX,
+  saveDraftSizeFail,
+} from '../../packages/contracts/src/index.ts';
 
 let w;
 before(async () => { w = await world(); });
@@ -136,20 +140,171 @@ describe('every JSON argument is refused on its size before it is walked, and th
     }
   });
 
-  test('the plan at the limits: 400 dishes, 100 groups of 20 options, 8 links each, planned and written in one apply_import', async () => {
-    const groups = Array.from({ length: 100 }, (_, g) => ({ key: 'g' + g, name: { he: 'תוספות ' + he(g), en: 'Extras ' + g }, translated: [], selection: 'multiple', min: null, max: null,
-      options: Array.from({ length: 20 }, (_, o) => ({ key: `g${g}o${o}`, name: { he: 'סלט ' + he(o), en: 'Salad ' + o }, translated: [], price: 0, priceText: null, maxQty: 1,
-        default: false, opens: null })) }));
-    const big = draft(40, 10, { groups, link: (i, j) => Array.from({ length: 8 }, (_, k) => ({ group: 'g' + ((i * 10 + j + k) % 100), min: null, max: null })) });
+  // SEC-M3: a menu at the venue's own limits (LIMITS: 400 dishes, 200 add-on groups of 30 options, 8 groups per dish),
+  // planned and written by one apply_import, on a first import and on a re-import of the same draft, well under
+  // Supabase's 8 s statement timeout (security measured 8 to 17 CPU s before; one link per dish was the worst)
+  test('the plan at the venue\'s limits: 400 dishes, 200 groups of 30 options, 8 links each (and 1), a first import and a re-import', async () => {
+    const groups = Array.from({ length: 200 }, (_, g) => ({ key: 'g' + g, name: { he: 'תוספות ' + he(g), en: 'Extras ' + g }, translated: [], selection: 'multiple', min: null,
+      max: null, options: Array.from({ length: 30 }, (_, o) => ({ key: `g${g}o${o}`, name: { he: 'סלט ' + he(o), en: 'Salad ' + o }, translated: [], price: 0, priceText: null,
+        maxQty: 1, default: false, opens: null })) }));
     const dec = { v: 1, pricesConfirmed: true, choices: {} };
-    // an empty venue of its own (the limits count what a venue has)
-    const O = '66666666-6666-4666-8666-6666666666a1';
-    await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, 'sizes-owner@example.invalid', now())`, [O]);
-    const V = (await rpc(w.url, O, 'create_venue', { p_slug: 'sizes-venue', p_name_en: 'Sizes' })).id;
-    const first = await rpc(w.url, O, 'create_import', { p_venue: V, p_source: 'paste', p_text: 'plan ' + randomUUID() });
-    assert.equal((await rpc(w.url, O, 'save_import_draft', { p_import: first.importId, p_draft: big })).ok, true);
-    const [a, t1] = await cpu(O, 'apply_import', { p_import: first.importId, p_draft: big, p_decisions: dec });
-    assert.equal(a.ok, true, JSON.stringify(a).slice(0, 200));
-    under(t1, 6, 'planning and writing 400 dishes, 100 groups and 2000 options (rolled back)');
+    for (const [n, links] of [[1, 8], [2, 1]]) {
+      const big = draft(40, 10, { groups, link: (i, j) => Array.from({ length: links }, (_, k) => ({ group: 'g' + (((i * 10 + j) * links + k) % 200), min: null, max: null })) });
+      // an empty venue of its own (the limits count what a venue has)
+      const O = `66666666-6666-4666-8666-6666666666a${n}`;
+      await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, $2, now())`, [O, `sizes-owner-${n}@example.invalid`]);
+      const V = (await rpc(w.url, O, 'create_venue', { p_slug: `sizes-venue-${n}`, p_name_en: 'Sizes' })).id;
+      const saved = async () => {
+        const imp = await rpc(w.url, O, 'create_import', { p_venue: V, p_source: 'paste', p_text: 'plan ' + randomUUID() });
+        assert.equal((await rpc(w.url, O, 'save_import_draft', { p_import: imp.importId, p_draft: big })).ok, true);
+        return imp.importId;
+      };
+      const first = await saved();
+      const [a, t1] = await cpu(O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec });
+      assert.equal(a.ok, true, JSON.stringify(a).slice(0, 200));
+      assert.deepEqual([a.plan.summary.option.create, a.plan.summary.dish_group.create], [6000, 400 * links]);
+      under(t1, 4, `a first import of 400 dishes, 200 groups of 30 options, ${links} link${links > 1 ? 's' : ''} each (rolled back)`);
+      assert.equal((await rpc(w.url, O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec })).ok, true, 'applied, for the re-import');
+      const again = await saved();
+      const [b, t2] = await cpu(O, 'apply_import', { p_import: again, p_draft: big, p_decisions: dec });
+      assert.equal(b.ok, true, JSON.stringify(b).slice(0, 200));
+      assert.ok(Object.values(b.plan.summary).every((k) => k.create === 0 && k.update === 0), 'the same draft again writes nothing');
+      under(t2, 4, `a re-import of the same menu, ${links} link${links > 1 ? 's' : ''} each (rolled back)`);
+    }
+  });
+
+  // SEC-M4: 200 groups of one name at the limits, their options of one name (or 29 names they share and one of their
+  // own): every venue group of the name was a candidate for every draft group, each with a cover of 30 × 30 options
+  // (security measured 6.6 and 28.2 CPU s for the re-import). A first import and a re-import of each, and of a third
+  // shape: one Hebrew name for every option.
+  test('200 groups of one name at the limits, options of one name or 29 shared: a first import and a re-import (SEC-M4)', async () => {
+    const shapes = [['all options of one name', () => ({ he: 'אותו', en: 'Same' })],
+      ['29 shared option names and one of the group\'s own', (g, o) => (o === 29 ? { he: 'יחיד ' + he(g), en: 'Own ' + g } : { he: 'אותו ' + he(o), en: 'Same ' + o })],
+      // (and every option one Hebrew name, the English ones all different: each option matches all 30 by its Hebrew)
+      ['one Hebrew option name, the English ones different', (g, o) => ({ he: 'אותו', en: `Same ${g}-${o}` })]];
+    for (const [n, [label, optName]] of shapes.entries()) {
+      const groups = Array.from({ length: 200 }, (_, g) => ({ key: 'g' + g, name: { he: 'תוספת', en: 'Extra' }, translated: [], selection: 'multiple', min: null, max: null,
+        options: Array.from({ length: 30 }, (_, o) => ({ key: `g${g}o${o}`, name: optName(g, o), translated: [], price: 0, priceText: null, maxQty: 1, default: false, opens: null })) }));
+      const big = draft(40, 10, { groups, link: (i, j) => [{ group: 'g' + ((i * 10 + j) % 200), min: null, max: null }] });
+      const O = `66666666-6666-4666-8666-6666666666b${n}`;
+      await w.admin.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, $2, now())`, [O, `sizes-same-${n}@example.invalid`]);
+      const V = (await rpc(w.url, O, 'create_venue', { p_slug: `sizes-same-${n}`, p_name_en: 'Sizes' })).id;
+      const saved = async () => {
+        const imp = await rpc(w.url, O, 'create_import', { p_venue: V, p_source: 'paste', p_text: 'same ' + randomUUID() });
+        const s = await rpc(w.url, O, 'save_import_draft', { p_import: imp.importId, p_draft: big });
+        assert.equal(s.ok, true, JSON.stringify(s).slice(0, 200));
+        return [imp.importId, s.exceptions];
+      };
+      // the draft's own questions answered as an owner would (clamp the limits, skip the rest)
+      const [first, exc] = await saved();
+      const choices = Object.fromEntries(exc.filter((e) => e.severity === 'fix').map((e) => [`${e.code}@${e.key}`, e.code === 'limits_unreachable' ? 'clamp' : 'skip']));
+      const dec = { v: 1, pricesConfirmed: true, choices, skip: [] };
+      const [a, t1] = await cpu(O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec });
+      assert.equal(a.ok, true, JSON.stringify(a).slice(0, 200));
+      under(t1, 4, `${label}: a first import (rolled back)`);
+      assert.equal((await rpc(w.url, O, 'apply_import', { p_import: first, p_draft: big, p_decisions: dec })).ok, true, 'applied, for the re-import');
+      const [again] = await saved();
+      const [b, t2] = await cpu(O, 'apply_import', { p_import: again, p_draft: big, p_decisions: { v: 1, pricesConfirmed: true, choices: {}, skip: [] } });
+      assert.equal(b.ok, true, JSON.stringify(b).slice(0, 200));
+      assert.ok(Object.values(b.plan.summary).every((k) => k.create === 0 && k.update === 0), `${label}: the same draft again writes nothing ${JSON.stringify(b.plan.summary)}`);
+      under(t2, 4, `${label}: a re-import (rolled back)`);
+    }
+  });
+
+  // SEC-M2: an onboarding step's blockers past BLOCKERS_MAX (20) are refused unread, by the owner's RPC and by Halom's
+  test('set_onboarding_step: 20 000 invalid blockers are refused unread, by the owner and through act_for_owner', async () => {
+    const many = `{${Array(20000).fill('BAD').join(',')}}`;
+    const [r, t1] = await cpu(U.ownerB, 'set_onboarding_step', { p_venue: w.B, p_step: 'hours', p_state: 'blocked', p_blockers: many });
+    assert.deepEqual(r, { ok: false, code: 'too_many' });
+    under(t1, 0.5, '20 000 invalid blockers (the reviewer measured 46 CPU s)');
+    const [s, t2] = await cpu(U.support, 'act_for_owner', { p_venue: w.B, p_reason: 'Owner asked on the phone', p_action: 'onboarding.set',
+      p_payload: { step: 'hours', state: 'blocked', blockers: Array(20000).fill('BAD'), expectedUpdatedAt: null } });
+    assert.deepEqual([s.ok, s.code], [false, 'too_many']);
+    under(t2, 0.5, '20 000 invalid blockers through act_for_owner');
+  });
+});
+
+describe('the size bounds as the contracts state them, on both sides of each, Hebrew at 2 bytes (SEC-M1)', () => {
+  /** The value with its filler string grown (Hebrew letters, 2 bytes each, and at most one ASCII letter) to exactly
+   * `target` bytes by draftBytes */
+  const sized = (make, target) => {
+    const need = target - draftBytes(make(''));
+    assert.ok(need >= 2, 'room for the filler');
+    const v = make('ש'.repeat(Math.floor(need / 2)) + 'a'.repeat(need % 2));
+    assert.equal(draftBytes(v), target);
+    return v;
+  };
+  /** The bytes the database measures: octet_length of the jsonb text */
+  const dbBytes = async (v) => (await w.admin.query('select octet_length($1::jsonb::text) n', [JSON.stringify(v)])).rows[0].n;
+  const small = draft(1, 1);
+  const newImport = async () => (await rpc(w.url, U.ownerB, 'create_import', { p_venue: w.B, p_source: 'paste', p_text: 'bounds ' + randomUUID() })).importId;
+
+  test('save_import_draft: the draft at DRAFT_BYTES_MAX, the notes at NOTES_MAX and at NOTES_BYTES_MAX', async () => {
+    for (const target of [DRAFT_BYTES_MAX, DRAFT_BYTES_MAX + 1]) {
+      const d = sized((f) => ({ ...small, pad: f }), target);
+      assert.equal(await dbBytes(d), target, 'the database measures the same bytes');
+      const got = await rpc(w.url, U.ownerB, 'save_import_draft', { p_import: await newImport(), p_draft: d, p_notes: [] });
+      const want = saveDraftSizeFail(d, []);
+      assert.equal(want === null, target === DRAFT_BYTES_MAX);
+      if (want) assert.deepEqual(got, want, `a draft of ${target} bytes`);
+      else assert.deepEqual([got.code, got.errors], ['invalid_draft', [{ code: 'field_not_allowed', path: 'pad' }]], `a draft of ${target} bytes is walked`);
+    }
+    for (const n of [NOTES_MAX, NOTES_MAX + 1]) {
+      const notes = Array.from({ length: n }, () => ({ code: 'noise', severity: 'info', key: null, lines: [], count: 1, rule: null }));
+      const got = await rpc(w.url, U.ownerB, 'save_import_draft', { p_import: await newImport(), p_draft: small, p_notes: notes });
+      const want = saveDraftSizeFail(small, notes);
+      assert.equal(want === null, n === NOTES_MAX);
+      if (want) assert.deepEqual(got, want, `${n} notes`);
+      else assert.equal(got.ok, true, `${n} notes: ${JSON.stringify(got).slice(0, 160)}`);
+    }
+    for (const target of [NOTES_BYTES_MAX, NOTES_BYTES_MAX + 1]) {
+      const notes = sized((f) => [{ code: 'noise', severity: 'info', key: null, lines: [], count: 1, rule: f }], target);
+      assert.equal(await dbBytes(notes), target, 'the database measures the same bytes');
+      const got = await rpc(w.url, U.ownerB, 'save_import_draft', { p_import: await newImport(), p_draft: small, p_notes: notes });
+      const want = saveDraftSizeFail(small, notes);
+      assert.equal(want === null, target === NOTES_BYTES_MAX);
+      if (want) assert.deepEqual(got, want, `notes of ${target} bytes`);
+      else assert.deepEqual([got.code, got.errors], ['invalid_draft', [{ code: 'rule_invalid', path: 'notes[0].rule' }]], `notes of ${target} bytes are walked`);
+    }
+  });
+
+  test('apply_import: the decisions at DECISIONS_BYTES_MAX; a draft past DRAFT_BYTES_MAX', async () => {
+    const imp = await newImport();
+    assert.equal((await rpc(w.url, U.ownerB, 'save_import_draft', { p_import: imp, p_draft: small, p_notes: [] })).ok, true);
+    for (const target of [DECISIONS_BYTES_MAX, DECISIONS_BYTES_MAX + 1]) {
+      const dec = sized((f) => ({ v: 1, pricesConfirmed: true, choices: {}, pad: f }), target);
+      assert.equal(await dbBytes(dec), target, 'the database measures the same bytes');
+      const got = await rpc(w.url, U.ownerB, 'apply_import', { p_import: imp, p_draft: small, p_decisions: dec });
+      const want = applyImportSizeFail(small, dec);
+      assert.equal(want === null, target === DECISIONS_BYTES_MAX);
+      if (want) assert.deepEqual(got, want, `decisions of ${target} bytes`);
+      else assert.deepEqual([got.code, got.errors], ['invalid_decisions', [{ code: 'field_not_allowed', path: 'pad' }]], `decisions of ${target} bytes are walked`);
+    }
+    const over = sized((f) => ({ ...small, pad: f }), DRAFT_BYTES_MAX + 1);
+    assert.deepEqual(await rpc(w.url, U.ownerB, 'apply_import', { p_import: imp, p_draft: over, p_decisions: { v: 1, pricesConfirmed: true, choices: {} } }),
+      applyImportSizeFail(over, {}));
+  });
+
+  test('save_addon_group: the options at the venue\'s limit, the group and its options at ADDON_GROUP_BYTES_MAX', async () => {
+    const opts = (n) => Array.from({ length: n }, () => ({ id: randomUUID(), name_en: 'Fries' }));
+    for (const n of [30, 31]) {
+      const g = { id: randomUUID(), name_en: 'Sides', selection: 'multiple', min_units: 0, max_units: 1 };
+      const o = opts(n);
+      const got = await rpc(w.url, U.ownerB, 'save_addon_group', { p_venue: w.B, p_group: g, p_options: o });
+      const want = addonGroupSizeFail(g, o);
+      assert.equal(want === null, n === 30);
+      if (want) assert.deepEqual(got, want, `${n} options`);
+      else assert.notEqual(got.code, 'limit_options_per_group', `${n} options: ${JSON.stringify(got).slice(0, 160)}`);
+    }
+    const options = opts(2);
+    for (const target of [ADDON_GROUP_BYTES_MAX, ADDON_GROUP_BYTES_MAX + 1]) {
+      const g = sized((f) => ({ id: randomUUID(), name_he: f, name_en: 'Sides' }), target - draftBytes(options));
+      assert.equal(await dbBytes(g) + await dbBytes(options), target, 'the database measures the same bytes');
+      const got = await rpc(w.url, U.ownerB, 'save_addon_group', { p_venue: w.B, p_group: g, p_options: options });
+      const want = addonGroupSizeFail(g, options);
+      assert.equal(want === null, target === ADDON_GROUP_BYTES_MAX);
+      if (want) assert.deepEqual(got, want, `${target} bytes`);
+      else assert.notEqual(got.code, 'too_large', `${target} bytes: ${JSON.stringify(got).slice(0, 160)}`);
+    }
   });
 });

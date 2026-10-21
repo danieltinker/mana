@@ -13,19 +13,19 @@ const BACKDROP = { vitrine: 1, cellar: 1, taps: 1, cocktail: 1 };      // rooms 
 
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
-function h(tag, attrs, kids) {
+export function h(tag, attrs, kids) {
   const el = document.createElement(tag);
   if (attrs) Object.keys(attrs).forEach((k) => { const v = attrs[k]; if (v == null || v === false) return; if (k === 'class') el.className = v; else if (k === 'text') el.textContent = v; else if (k === 'dir' || k === 'hidden' || k === 'type' || k === 'href' || k === 'src' || k === 'alt' || k === 'loading' || k === 'decoding' || k === 'width' || k === 'height' || k === 'title' || k === 'role' || k === 'tabindex' || k.startsWith('aria-') || k.startsWith('data-')) el.setAttribute(k, v === true ? '' : v); else el[k] = v; });
   (kids || []).forEach((c) => { if (c != null) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
   return el;
 }
-function svg(d, opts = {}) {
+export function svg(d, opts = {}) {
   const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', opts.box || '0 0 16 16'); s.setAttribute('width', opts.size || 14); s.setAttribute('height', opts.size || 14); s.setAttribute('aria-hidden', 'true');
   (Array.isArray(d) ? d : [d]).forEach((one) => { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', one.d || one); p.setAttribute('fill', one.fill || 'none'); if (!one.fill || one.stroke) { p.setAttribute('stroke', 'currentColor'); p.setAttribute('stroke-width', one.w || 1.5); p.setAttribute('stroke-linecap', 'round'); p.setAttribute('stroke-linejoin', 'round'); } s.appendChild(p); });
   return s;
 }
 /* what a dish is, said with a small picture; the word is its label (shown beside it in the open sheet) */
-const TAG_ICON = {
+export const TAG_ICON = {
   vegan: [{ d: 'M3 13c-.4-6 3.4-10 10-10 .4 6.4-3.6 10.4-10 10z', fill: 'currentColor' }, { d: 'M3 13l6-6', stroke: 1, w: 1.3 }],
   vegetarian: ['M3 13c-.4-6 3.4-10 10-10 .4 6.4-3.6 10.4-10 10zM3 13l6.2-6.2'],
   spicy: ['M8 1.6c.5 2.3 3.6 3.7 3.6 7.1A3.6 3.6 0 0 1 8 12.4a3.6 3.6 0 0 1-3.6-3.7c0-1.6.8-2.6 1.6-3.4.3 1 .8 1.6 1.5 1.7C7 5.2 7.2 3.2 8 1.6zM6.2 14.4h3.6'],
@@ -41,6 +41,9 @@ export function createUI(store, env) {
   const rows = new Map(), chips = new Map();
   let builtLang = null, builtRev = null, notice = null, frame = null, liftL = 0, fitTo = 0, fitNow = 0, cardKey = null, cardPhase = 'idle', lastFocus = null, listOpen = false, trayOpen = false, standKey = '', hintOn = false, hintT = 0, edgeKey = '';
   const illusLabel = () => { const l = model().snapshot.stockLabel; return (l && tx(l, lang())) || t('illus'); };
+  /* schema 2 (env.v2): why a dish cannot be chosen now ("Served from 07:00"), and "from" before a price that a required choice can raise */
+  const soldWord = (item) => (item.availLabel ? tx(item.availLabel, lang()) : t('soldOut'));
+  const fromTag = (p) => (p && p.from && env.v2 ? h('small', { class: 'from', text: env.v2.word('from') }) : null);
   /* night:templates */ const trackEl = () => $('dTrack') || (() => { const b = h('bdi', { class: 'track', id: 'dTrack', dir: 'ltr', hidden: true }); $('cardSwap').querySelector('.eyebrow').prepend(b); return b; })(); /* /night:templates */
 
   /* ---------- pieces ---------- */
@@ -78,10 +81,10 @@ export function createUI(store, env) {
           h('span', { class: 'row-txt' }, [
             h('span', { class: 'row-name', text: tx(item.name, s.lang) }),
             desc ? h('span', { class: 'row-desc', text: desc }) : null,
-            h('span', { class: 'row-meta' }, [pr.illustration ? illusTag() : null, sold ? h('span', { class: 'badge sold', text: t('soldOut') }) : null, h('span', { class: 'badge mine', hidden: true })].concat(tagIcons(item, false).map((li) => { const sp = h('span', { class: li.className, title: li.title }); while (li.firstChild) sp.appendChild(li.firstChild); return sp; }))),
+            h('span', { class: 'row-meta' }, [pr.illustration ? illusTag() : null, sold ? h('span', { class: 'badge sold' + (item.availKind ? ' ' + item.availKind : ''), text: soldWord(item) }) : null, h('span', { class: 'badge mine', hidden: true })].concat(tagIcons(item, false).map((li) => { const sp = h('span', { class: li.className, title: li.title }); while (li.firstChild) sp.appendChild(li.firstChild); return sp; }))),
             tasteTags(item, c.raw.kind, t, 'row')
           ]),
-          h('span', { class: 'row-price' }, [h('span', { dir: 'ltr', text: money(item.price) }), note ? h('small', { text: note }) : null])
+          h('span', { class: 'row-price' }, [fromTag(item.price), h('span', { dir: 'ltr', text: money(item.price) }), note ? h('small', { text: note }) : null])
         ]);
         a.addEventListener('click', (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); env.onPick(item.id); });
         rows.set(item.id, a); ol.appendChild(h('li', null, [a]));
@@ -133,7 +136,8 @@ export function createUI(store, env) {
     $('dName').textContent = v.itemName; $('dIdx').textContent = (v.index + 1) + ' / ' + v.count; $('dIdx').setAttribute('aria-label', t('ofCount', { i: v.index + 1, n: v.count }));
     /* night:templates */ { const lk = lookOf(model().snapshot.theme.template), on = !!lk && lk.detail === 'tracks', tr = trackEl(); tr.hidden = !on; tr.textContent = on ? trackOf(v.cat.index, v.index) : ''; } /* /night:templates */      // a listening café numbers its dishes like tracks: A1, A2 (left to right in both languages)
     $('dPrice').textContent = money(item.price); $('dNote').textContent = tx(item.price.note, L); $('dPriceRow').hidden = !$('dPrice').textContent && !$('dNote').textContent;
-    $('dSold').hidden = !sold; $('dSold').textContent = t('soldOut');
+    { const was = $('dFrom'), now = fromTag(item.price); if (was) was.remove(); if (now) { now.id = 'dFrom'; $('dPriceRow').prepend(now); } }
+    $('dSold').hidden = !sold; $('dSold').textContent = soldWord(item); $('dSold').className = 'badge sold' + (item.availKind ? ' ' + item.availKind : '');
     const il = $('dIllus'); il.hidden = !pr.illustration; il.textContent = ''; if (pr.illustration) { il.appendChild(svg(ILLUS_ICON, { size: 12 })); il.appendChild(h('span', { text: illusLabel() })); }
     const desc = tx(item.desc, L); $('dDesc').textContent = desc; $('dDesc').hidden = !desc; $('dDescFull').textContent = desc; $('dDescFull').hidden = !desc;
     const ul = $('dTags'); ul.textContent = ''; tagIcons(item, false).forEach((li) => ul.appendChild(li)); ul.hidden = !ul.children.length;
@@ -157,10 +161,11 @@ export function createUI(store, env) {
   function fillLive(s) {
     const v = select(s, model()), item = v.item; if (!item) return;
     const sold = item.available === false, q = s.tray[item.id] || 0, lifted = s.open === 'dish';
-    $('addBtn').disabled = sold; $('addBtn').setAttribute('aria-label', (sold ? t('soldOut') : t('add')) + (q ? ' · ' + q : '')); $('addBtn').title = sold ? t('soldOut') : t('add'); $('addCount').hidden = !q; $('addCount').textContent = q ? String(q) : '';
-    $('addBtn2').disabled = sold; $('addBtn2').textContent = sold ? t('soldOut') : t('add') + (q ? ' · ' + q : '');
+    $('addBtn').disabled = sold; $('addBtn').setAttribute('aria-label', (sold ? soldWord(item) : t('add')) + (q ? ' · ' + q : '')); $('addBtn').title = sold ? soldWord(item) : t('add'); $('addCount').hidden = !q; $('addCount').textContent = q ? String(q) : '';
+    $('addBtn2').disabled = sold; $('addBtn2').textContent = sold ? soldWord(item) : t('add') + (q ? ' · ' + q : '');
     $('pourBtn').hidden = !(lifted && !s.simple && v.present.pourable && !reduce);
     $('openBtn').setAttribute('aria-expanded', lifted ? 'true' : 'false'); $('closeBtn').hidden = !lifted; $('cardMore').inert = !lifted; $('openBtn').hidden = lifted;
+    if (env.v2) env.v2.card(s, item);                         // schema 2: the dish's choices, its running price, "goes well with", a suggestion
   }
   /* the card's words change with a short cross-fade and a few pixels of slide, the way the table is moving */
   function setSwap(o, x, y) { const el = $('cardSwap'); el.style.opacity = o >= .999 ? '' : String(o); el.style.transform = (x || y) && !reduce ? 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)' : ''; }
@@ -215,6 +220,12 @@ export function createUI(store, env) {
     else if (prev && prev.simple && !s.simple) { tweens.cancel('lift'); $('backdrop').style.opacity = ''; $('backdrop').hidden = !listOpen && !trayOpen; setLift(s.open === 'dish' ? liftL : 0); }      // the table is back: the card follows its spring again, and nothing lies over the scene
     if (!prev || prev.nav.seq !== s.nav.seq || full) announce(s, v, prev);
     if (prev && prev.open === 'dish' && s.open !== 'dish' && document.activeElement && $('cardMore').contains(document.activeElement)) focusQuiet($('openBtn'));
+    if (env.v2 && s.simple) {                                // schema 2, the list: the focus goes into the dish's sheet, and back to its row when it closes
+      if (s.open === 'dish' && (!prev || prev.open !== 'dish' || prev.itemId !== s.itemId || !prev.simple)) focusQuiet($('dName'));
+      else if (prev && prev.open === 'dish' && !s.open && prev.simple) { const row = rows.get(prev.itemId) || rows.get(s.itemId); if (row) focusQuiet(row); }
+    }
+    /* schema 2: "my table" closed and the focus was lost (sheets() gives it back while the bar is still inert): back on its button */
+    if (env.v2 && prev && prev.open === 'tray' && !s.open && (!document.activeElement || document.activeElement === document.body || $('traySheet').contains(document.activeElement))) focusQuiet($('trayBtn'));
   }
   function focusQuiet(el) { if (el) try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); } }
   function scrollChip(b, instant) {
@@ -224,7 +235,7 @@ export function createUI(store, env) {
   }
   function announce(s, v, prev) {
     const it = v.item; if (!it) return;
-    let msg = [v.itemName, money(it.price), it.available === false ? t('soldOut') : '', v.present.illustration ? illusLabel() : '', t('ofCount', { i: v.index + 1, n: v.count })].filter(Boolean).join(', ');
+    let msg = [v.itemName, (it.price.from && env.v2 ? env.v2.word('fromPrefix') : '') + money(it.price), it.available === false ? soldWord(it) : '', v.present.illustration ? illusLabel() : '', t('ofCount', { i: v.index + 1, n: v.count })].filter(Boolean).join(', ');
     if (!prev || prev.categoryId !== s.categoryId) msg = v.categoryName + '. ' + msg;
     if (s.nav.kind === 'edge') msg = s.nav.dir > 0 && v.nextCat && s.nav.axis === 'x' ? t('nextCat', { cat: tx(v.nextCat.raw.name, s.lang) }) : msg;
     $('live').textContent = msg;
@@ -278,8 +289,14 @@ export function createUI(store, env) {
       else { slide($('traySheet'), 'tray', false, () => { if (!trayOpen) $('traySheet').hidden = true; if (!listOpen && !trayOpen && !(store.getState().simple && store.getState().open === 'dish')) $('backdrop').hidden = true; }); if (lastFocus && lastFocus.focus && document.contains(lastFocus)) focusQuiet(lastFocus); lastFocus = null; }
     }
     const modal = listOpen || trayOpen; $('top').inert = modal; $('card').inert = modal; void prev;
+    if (env.v2) {                                            // schema 2: in the list, an open dish is a dialog; the list and the bar wait behind it
+      const dlg = s.simple && s.open === 'dish' && !modal;
+      $('top').inert = modal || dlg; $('list').inert = dlg;
+      if (dlg) { $('card').setAttribute('role', 'dialog'); $('card').setAttribute('aria-modal', 'true'); } else { $('card').removeAttribute('role'); $('card').removeAttribute('aria-modal'); }
+    }
   }
   function renderTray() {
+    if (env.v2) { env.v2.tray(store.getState()); if (trayOpen) setTable(false); return; }      // schema 2: the basket draws its own lines and total
     const s = store.getState(), ul = $('trayList'); ul.textContent = ''; let n = 0, sum = 0, cur = null, mixed = false;
     Object.keys(s.tray).forEach((id) => {
       const e = model().itemById.get(id); if (!e) return; const q = s.tray[id], p = e.item.price, name = tx(e.item.name, s.lang); n += q;
@@ -295,10 +312,11 @@ export function createUI(store, env) {
   const imgs = new Map(); let setKey = '', setAt = 0;
   const imgOf = (url) => { if (!url) return null; let im = imgs.get(url); if (!im) { im = new Image(); im.decoding = 'async'; im.onload = () => { if (trayOpen && !tweens.active('trayset')) setTable(false); }; im.src = url; imgs.set(url, im); } return im.complete && im.naturalWidth ? im : null; };
   function setTable(play) {
-    const cv = $('traySet'), s = store.getState(), L = s.lang, ids = Object.keys(s.tray).filter((id) => model().itemById.get(id));
+    const look = (id) => model().itemById.get(id) || (env.v2 && env.v2.entry ? env.v2.entry(id) : null);      // schema 2: also a dish the tag filter hides now (it is still on the table)
+    const cv = $('traySet'), s = store.getState(), L = s.lang, ids = Object.keys(s.tray).filter((id) => look(id));
     cv.hidden = !ids.length; if (!ids.length) { tweens.cancel('trayset'); setKey = ''; return; }
-    const entries = ids.slice(0, 8).map((id) => { const e = model().itemById.get(id), k = e.cat.raw.kind, sp = drinkSpec(e.item, k), a = e.item.asset; return { id, drink: k === 'wine' || k === 'beer' || k === 'drinks', url: a && a.thumb && !a.stock ? a.thumb : null, colour: sp && sp.liquid ? 'rgb(' + sp.liquid.edge.map((v, i) => Math.round((v * .6 + sp.liquid.deep[i] * .4) * 255)).join(',') + ')' : null, initial: (tx(e.item.name, L).trim()[0] || '·') }; });
-    const names = ids.map((id) => tx(model().itemById.get(id).item.name, L)).join(', ');
+    const entries = ids.slice(0, 8).map((id) => { const e = look(id), k = e.cat.raw.kind, sp = drinkSpec(e.item, k), a = e.item.asset; return { id, drink: k === 'wine' || k === 'beer' || k === 'drinks', url: a && a.thumb && !a.stock ? a.thumb : null, colour: sp && sp.liquid ? 'rgb(' + sp.liquid.edge.map((v, i) => Math.round((v * .6 + sp.liquid.deep[i] * .4) * 255)).join(',') + ')' : null, initial: (tx(e.item.name, L).trim()[0] || '·') }; });
+    const names = ids.map((id) => tx(look(id).item.name, L)).join(', ');
     cv.setAttribute('aria-label', t('trayScene') + ': ' + names);
     const w = Math.max(200, Math.round((cv.clientWidth || 340) * Math.min(2, window.devicePixelRatio || 1))); if (cv.width !== w) { cv.width = w; cv.height = Math.round(w / 2.2); }
     const items = () => entries.map((e) => ({ drink: e.drink, img: imgOf(e.url), colour: e.colour, initial: e.initial })), key = ids.join('|') + L, end = durationOf(entries.length);      // the table is set the same way in every language
@@ -390,6 +408,7 @@ export function createUI(store, env) {
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (frame) { fitTo = 0; fit(false); } });      // the words may wrap differently once their own letters have arrived
 
   return { render, layout, setLift, sheet: () => fitTo, standin, hint, edge, finger, cut, cardLands, renderNotice, t, rows,
+    refit() { fitTo = 0; fit(true); }, renderTray,
     setNotice(n) { notice = n; renderNotice(); }, rebuild() { builtLang = null; cardKey = null; },
     isModal: () => listOpen || trayOpen };
 }

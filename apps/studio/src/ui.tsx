@@ -153,13 +153,37 @@ export function Empty({ title, body, children, icon = 'list' }: { title: string;
 }
 export const Loading = ({ label }: { label?: string }) => <div class="loading" role="status"><span class="spin" aria-hidden="true" /><span>{label || t('app.loading')}</span></div>;
 
-export function Dialog({ open, onClose, title, children, actions, wide }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; actions?: ComponentChildren; wide?: boolean }) {
-  const ref = useRef<HTMLDialogElement>(null);
+/**
+ * Focus back to the opener when a dialog or sheet closes: an opt-in, off by default, so the v1 app's dialogs behave
+ * exactly as they always have. The v2 app turns it on for all of its dialogs once, at its entry (src/v2/main.tsx); a
+ * single dialog can also ask with `returnFocus`.
+ */
+let returnFocusByDefault = false;
+export const returnFocusOnClose = () => { returnFocusByDefault = true; };
+
+/**
+ * A modal <dialog> shown while `open`. With `returnFocus`: a closed one leaves the page (Esc, the close button, a tap
+ * outside), so the browser has nowhere to put the focus back; it goes back to the element that opened it, unless
+ * something else took the focus meanwhile (a new screen's heading, a field the closing action chose).
+ */
+function useModal(ref: { readonly current: HTMLDialogElement | null }, open: boolean, returnFocus: boolean) {
   useEffect(() => {
     const d = ref.current; if (!d) return;
+    const was = document.activeElement;
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
+    if (!open || !returnFocus) return;
+    const opener = was instanceof HTMLElement && was !== document.body ? was : null;
+    return () => {
+      const now = document.activeElement;
+      if (opener && opener.isConnected && (!now || now === document.body || !now.isConnected)) opener.focus({ preventScroll: true });
+    };
   }, [open]);
+}
+
+export function Dialog({ open, onClose, title, children, actions, wide, returnFocus = returnFocusByDefault }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; actions?: ComponentChildren; wide?: boolean; returnFocus?: boolean }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useModal(ref, open, returnFocus);
   if (!open) return null;
   return (
     <dialog ref={ref} class={'dialog' + (wide ? ' dialog-wide' : '')} aria-label={title} onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === ref.current) onClose(); }}>
@@ -171,9 +195,9 @@ export function Dialog({ open, onClose, title, children, actions, wide }: { open
     </dialog>
   );
 }
-export function Confirm({ open, title, body, confirmLabel, danger, busy, onConfirm, onClose }: { open: boolean; title: string; body: string; confirmLabel: string; danger?: boolean; busy?: boolean; onConfirm: () => void; onClose: () => void }) {
+export function Confirm({ open, title, body, confirmLabel, danger, busy, onConfirm, onClose, returnFocus = returnFocusByDefault }: { open: boolean; title: string; body: string; confirmLabel: string; danger?: boolean; busy?: boolean; onConfirm: () => void; onClose: () => void; returnFocus?: boolean }) {
   return (
-    <Dialog open={open} onClose={onClose} title={title} actions={<><Btn kind="ghost" onClick={onClose}>{t('app.cancel')}</Btn><Btn kind={danger ? 'danger' : 'primary'} busy={busy} onClick={onConfirm}>{confirmLabel}</Btn></>}>
+    <Dialog open={open} onClose={onClose} title={title} returnFocus={returnFocus} actions={<><Btn kind="ghost" onClick={onClose}>{t('app.cancel')}</Btn><Btn kind={danger ? 'danger' : 'primary'} busy={busy} onClick={onConfirm}>{confirmLabel}</Btn></>}>
       <p>{body}</p>
     </Dialog>
   );
@@ -224,13 +248,9 @@ export function PageHead({ title, lead, children }: { title: string; lead?: stri
 
 /** A sheet that rises from the bottom on a phone. On a wide screen it is a centred panel, or (side) a panel beside the editor.
     `full` fills the screen (the live preview). Esc, the close button and a tap outside all close it. */
-export function Sheet({ open, onClose, title, children, foot, side, full, tall, head, name }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; foot?: ComponentChildren; side?: boolean; full?: boolean; tall?: boolean; head?: ComponentChildren; name?: string }) {
+export function Sheet({ open, onClose, title, children, foot, side, full, tall, head, name, returnFocus = returnFocusByDefault }: { open: boolean; onClose: () => void; title: string; children: ComponentChildren; foot?: ComponentChildren; side?: boolean; full?: boolean; tall?: boolean; head?: ComponentChildren; name?: string; returnFocus?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const d = ref.current; if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+  useModal(ref, open, returnFocus);
   if (!open) return null;
   return (
     <dialog ref={ref} class={'sheet' + (side ? ' sheet-side' : '') + (full ? ' sheet-full' : '') + (tall ? ' sheet-tall' : '')} aria-label={title} data-sheet={name} onCancel={(e) => { e.preventDefault(); onClose(); }} onClick={(e) => { if (e.target === ref.current) onClose(); }}>
@@ -244,10 +264,10 @@ export function Sheet({ open, onClose, title, children, foot, side, full, tall, 
 }
 
 /** Two or three choices in one row (he | en, list | grid). */
-export function Seg<T extends string>({ value, options, onChange, label, small }: { value: T; options: { value: T; label: string; icon?: string }[]; onChange: (v: T) => void; label: string; small?: boolean }) {
+export function Seg<T extends string>({ value, options, onChange, label, small, disabled }: { value: T; options: { value: T; label: string; icon?: string }[]; onChange: (v: T) => void; label: string; small?: boolean; disabled?: boolean }) {
   return (
     <div class={'seg' + (small ? ' seg-sm' : '')} role="group" aria-label={label}>
-      {options.map((o) => <button key={o.value} type="button" aria-pressed={value === o.value ? 'true' : 'false'} aria-label={o.icon ? o.label : undefined} title={o.icon ? o.label : undefined} onClick={() => onChange(o.value)}>{o.icon ? <Icon name={o.icon} size={18} /> : o.label}</button>)}
+      {options.map((o) => <button key={o.value} type="button" aria-pressed={value === o.value ? 'true' : 'false'} aria-label={o.icon ? o.label : undefined} title={o.icon ? o.label : undefined} disabled={disabled} onClick={() => onChange(o.value)}>{o.icon ? <Icon name={o.icon} size={18} /> : o.label}</button>)}
     </div>
   );
 }

@@ -12,6 +12,7 @@ _site/
 apps/ops/test/shots/
 # local test machinery and screenshots: never on a public branch
 apps/studio/test/.stack/
+apps/studio/test/.out/
 # the simulator's binaries (PostgREST, GoTrue) and the e2e harness's screenshots
 sim/.stack/
 e2e/.out/
@@ -22,6 +23,7 @@ brand/.shots-raw/
 brand/.scratch/
 # the guest menu's build output: made by `cd apps/view && npm run build` (CI builds it in tools/build-site.sh)
 apps/view/app.js
+apps/view/v2-*.js
 apps/view/seat.js
 # timers: the host board's build
 apps/view/host.js

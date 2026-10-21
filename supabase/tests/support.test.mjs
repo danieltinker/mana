@@ -3,7 +3,7 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { as, q, rpc } from './harness/cluster.mjs';
-import { A, count, ID, U, world } from './harness/world.mjs';
+import { A, ID, U, world } from './harness/world.mjs';
 
 let w;
 before(async () => { w = await world(); });
@@ -142,17 +142,19 @@ describe('support cases and onboarding', () => {
     assert.equal(b.onboarding.stage, 'review', 'venue (create_venue), menu (the first dish) and publish are the database\'s, done');
     assert.equal(b.onboarding.done, 3);
     assert.equal(b.menu.live, true);
-    const r = await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'blocked', blockers = '{"price missing!"}' where venue_id = $1 and step = 'addons'`, [w.B]);
-    assert.match(r.error?.message ?? '', /blocker_invalid/);
-    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'blocked', blockers = '{dish_without_price}' where venue_id = $1 and step = 'addons'`, [w.B]));
+    const set = (step, state, blockers) => rpc(w.url, U.ownerB, 'set_onboarding_step', { p_venue: w.B, p_step: step, p_state: state, ...(blockers ? { p_blockers: `{${blockers.map((x) => `"${x}"`).join(',')}}` } : {}) });
+    assert.deepEqual(await set('addons', 'blocked', ['price missing!']), { ok: false, code: 'blocker_invalid' });
+    assert.equal((await set('addons', 'blocked', ['dish_without_price'])).ok, true);
     const o2 = await rpc(w.url, U.support, 'ops_overview');
     assert.deepEqual(o2.venues.find((v) => v.id === w.B).onboarding.blocked, [{ step: 'addons', blockers: ['dish_without_price'] }]);
     assert.equal(o2.venues.find((v) => v.id === A).isDemo, true);
     // the database's own steps: never done by hand, never undone once it marked them
-    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'review'`, [w.B])).error?.message ?? '', /step_automatic/);
-    assert.match((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'todo' where venue_id = $1 and step = 'menu'`, [w.B])).error?.message ?? '', /step_done/);
-    assert.equal(await count(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'menu'`, [w.B]), 1, 'done → done is not a change');
-    await as(w.url, U.ownerB, (c) => c.query(`update public.onboarding_progress set state = 'todo', blockers = '{}' where venue_id = $1 and step = 'addons'`, [w.B]));
+    assert.deepEqual(await set('review', 'done'), { ok: false, code: 'step_automatic' });
+    assert.deepEqual(await set('menu', 'todo'), { ok: false, code: 'step_done' });
+    assert.equal((await set('menu', 'doing')).kept, true, 'a doing on a done step is kept');
+    // and no direct write (set_onboarding_step is the clients' only writer)
+    assert.equal((await q(w.url, U.ownerB, `update public.onboarding_progress set state = 'done' where venue_id = $1 and step = 'menu'`, [w.B])).error?.code, '42501');
+    assert.equal((await set('addons', 'todo', [])).ok, true);
   });
 });
 

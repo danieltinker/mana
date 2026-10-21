@@ -10,7 +10,7 @@ import {
   type ActForOwnerAction, type CaseStatus, type EntitlementStatus, type OnboardingState, type OnboardingStep, type Plan, type TargetKind,
 } from './enums.ts';
 import { instantMs } from './events.ts';
-import { BLOCKER_RE, BLOCKERS_MAX, isAutoStep } from './onboarding.ts';
+import { BLOCKER_RE, BLOCKERS_MAX, isAutoStep, type OnboardingProgress } from './onboarding.ts';
 import { isReason, optionalText, validateInput, type RpcFail, type RpcOk } from './rpc.ts';
 import { AVAILABILITY_NOTE_MAX } from './availability.ts';
 import { isUntilSpec, type UntilSpec } from './time.ts';
@@ -64,9 +64,17 @@ export type ActForOwnerStale =
       readonly ok: false; readonly code: 'stale'; readonly action: 'onboarding.set';
       readonly current: { readonly step: OnboardingStep; readonly state: OnboardingState; readonly blockers: readonly string[]; readonly updatedAt: string | null };
     };
-/** `result` holds what the action did, ids and numbers only (the log keeps the same). */
+/** `onboarding.set`'s `result`: the step and its state now, and the progress. `kept`: the action was a `doing` on a step
+ * that is done or skipped, which changes nothing (`state` is the step's own); a step is reopened with `todo`. */
+export type OnboardingSetResult = {
+  readonly step: OnboardingStep; readonly state: OnboardingState; readonly kept?: true; readonly progress: OnboardingProgress;
+};
+/** What each action's `result` holds: what it did, ids and numbers only (the log keeps the same). */
+export type ActForOwnerResults = { readonly [A in ActForOwnerAction]: A extends 'onboarding.set' ? OnboardingSetResult : Readonly<Record<string, unknown>> };
+/** `logId`: the `support.act_for_owner` log row the action wrote; null when it wrote none, as an `onboarding.set`
+ * answered `kept` does (it changed nothing; QA-L11). */
 export type ActForOwnerReply =
-  | RpcOk<{ readonly action: ActForOwnerAction; readonly result: Readonly<Record<string, unknown>>; readonly logId: number }>
+  | { [A in ActForOwnerAction]: RpcOk<{ readonly action: A; readonly result: ActForOwnerResults[A]; readonly logId: number | null }> }[ActForOwnerAction]
   | ActForOwnerStale
   | RpcFail<ActForOwnerCode>;
 
@@ -135,10 +143,9 @@ export function validateActForOwner(raw: unknown): Validation<ActForOwnerInput> 
         }
         if (p.blockers !== undefined) {
           if (!Array.isArray(p.blockers)) x.add('type', 'payload.blockers');
-          else {
-            if (p.blockers.length > BLOCKERS_MAX) x.add('too_many', 'payload.blockers');
-            p.blockers.forEach((b, i) => { if (!isString(b) || !BLOCKER_RE.test(b)) x.add('blocker_invalid', `payload.blockers[${i}]`); });
-          }
+          // past BLOCKERS_MAX the blockers are not walked (as `app.validate_set_step`)
+          else if (p.blockers.length > BLOCKERS_MAX) x.add('too_many', 'payload.blockers');
+          else p.blockers.forEach((b, i) => { if (!isString(b) || !BLOCKER_RE.test(b)) x.add('blocker_invalid', `payload.blockers[${i}]`); });
         }
         break;
       case 'support_case.update':
