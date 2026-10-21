@@ -110,7 +110,7 @@ export function writePage(w, { file, title, env, invented, about = '' }) {
          <div class="lightbox" id="big-${s.n}"><a href="#step-${s.n}" aria-label="Close"><img src="${src}" alt=""></a></div>`
       : '<p class="none">No screenshot.</p>';
     const times = s.startedAt
-      ? `Started ${clock(s.startedAt)} · took ${secs(s.ms)}${s.waitedMs ? ` (${secs(s.waitedMs)} of it waiting for a person)` : ''} · budget ${secs(s.budgetMs)}`
+      ? `Started ${clock(s.startedAt)} · took ${secs(s.ms)}${s.waitedMs ? ` (${secs(s.waitedMs)} of it waiting for a mailbox or the authenticator's clock)` : ''} · budget ${secs(s.budgetMs)}`
       : `Budget ${secs(s.budgetMs)}`;
     return `<li class="step side-${s.side} frame-${s.frame ?? 'desk'} is-${s.verdict}" id="step-${s.n}">
       <div class="text">

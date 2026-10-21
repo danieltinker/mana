@@ -67,13 +67,14 @@ cd e2e && node --test walkthrough.test.mjs     # the e2e test: twice on one stac
   published demo menu on `mana` is a public page, D40); the client's own name is used only when
   `MANA_DEMO_CLIENT_DISPLAY_NAME` is set. If an account is missing, the run stops
   before anything is written and says which step needs which account.
-- **Staff 2FA** (`staff_require_aal2` on): the admin needs a verified TOTP factor, and `MANA_DEMO_STAFF_TOTP_SECRET` its
-  secret. The run signs in with the password, then completes the second step with a code it computes (RFC 6238:
-  HMAC-SHA1, 30 seconds, 6 digits; `e2e/walkthrough/totp.mjs`, `node:crypto` only) through Supabase Auth's challenge
-  and verify for that factor. The back office has no second-step screen yet, so the run puts the completed (aal2)
-  session into the back office's own storage and reloads it; once the screen exists, the run types the code there.
-  Without the secret nothing changes: a database that asks for the second step stops the run before anything is
-  written, saying so. Neither the secret nor a code is ever printed or written to the page.
+- **Staff 2FA** (`staff_require_aal2` on): the admin's authenticator is set up once by its owner, on the back office's
+  own second-step screen (B118, m028), and `MANA_DEMO_STAFF_TOTP_SECRET` holds its secret. In step 10 the run signs in
+  with the password and types the code on that screen, computed as an authenticator app computes it (RFC 6238:
+  HMAC-SHA1, 30 seconds, 6 digits; `e2e/walkthrough/totp.mjs`, `node:crypto` only); it never sends a code with less
+  than five seconds left, and that wait is kept out of the step's budget. Its checks before anything is written
+  complete the same step through Supabase Auth's challenge and verify. The run never sets up an authenticator: an
+  account without one, or a missing secret, stops the run before anything is written, saying which. Neither the secret
+  nor a code is ever printed or written to the page.
 - **The scanner** is not deployed on `mana` (Daniel's gate, B29): step 5 shows "not available here yet" and the menu
   comes from the Wolt text.
 

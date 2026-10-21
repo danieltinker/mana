@@ -26,7 +26,7 @@ import { asAnon, asUser, HalomBot, OwnerBot, runRandom, signIn } from '@mana/sim
 import { DESK, launchBrowser, newPage, PHONE } from './browser.mjs';
 import { writePage } from './page.mjs';
 import { Walkthrough } from './record.mjs';
-import { secondStep } from './totp.mjs';
+import { secondStep, stepLeftMs, totp, totpFactor } from './totp.mjs';
 
 /**
  * What a walkthrough runs on: the menu as an owner would paste it, and what the owner, a guest and Halom do with it.
@@ -185,21 +185,27 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     }
   }
   const { confirmByMail } = await preflight({ env, config, site, accounts: { ...accounts, owner: ownerEmail ? { email: ownerEmail } : null, staff: staffLogin }, stack, input });
-  // Halom's account, checked before anything is written: it signs in and is an admin (the demo label is an admin's)
-  let staffSession = await retried('Halom\'s sign-in', () => signIn(target, staffLogin)).catch(() => null);
+  // Halom's account, checked before anything is written: it signs in, reaches the back office's functions (with its
+  // second step when the database asks staff for one, staff_require_aal2) and is an admin (the demo label is an admin's)
+  const staffSession = await retried('Halom\'s sign-in', () => signIn(target, staffLogin)).catch(() => null);
   must(staffSession, 'Halom\'s account did not sign in (steps 10, 15 and 16)');
-  if (staffLogin.totp) {
-    // the database may ask staff for a second step (staff_require_aal2): completed with the account's TOTP factor
+  let staffApi = asUser(target, staffSession);
+  const opsReach = () => staffApi.rpc('ops_venues', { p_filters: {} }).then(() => null, (e) => e);
+  let refused = await opsReach();
+  if (refused && refused.status === 404) throw new Error(`the database lacks the back office's phase-1 functions (ops_venues: ${refused.message})`);
+  if (refused) {
+    // the second step (B118): typed on the back office's screen in step 10, completed here the same way first. The
+    // walkthrough never sets up an authenticator: a factor is set up once by the account's owner (m028)
+    const factor = await totpFactor(target, staffSession.token).catch(() => null);
+    if (!factor) throw new Error(`the back office's functions refused Halom's account (${refused.message}); if the database asks staff for a second step (staff_require_aal2), steps 10, 15 and 16 need that account's authenticator set up once by its owner on the back office's second-step screen (m028): the walkthrough never sets one up`);
+    if (!staffLogin.totp) throw new Error('steps 10, 15 and 16: the database asks Halom for a second step (staff_require_aal2): set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env');
     const aal2 = await secondStep(target, staffSession.token, staffLogin.totp);
-    staffSession = { ...staffSession, token: aal2.access_token };
+    staffApi = asUser(target, { ...staffSession, token: aal2.access_token });
+    refused = await opsReach();
+    if (refused) throw new Error(`the back office's functions refused Halom's account after its second step (${refused.message})`);
   }
-  const staffApi = asUser(target, staffSession);
   const [staffRow] = await staffApi.select('staff', { select: 'role', user_id: `eq.${staffSession.userId}` }).catch(() => []);
-  const aal2Hint = staffLogin.totp ? '' : '; if the database asks staff for a second step (staff_require_aal2), set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env';
-  must(staffRow?.role === 'admin', `Halom's account is not a Halom admin here (the demo label and the approval are an admin's)${aal2Hint}`);
-  await staffApi.rpc('ops_venues', { p_filters: {} }).catch((e) => {
-    throw new Error(e.status === 404 ? `the database lacks the back office's phase-1 functions (ops_venues: ${e.message})` : `the back office's functions refused Halom's account (${e.message})${aal2Hint}`);
-  });
+  must(staffRow?.role === 'admin', 'Halom\'s account is not a Halom admin here (the demo label and the approval are an admin\'s)');
 
   fs.mkdirSync(outDir, { recursive: true });
   if (env === 'demo') {
@@ -538,18 +544,25 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
     // ---------------------------------------------------------------- Halom's desk
     const staff = await newPage(browser, DESK, { init: () => { window.__OPS_POLL_MS = 2000; window.__OPS_SAFETY_MS = 4000; } });
     const venuePage = staff.locator(`[data-page=venue][data-venue="${slug}"]`);
-    /** The back office has no second-step screen yet: the browser's password session (aal1) is completed with the TOTP
-     * code computed here, and the page reads the aal2 session from its own storage on reload. */
-    async function staffSecondStep() {
-      const stored = await staff.evaluate(() => {
-        const key = ['mana.ops.v2.auth', ...Object.keys(localStorage)].find((k) => { try { return !!JSON.parse(localStorage.getItem(k) ?? 'null')?.access_token; } catch { return false; } });
-        return key ? { key, session: JSON.parse(localStorage.getItem(key)) } : null;
-      });
-      must(stored, 'no back-office session to complete');
-      const s2 = await secondStep(target, stored.session.access_token, staffLogin.totp);
-      const session = { ...stored.session, ...s2, expires_at: s2.expires_at ?? Math.floor(Date.now() / 1000) + (s2.expires_in ?? 3600) };
-      await staff.evaluate(([key, value]) => localStorage.setItem(key, value), [stored.key, JSON.stringify(session)]);
-      await staff.reload();
+    const IN = '[data-page=clients] [data-count]';                  // the clients list, loaded (its shell shows first)
+    /** The back office's second sign-in step (B118): the code from the account's TOTP secret, typed as a person types
+     * the one their authenticator app shows. Never a code with less than five seconds left; a refused one (a code at a
+     * step's edge) is tried once more with the next step's. The screen that sets up an authenticator is never used. */
+    async function typeSecondStep(step) {
+      const wait = async (ms) => { await sleep(ms); step.waited(ms); };     // the authenticator's clock, kept out of the budget
+      const at = await firstOf(staff, { verify: '[data-second-step="verify"]', enroll: '[data-second-step="enroll"]', failed: '[data-second-step="failed"]' });
+      if (at === 'enroll') throw new Error('the back office offers to set up Halom\'s second step: the account has none (m028); the walkthrough never sets one up');
+      if (at === 'failed') throw new Error('the second step failed: ' + plain(await staff.locator('[data-second-step] [data-mfa-error]').innerText()));
+      must(staffLogin.totp, 'the database asks Halom for a second step (staff_require_aal2): set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env');
+      for (let attempt = 0; ; attempt++) {
+        if (stepLeftMs() < 5000) await wait(stepLeftMs() + 500);
+        await staff.locator('[data-mfa-code]').fill(totp(staffLogin.totp));
+        await staff.locator('[data-mfa-go]').click();
+        const after = await firstOf(staff, { in: IN, error: '[data-second-step] [data-mfa-error]' });
+        if (after === 'in') return;
+        if (attempt > 0) throw new Error('the second step refused the code: ' + plain(await staff.locator('[data-second-step] [data-mfa-error]').innerText()));
+        await wait(stepLeftMs() + 500);
+      }
     }
     async function staffWrite(id, text) {
       const box = staff.locator(`[data-write=${id}]`);
@@ -570,13 +583,13 @@ export async function runWalkthrough({ input, config, origin, outDir, log = () =
       await staff.getByLabel('Password').fill(staffLogin.password);
       await staff.getByRole('button', { name: 'Sign in' }).click();
       let second = '';
-      if ((await firstOf(staff, { in: '[data-page=clients]', refused: '[data-refused]' })) === 'refused') {
-        must(await staff.locator('[data-refused=aal1]').count(), 'the back office refused Halom\'s account: ' + plain(await staff.locator('[data-refused]').innerText()));
-        must(staffLogin.totp, 'the database asks Halom for a second step (staff_require_aal2): set MANA_DEMO_STAFF_TOTP_SECRET in private/demo.env');
-        await staffSecondStep();
-        second = ' with its second step (TOTP)';
+      const where = await firstOf(staff, { in: IN, second: '[data-second-step]', refused: '[data-refused]' });
+      if (where === 'refused') throw new Error('the back office refused Halom\'s account: ' + plain(await staff.locator('[data-refused]').innerText()));
+      if (where === 'second') {
+        await typeSecondStep(s);
+        second = ', typing the code from its authenticator on the second-step screen';
       }
-      await staff.locator('[data-page=clients]').waitFor({ timeout: 30_000 });
+      await staff.locator(IN).waitFor({ timeout: 30_000 });
       await staff.locator('[data-search]').fill(slug);
       const row = staff.locator(`[data-venue="${slug}"]`).first();
       await row.waitFor({ timeout: 30_000 });

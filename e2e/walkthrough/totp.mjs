@@ -1,7 +1,9 @@
-// Halom's second step (MFA) for a walkthrough on a database that asks staff for it (`staff_require_aal2`): a TOTP code
-// computed here (RFC 6238: HMAC-SHA1, 30-second steps, 6 digits; node:crypto only), and Supabase Auth's challenge and
-// verify for the staff member's own TOTP factor, which turn a password session (aal1) into an aal2 one. The secret comes
-// from private/demo.env (MANA_DEMO_STAFF_TOTP_SECRET); neither it nor a code is ever logged.
+// Halom's second step (MFA, B118) for a walkthrough on a database that asks staff for it (`staff_require_aal2`): a TOTP
+// code computed here (RFC 6238: HMAC-SHA1, 30-second steps, 6 digits; node:crypto only). The walkthrough types it on
+// the back office's own second-step screen; before anything is written, its checks complete the step the same way
+// through Supabase Auth's challenge and verify (`secondStep`). The secret comes from private/demo.env
+// (MANA_DEMO_STAFF_TOTP_SECRET); neither it nor a code is ever logged. The walkthrough never enrolls a factor: the
+// account's authenticator is set up once, by its owner, on the back office's screen (m028).
 import crypto from 'node:crypto';
 import { Api } from '@mana/sim';
 
@@ -36,6 +38,17 @@ export function totp(secret, { time = Date.now(), step = 30, digits = 6 } = {}) 
   return String(n).padStart(digits, '0');
 }
 
+/** What is left of the current 30-second step, in ms: a code typed with less than a few seconds left may expire on
+ * its way, so the caller waits for the next step. */
+export const stepLeftMs = (time = Date.now(), step = 30) => step * 1000 - (time % (step * 1000));
+
+/** The staff member's verified TOTP factor, or null (Supabase Auth's user record, with their own token). */
+export async function totpFactor(target, accessToken) {
+  const api = new Api({ url: target.apiUrl, apikey: target.anonKey, token: accessToken });
+  const user = await api.request('GET', '/auth/v1/user', { what: 'the staff member\'s factors' });
+  return (user.factors ?? []).find((f) => f.factor_type === 'totp' && f.status === 'verified') ?? null;
+}
+
 /**
  * Completes the second step for a signed-in staff member: their verified TOTP factor, a challenge, the code. Returns the
  * aal2 session as Supabase Auth gives it (access_token, refresh_token, expires_in, expires_at, token_type, user).
@@ -46,9 +59,9 @@ export function totp(secret, { time = Date.now(), step = 30, digits = 6 } = {}) 
  */
 export async function secondStep(target, accessToken, secret) {
   const api = new Api({ url: target.apiUrl, apikey: target.anonKey, token: accessToken });
-  const user = await api.request('GET', '/auth/v1/user', { what: 'the staff member\'s factors' });
-  const factor = (user.factors ?? []).find((f) => f.factor_type === 'totp' && f.status === 'verified');
-  if (!factor) throw new Error('Halom\'s account has no verified TOTP factor (its second step)');
+  const factor = await totpFactor(target, accessToken);
+  if (!factor) throw new Error('Halom\'s account has no second step set up (m028)');
+  if (stepLeftMs() < 5000) await new Promise((r) => setTimeout(r, stepLeftMs() + 500));
   for (let attempt = 0; ; attempt++) {
     const challenge = await api.request('POST', `/auth/v1/factors/${factor.id}/challenge`, { body: {}, what: 'the second step\'s challenge' });
     try {

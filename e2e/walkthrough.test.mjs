@@ -100,24 +100,34 @@ test('demo without its accounts stops before anything is written, naming the ste
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('staff asked for a second step (staff_require_aal2): Halom completes it with its TOTP factor, and the walkthrough passes', { timeout: 900_000 }, async (t) => {
-  // a Halom admin with a TOTP factor, enrolled and verified as an authenticator app would
+test('staff asked for a second step (staff_require_aal2): Halom types its TOTP code on the back office\'s screen, and the walkthrough passes', { timeout: 900_000 }, async (t) => {
+  // a Halom admin whose authenticator its owner set up once (m028): a TOTP factor, enrolled and verified as an app would
   const staff = { email: 'staff.totp@walkthrough.example', password: 'sim-staff-pass-1' };
   await HalomBot.firstAdmin(e.stack, e.stack, staff);
   const api = asUser(e.stack, await signIn(e.stack, staff));
   const factor = await api.request('POST', '/auth/v1/factors', { body: { factor_type: 'totp', friendly_name: 'walkthrough' } });
   const challenge = await api.request('POST', `/auth/v1/factors/${factor.id}/challenge`, { body: {} });
   await api.request('POST', `/auth/v1/factors/${factor.id}/verify`, { body: { challenge_id: challenge.id, code: totp(factor.totp.secret) } });
+  // and one whose authenticator was never set up
+  const bare = { email: 'staff.no-factor@walkthrough.example', password: 'sim-staff-pass-1' };
+  await HalomBot.firstAdmin(e.stack, e.stack, bare);
+  const venues = async () => (await e.stack.sql('select count(*)::int as n from public.venues'))[0].n;
   await e.stack.setConfig('staff_require_aal2', true);
   try {
-    // without the secret: stopped before anything is written, saying what to set
-    const before = (await e.stack.sql('select count(*)::int as n from public.venues'))[0].n;
-    await assert.rejects(runWalkthrough({ input: PINA_SIM, config, origin, outDir: path.join(DIR, 'no-second-step'), stack: e.stack, accounts: { staff }, title: 't' }),
-      /second step \(staff_require_aal2\), set MANA_DEMO_STAFF_TOTP_SECRET/);
-    assert.equal((await e.stack.sql('select count(*)::int as n from public.venues'))[0].n, before, 'no venue');
+    // stopped before anything is written, saying what to do: without the secret; without a factor (never set up here)
+    const before = await venues();
+    await assert.rejects(runWalkthrough({ input: PINA_SIM, config, origin, outDir: path.join(DIR, 'no-secret'), stack: e.stack, accounts: { staff }, title: 't' }),
+      /second step \(staff_require_aal2\): set MANA_DEMO_STAFF_TOTP_SECRET/);
+    await assert.rejects(runWalkthrough({ input: PINA_SIM, config, origin, outDir: path.join(DIR, 'no-factor'), stack: e.stack, accounts: { staff: { ...bare, totp: factor.totp.secret } }, title: 't' }),
+      /authenticator set up once by its owner .*\(m028\): the walkthrough never sets one up/);
+    assert.equal(await venues(), before, 'no venue');
+    const bareUser = await asUser(e.stack, await signIn(e.stack, bare)).request('GET', '/auth/v1/user');
+    assert.deepEqual(bareUser.factors ?? [], [], 'no factor enrolled for the account without one');
+    fs.rmSync(path.join(DIR, 'no-secret'), { recursive: true, force: true }); fs.rmSync(path.join(DIR, 'no-factor'), { recursive: true, force: true });
+
     const outDir = path.join(DIR, 'second-step');
     const r = await walkthroughWith(t, { outDir, accounts: { staff: { ...staff, totp: factor.totp.secret } } });
-    assert.match(r.steps.find((s) => s.id === 'staff-approve').caption, /with its second step \(TOTP\)/);
+    assert.match(r.steps.find((s) => s.id === 'staff-approve').caption, /typing the code from its authenticator on the second-step screen/);
     // neither the secret nor a code is anywhere in what the run wrote
     for (const f of ['walkthrough.html', 'walkthrough.json']) assert.ok(!fs.readFileSync(path.join(outDir, f), 'utf8').includes(factor.totp.secret), f);
   } finally {

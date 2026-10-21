@@ -76,7 +76,8 @@ export class Walkthrough {
         rec.frame = (p.viewportSize()?.width ?? 0) < 700 ? 'phone' : 'desk';
         s.shotTaken = true;
       },
-      /** Time spent waiting for a person (an e-mail confirmation): kept out of the budget, and shown. */
+      /** Time spent waiting on something outside the apps (an e-mail confirmation, the authenticator's next code): kept
+       * out of the budget, and shown. */
       waited(ms) { rec.waitedMs += ms; },
       /** The step cannot be done here (said plainly); the run goes on. */
       skip(reason) { s.skipped = reason; },
