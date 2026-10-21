@@ -49,6 +49,29 @@ test('the whole menu is real text with the table off; sold out is shown, never a
   assert.deepEqual(errors, []); await ctx.close();
 });
 
+test('the list view: a finger reaches everything in "my table" (its close button, the steppers, "Clear the list"), and a tap outside it closes it', async () => {
+  const { page, errors, ctx } = await open(browser, demo('&gl=off&test=1&lang=en'), { touch: true });
+  await page.evaluate(() => window.__mana.ready); await page.waitForFunction(() => window.__mana.state().simple === true);
+  const tapAt = async (x, y) => { await page.touchscreen.tap(x, y); await page.waitForTimeout(350); };
+  const tap = async (target) => { const b = await (typeof target === 'string' ? page.locator(target) : target).boundingBox(); assert.ok(b, 'shown: ' + target); await tapAt(b.x + b.width / 2, b.y + b.height / 2); };
+  const lines = page.locator('#trayList li'), stepper = (name) => page.getByRole('button', { name, exact: true });
+  await d(page, { type: 'trayAdd', id: 'hummus' }); await d(page, { type: 'trayAdd', id: 'labaneh' });
+  await tap('#trayBtn'); assert.equal((await st(page)).open, 'tray');
+  assert.equal(await text(page, '#trayTitle'), 'My table'); assert.equal(await page.isVisible('#trayClose'), true, 'the sheet keeps its title and its close button');
+  assert.equal(await lines.count(), 2);
+  await tap(stepper('Add one: Warm hummus'));
+  assert.equal((await st(page)).open, 'tray', 'a tap on a stepper leaves the sheet open'); assert.deepEqual((await st(page)).tray, { hummus: 2, labaneh: 1 }); assert.equal(await text(page, '#trayTotal'), '₪110');
+  await tap(stepper('Remove one: Labaneh & olives'));
+  assert.deepEqual((await st(page)).tray, { hummus: 2 }); assert.equal(await lines.count(), 1);
+  await tap('#trayClear');
+  assert.equal((await st(page)).open, 'tray', '"Clear the list" leaves the sheet open'); assert.deepEqual((await st(page)).tray, {}); assert.equal(await text(page, '#trayEmpty'), 'Nothing here yet.');
+  await tap('#trayClose'); assert.equal((await st(page)).open, null, 'its close button closes it'); assert.equal(await page.isVisible('#traySheet'), false);
+  await tap('#trayBtn'); assert.equal((await st(page)).open, 'tray');
+  const sheetTop = (await page.locator('#traySheet').boundingBox()).y; assert.ok(sheetTop > 100, 'the sheet leaves room above it: ' + sheetTop);
+  await tapAt(195, sheetTop / 2); assert.equal((await st(page)).open, null, 'a tap outside the sheet closes it'); assert.equal(await page.isVisible('#traySheet'), false);
+  assert.deepEqual(errors, []); await ctx.close();
+});
+
 test('fuzz in the real DOM: 5,000 random actions and Back presses; card, chip, list, sheets and URL always match the state', async () => {
   const { page, errors, ctx } = await open(browser, demo('&gl=skip&test=1'));
   await page.evaluate(() => window.__mana.ready);

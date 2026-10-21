@@ -1,0 +1,58 @@
+/**
+ * What a reader tells the owner beside the draft: the contracts' `READER_NOTES` (what it left out and why, and what it
+ * read but wants checked), stored with the draft (`SaveDraftInput.notes`, `menu_imports.notes`). The draft's own
+ * exceptions (`draftExceptions`) are about the draft; these notes are about the source. A note never carries the
+ * source's text, only line numbers, counts and the draft key it concerns.
+ */
+import { NOTE_LINES_MAX, NOTES_MAX, READER_NOTE_CODES, READER_NOTES, type LayoutGuessRule, type ReaderNote, type ReaderNoteCode } from '@mana/contracts';
+
+export const NOTES = READER_NOTES;
+export type NoteCode = ReaderNoteCode;
+export type NoteSeverity = (typeof NOTES)[NoteCode];
+export const NOTE_CODES = READER_NOTE_CODES;
+export { NOTE_LINES_MAX, NOTES_MAX };
+export type { ReaderNote, ReaderNoteCode };
+
+/** A note on a node before the draft has keys: resolved to the node's key when the draft is built. `rule`: which guess
+ * a `layout_guessed` note names. */
+export type PendingNote = { readonly code: NoteCode; readonly lines: readonly number[]; readonly rule?: LayoutGuessRule };
+
+/** Collects whole-input notes, merging those with the same code and rule. */
+export class NoteBook {
+  private readonly byId = new Map<string, { code: NoteCode; key: string | null; rule: string | null; lines: Set<number>; count: number }>();
+
+  add(code: NoteCode, lines: readonly number[] = [], o: { key?: string | null; rule?: string | null; count?: number } = {}): void {
+    const key = o.key ?? null, rule = o.rule ?? null;
+    const id = `${code}|${key ?? ''}|${rule ?? ''}`;
+    let n = this.byId.get(id);
+    if (!n) this.byId.set(id, (n = { code, key, rule, lines: new Set(), count: 0 }));
+    for (const l of lines) if (n.lines.size < NOTE_LINES_MAX) n.lines.add(l);
+    n.count += o.count ?? Math.max(1, lines.length);
+  }
+
+  /**
+   * In a stable order: by code (the order of `NOTES`), then key, then rule. At most `NOTES_MAX`: past it, the notes on
+   * nodes of a code become one note on the whole input (their lines and counts joined), so nothing is lost but the key.
+   */
+  list(): ReaderNote[] {
+    const rank = new Map(NOTE_CODES.map((c, i) => [c, i] as const));
+    let notes = [...this.byId.values()].map((n) => ({ code: n.code, key: n.key, rule: n.rule, lines: [...n.lines], count: n.count }));
+    if (notes.length > NOTES_MAX) {
+      const joined = new Map<string, (typeof notes)[number]>();
+      for (const n of notes) {
+        const id = `${n.code}|${n.rule ?? ''}`;
+        const j = joined.get(id);
+        // a `layout_guessed` note always names a dish or section: the joined one keeps the first one's
+        if (!j) { joined.set(id, { ...n, key: n.code === 'layout_guessed' ? n.key : null, lines: [...n.lines] }); continue; }
+        j.count = Math.min(1_000_000, j.count + n.count);
+        for (const l of n.lines) if (j.lines.length < NOTE_LINES_MAX && !j.lines.includes(l)) j.lines.push(l);
+      }
+      notes = [...joined.values()];
+    }
+    return notes
+      .map((n) => ({ code: n.code, severity: NOTES[n.code], key: n.key, lines: n.lines.sort((a, b) => a - b), count: Math.min(n.count, 1_000_000), rule: n.rule }))
+      .sort((a, b) => rank.get(a.code)! - rank.get(b.code)! || cmp(a.key ?? '', b.key ?? '') || cmp(a.rule ?? '', b.rule ?? ''));
+  }
+}
+
+const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
