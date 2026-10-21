@@ -10,6 +10,7 @@
     "test": "node --test --test-concurrency=1 *.test.mjs"
   },
   "devDependencies": {
+    "@mana/contracts": "0.1.0",
     "@mana/sim": "0.1.0"
   }
 }

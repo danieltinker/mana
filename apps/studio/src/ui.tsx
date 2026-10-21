@@ -244,10 +244,10 @@ export function Sheet({ open, onClose, title, children, foot, side, full, tall, 
 }
 
 /** Two or three choices in one row (he | en, list | grid). */
-export function Seg<T extends string>({ value, options, onChange, label, small }: { value: T; options: { value: T; label: string; icon?: string }[]; onChange: (v: T) => void; label: string; small?: boolean }) {
+export function Seg<T extends string>({ value, options, onChange, label, small, disabled }: { value: T; options: { value: T; label: string; icon?: string }[]; onChange: (v: T) => void; label: string; small?: boolean; disabled?: boolean }) {
   return (
     <div class={'seg' + (small ? ' seg-sm' : '')} role="group" aria-label={label}>
-      {options.map((o) => <button key={o.value} type="button" aria-pressed={value === o.value ? 'true' : 'false'} aria-label={o.icon ? o.label : undefined} title={o.icon ? o.label : undefined} onClick={() => onChange(o.value)}>{o.icon ? <Icon name={o.icon} size={18} /> : o.label}</button>)}
+      {options.map((o) => <button key={o.value} type="button" aria-pressed={value === o.value ? 'true' : 'false'} aria-label={o.icon ? o.label : undefined} title={o.icon ? o.label : undefined} disabled={disabled} onClick={() => onChange(o.value)}>{o.icon ? <Icon name={o.icon} size={18} /> : o.label}</button>)}
     </div>
   );
 }

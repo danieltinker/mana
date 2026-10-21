@@ -1,5 +1,8 @@
 import { render } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
+// configFlags from its own module, not the package's index: the index would pull every contract the v2 app uses into
+// this entry chunk, which production (v1) downloads
+import { configFlags } from '../../../packages/contracts/src/config.ts';
 import './app.css';
 import { PRODUCT } from './product.ts';
 import { cfg, sibling, takeAuthReturn } from './lib/api.ts';
@@ -20,8 +23,11 @@ import { PublishScreen, PhoneField } from './screens/publish.tsx';
 import { ScanScreen } from './screens/scan.tsx';
 import { PreviewFab, PreviewDock } from './screens/preview.tsx';
 
-applyLang();
-document.title = PRODUCT.mark;
+// The clean schema (ADR-005): a config with schema 2 (the demo database, the local stack) boots the v2 app in src/v2/,
+// loaded as a chunk of its own; anything else (production) runs this app exactly as before. The flags are read the one
+// way every app reads them (configFlags, ADR-007): production with schema 2 still runs this app.
+const SCHEMA_2 = configFlags((window as any).HALOM_MENUS_CONFIG).schema === 2;
+if (!SCHEMA_2) { applyLang(); document.title = PRODUCT.mark; }
 
 const TABS = [{ path: '', key: 'home', icon: 'home' }, { path: 'menu', key: 'menu', icon: 'menu' }, { path: 'style', key: 'style', icon: 'look' }];
 const STEPS = [{ path: 'menu', key: 'menu', icon: 'menu' }, { path: 'pictures', key: 'pictures', icon: 'camera' }, { path: 'publish', key: 'publish', icon: 'send' }];
@@ -222,4 +228,5 @@ function Centered({ children }: { children: any }) {
   return <div class="centered"><div class="centered-in"><p class="centered-brand"><Brand /></p>{children}</div></div>;
 }
 
-render(<App />, document.getElementById('app')!);
+if (SCHEMA_2) import('./v2/main.tsx');
+else render(<App />, document.getElementById('app')!);
