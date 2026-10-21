@@ -240,15 +240,16 @@ function fuzzSameTarget(start: number, n: number): { problems: string[]; planned
     return draftOf([section('s', 'עיקריות', 'Mains', dishes)], groups);
   };
   const planWith = (d: ImportDraft, m: ExistingMenu, choices: Record<string, string>) => {
+    const skip: string[] = [];
     for (let i = 0; i < 30; i++) {
-      const r = planApply(d, m, { v: 1, pricesConfirmed: true, choices: choices as never });
+      const r = planApply(d, m, { v: 1, pricesConfirmed: true, choices: choices as never, skip });
       if (r.ok) {
         const fresh = r.value.exceptions.filter((e) => !(`${e.code}@${e.key}` in choices));
         if (fresh.length === 0 || i > 6) return { plan: r.value };
         for (const e of fresh) choices[`${e.code}@${e.key}`] = pick(EXCEPTION_CHOICES[e.code]);
         continue;
       }
-      if (keepConflicts(r.errors, choices)) continue;
+      if (keepConflicts(r.errors, choices, skip)) continue;
       const un = r.errors.filter((e) => e.code === 'exception_unresolved');
       if (un.length === 0) return { errors: r.errors };
       for (const e of un) choices[`${e.message}@${e.path}`] = pick(EXCEPTION_CHOICES[e.message as keyof typeof EXCEPTION_CHOICES]);
@@ -288,14 +289,20 @@ test('fuzz, round 10c: two draft groups on one venue group, openers everywhere: 
 });
 
 /** Round 10e: `answers_conflict` names the answer that writes a venue row another draft option reads otherwise; the
- * owner keeps the venue's for it (`keep_mine`). True when there was one to answer. */
-function keepConflicts(errors: readonly { code: string; path: string; message?: string }[], choices: Record<string, string>): boolean {
+ * owner keeps the venue's for it (`keep_mine`), or, when no answer of theirs is about that option (round 10f: an
+ * opener a made row cannot take, an option an added one would take from its row), leaves it out. True when there was
+ * one to answer. */
+function keepConflicts(errors: readonly { code: string; path: string; message?: string }[], choices: Record<string, string>, skip: string[]): boolean {
   let any = false;
   for (const e of errors) {
     if (e.code !== 'answers_conflict') continue;
     any = true;
-    if (e.message === 'price_differs') choices[`price_differs@${e.path}`] = 'keep_mine';
-    else for (const k of Object.keys(choices)) if (k.startsWith(`${e.message}@${e.path}>`) || k.startsWith(`${e.message}@${e.path}@`)) choices[k] = 'keep_mine';
+    if (e.message === 'price_differs') { choices[`price_differs@${e.path}`] = 'keep_mine'; continue; }
+    let kept = false;
+    for (const k of Object.keys(choices)) {
+      if ((k.startsWith(`${e.message}@${e.path}>`) || k.startsWith(`${e.message}@${e.path}@`)) && choices[k] !== 'keep_mine') { choices[k] = 'keep_mine'; kept = true; }
+    }
+    if (!kept && !skip.includes(e.path)) skip.push(e.path);
   }
   return any;
 }
@@ -340,16 +347,16 @@ function fuzzShared(start: number, n: number): { problems: string[]; planned: nu
   const WRITES: Partial<Record<string, string>> = { group_changed: 'add_options', opens_changed: 'new_group', price_differs: 'take_new' };
   const answer = (code: keyof typeof EXCEPTION_CHOICES): string => (WRITES[code] && rnd() < 0.6 ? WRITES[code]! : pick(EXCEPTION_CHOICES[code]));
   let conflicted = false;
-  const planWith = (d: ImportDraft, m: ExistingMenu, choices: Record<string, string>) => {
+  const planWith = (d: ImportDraft, m: ExistingMenu, choices: Record<string, string>, skip: string[] = []) => {
     for (let i = 0; i < 40; i++) {
-      const r = planApply(d, m, { v: 1, pricesConfirmed: true, choices: choices as never });
+      const r = planApply(d, m, { v: 1, pricesConfirmed: true, choices: choices as never, skip });
       if (r.ok) {
         const fresh = r.value.exceptions.filter((e) => !(`${e.code}@${e.key}` in choices));
         if (fresh.length === 0 || i > 8) return { plan: r.value };
         for (const e of fresh) choices[`${e.code}@${e.key}`] = answer(e.code);
         continue;
       }
-      if (keepConflicts(r.errors, choices)) { conflicted = true; continue; }
+      if (keepConflicts(r.errors, choices, skip)) { conflicted = true; continue; }
       const un = r.errors.filter((e) => e.code === 'exception_unresolved');
       if (un.length === 0) return { errors: r.errors };
       for (const e of un) choices[`${e.message}@${e.path}`] = pick(EXCEPTION_CHOICES[e.message as keyof typeof EXCEPTION_CHOICES]);
@@ -375,7 +382,8 @@ function fuzzShared(start: number, n: number): { problems: string[]; planned: nu
     if (!validateDraft(d).ok) continue;
     conflicted = false;
     const ch: Record<string, string> = {};
-    const r = planWith(d, m, ch);
+    const sk: string[] = [];
+    const r = planWith(d, m, ch, sk);
     if (!r.plan) {
       problems.push(`seed ${s0}: refused ${JSON.stringify(r.errors).slice(0, 200)}`);
       continue;
@@ -399,15 +407,18 @@ function fuzzShared(start: number, n: number): { problems: string[]; planned: nu
     for (const x of menuRuleBreaks(after)) problems.push(`seed ${s0}: ${x}`);
     // the draft's groups in another order: the same outcome, or the same refusal
     const sh: ImportDraft = { ...copy(d), groups: [...d.groups].reverse() };
-    const r2 = planApply(sh, m, { v: 1, pricesConfirmed: true, choices: { ...ch } as never });
+    const r2 = planApply(sh, m, { v: 1, pricesConfirmed: true, choices: { ...ch } as never, skip: [...sk] });
     if (!r2.ok) problems.push(`seed ${s0}: refused in another order ${JSON.stringify(r2.errors).slice(0, 200)}`);
     else if (writes(r2.value) !== writes(p)) problems.push(`seed ${s0}: the outcome depends on the order of the draft's groups`);
-    // Hopa test 1: the same draft with the same answers writes nothing
-    const again = planApply(d, after, { v: 1, pricesConfirmed: true, choices: { ...ch } as never });
+    // Hopa test 1: the same draft with every answer the owner gave writes nothing, and asks nothing new (round 10f)
+    const again = planApply(d, after, { v: 1, pricesConfirmed: true, choices: { ...ch } as never, skip: [...sk] });
     if (!again.ok) problems.push(`seed ${s0}: the re-import refused ${JSON.stringify(again.errors).slice(0, 200)}`);
     else {
       const w = again.value.steps.filter((s) => s.op === 'create' || s.op === 'update');
       if (w.length) problems.push(`seed ${s0}: the re-import writes ${w.map((s) => `${s.kind}:${s.key}:${s.op}`).join(', ')}`);
+      const before = new Set(p.exceptions.map((e) => `${e.code}@${e.key}`));
+      const anew = again.value.exceptions.filter((e) => !before.has(`${e.code}@${e.key}`)).map((e) => `${e.code}@${e.key}`);
+      if (anew.length) problems.push(`seed ${s0}: the re-import asks anew ${anew.join(', ')}`);
     }
   }
   return { problems, planned, shared, conflicts };

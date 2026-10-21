@@ -338,14 +338,15 @@ test('QA-M1 (r4-opener.ts): new_group never makes a venue\'s option taken more t
     group('n', 'סוג גבינה', 'Cheese type', { selection: 'single', min: 1, max: 1, options: [opt('n1', 'צהובה', 'Yellow', 0), opt('n2', 'עיזים', 'Goat', 0)] }),
   ]);
   const kept = plan(d, once);
-  assert.deepEqual(asked(kept), ['opens_changed@c>n=keep_mine']);
+  const at = `c@${once.groups[0]!.id}>n`; // the question names the venue group (round 10f)
+  assert.deepEqual(asked(kept), [`opens_changed@${at}=keep_mine`]);
   assert.deepEqual(menuRuleBreaks(applyPlan(once, kept)), [], 'keep_mine: the venue\'s Cheese stays as it is');
-  const moved = planApply(d, once, yes({ 'opens_changed@c>n': 'new_group' }));
-  assert.deepEqual(moved.ok ? [] : moved.errors, [{ code: 'opener_qty', path: 'c>n', message: 'opens_changed' }]);
+  const moved = planApply(d, once, yes({ [`opens_changed@${at}`]: 'new_group' }));
+  assert.deepEqual(moved.ok ? [] : moved.errors, [{ code: 'opener_qty', path: at, message: 'opens_changed' }]);
   // the owner sets Cheese to once in the editor first: then new_group moves it
   const once1: any = copy(once);
   once1.options.find((o: any) => o.name_en === 'Cheese').max_qty = 1;
-  const p = plan(d, once1, yes({ 'opens_changed@c>n': 'new_group' }));
+  const p = plan(d, once1, yes({ [`opens_changed@${at}`]: 'new_group' }));
   assert.equal(brief(step(p, 'option', 'c')), 'option:c:update');
   assert.deepEqual(step(p, 'option', 'c').refs, { opens_group_id: 'n' });
   assert.deepEqual(menuRuleBreaks(applyPlan(once1, p)), []);
@@ -722,21 +723,21 @@ test('round 10 (QA\'s r9-crossing.ts): keys by position, sections reordered: the
   assert.deepEqual(changed(p), []);
 });
 
-test('round 10 (QA, seed -1686291165): an option\'s question on a target takes the answer that names the target first', () => {
+test('round 10, 10f (QA, seed -1686291165; r10e-hopa-write.ts): an option\'s question names its target, and only that answer is read', () => {
   const draft = (extras: Array<[string, string]>) => draftOf([section('s', 'עיקריות', 'Mains', [dish('d', 'המבורגר', 'Burger', 6000, { groups: [link('g0')] })])], [
     group('g0', 'רוטב', 'Sauce', { options: [opt('o', 'צ׳יפס', 'Fries', 0, { opens: 'g1' })] }),
     group('g1', 'תוספות', 'Extras', { selection: 'multiple', min: 0, max: 2, options: extras.map(([he, en], i) => opt(`x${i}`, he, en, 0)) }),
   ]);
   const m = applyPlan(EMPTY_MENU, plan(draft([['אורז', 'Rice']]), EMPTY_MENU));
   const sauce = m.groups.find((g) => g.name_en === 'Sauce')!.id;
-  // the re-read adds an extra: the venue's Sauce is the only target of g0, so its question is keyed without its id
+  // the re-read adds an extra: the venue's Sauce is g0's only (first) target, and the question still names it
   const reread = draft([['אורז', 'Rice'], ['סלט', 'Salad']]);
-  assert.deepEqual(asked(plan(reread, m)), ['group_changed@o>g1=keep_mine']);
-  // an answer stored for that same target under its own name (from an import where it was not the first) wins over a
-  // stale one under the short key, as the owner gave it for this group
-  const both = yes({ 'group_changed@o>g1': 'keep_mine', [`group_changed@o@${sauce}>g1`]: 'add_options' });
-  const p = plan(reread, m, both);
-  assert.deepEqual(asked(p), ['group_changed@o>g1=add_options']);
+  assert.deepEqual(asked(plan(reread, m)), [`group_changed@o@${sauce}>g1=keep_mine`]);
+  // the answer for this group is read; one without a group (as keyed before round 10f, for whichever target was first
+  // then) is not, so an answer given for one venue group is never read for another
+  assert.deepEqual(asked(plan(reread, m, yes({ 'group_changed@o>g1': 'add_options' }))), [`group_changed@o@${sauce}>g1=keep_mine`]);
+  const p = plan(reread, m, yes({ 'group_changed@o>g1': 'keep_mine', [`group_changed@o@${sauce}>g1`]: 'add_options' }));
+  assert.deepEqual(asked(p), [`group_changed@o@${sauce}>g1=add_options`]);
   assert.deepEqual(changed(p).filter((s) => s.startsWith('option:')), ['option:x1:create']);
 });
 
@@ -801,7 +802,7 @@ test('round 10 (fuzz seed -304226620): an option add_options adds opens its nest
   const salad = m2.options.find((o) => o.name_en === 'Salad')!;
   assert.equal(m2.groups.find((g) => g.id === salad.opens_group_id)?.name_en, 'Side');
   // the same re-read again: nothing new asked (before, opens_changed was, and new_group wrote), nothing written
-  const again = plan(reread, m2, yes({ ...answers.choices, 'opens_changed@g0o2>g1': 'new_group' }));
+  const again = plan(reread, m2, yes({ ...answers.choices, [`opens_changed@g0o2@${m2.groups.find((g) => g.name_en === 'Sauce')!.id}>g1`]: 'new_group' }));
   assertHopa(again, p, 'the re-read again');
 });
 
@@ -822,7 +823,7 @@ test('round 10 (QA fuzz seed -427087555): the added option opens the venue\'s ow
     group_id: m1.groups.find((g) => g.name_en === 'Sauce')!.id, opens_group_id: extras });
   const m2 = applyPlan(m1, p);
   assert.deepEqual(menuRuleBreaks(m2), []);
-  assertHopa(plan(reread, m2, yes({ ...answers.choices, 'opens_changed@o-aioli>g-extras': 'new_group' })), p, 'the re-read again');
+  assertHopa(plan(reread, m2, yes({ ...answers.choices, [`opens_changed@o-aioli@${m2.groups.find((g) => g.name_en === 'Sauce')!.id}>g-extras`]: 'new_group' })), p, 'the re-read again');
 });
 
 test('round 10 (SEC-M4): a menu at the limits whose 200 groups share one name re-imports in bounded time, writing nothing', () => {
@@ -923,10 +924,11 @@ test('round 10c (QA-M4, r10-nesting-pg.ts N1–N3): one nesting level on the men
   const cases: Array<[string, ImportDraft, ImportDraft, Record<string, ImportChoice>, [string, string]]> = [
     ['N1', base, n1, { 'group_changed@d-burger>g-burger-sauce': 'add_options' }, ['f', 'c3']],
     ['N2', base2, n2, { 'group_changed@d-burger>g-burger-sauce': 'add_options', 'group_changed@d-steak>g-steak-herbs': 'add_options' }, ['c3', 'm3']],
-    ['N3', base, n3, { 'opens_changed@a3>g-dips': 'new_group' }, ['f', 'a3']],
+    ['N3', base, n3, { 'opens_changed@a3@SAUCE>g-dips': 'new_group' }, ['f', 'a3']],
   ];
-  for (const [label, b, d, choices, [first, second]] of cases) {
+  for (const [label, b, d, given, [first, second]] of cases) {
     const m = venueOf(b);
+    const choices = Object.fromEntries(Object.entries(given).map(([k, v]) => [k.replace('SAUCE', m.groups.find((g) => g.name_en === 'Sauce')!.id), v]));
     // both openers of the chain are asked; unanswered, the plan is refused (it never writes what PostgreSQL refuses)
     const r = planApply(d, m, yes(choices));
     assert.deepEqual(r.ok ? [] : r.errors, [first, second].map((k) => ({ code: 'exception_unresolved', path: k, message: 'nesting_too_deep' })), label);
@@ -1044,6 +1046,7 @@ test('round 10e (QA-M5 c, r10c-doublemove.ts): two openers for one venue option:
   const ss = group('g-ss', 'רטבי סטייק', 'Steak sauces', { options: [opt('p', 'פלפל', 'Pepper', 0), opt('c', 'צ׳ימיצ׳ורי', 'Chimichurri', 0)] });
   const d = twoSides([opt('fb', 'צ׳יפס', 'Fries', 0, { opens: 'g-bs' }), opt('sb', 'סלט', 'Salad', 0)], [opt('fs', 'צ׳יפס', 'Fries', 0, { opens: 'g-ss' }), opt('sx', 'סלט', 'Salad', 0)], [bs, ss]);
   const at = (path: string) => [{ code: 'answers_conflict', path, message: 'opens_changed' }];
+  const q = (o: string, n: string) => `opens_changed@${o}@${m.groups[0]!.id}>${n}`; // the question names the venue's Side (round 10f)
   const groupsAfter = (x: ImportDraft, dec: ImportDecisions) => {
     let menu = m;
     const counts: number[] = [];
@@ -1052,23 +1055,23 @@ test('round 10e (QA-M5 c, r10c-doublemove.ts): two openers for one venue option:
   };
   for (const x of [d, groupsReversed(d)]) {
     // QA's answers, or the Burger's alone (the Steak's Fries opens another group): refused, on every import
-    assert.deepEqual(refusalOf(x, m, yes({ 'opens_changed@fb>g-bs': 'new_group', 'opens_changed@fs>g-ss': 'new_group' })), at('fb'));
-    assert.deepEqual(refusalOf(x, m, yes({ 'opens_changed@fb>g-bs': 'new_group' })), at('fb'));
+    assert.deepEqual(refusalOf(x, m, yes({ [q('fb', 'g-bs')]: 'new_group', [q('fs', 'g-ss')]: 'new_group' })), at('fb'));
+    assert.deepEqual(refusalOf(x, m, yes({ [q('fb', 'g-bs')]: 'new_group' })), at('fb'));
     assert.deepEqual(writesOf(plan(x, m)), [], 'the defaults keep the venue\'s option as it is');
     // the Steak's Fries left out: the Burger's moves the venue's Fries once; no group is made again
-    const one = yes({ 'opens_changed@fb>g-bs': 'new_group' }, ['fs']);
+    const one = yes({ [q('fb', 'g-bs')]: 'new_group' }, ['fs']);
     assert.deepEqual(groupsAfter(x, one), [2, 2, 2]);
     assert.deepEqual(writesOf(plan(x, applyPlan(m, plan(x, m, one), x), one)), [], 'Hopa test 1');
   }
   // both open the Burger sauces: one move, asked of both; a keep beside a move is refused
   const same = twoSides([opt('fb', 'צ׳יפס', 'Fries', 0, { opens: 'g-bs' }), opt('sb', 'סלט', 'Salad', 0)], [opt('fs', 'צ׳יפס', 'Fries', 0, { opens: 'g-bs' }), opt('sx', 'סלט', 'Salad', 0)], [bs]);
-  const both = yes({ 'opens_changed@fb>g-bs': 'new_group', 'opens_changed@fs>g-bs': 'new_group' });
+  const both = yes({ [q('fb', 'g-bs')]: 'new_group', [q('fs', 'g-bs')]: 'new_group' });
   for (const x of [same, groupsReversed(same)]) {
     const p = plan(x, m, both);
     const moves = p.steps.filter((s) => s.kind === 'option' && s.op === 'update' && 'opens_group_id' in s.refs).map(brief);
     assert.deepEqual(moves, ['option:fb:update']);
     assert.deepEqual(groupsAfter(x, both), [2, 2, 2]);
-    assert.deepEqual(refusalOf(x, m, yes({ 'opens_changed@fb>g-bs': 'new_group' })), at('fb'));
+    assert.deepEqual(refusalOf(x, m, yes({ [q('fb', 'g-bs')]: 'new_group' })), at('fb'));
   }
 });
 
@@ -1095,4 +1098,107 @@ test('round 10e (R10c Low, r10c-ambiguous.ts): group_ambiguous only when the gro
   assert.deepEqual(refusalOf(newDish, menu, yes({}, ['d-burger>g'])), [], 'the link left out: nothing needs the group');
   const p = plan(ownOnly, menu);
   assert.deepEqual([brief(step(p, 'group', 'g')), step(p, 'group', 'g').id], ['group:g:keep', uuid(0x1ff)], 'the Steak keeps its own covering Sauce');
+});
+
+// ---------------------------------------------------------------- round 10f (QA of b0a6d14)
+
+/** Hopa test 1 as the owner meets it: the same draft with every answer given writes nothing and asks nothing new. */
+const hopaClean = (d: ImportDraft, m: ExistingMenu, dec: ImportDecisions, label: string): { p: ImportPlan; m2: ExistingMenu } => {
+  const p = plan(d, m, dec);
+  const m2 = applyPlan(m, p, d);
+  const again = plan(d, m2, dec);
+  assert.deepEqual(writesOf(again), [], `${label}: writes nothing`);
+  const before = new Set(p.exceptions.map((e) => `${e.code}@${e.key}`));
+  assert.deepEqual(again.exceptions.filter((e) => !before.has(`${e.code}@${e.key}`)).map((e) => `${e.code}@${e.key}`), [], `${label}: asks nothing anew`);
+  return { p, m2 };
+};
+
+test('round 10f (QA-M6, r10e-opener.ts): a made row\'s openers are decided and asked as the next import decides and asks them', () => {
+  const m = sharedSide([opt('sa', 'סלט', 'Salad', 0)]);
+  const q = (o: string, n: string) => `opens_changed@${o}@${m.groups[0]!.id}>${n}`;
+  const bs = group('g-bs', 'רטבי המבורגר', 'Burger sauces', { options: [opt('k', 'קטשופ', 'Ketchup', 0), opt('b', 'ברביקיו', 'BBQ', 0)] });
+  const ss = group('g-ss', 'רטבי סטייק', 'Steak sauces', { options: [opt('p', 'פלפל', 'Pepper', 0), opt('c', 'צ׳ימיצ׳ורי', 'Chimichurri', 0)] });
+  const reread = (fb: Partial<DraftOption>, fs: Partial<DraftOption>) => twoSides(
+    [opt('sb', 'סלט', 'Salad', 0), opt('fb', 'צ׳יפס', 'Fries', 500, fb)], [opt('sx', 'סלט', 'Salad', 0), opt('fs', 'צ׳יפס', 'Fries', 500, fs)], [bs, ss]);
+  const both = { 'group_changed@d-burger>g-side-b': 'add_options', 'group_changed@d-steak>g-side-s': 'add_options' } as const;
+  const steak = { 'group_changed@d-burger>g-side-b': 'keep_mine', 'group_changed@d-steak>g-side-s': 'add_options' } as const;
+  const fries = (menu: ExistingMenu) => { const f = menu.options.find((o) => o.name_en === 'Fries')!; return menu.groups.find((g) => g.id === f.opens_group_id)?.name_en ?? null; };
+  // each Fries opens another group, the Steak's merged into the Burger's or paired with it: the made Fries opens
+  // nothing, and both are asked; a new_group of either is refused, as the next import would refuse it
+  for (const [label, answers] of [['both add', both], ['the Steak adds', steak]] as const) {
+    const d = reread({ opens: 'g-bs' }, { opens: 'g-ss' });
+    for (const x of [d, groupsReversed(d)]) {
+      const { p, m2 } = hopaClean(x, m, yes(answers), label);
+      assert.ok(asked(p).includes(`${q('fb', 'g-bs')}=keep_mine`) && asked(p).includes(`${q('fs', 'g-ss')}=keep_mine`), label);
+      assert.equal(fries(m2), null, label);
+      assert.deepEqual(refusalOf(x, m, yes({ ...answers, [q('fs', 'g-ss')]: 'new_group' })), [{ code: 'answers_conflict', path: 'fs', message: 'opens_changed' }], label);
+    }
+  }
+  // only the Steak's Fries opens a group (merged into the Burger's, which opens none): asked; new_group makes the
+  // Fries open a new Steak sauces, once
+  const d = reread({}, { opens: 'g-ss' });
+  for (const x of [d, groupsReversed(d)]) {
+    assert.ok(asked(hopaClean(x, m, yes(both), 'kept').p).includes(`${q('fs', 'g-ss')}=keep_mine`));
+    const { m2 } = hopaClean(x, m, yes({ ...both, [q('fs', 'g-ss')]: 'new_group' }), 'moved');
+    assert.equal(fries(m2), 'Steak sauces');
+    assert.equal(m2.groups.length, 2);
+  }
+  // both open the Burger sauces: the made Fries opens it, and nothing is asked
+  const same = reread({ opens: 'g-bs' }, { opens: 'g-bs' });
+  const { p, m2 } = hopaClean(same, m, yes(both), 'same group');
+  assert.deepEqual(asked(p).filter((a) => a.startsWith('opens_changed')), []);
+  assert.equal(fries(m2), 'Burger sauces');
+});
+
+test('round 10f (r10e-hopa-write.ts): an answer given for one venue group is never read for another; the re-import is clean', () => {
+  const g = (key: string, options: DraftOption[]) => group(key, 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 3, options });
+  const salad = (k: string, extra: Partial<DraftOption> = {}) => opt(k, 'סלט', 'Salad', 0, extra);
+  const aioli = (k: string) => opt(k, 'איולי', 'Aioli', 0);
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d0', 'המבורגר', 'Burger', 5000, { groups: [link('ag1')] }), dish('d1', 'שניצל', 'Schnitzel', 5000, { groups: [link('ag0')] }),
+    dish('d2', 'סטייק', 'Steak', 5000, { groups: [link('ag0')] }), dish('d3', 'פרגית', 'Chicken', 5000),
+  ])], [g('ag0', [aioli('ag0o0')]), g('ag1', [salad('ag1o0')])]);
+  const draft = draftOf([section('s', 'עיקריות', 'Mains', [
+    dish('d0', 'המבורגר', 'Burger', 5000, { groups: [link('bg0')] }), dish('d1', 'שניצל', 'Schnitzel', 5000, { groups: [link('bg2')] }),
+    dish('d2', 'סטייק', 'Steak', 5000, { groups: [link('bg0')] }), dish('d3', 'פרגית', 'Chicken', 5000, { groups: [link('bg2')] }),
+  ])], [g('bg0', [salad('bg0o0'), aioli('bg0o1')]), g('bg2', [salad('bg2o0', { opens: 'bg0' })])]);
+  const m = applyPlan(EMPTY_MENU, plan(base), base);
+  const [sideA, sideB] = [m.groups[0]!.id, m.groups[1]!.id];
+  const adds = { 'group_changed@d0>bg0': 'add_options', 'group_changed@d1>bg2': 'add_options', 'group_changed@d2>bg0': 'add_options' } as const;
+  // the short form QA gave (before round 10f it named whichever target was first) is not read for either Side
+  const { p } = hopaClean(draft, m, yes({ ...adds, 'opens_changed@bg2o0>bg0': 'new_group' }), 'the short form');
+  assert.ok(asked(p).includes(`opens_changed@bg2o0@${sideA}>bg0=keep_mine`) && asked(p).includes(`opens_changed@bg2o0@${sideB}>bg0=keep_mine`));
+  // new_group given for Side B moves Side B's Salad, once; Side A's, made by this import, stays as it is
+  const { m2 } = hopaClean(draft, m, yes({ ...adds, [`opens_changed@bg2o0@${sideB}>bg0`]: 'new_group' }), 'Side B');
+  const opens = (gid: string) => m2.options.filter((o) => o.group_id === gid && o.name_en === 'Salad').map((o) => o.opens_group_id === null ? null : m2.groups.find((x) => x.id === o.opens_group_id)!.name_en);
+  assert.deepEqual([opens(sideA), opens(sideB), m2.groups.length], [[null], ['Side'], 3]);
+  let menu = m2;
+  for (let k = 0; k < 2; k++) menu = applyPlan(menu, plan(draft, menu, yes({ ...adds, [`opens_changed@bg2o0@${sideB}>bg0`]: 'new_group' })), draft);
+  assert.equal(menu.groups.length, 3, 'no Side made again');
+});
+
+test('round 10f (r10e-repeat.ts): options of one name pair with their rows in draft order, as the rows are made', () => {
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-side')] })])],
+    [group('g-side', 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 3, options: [opt('fb9', 'צ׳יפס', 'Fries', 500), opt('fb1', 'צ׳יפס', 'Fries', 900)] })]);
+  const m = applyPlan(EMPTY_MENU, plan(d), d);
+  assert.deepEqual(asked(plan(d, m)), []);
+  assert.deepEqual(writesOf(plan(d, m, yes({ 'price_differs@g-side': 'take_new' }))), [], 'take_new swaps nothing');
+  // keys as the readers make them past nine repeats (`-10` before `-2` by key)
+  const many = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-side')] })])],
+    [group('g-side', 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 3, options: Array.from({ length: 11 }, (_, i) => opt(`fries-${i + 1}`, 'צ׳יפס', 'Fries', 100 * (i + 1))) })]);
+  const m2 = applyPlan(EMPTY_MENU, plan(many), many);
+  assert.deepEqual(asked(plan(many, m2)), []);
+});
+
+test('round 10f: an option added that would take another option from the row it matches now is refused, at the answer that adds', () => {
+  // the venue's Side has "French fries" (צ׳יפס); the re-read's Side has two Fries (צ׳יפס): one matches it now, the
+  // other is added, and the next import would pair the first with the added row (an exact name) and the second with
+  // the French fries
+  const base = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-side')] })])],
+    [group('g-side', 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 3, options: [opt('ff', 'צ׳יפס', 'French fries', 0)] })]);
+  const m = applyPlan(EMPTY_MENU, plan(base), base);
+  const d = draftOf([section('s', 'עיקריות', 'Mains', [dish('d-burger', 'המבורגר', 'Burger', 6000, { groups: [link('g-side')] })])],
+    [group('g-side', 'תוספת', 'Side', { selection: 'multiple', min: 0, max: 3, options: [opt('f1', 'צ׳יפס', 'Fries', 0), opt('f2', 'צ׳יפס', 'Fries', 0)] })]);
+  assert.deepEqual(refusalOf(d, m, yes({ 'group_changed@d-burger>g-side': 'add_options' })), [{ code: 'answers_conflict', path: 'd-burger', message: 'group_changed' }]);
+  hopaClean(d, m, yes({ 'group_changed@d-burger>g-side': 'keep_mine' }), 'the venue\'s kept');
 });
